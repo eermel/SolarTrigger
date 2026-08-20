@@ -117,30 +117,83 @@ class CameraService:
             return None
         return self.plugin.get_battery_level()
 
-    def shoot_speed_list(self, speeds, photo_num_start=0, deadline=None):
+    def shoot_speed_list(
+        self,
+        speeds,
+        photo_num_start=0,
+        deadline=None,
+        slowest_override_seconds=None,
+    ):
         if not self.plugin:
             raise RuntimeError("caméra non connectée")
+
         plugin_deadline = deadline
+
         if deadline is not None and self.clock is not None:
             # Convert absolute UTC phase deadline to a monotonic deadline once.
             # Camera plugins are then immune to system/NTP/GPS wall-clock jumps.
-            plugin_deadline = time.monotonic() + max(0.0, self.clock.remaining(deadline))
+            plugin_deadline = (
+                time.monotonic()
+                + max(0.0, self.clock.remaining(deadline))
+            )
+
         speeds = [str(s) for s in speeds]
+
         fastest, slowest, step_il, regular = _normalized_speed_plan(speeds)
+
         if regular:
-            return self.plugin.shoot_speeds(fastest, slowest, step_il,
-                                             photo_num_start=photo_num_start,
-                                             deadline=plugin_deadline)
+            if slowest_override_seconds is not None:
+                try:
+                    override = float(slowest_override_seconds)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        "slowest_override_seconds doit être numérique"
+                    ) from exc
+
+                if override <= 0.0:
+                    raise ValueError(
+                        "slowest_override_seconds doit être > 0"
+                    )
+
+                current_slowest_seconds = _parse_speed(slowest)
+
+                if override < current_slowest_seconds:
+                    raise ValueError(
+                        "slowest_override_seconds ne peut pas raccourcir "
+                        "la borne lente existante"
+                    )
+
+                slowest = str(override)
+
+            return self.plugin.shoot_speeds(
+                fastest,
+                slowest,
+                step_il,
+                photo_num_start=photo_num_start,
+                deadline=plugin_deadline,
+            )
+
+        if slowest_override_seconds is not None:
+            raise ValueError(
+                "slowest_override_seconds interdit pour une liste irrégulière"
+            )
 
         # Preserve an irregular explicit list exactly rather than inventing EVs.
         total = 0
+
         for speed in speeds:
-            res = self.plugin.shoot_single(speed,
-                                           photo_num=photo_num_start + total,
-                                           deadline=plugin_deadline)
+            res = self.plugin.shoot_single(
+                speed,
+                photo_num=photo_num_start + total,
+                deadline=plugin_deadline,
+            )
             total += res.frames
-        return CaptureResult(frames=total, planned=len(speeds),
-                             detail="liste explicite")
+
+        return CaptureResult(
+            frames=total,
+            planned=len(speeds),
+            detail="liste explicite",
+        )
 
 
 __all__ = ["CameraService", "_normalized_speed_plan"]

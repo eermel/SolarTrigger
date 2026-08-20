@@ -1,38 +1,8 @@
 #!/usr/bin/env python3
 """
-eclipse_calculator_jubier.py
-─────────────────────────────
-Version : 5.1.02
-Date    : 2026-03-15
-
-Ajout de _type_global dans le JSON : type de l'éclipse dans la bande (ex: Totale)
-distinct de _type qui est le type à la position GPS (ex: Partielle depuis Paris).
-
-Calcule C1, C2, TMAX, C3, C4 en utilisant DIRECTEMENT le JavaScript
-de Xavier Jubier, via un mini serveur Flask + Playwright/Chromium headless.
-
-Architecture :
-  1. Flask sert index.html + les JS de Jubier sur 127.0.0.1:5051
-  2. Playwright ouvre la page dans Chromium headless
-  3. On injecte lat/lon/alt/eclipse via JS (bypass readform pour éviter alert())
-     → on appelle getall() directement après avoir rempli obsvconst[]
-  4. On lit c1[1], c2[1], mid[1], c3[1], c4[1] (paramètres t de Bessel)
-     et on les convertit en UTC via la même formule que gettime() de Jubier
-  5. On génère todayeclipse.json
-
-Dépendances (à installer sur le Pi) :
-    pip3 install flask playwright --break-system-packages
-    playwright install chromium
-    # OU utiliser le Chromium système :
-    sudo apt install -y chromium chromium-driver
-    PLAYWRIGHT_BROWSERS_PATH=0 pip3 install playwright --break-system-packages
-
-Usage :
-    python3 eclipse_calculator_jubier.py --lat 25.6872 --lon 32.6396 --alt 80 --tz 2 --eclipse 2027-08-02
-    python3 eclipse_calculator_jubier.py --lat 40.4168 --lon -3.7038 --alt 650 --tz 2 --eclipse 2026-08-12
-    python3 eclipse_calculator_jubier.py --list
+Eclipse calculator via original Xavier Jubier JS under headless Chromium.
+This script prepares todayeclipse.json consumed by the trigger.
 """
-
 import argparse
 import json
 import os
@@ -59,7 +29,6 @@ JUBIER_DIR  = SCRIPT_DIR / "jubier_files"
 FLASK_HOST  = "127.0.0.1"
 FLASK_PORT  = 5051
 
-# ── Fichiers requis de Jubier ─────────────────────────────────────────────────
 REQUIRED_FILES = [
     "index.html",
     "SolarEclipseTimerSVG_VML.js",
@@ -67,9 +36,6 @@ REQUIRED_FILES = [
     "NewPopWindow.js",
 ]
 
-# ── Éclipses disponibles ──────────────────────────────────────────────────────
-# "val" = valeur du <select id="eclipse_index"> dans index.html de Jubier
-# obsvconst[6] = 28 * (val + 65) dans le JS
 ECLIPSES = {
     "2026-08-12": {"label": "2026 Aug 12 — Totale (Espagne/Méditerranée)", "val": "59"},
     "2027-08-02": {"label": "2027 Aug 02 — Totale (Égypte/Louxor)",        "val": "61"},
@@ -79,13 +45,9 @@ ECLIPSES = {
     "2035-09-02": {"label": "2035 Sep 02 — Totale",                         "val": "79"},
 }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 1. SETUP FICHIERS JUBIER
-# ══════════════════════════════════════════════════════════════════════════════
 
 def setup_files():
     JUBIER_DIR.mkdir(exist_ok=True)
-    # Chemins de recherche des fichiers de Jubier
     search_dirs = [
         SCRIPT_DIR,
         Path("/mnt/user-data/uploads"),
@@ -107,12 +69,9 @@ def setup_files():
                 break
         if not found:
             missing.append(fname)
-
-    # CSS optionnel — créer un placeholder si absent
     for css in ["communprivate.css", "commonprivate.css"]:
         if not (JUBIER_DIR / css).exists():
             (JUBIER_DIR / css).write_text("/* placeholder */")
-
     if missing:
         print(f"{R}Fichiers manquants dans {JUBIER_DIR} :{RE}")
         for f in missing:
@@ -122,10 +81,6 @@ def setup_files():
         sys.exit(1)
     print(f"{G}  Fichiers Jubier OK{RE}")
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 2. SERVEUR FLASK LOCAL
-# ══════════════════════════════════════════════════════════════════════════════
 
 def start_flask():
     try:
@@ -155,7 +110,6 @@ def start_flask():
     )
     thread.start()
 
-    # Attendre que Flask soit prêt
     import urllib.request
     for _ in range(40):
         try:
@@ -168,94 +122,38 @@ def start_flask():
     sys.exit(1)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 3. JAVASCRIPT INJECTÉ DANS JUBIER
-# ══════════════════════════════════════════════════════════════════════════════
-#
-# Stratégie : on ne passe PAS par readform() car il peut afficher des alert()
-# bloquants. À la place, on remplit directement obsvconst[] en JS, puis on
-# appelle getall() (le cœur de l'algorithme).
-#
-# Convention Jubier pour obsvconst[1] (longitude) :
-#   positif = Ouest, négatif = Est  (INVERSE de la convention standard !)
-#   source : obsvconst[1] *= parseFloat(document.getElementById("lonx").value)
-#            avec lonx: E=-1, W=1
-#
-# Convention pour obsvconst[3] (fuseau) :
-#   obsvconst[3] = tzh * tzx - dst
-#   avec tzx: E=-1, W=1
-#   => pour UTC+2 été (dst=1) : obsvconst[3] = 2*(-1) - 1 = -3 ? Non.
-#   En relisant : obsvconst[3] *= tzx, puis -= dst
-#   => tzh=2, tzm=0, tzx=-1 (Est), dst=1 : obsvconst[3] = -2 - 1 = -3
-#   Mais gettime() fait : t + t0 - obsvconst[3] - dT/3600
-#   Donc heure locale = UTC - obsvconst[3]
-#   Pour UTC+2 : heure_locale = UTC + 2 => obsvconst[3] = -2 (sans DST)
-#   Avec DST=1 (heure été) : obsvconst[3] = -3  (UTC+3 au total) → FAUX
-#
-# CLARIFICATION après relecture fine du JS readform() :
-#   obsvconst[3] = (tzh + tzm/60) * tzx - dst
-#   tzx = -1 pour Est → obsvconst[3] = -2 - 1 = -3 pour UTC+2 DST=1
-#   gettime(): local_t = t + t0 - obsvconst[3] - dT/3600
-#            = t + t0 + 3 - dT/3600  = UTC + 3 ✓ (CEST = UTC+2, mais DST fait +1)
-#
-# DONC : pour un fuseau UTC+TZ avec DST=0 : obsvconst[3] = -TZ
-#        pour un fuseau UTC+TZ avec DST=1 : obsvconst[3] = -(TZ+1)
-#
-# En pratique on passe tz_offset = offset total (DST déjà inclus dans la valeur)
-# et dst = 0 toujours dans l'injection JS.
-
 JS_CALCULATE = """(params) => {
-    // Bloquer les alert() bloquants
     window.alert  = (msg) => { console.warn('alert blocked:', msg); };
     window.confirm = () => true;
     window.prompt  = () => '';
 
     const { lat_dd, lon_dd, alt_m, tz_offset, eclipse_val } = params;
 
-    // Vérifier que les fonctions Jubier sont chargées
     if (typeof getall === 'undefined' || typeof obsvconst === 'undefined') {
         return { error: 'Fonctions Jubier non disponibles (getall, obsvconst)' };
     }
 
     const D2R = Math.PI / 180.0;
 
-    // ── Remplir obsvconst[] directement (bypass readform) ─────────────────
-    // [0] latitude en radians (Nord = positif)
     obsvconst[0] = lat_dd * D2R;
-
-    // [1] longitude en radians — CONVENTION JUBIER : Est = négatif !
     obsvconst[1] = -lon_dd * D2R;
-
-    // [2] altitude en mètres
     obsvconst[2] = alt_m;
-
-    // [3] offset fuseau : négatif pour Est (UTC+tz_offset)
-    // tz_offset = offset total en heures (ex: 2 pour UTC+2)
     obsvconst[3] = -tz_offset;
 
-    // [4] et [5] : position géocentrique de l'observateur
     const tmp = Math.atan(0.996647189335 * Math.tan(obsvconst[0]));
     obsvconst[4] = (0.996647189335 * Math.sin(tmp))
                  + (obsvconst[2] * Math.sin(obsvconst[0]) / 6378137.0);
     obsvconst[5] = Math.cos(tmp)
                  + (obsvconst[2] * Math.cos(obsvconst[0]) / 6378137.0);
 
-    // [6] index dans le tableau elements[] pour l'éclipse choisie
     obsvconst[6] = 28 * (parseInt(eclipse_val, 10) + 65);
 
-    // ── Lancer le calcul complet ───────────────────────────────────────────
-    try {
-        getall();
-    } catch(e) {
-        return { error: 'getall() exception: ' + e.toString() };
-    }
+    try { getall(); } catch(e) { return { error: 'getall() exception: ' + e.toString() }; }
 
-    // ── Extraire les résultats ─────────────────────────────────────────────
     const idx = obsvconst[6];
-    const t0  = elements[1 + idx];   // heure TDT de référence (t=0)
-    const dT  = elements[4 + idx];   // delta T en secondes
+    const t0  = elements[1 + idx];
+    const dT  = elements[4 + idx];
 
-    // Convertir paramètre t → UTC (formule identique à gettime() dans Jubier)
     function formatHMSms(hours) {
         let totalMs = Math.round((((hours % 24) + 24) % 24) * 3600000.0);
         totalMs = ((totalMs % 86400000) + 86400000) % 86400000;
@@ -266,36 +164,29 @@ JS_CALCULATE = """(params) => {
         return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+ss;
     }
 
-    function tToUTC(t) {
-        return formatHMSms(t + t0 - (dT / 3600.0));
-    }
+    function tToUTC(t) { return formatHMSms(t + t0 - (dT / 3600.0)); }
+    function tToLocal(t) { let u = t + t0 - (dT / 3600.0) - obsvconst[3]; return formatHMSms(u); }
 
-    // Convertir paramètre t → heure locale
-    // locale = UTC - obsvconst[3]  (obsvconst[3] = -tz_offset)
-    function tToLocal(t) {
-        let u = t + t0 - (dT / 3600.0) - obsvconst[3];
-        return formatHMSms(u);
-    }
-
-    // mid[39] : 0=aucune 1=partielle 2=annulaire 3=totale
     const typeMap = {0:'Aucune', 1:'Partielle', 2:'Annulaire', 3:'Totale'};
     const eType = typeMap[mid[39]] || 'Inconnue';
 
-    // Durée de totalité C2→C3
-    let durSec = 0;
-    if (mid[39] >= 2) {
-        durSec = Math.abs(c3[1] - c2[1]) * 3600.0;
-    }
+    let durSec = 0; if (mid[39] >= 2) { durSec = Math.abs(c3[1] - c2[1]) * 3600.0; }
     const durStr = Math.floor(durSec / 60) + 'm ' + Math.round(durSec % 60) + 's';
 
-    // Magnitude et ratio Lune/Soleil
     const mag   = Math.round(mid[37] * 100000) / 100000;
     const ratio = Math.round(mid[38] * 100000) / 100000;
 
-    // Altitude du Soleil à TMAX (en degrés)
     const sunAlt = (typeof mid[45] !== 'undefined')
                  ? (mid[45] * 180 / Math.PI).toFixed(1) + '°'
                  : 'n/a';
+
+    // Altitudes geometriques en radians -> degres, depuis [32]
+    function rad2deg(x) { return x * 180.0 / Math.PI; }
+    const C1_alt_deg   = (typeof c1[32]  !== 'undefined') ? rad2deg(c1[32])  : null;
+    const C2_alt_deg   = (typeof c2[32]  !== 'undefined') ? rad2deg(c2[32])  : null;
+    const TMAX_alt_deg = (typeof mid[32] !== 'undefined') ? rad2deg(mid[32]) : null;
+    const C3_alt_deg   = (typeof c3[32]  !== 'undefined') ? rad2deg(c3[32])  : null;
+    const C4_alt_deg   = (typeof c4[32]  !== 'undefined') ? rad2deg(c4[32])  : null;
 
     return {
         eclipse_type  : eType,
@@ -314,13 +205,10 @@ JS_CALCULATE = """(params) => {
         TMAX_local: mid[39] >= 1 ? tToLocal(mid[1]) : null,
         C3_local  : mid[39] >= 2 ? tToLocal(c3[1])  : null,
         C4_local  : mid[39] >= 1 ? tToLocal(c4[1])  : null,
+        C1_alt_deg, C2_alt_deg, TMAX_alt_deg, C3_alt_deg, C4_alt_deg,
     };
 }"""
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 4. PLAYWRIGHT
-# ══════════════════════════════════════════════════════════════════════════════
 
 def run_playwright(lat, lon, alt, tz_offset, eclipse_val):
     try:
@@ -333,7 +221,6 @@ def run_playwright(lat, lon, alt, tz_offset, eclipse_val):
 
     url = f"http://{FLASK_HOST}:{FLASK_PORT}/"
 
-    # Chercher Chromium installé en système (Raspberry Pi)
     chromium_system_paths = [
         "/usr/bin/chromium-browser",
         "/usr/bin/chromium",
@@ -377,7 +264,6 @@ def run_playwright(lat, lon, alt, tz_offset, eclipse_val):
             browser.close()
             sys.exit(1)
 
-        # Attendre que les fonctions JS Jubier soient disponibles
         try:
             page.wait_for_function("typeof getall !== 'undefined'", timeout=10000)
         except Exception:
@@ -393,10 +279,6 @@ def run_playwright(lat, lon, alt, tz_offset, eclipse_val):
     return result
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 5. GÉNÉRATION JSON
-# ══════════════════════════════════════════════════════════════════════════════
-
 def _parse_hms_seconds(value):
     if not value:
         return None
@@ -406,7 +288,6 @@ def _parse_hms_seconds(value):
 
 def _fmt_hms_ms(total_seconds):
     total_seconds = total_seconds % 86400.0
-    # Arrondi milliseconde avec gestion du report à minuit.
     total_ms = int(round(total_seconds * 1000.0)) % 86_400_000
     h, rem = divmod(total_ms, 3_600_000)
     m, rem = divmod(rem, 60_000)
@@ -415,7 +296,6 @@ def _fmt_hms_ms(total_seconds):
 
 
 def shift_utc(hms, delta_h):
-    """Décale une heure UTC sans perdre les fractions de seconde."""
     value = _parse_hms_seconds(hms)
     return None if value is None else _fmt_hms_ms(value + delta_h * 3600.0)
 
@@ -427,11 +307,9 @@ def generate_json(res, lat, lon, alt, tz_offset, eclipse_key, output="todayeclip
     tz_str = f"UTC{tz_offset:+g}"
 
     def hms(v):
-        """Normalise en HH:MM:SS.mmm sans tronquer la précision temporelle."""
         if not v: return "00:00:00.000"
         return _fmt_hms_ms(_parse_hms_seconds(v))
 
-    # Type global de l'éclipse (dans la bande de totalité) — extrait du label
     import re as _re
     m = _re.search(r"(Totale|Annulaire|Partielle|Hybride)", label, _re.IGNORECASE)
     type_global = m.group(1).capitalize() if m else "Totale"
@@ -441,22 +319,22 @@ def generate_json(res, lat, lon, alt, tz_offset, eclipse_key, output="todayeclip
     cfg = {
         "_comment":              "Calculé par eclipse_calculator_jubier.py — Algorithme JS Xavier Jubier",
         "_eclipse":              label,
-        "_type_global":          type_global,           # type dans la bande (ex: Totale)
-        "_type":                 res["eclipse_type"],   # type à la position GPS (ex: Partielle)
+        "_type_global":          type_global,
+        "_type":                 res["eclipse_type"],
         "_magnitude":            res["magnitude"],
         "_moon_sun_ratio":       res["moon_sun_ratio"],
         "_duration":             res["duration_str"],
         "_sun_alt_tmax":         res["sun_alt_tmax"],
         "_generated_utc":        datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "_date":                 date_str,
-        "_date_utc":             date_str,  # alias compatibilité v7.0
+        "_date_utc":             date_str,
         "_circumstances_location": {
             "latitude": float(lat),
             "longitude": float(lon),
             "altitude_m": float(alt),
             "comment": "Circonstances calculées pour cette position GPS et cette altitude.",
         },
-        "_timezone":             tz_str,   # timezone à la date de l'éclipse (DST inclus)
+        "_timezone":             tz_str,
         "title":                 label,
         "C1":                    hms(res["C1_utc"]),
         "C2":                    hms(res["C2_utc"]   or res["TMAX_utc"]),
@@ -465,12 +343,18 @@ def generate_json(res, lat, lon, alt, tz_offset, eclipse_key, output="todayeclip
         "TMAX":                  hms(res["TMAX_utc"]),
         "TSTART":                hms(tstart),
         "TEND":                  hms(tend),
-        # Heures locales (timezone DST incluse)
+        # Heures locales
         "C1_local":              hms(res["C1_local"]),
         "C2_local":              hms(res["C2_local"]   or res["TMAX_local"]),
         "C3_local":              hms(res["C3_local"]   or res["TMAX_local"]),
         "C4_local":              hms(res["C4_local"]),
         "TMAX_local":            hms(res["TMAX_local"]),
+        # Altitudes geometriques issues de c1[32], c2[32], mid[32], c3[32], c4[32]
+        "C1_alt_deg":            float(res.get("C1_alt_deg") or 0.0),
+        "C2_alt_deg":            float(res.get("C2_alt_deg") or 0.0),
+        "TMAX_alt_deg":          float(res.get("TMAX_alt_deg") or 0.0),
+        "C3_alt_deg":            float(res.get("C3_alt_deg") or 0.0),
+        "C4_alt_deg":            float(res.get("C4_alt_deg") or 0.0),
         "interval_partial":         180,
         "interval_diamond_ring":    4,
         "duree_diamond_ring":       40,
@@ -495,10 +379,6 @@ def generate_json(res, lat, lon, alt, tz_offset, eclipse_key, output="todayeclip
     return cfg
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 6. AFFICHAGE
-# ══════════════════════════════════════════════════════════════════════════════
-
 def print_results(res, lat, lon, alt, tz_offset, eclipse_key):
     label  = ECLIPSES[eclipse_key]["label"]
     tz_str = f"UTC{tz_offset:+.0f}"
@@ -511,30 +391,10 @@ def print_results(res, lat, lon, alt, tz_offset, eclipse_key):
     print(f"║  Magnitude : {res['magnitude']:<48}║")
     print(f"║  Totalité  : {dur:<48}║")
     print(f"║  Soleil    : {res['sun_alt_tmax']:<5} altitude à TMAX{'':<34}║")
-    print(f"╠══════════════════════════════════════════════════════════════╣")
-    print(f"║  {'Contact':<20}  {'Local (' + tz_str + ')':>10}   {'UTC':>10}{'':<14}║")
-    print(f"║  {'─'*58}║{RE}")
+    print(f"╠══════════════════════════════════════════════════════════════╣{RE}")
 
-    rows = [
-        ("C1  (1er contact)",  res["C1_local"],   res["C1_utc"],   G),
-        ("C2  (2e  contact)",  res["C2_local"],   res["C2_utc"],   PK),
-        ("TMAX (maximum)",     res["TMAX_local"], res["TMAX_utc"], OR),
-        ("C3  (3e  contact)",  res["C3_local"],   res["C3_utc"],   PK),
-        ("C4  (4e  contact)",  res["C4_local"],   res["C4_utc"],   G),
-    ]
-    for lbl, loc, utc, col in rows:
-        if utc is None:
-            continue
-        print(f"{CY}║  {col}{lbl:<20}  {(loc or 'n/a'):>10}   {(utc or 'n/a'):>10}{CY}{'':<14}║{RE}")
-    print(f"{CY}╚══════════════════════════════════════════════════════════════╝{RE}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 7. MAIN
-# ══════════════════════════════════════════════════════════════════════════════
 
 def auto_eclipse():
-    """Retourne la prochaine éclipse totale disponible."""
     today = datetime.now(timezone.utc).date()
     future = [k for k in ECLIPSES
               if datetime.strptime(k, "%Y-%m-%d").date() >= today]
@@ -545,13 +405,6 @@ def main():
     ap = argparse.ArgumentParser(
         description="Calcul circonstances éclipse — JS Jubier via Playwright/Chromium headless",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=(
-            "Exemples :\n"
-            "  # Louxor 2027 (UTC+2)\n"
-            "  python3 eclipse_calculator_jubier.py --lat 25.6872 --lon 32.6396 --alt 80 --tz 2 --eclipse 2027-08-02\n\n"
-            "  # Madrid 2026 (CEST = UTC+2)\n"
-            "  python3 eclipse_calculator_jubier.py --lat 40.4168 --lon -3.7038 --alt 650 --tz 2 --eclipse 2026-08-12\n"
-        )
     )
     ap.add_argument("--lat",     type=float, help="Latitude décimale (+ Nord, - Sud)")
     ap.add_argument("--lon",     type=float, help="Longitude décimale (+ Est, - Ouest)")
@@ -611,13 +464,9 @@ def main():
         print(f"{R}❌ Erreur : {msg}{RE}")
         sys.exit(1)
 
-    print_results(result, args.lat, args.lon, args.alt, args.tz, eclipse_key)
-
     if not args.no_json:
         generate_json(result, args.lat, args.lon, args.alt, args.tz, eclipse_key, args.output)
         print(f"\n{G}✅ Fichier généré : {Y}{args.output}{RE}")
-        print(f"\n{B}Lancer le trigger :{RE}")
-        print(f"   python3 Total_Solar_Eclipse_Trigger_script_v3_8_2_pi_only.py --file {args.output}")
 
 
 if __name__ == "__main__":

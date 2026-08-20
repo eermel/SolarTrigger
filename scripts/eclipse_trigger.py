@@ -64,6 +64,8 @@ from pathlib import Path
 from backend.trigger_runtime import RuntimeClock, TriggerWatchdog
 from backend.timeline import build_timeline, rebase_timeline, format_hms_ms
 from services.camera_service import CameraService
+from services.camera_service import _normalized_speed_plan as _norm_plan
+from backend.atmo import facteur_atmospherique, interpolate_altitude
 
 _runtime_clock = RuntimeClock()
 _watchdog = TriggerWatchdog(Path.home() / "python_solareclipsetrigger" / "trigger_state.json", _runtime_clock)
@@ -380,9 +382,9 @@ if not is_partial:
 
 messages_temps.extend([
     (C4 - timedelta(minutes=10), "C4 - PARTIALITY END T-10min"),
-    (C4 - timedelta(minutes=5), "C4 - PARTIALITY END T-5min"),
-    (C4 - timedelta(minutes=2), "C4 - PARTIALITY END T-2min"),
-    (C4 - timedelta(minutes=1), "C4 - PARTIALITY END T-1min"),
+    (C4 - timedelta(minutes=5),  "C4 - PARTIALITY END T-5min"),
+    (C4 - timedelta(minutes=2),  "C4 - PARTIALITY END T-2min"),
+    (C4 - timedelta(minutes=1),  "C4 - PARTIALITY END T-1min"),
     (C4, "C4 - PARTIALITY END")
 ])
 
@@ -523,41 +525,211 @@ def _set_phase_exposure(camera_service, aperture=None, iso=None):
         return
     camera_service.set_exposure_settings(aperture=aperture, iso=iso)
 
-def _sim_capture_speed_list(speeds, photo_num_start, next_shot_time, deadline=None):
-    """Simulation-only capture path. No gphoto2 call is allowed here."""
+def _sim_capture_speed_list(
+    speeds,
+    photo_num_start,
+    next_shot_time,
+    deadline=None,
+    slowest_override_seconds=None,
+):
+    """Simulation-only capture path. No gphoto2 call is allowed here.
+
+    If slowest_override_seconds is provided for a regular EV bracket,
+    extend the simulated bracket toward longer exposures using the same
+    logical EV step.
+
+    Hardware-specific snapping remains the responsibility of the real
+    camera plugins.
+    """
+    sim_speeds = [str(s) for s in speeds]
+
+    if slowest_override_seconds is not None:
+        fastest, slowest, step_il, regular = _norm_plan(sim_speeds)
+
+        if not regular:
+            raise RuntimeError(
+                "slowest_override_seconds fourni pour une liste irrégulière"
+            )
+
+        try:
+            target_slowest = float(slowest_override_seconds)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "slowest_override_seconds invalide en simulation"
+            ) from exc
+
+        current_slowest = parse_shutterspeed(slowest)
+
+        if target_slowest < current_slowest:
+            raise RuntimeError(
+                "slowest_override_seconds ne peut pas raccourcir "
+                "la borne lente en simulation"
+            )
+
+        if step_il <= 0.0:
+            raise RuntimeError(
+                "step_IL invalide pour extension atmosphérique en simulation"
+            )
+
+        next_exposure = current_slowest * (2.0 ** step_il)
+
+        while next_exposure < target_slowest:
+            sim_speeds.append(
+                _format_seconds_as_speed(next_exposure)
+            )
+            next_exposure *= 2.0 ** step_il
+
+        if target_slowest > current_slowest:
+            sim_speeds.append(
+                _format_seconds_as_speed(next_exposure)
+            )
+
     count = 0
-    for speed in speeds:
+
+    for speed in sim_speeds:
         if deadline is not None:
             exposure = parse_shutterspeed(speed)
             end_exp = now() + timedelta(seconds=exposure)
+
             if end_exp > deadline and exposure > 0.5:
-                _log(f"INFO {Colors.ORANGE}⚠ Sécurité deadline : {speed} sautée{Colors.RESET}")
+                _log(
+                    f"INFO {Colors.ORANGE}"
+                    f"⚠ Sécurité deadline : {speed} sautée"
+                    f"{Colors.RESET}"
+                )
                 continue
-        _log(f"{Colors.PINK}⚡ [SIM] Photo #{photo_num_start + count} — {speed}{Colors.RESET}")
+
+        _log(
+            f"{Colors.PINK}"
+            f"⚡ [SIM] Photo #{photo_num_start + count} — {speed}"
+            f"{Colors.RESET}"
+        )
         count += 1
+
     if count:
         _watchdog_write("shooting", next_shot_time)
+
     return count
+
+def _format_seconds_as_speed(sec: float) -> str:
+    # Prefer fraction when possible for readability; fall back to decimal.
+    if sec <= 0:
+        return "0"
+    if sec >= 1.0:
+        return f"{sec:g}"
+    frac = 1.0 / sec
+    return f"1/{frac:g}"
 
 def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, deadline=None):
     """Execute a requested speed list through the selected camera plugin."""
-    if _sim_mode:
-        return _sim_capture_speed_list(speeds, photo_num_start, next_shot_time, deadline)
-    if camera_service is None:
-        _log(f"{Colors.RED}Caméra indisponible : capture annulée{Colors.RESET}")
-        return 0
     try:
+        use_atmo = bool(cfg.get("atmo_compensation", False))
+        slowest_override_seconds = None
+
+        fastest, slowest, step_il, regular = _norm_plan(
+            [str(s) for s in speeds]
+        )
+
+        if use_atmo and regular:
+            loc = cfg.get("_circumstances_location", {})
+
+            if loc is None or loc.get("altitude_m") is None:
+                raise RuntimeError(
+                    "atmo_compensation actif : altitude observateur manquante"
+                )
+
+            alts = {
+                "C1_alt_deg": cfg.get("C1_alt_deg"),
+                "C2_alt_deg": cfg.get("C2_alt_deg"),
+                "TMAX_alt_deg": cfg.get("TMAX_alt_deg"),
+                "C3_alt_deg": cfg.get("C3_alt_deg"),
+                "C4_alt_deg": cfg.get("C4_alt_deg"),
+            }
+
+            if any(v is None for v in alts.values()):
+                raise RuntimeError(
+                    "atmo_compensation actif : "
+                    "altitude C1/C2/TMAX/C3/C4 manquante"
+                )
+
+            try:
+                tl = {
+                    k: _timeline[k]
+                    for k in ("C1", "C2", "TMAX", "C3", "C4")
+                }
+            except KeyError as exc:
+                raise RuntimeError(
+                    f"atmo_compensation actif : timestamp {exc.args[0]} manquant"
+                ) from exc
+
+            if next_shot_time is None:
+                raise RuntimeError(
+                    "atmo_compensation actif : timestamp capture manquant"
+                )
+
+            h = interpolate_altitude(
+                next_shot_time,
+                tl,
+                alts,
+            )
+
+            facteur = facteur_atmospherique(
+                h,
+                float(loc["altitude_m"]),
+            )
+
+            slowest_seconds = parse_shutterspeed(slowest)
+
+            slowest_override_seconds = (
+                slowest_seconds * float(facteur)
+            )
+
+        if _sim_mode:
+            return _sim_capture_speed_list(
+                speeds,
+                photo_num_start,
+                next_shot_time,
+                deadline,
+                slowest_override_seconds=slowest_override_seconds,
+            )
+
+        if camera_service is None:
+            _log(
+                f"{Colors.RED}Caméra indisponible : capture annulée{Colors.RESET}"
+            )
+            return 0
+
         result = camera_service.shoot_speed_list(
-            speeds, photo_num_start=photo_num_start, deadline=deadline)
+            speeds,
+            photo_num_start=photo_num_start,
+            deadline=deadline,
+            slowest_override_seconds=slowest_override_seconds,
+        )
+
         if result.frames:
             _watchdog_write("shooting", next_shot_time)
+
         if result.frames != result.planned:
-            _log(f"{Colors.YELLOW}Capture plugin : {result.frames}/{result.planned} vues ({result.detail}){Colors.RESET}")
+            _log(
+                f"{Colors.YELLOW}"
+                f"Capture plugin : {result.frames}/{result.planned} vues "
+                f"({result.detail})"
+                f"{Colors.RESET}"
+            )
         else:
-            _log(f"{Colors.GREEN}Capture plugin : {result.frames}/{result.planned} vues ({result.detail}){Colors.RESET}")
+            _log(
+                f"{Colors.GREEN}"
+                f"Capture plugin : {result.frames}/{result.planned} vues "
+                f"({result.detail})"
+                f"{Colors.RESET}"
+            )
+
         return result.frames
+
     except Exception as exc:
-        _log(f"{Colors.RED}Erreur plugin caméra : {exc}{Colors.RESET}")
+        _log(
+            f"{Colors.RED}Erreur plugin caméra : {exc}{Colors.RESET}"
+        )
         return 0
 
 def attendre_heure(heure_cible):
@@ -679,6 +851,7 @@ def jouer_son_en_thread(nom_fichier):
     t = threading.Thread(target=_run, daemon=True, name=f"audio-{nom_fichier}")
     _register_audio_thread(t)
     t.start()
+
 def ecouter_alertes():
     """Thread : surveille alertes_sons et déclenche chaque WAV à l'heure prévue.
     Les alertes dont l'heure est déjà passée au démarrage sont ignorées silencieusement.
@@ -1060,7 +1233,7 @@ def main():
             # ECLIPSE PARTIELLE DE SOLEIL
             
             ###
-            ### PHASE START -> C1 -> C4 -> END
+            ### PHASE UNIQUE : Start to C1 to C4 to END
             ###
             _log(f"{Colors.GREEN}# PHASE UNIQUE : Start to C1 to C4 to END{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
@@ -1115,5 +1288,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
