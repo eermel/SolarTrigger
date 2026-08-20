@@ -15,6 +15,102 @@ Changelog :
   3.9.20 - get_battery_level : warning visible si champ absent
 
 """
+# ─────────────────────────────────────────────────────────────────────────────
+# Early --check handling: MUST run before any side-effectful import.
+# Uses only stdlib and backend.timeline utilities.
+# ─────────────────────────────────────────────────────────────────────────────
+import sys as _early_sys
+import os as _early_os
+import json as _early_json
+from datetime import date as _early_date
+
+def _early_find_arg(argv, name):
+    try:
+        idx = argv.index(name)
+    except ValueError:
+        return None
+    # Return next token if present and not another flag
+    if idx + 1 < len(argv) and not argv[idx + 1].startswith("--"):
+        return argv[idx + 1]
+    return None
+
+if "--check" in _early_sys.argv:
+    errors = []
+
+    file_path = _early_find_arg(_early_sys.argv, "--file")
+    if not file_path:
+        errors.append("Missing --file")
+    else:
+        # Ensure repository root on sys.path to import backend.timeline when invoked as a script
+        _repo_root = _early_os.path.dirname(_early_os.path.dirname(_early_os.path.abspath(__file__)))
+        if _repo_root not in _early_sys.path:
+            _early_sys.path.insert(0, _repo_root)
+        try:
+            from backend.timeline import parse_hms_seconds as _parse_hms, build_timeline as _build
+        except Exception as exc:  # pragma: no cover — shouldn't happen in CI
+            errors.append(f"Import error: {exc}")
+            _parse_hms = None
+            _build = None
+        if _early_os.path.isfile(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    cfg = _early_json.load(f)
+            except Exception as exc:
+                errors.append(f"JSON error: {exc}")
+                cfg = None
+        else:
+            errors.append(f"File not found: {file_path}")
+            cfg = None
+
+        if cfg is not None and _parse_hms is not None:
+            # Validate required times presence and format
+            required = ("C1", "C2", "TMAX", "C3", "C4")
+            times_ok = True
+            for key in required:
+                val = cfg.get(key)
+                try:
+                    sec = _parse_hms(val)
+                except Exception:
+                    errors.append(f"Invalid {key}: {val}")
+                    times_ok = False
+                else:
+                    if sec is None:
+                        errors.append(f"Missing {key}")
+                        times_ok = False
+            # Chronological order using unfolded timeline
+            if times_ok and _build is not None:
+                try:
+                    tl = _build({k: cfg.get(k) for k in ("C1","C2","TMAX","C3","C4")}, fallback_date=_early_date.today())
+                    c1, c2, tmax, c3, c4 = tl["C1"], tl["C2"], tl["TMAX"], tl["C3"], tl["C4"]
+                    if not (c1 < c2 < tmax < c3 < c4):
+                        errors.append("Order error: C1<C2<TMAX<C3<C4 violated")
+                except Exception as exc:
+                    errors.append(f"Order build error: {exc}")
+
+            # Atmospheric compensation requirements
+            if bool(cfg.get("atmo_compensation", False)):
+                alts = {
+                    "C1_alt_deg": cfg.get("C1_alt_deg"),
+                    "C2_alt_deg": cfg.get("C2_alt_deg"),
+                    "TMAX_alt_deg": cfg.get("TMAX_alt_deg"),
+                    "C3_alt_deg": cfg.get("C3_alt_deg"),
+                    "C4_alt_deg": cfg.get("C4_alt_deg"),
+                }
+                missing_alt = [k for k, v in alts.items() if v is None]
+                if missing_alt:
+                    errors.append("Missing altitudes for atmo_compensation: " + ",".join(missing_alt))
+                loc = cfg.get("_circumstances_location")
+                if not (isinstance(loc, dict) and loc.get("altitude_m") is not None):
+                    errors.append("Missing _circumstances_location.altitude_m for atmo_compensation")
+
+    if errors:
+        for e in errors:
+            print(e)
+        _early_sys.exit(1)
+    else:
+        print("CHECK OK")
+        _early_sys.exit(0)
+
 import argparse
 import json
 import logging
