@@ -1,0 +1,330 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xml:lang="en-US" lang="en-US">
+
+<head>
+ <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta http-equiv="Content-Language" content="en">
+
+
+ <script language="JavaScript" type="text/javascript" src="SolarEclipseTimerDefaultSettings.js"></script>
+ <script language="JavaScript" type="text/javascript" src="SolarEclipseTimerSVG_VML.js"></script>
+ <script language="JavaScript" type="text/javascript" src="NewPopWindow.js" defer></script>
+ <link rel="stylesheet" href="commonprivate.css" type="text/css">
+
+ <title>Solar Eclipse Timer</title>
+</head>
+
+<body onload="loadCalcTimers('en');">
+
+
+<table border="0" cellspacing="0" cellpadding="2" style="border-left: solid 1px black; border-top: solid 1px black; border-right: solid 1px black; border-bottom: solid 1px black; background-color: white;">
+ <tr valign="top">
+  <td>
+<!-- Calculatrice -->
+   <table border="0" cellspacing="2" cellpadding="2" width="100%">
+    <tr>
+     <td>
+      <h1 align="center">Solar Eclipse Trigger</h1>
+      <div align="center" style="text-align: center;">
+       <table border="0" align="center" style="text-align: center;">
+        <tr>
+         <td colspan="4" align="center" style="text-align: center;" nowrap>
+          Choose the eclipse&nbsp;:&nbsp;
+          <select id="eclipse_index" size="1" onchange="changeEclipse('en');">
+           <option value="56">2025 Mar 29 (P)</option>
+           <option value="57">2025 Sep 21 (P)</option>
+           <option value="58">2026 Feb 17 (A)</option>
+           <option value="59">2026 Aug 12 (T)</option>
+           <option value="60">2027 Feb 06 (A)</option>
+           <option value="61">2027 Aug 02 (T)</option>
+           <option value="62">2028 Jan 26 (A)</option>
+           <option value="63">2028 Jul 22 (T)</option>
+           <option value="64">2029 Jan 14 (P)</option>
+           <option value="65">2029 Jun 12 (P)</option>
+           <option value="66">2029 Jul 11 (P)</option>
+           <option value="67">2029 Dec 05 (P)</option>
+           <option value="68">2030 Jun 01 (A)</option>
+           <option value="69">2030 Nov 25 (T)</option>
+           <option value="70">2031 May 21 (A)</option>
+           <option value="71">2031 Nov 14 (H)</option>
+           <option value="72">2032 May 09 (A)</option>
+           <option value="73">2032 Nov 03 (P)</option>
+           <option value="74">2033 Mar 30 (T)</option>
+           <option value="75">2033 Sep 23 (P)</option>
+           <option value="76">2034 Mar 20 (T)</option>
+           <option value="77">2034 Sep 12 (A)</option>
+           <option value="78">2035 Mar 09 (A)</option>
+           <option value="79">2035 Sep 02 (T)</option>
+           <option value="80">2036 Feb 27 (P)</option>
+           <option value="81">2036 Jul 23 (P)</option>
+           <option value="82">2036 Aug 21 (P)</option>
+           <option value="83">2037 Jan 16 (P)</option>
+           <option value="84">2037 Jul 13 (T)</option>
+           <option value="85">2038 Jan 05 (A)</option>
+           <option value="86">2038 Jul 02 (A)</option>
+           <option value="87">2038 Dec 26 (T)</option>
+           <option value="88">2039 Jun 21 (A)</option>
+           <option value="89">2039 Dec 15 (T)</option>
+          </select>
+         </td>
+
+        </tr>
+
+        <tr>
+         <td colspan="4" align="center" style="text-align: center;" nowrap>
+          <span class="h2">Observer Geographic Coordinates</span>
+         </td>
+
+        </tr>
+
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          Latitude&nbsp;:&nbsp;
+         </td>
+         <td colspan="3" nowrap>
+          <input type="text" size="4" id="latd" onchange="modifiedCoordinates(1, 'en');"><sup>&deg;</sup>&nbsp;
+          <input type="text" size="8" id="latm" onchange="modifiedCoordinates(1, 'en');"><sup>&prime;</sup>&nbsp;
+          <select id="latx" size="1" onchange="modifiedCoordinates(1, 'en');">
+           <option value="1">N</option>
+           <option value="-1">S</option>
+          </select>
+          <span id="Lat_dd" style="text-align: left;"></span>
+         </td>
+         <td colspan="5" rowspan="3" style="text-align: center; background-color: #EEEEFF;" nowrap>
+          <span id="Next_Event" style="font-size: 24pt; font-weight: bold; text-align: center;"></span>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          Longitude&nbsp;:&nbsp;
+         </td>
+         <td colspan="3" nowrap>
+          <input type="text" size="4" id="lond" onchange="modifiedCoordinates(2, 'en');"><sup>&deg;</sup>&nbsp;
+          <input type="text" size="8" id="lonm" onchange="modifiedCoordinates(2, 'en');"><sup>&prime;</sup>&nbsp;
+          <select id="lonx" size="1" onchange="modifiedCoordinates(2, 'fen');">
+           <option value="-1">E</option>
+           <option value="1">W</option>
+          </select>
+          <span id="Lon_dd" style="text-align: left;"></span>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          Altitude&nbsp;:&nbsp;
+         </td>
+         <td colspan="3" nowrap>
+          <input type="text" size="6" id="alt" onchange="clearresults();">&nbsp;meters
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          Time zone&nbsp;:&nbsp;
+         </td>
+         <td colspan="3" nowrap>
+          <select id="tzh" size="1" onchange="clearresults();">
+           <option value="0">00</option>
+           <option value="1">01</option>
+           <option value="2">02</option>
+           <option value="3">03</option>
+           <option value="4">04</option>
+           <option value="5">05</option>
+           <option value="6">06</option>
+           <option value="7">07</option>
+           <option value="8">08</option>
+           <option value="9">09</option>
+           <option value="10">10</option>
+           <option value="11">11</option>
+           <option value="12">12</option>
+          </select>
+          <b>:</b>
+          <select id="tzm" size="1" onchange="clearresults();">
+           <option value="0">00</option>
+           <option value="15">15</option>
+           <option value="30">30</option>
+           <option value="45">45</option>
+          </select>
+          <select id="tzx" size="1" onchange="clearresults();">
+           <option value="-1">E</option>
+           <option value="1">W</option>
+          </select>
+          <select id="dst" size="1" onchange="clearresults();">
+           <option value="0">(Winter / Regular Time)</option>
+           <option value="1">(Daylight Savings Time)</option>
+          </select>
+         </td>
+         <td colspan="5" style="text-align: right; background-color: #EEEEFF;" nowrap>
+          <span id="UTC" style="font-size: 10pt; font-weight: bold; text-align: right;"></span>
+          <br>
+          <span id="simul_status" style="text-align: left; color: orange;"></span>&nbsp;<input type="checkbox" id="chbPrecision" checked><label for="chbPrecision">1/10th of a second</label>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="4" align="center" style="text-align: center;">
+          <br>
+          <input type="button" id="buttCalc" value=" Calculate Eclipse Circumstances and Start Timers " style="font-weight: bold; background-color: #FFE279; cursor: pointer; -webkit-appearance: none;" onclick="recalculate('en');">
+         </td>
+        <td colspan="5" align="center" style="text-align: center; background-color: #EEEEFF;">
+          <input type="button" id="buttStartStop" value=" Start/Stop Timers " style="font-weight: bold;" onclick="StartStopTimers();">
+          </td>
+        </tr>
+        <tr>
+         <td colspan="9" align="center" style="text-align: center;">
+          <hr noshade>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="9" align="center" style="text-align: center;" nowrap>
+          <span class="h2">Predicted Eclipse Local Circumstances</span>
+          <br>
+          <span class="hd">(for above coordinates with &Delta;T=<span id="Delta_T" style="text-align: left;">xx.x</span>s)</span>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="9" align="center" style="text-align: center;">
+          <hr width="200">
+         </td>
+        </tr>
+        <tr align="center">
+         <th style="text-align: center;">Event</th>
+         <th style="text-align: center;">Date</th>
+         <th style="text-align: center;">Time<span id="time_ref" style="text-align: left;"></span></th>
+         <th style="text-align: center;">Countdown</th>
+         <th style="text-align: center;">Alt</th>
+         <th style="text-align: center;">Azi</th>
+         <th style="text-align: center;">P</th>
+         <th style="text-align: center;">V</th>
+         <th style="text-align: center;">LC</th>
+        </tr>
+        <tr onmouseover="this.style.backgroundColor = '#D8E4F1'; drawDiagram('C1', 0, 'en');" onmouseout="this.style.backgroundColor = 'white'; drawDiagram('live', 0, 'en');">
+         <td colspan="1" align="right" nowrap>
+          Start of partial eclipse&nbsp;:&nbsp;<br>
+          <font size="-3">(1<sup>st</sup> contact C1)</font>
+         </td>
+         <td><input type="text" id="c1_date" size="11" style="text-align: center;" readonly></td>
+         <td><input type="text" id="c1_time" size="11" style="text-align: center;" readonly></td>
+         <td nowrap><div id="C1_timer" style="text-align: right;"><input type="text" id="c1_timer" size="20" readonly></div></td>
+         <td nowrap><input type="text" id="c1_alt" size="5" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td nowrap><input type="text" id="c1_azi" size="5" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td nowrap><input type="text" id="c1_p" size="3" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td><input type="text" id="c1_v" size="4" style="text-align: right;" readonly></td>
+         <td>
+          &nbsp;
+         </td>
+        </tr>
+        <tr onmouseover="this.style.backgroundColor = '#D8E4F1'; drawDiagram('C2', 0, 'en');" onmouseout="this.style.backgroundColor = 'white'; drawDiagram('live', 0, 'en');">
+         <td colspan="1" align="right" nowrap>
+          Start of central eclipse&nbsp;:&nbsp;<br>
+          <div class="tdm1">(2<sup>nd</sup> contact C2)</div>
+         </td>
+         <td><input type="text" id="c2_date" size="11" style="text-align: center;" readonly></td>
+         <td><input type="text" id="c2_time" size="11" style="text-align: center;" readonly></td>
+         <td nowrap><div id="C2_timer" style="text-align: right;"><input type="text" id="c2_timer" size="20" readonly></div></td>
+         <td nowrap><input type="text" id="c2_alt" size="5" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td nowrap><input type="text" id="c2_azi" size="5" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td nowrap><input type="text" id="c2_p" size="3" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td><input type="text" id="c2_v" size="4" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c2_lc" size="5" style="text-align: right;" readonly>s</td>
+        </tr>
+        <tr onmouseover="this.style.backgroundColor = '#D8E4F1'; drawDiagram('mid', 0, 'en');" onmouseout="this.style.backgroundColor = 'white'; drawDiagram('live', 0, 'en');">
+         <td colspan="1" align="right" nowrap>
+          Mid eclipse&nbsp;:&nbsp;
+         </td>
+         <td><input type="text" id="mid_date" size="11" style="text-align: center;" readonly></td>
+         <td><input type="text" id="mid_time" size="11" style="text-align: center;" readonly></td>
+         <td nowrap><div id="CM_timer" style="text-align: right;"><input type="text" id="cM_timer" size="20" readonly></div></td>
+         <td nowrap><input type="text" id="mid_alt" size="5" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td nowrap><input type="text" id="mid_azi" size="5" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td nowrap><input type="text" id="mid_p" size="3" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td><input type="text" id="mid_v" size="4" style="text-align: right;" readonly></td>
+         <td>
+          &nbsp;
+         </td>
+        </tr>
+        <tr onmouseover="this.style.backgroundColor = '#D8E4F1'; drawDiagram('C3', 0, 'en');" onmouseout="this.style.backgroundColor = 'white'; drawDiagram('live', 0, 'en');">
+         <td colspan="1" align="right" nowrap>
+          End of central eclipse&nbsp;:&nbsp;<br>
+          <div class="tdm1">(3<sup>rd</sup> contact C3)</div>
+         </td>
+         <td><input type="text" id="c3_date" size="11" style="text-align: center;" readonly></td>
+         <td><input type="text" id="c3_time" size="11" style="text-align: center;" readonly></td>
+         <td nowrap><div id="C3_timer" style="text-align: right;"><input type="text" id="c3_timer" size="20" readonly></div></td>
+         <td nowrap><input type="text" id="c3_alt" size="5" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td nowrap><input type="text" id="c3_azi" size="5" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td nowrap><input type="text" id="c3_p" size="3" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td><input type="text" id="c3_v" size="4" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c3_lc" size="5" style="text-align: right;" readonly>s</td>
+        </tr>
+        <tr onmouseover="this.style.backgroundColor = '#D8E4F1'; drawDiagram('C4', 0, 'en');" onmouseout="this.style.backgroundColor = 'white'; drawDiagram('live', 0, 'en');">
+         <td colspan="1" align="right" nowrap>
+          End of partial eclipse&nbsp;:&nbsp;<br>
+          <div class="tdm1">(4<sup>th</sup> contact C4)</div>
+         </td>
+         <td><input type="text" id="c4_date" size="11" style="text-align: center;" readonly></td>
+         <td><input type="text" id="c4_time" size="11" style="text-align: center;" readonly></td>
+         <td nowrap><div id="C4_timer" style="text-align: right;"><input type="text" id="c4_timer" size="20" readonly></div></td>
+         <td nowrap><input type="text" id="c4_alt" size="5" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td nowrap><input type="text" id="c4_azi" size="5" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td nowrap><input type="text" id="c4_p" size="3" style="text-align: right;" readonly><sup>&deg;</sup></td>
+         <td><input type="text" id="c4_v" size="4" style="text-align: right;" readonly></td>
+         <td>
+          &nbsp;
+         </td>
+        </tr>
+        <tr>
+         <td colspan="9" align="center" style="text-align: center;">
+          <hr noshade>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right">
+          Eclipse type&nbsp;:&nbsp;
+         </td>
+         <td colspan="3" nowrap>
+          <input type="text" id="type" size="8" readonly>
+          Duration&nbsp;:&nbsp;<input type="text" id="duration" size="8" readonly>
+<!--          &nbsp;<input type="text" id="durationCorr" name="durationCorr" size="10" title="Duration corrected with the lunar limb profile" readonly>-->
+          Obscuration&nbsp;:&nbsp;<input type="text" id="coverage" size="7" title="Obscuration at maximum" readonly>
+         </td>
+         <td rowspan="3" colspan="5" align="center" style="text-align: center;" width="260" height="80">
+          <div id="svg_vml_diagram" align="center" style="text-align: center; width: 260px; height: 80px; border: solid 1px lightgrey;"></div>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          Magnitude at mid eclipse&nbsp;:&nbsp;
+         </td>
+         <td colspan="3" nowrap>
+          <input type="text" id="mag" size="8" readonly>
+          Moon/Sun size ratio&nbsp;:&nbsp;<input type="text" id="ratio" size="8" readonly>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          <span id="eclipse_depth">Umbral/Antumbral depth</span>&nbsp;:&nbsp;
+         </td>
+         <td colspan="3">
+          <input type="text" id="depth" size="8" readonly>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="9" align="center" style="text-align: center;">
+          <hr noshade>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="9" align="center" style="text-align: center;">
+          <input type="reset" id="buttReset" value=" Reset the Calculator &amp; Timers " style="background-color: #FFE279;" onclick="setTimeout('resetCalcTimers(\'en\')', 50);">
+         </td>
+        </tr>
+       </table>
+      </div>
+     </td>
+    </tr>
+   </table>
+  </td>
+ </tr>
+</table>
+
+</body>
+
+</html>

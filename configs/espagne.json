@@ -1,0 +1,19 @@
+{
+    "_comment":                  "Eclipse Solaire Totale - Espagne - 12 Août 2026",
+    "title":                     "12 AOUT 2026 - MADRID SUD",
+
+    "C1":                        "19:36:01",
+    "C2":                        "20:29:47",
+    "C3":                        "20:31:17",
+    "C4":                        "21:21:48",
+    "TMAX":                      "20:30:32",
+    "TSTART":                    "18:36:01",
+    "TEND":                      "22:21:48",
+
+    "interval_partial":          180,
+    "interval_diamond_ring":     4,
+    "duree_diamond_ring":        40,
+
+    "shutterspeed_partial":      "1/500",
+    "shutterspeed_diamondring":  "1/500"
+}

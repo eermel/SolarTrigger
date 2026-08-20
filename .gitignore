@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Runtime / secrets
+.env
+*.log
+*.tmp
+*.swp
+
+# macOS metadata
+.DS_Store
+._*

@@ -1,0 +1,9 @@
+{
+  "plugin": "gpsd",
+  "poll_interval": 0.25,
+  "stale_after": 3.0,
+  "plugin_config": {
+    "host": "127.0.0.1",
+    "port": 2947
+  }
+}

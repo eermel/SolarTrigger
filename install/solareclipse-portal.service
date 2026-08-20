@@ -1,0 +1,28 @@
+[Unit]
+Description=SolarEclipse Portal (Flask + SocketIO)
+# Pas de dépendance réseau — Flask écoute en local (127.0.0.1:5000)
+# Le hotspot iPhone ou WiFi n'est pas requis pour démarrer
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/flaskapp_solareclipsetrigger
+
+ExecStart=/home/pi/flaskapp_solareclipsetrigger/venv/bin/gunicorn \
+    --worker-class eventlet \
+    --workers 1 \
+    --bind 0.0.0.0:5000 \
+    --timeout 120 \
+    wsgi:app
+
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=solareclipse-portal
+
+[Install]
+WantedBy=multi-user.target

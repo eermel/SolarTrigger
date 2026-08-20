@@ -1,0 +1,105 @@
+{
+    "_TEMPLATE": "Template todayeclipse.json — SolarEclipse Trigger",
+    "_USAGE": "Copiez ce fichier, renommez-le et modifiez les valeurs. Placez-le dans ~/python_solareclipsetrigger/todayeclipse.json",
+    "___SECTION_METADONNEES": "════ MÉTADONNÉES (affichage UI — non parsées par le trigger) ════",
+    "_comment": "Description libre du fichier",
+    "_eclipse": "2026 Aug 12 — Totale (Espagne/Méditerranée)",
+    "_type": "Totale",
+    "_type_global": "Totale",
+    "_magnitude": 1.03296,
+    "_moon_sun_ratio": 1.03296,
+    "_duration": "3m 20s",
+    "_sun_alt_tmax": "7.6°",
+    "_generated_utc": "2026-08-12 00:00:00 UTC",
+    "___SECTION_TITRE": "════ TITRE (requis par le trigger) ════",
+    "title": "2026 Aug 12 — Totale Espagne",
+    "___SECTION_CONTACTS": "════ CONTACTS UTC — format HH:MM:SS.sss (REQUIS, fractions conservées) ════",
+    "C1": "08:24:10.347",
+    "C2": "09:21:15.682",
+    "C3": "09:24:28.491",
+    "C4": "10:28:50.903",
+    "TMAX": "09:22:52.087",
+    "TSTART": "07:24:10.347",
+    "TEND": "11:28:50.903",
+    "_NOTE_CONTACTS": [
+        "Les fractions de seconde sont conservées par le backend (ex: 09:21:15.682).",
+        "TSTART = C1 - 1h par défaut (début de la séquence de déclenchement)",
+        "TEND   = C4 + 1h par défaut (fin de la séquence)",
+        "TMAX   = milieu de la totalité (C2 + (C3-C2)/2) pour Totale",
+        "       = milieu de la partialité (C1 + (C4-C1)/2) pour Partielle",
+        "Pour une éclipse PARTIELLE : C2 = C3 = TMAX",
+        "Validation START vérifie : TSTART < C1 <= C2 <= C3 < C4 < TEND",
+        "La date réelle est stockée séparément dans _date ; un dry-run ignore cette date et translate la timeline à l identique."
+    ],
+    "___SECTION_PHASES_PARTIELLES": "════ PHASES PARTIELLES 1a et 3b (REQUIS) ════",
+    "interval_partial": 180,
+    "shutterspeed_partial": "1/500",
+    "_NOTE_partial": [
+        "interval_partial     : secondes entre deux déclenchements en phase partielle",
+        "shutterspeed_partial : vitesse obturateur — format '1/X' ou 'X' (ex: '1/500', '2')"
+    ],
+    "___SECTION_DIAMOND_RING": "════ PHASE DIAMOND RING 1b et 3a (REQUIS) ════",
+    "interval_diamond_ring": 1,
+    "duree_diamond_ring": 12,
+    "shutterspeed_diamondring": "1/500",
+    "_NOTE_diamond": [
+        "interval_diamond_ring : secondes entre deux déclenchements pendant le diamond ring",
+        "duree_diamond_ring    : durée en secondes de la phase diamond ring (avant C2 et après C3)",
+        "shutterspeed_diamondring : vitesse obturateur pour le diamond ring"
+    ],
+    "___SECTION_TOTALITE": "════ PHASE TOTALITÉ (REQUIS pour éclipse totale) ════",
+    "totality": {
+        "speeds": [
+            "1/4000",
+            "1/2000",
+            "1/1000",
+            "1/500",
+            "1/250",
+            "1/125",
+            "1/60",
+            "1/30",
+            "1/15",
+            "1/8",
+            "1/4",
+            "1/2",
+            "1",
+            "2",
+            "4"
+        ]
+    },
+    "_NOTE_totality": [
+        "speeds : liste des vitesses utilisées pour le bracketing en totalité",
+        "         Ordre d'utilisation : rapide → lente → rapide",
+        "         Supprimez les vitesses que vous ne voulez pas utiliser",
+        "Le moteur v6.4 transmet cette plage au CameraPlugin actif.",
+        "Sony peut la réaliser avec des brackets internes ; Nikon photo par photo."
+    ],
+    "___SECTION_AVANCE": "════ PARAMÈTRES AVANCÉS (optionnels) ════",
+    "wake_up_time": 2.5,
+    "_NOTE_avance": [
+        "wake_up_time : secondes de réveil anticipé avant chaque photo (défaut: 2.5)",
+        "               Augmenter si la caméra met du temps à sortir de veille"
+    ],
+    "___SECTION_UI_ONLY": "════ CHAMPS UTILISÉS UNIQUEMENT PAR L'UI (ignorés par le trigger) ════",
+    "phase1a": {
+        "interval_s": 180,
+        "speed_denom": 500
+    },
+    "diamond_ring": {
+        "interval_s": 1,
+        "duration_s": 12,
+        "speed_denom": 500
+    },
+    "phase3b": {
+        "interval_s": 180,
+        "speed_denom": 500
+    },
+    "_date": "2027-08-02",
+    "_date_utc": "2027-08-02",
+    "_circumstances_location": {
+        "latitude": null,
+        "longitude": null,
+        "altitude_m": null,
+        "comment": "Renseigner la position GPS et l altitude exactes pour lesquelles C1/C2/TMAX/C3/C4 ont été calculés."
+    }
+}

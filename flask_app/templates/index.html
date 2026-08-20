@@ -1,0 +1,2728 @@
+<!DOCTYPE html>
+<!-- SolarEclipse Portal — index.html
+     Version : 5.1.02
+     Date    : 2026-03-18 -->
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>SolarEclipse</title>
+<script>
+
+!function(t,n){"object"==typeof exports&&"undefined"!=typeof module?module.exports=n():"function"==typeof define&&define.amd?define(n):(t="undefined"!=typeof globalThis?globalThis:t||self).io=n()}(this,(function(){"use strict";function t(t,n){(null==n||n>t.length)&&(n=t.length);for(var i=0,r=Array(n);i<n;i++)r[i]=t[i];return r}function n(t,n){for(var i=0;i<n.length;i++){var r=n[i];r.enumerable=r.enumerable||!1,r.configurable=!0,"value"in r&&(r.writable=!0),Object.defineProperty(t,f(r.key),r)}}function i(t,i,r){return i&&n(t.prototype,i),r&&n(t,r),Object.defineProperty(t,"prototype",{writable:!1}),t}function r(n,i){var r="undefined"!=typeof Symbol&&n[Symbol.iterator]||n["@@iterator"];if(!r){if(Array.isArray(n)||(r=function(n,i){if(n){if("string"==typeof n)return t(n,i);var r={}.toString.call(n).slice(8,-1);return"Object"===r&&n.constructor&&(r=n.constructor.name),"Map"===r||"Set"===r?Array.from(n):"Arguments"===r||/^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(r)?t(n,i):void 0}}(n))||i&&n&&"number"==typeof n.length){r&&(n=r);var e=0,o=function(){};return{s:o,n:function(){return e>=n.length?{done:!0}:{done:!1,value:n[e++]}},e:function(t){throw t},f:o}}throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}var s,u=!0,h=!1;return{s:function(){r=r.call(n)},n:function(){var t=r.next();return u=t.done,t},e:function(t){h=!0,s=t},f:function(){try{u||null==r.return||r.return()}finally{if(h)throw s}}}}function e(){return e=Object.assign?Object.assign.bind():function(t){for(var n=1;n<arguments.length;n++){var i=arguments[n];for(var r in i)({}).hasOwnProperty.call(i,r)&&(t[r]=i[r])}return t},e.apply(null,arguments)}function o(t){return o=Object.setPrototypeOf?Object.getPrototypeOf.bind():function(t){return t.__proto__||Object.getPrototypeOf(t)},o(t)}function s(t,n){t.prototype=Object.create(n.prototype),t.prototype.constructor=t,h(t,n)}function u(){try{var t=!Boolean.prototype.valueOf.call(Reflect.construct(Boolean,[],(function(){})))}catch(t){}return(u=function(){return!!t})()}function h(t,n){return h=Object.setPrototypeOf?Object.setPrototypeOf.bind():function(t,n){return t.__proto__=n,t},h(t,n)}function f(t){var n=function(t,n){if("object"!=typeof t||!t)return t;var i=t[Symbol.toPrimitive];if(void 0!==i){var r=i.call(t,n||"default");if("object"!=typeof r)return r;throw new TypeError("@@toPrimitive must return a primitive value.")}return("string"===n?String:Number)(t)}(t,"string");return"symbol"==typeof n?n:n+""}function c(t){return c="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(t){return typeof t}:function(t){return t&&"function"==typeof Symbol&&t.constructor===Symbol&&t!==Symbol.prototype?"symbol":typeof t},c(t)}function a(t){var n="function"==typeof Map?new Map:void 0;return a=function(t){if(null===t||!function(t){try{return-1!==Function.toString.call(t).indexOf("[native code]")}catch(n){return"function"==typeof t}}(t))return t;if("function"!=typeof t)throw new TypeError("Super expression must either be null or a function");if(void 0!==n){if(n.has(t))return n.get(t);n.set(t,i)}function i(){return function(t,n,i){if(u())return Reflect.construct.apply(null,arguments);var r=[null];r.push.apply(r,n);var e=new(t.bind.apply(t,r));return i&&h(e,i.prototype),e}(t,arguments,o(this).constructor)}return i.prototype=Object.create(t.prototype,{constructor:{value:i,enumerable:!1,writable:!0,configurable:!0}}),h(i,t)},a(t)}var v=Object.create(null);v.open="0",v.close="1",v.ping="2",v.pong="3",v.message="4",v.upgrade="5",v.noop="6";var l=Object.create(null);Object.keys(v).forEach((function(t){l[v[t]]=t}));var p,d={type:"error",data:"parser error"},y="function"==typeof Blob||"undefined"!=typeof Blob&&"[object BlobConstructor]"===Object.prototype.toString.call(Blob),b="function"==typeof ArrayBuffer,w=function(t){return"function"==typeof ArrayBuffer.isView?ArrayBuffer.isView(t):t&&t.buffer instanceof ArrayBuffer},g=function(t,n,i){var r=t.type,e=t.data;return y&&e instanceof Blob?n?i(e):m(e,i):b&&(e instanceof ArrayBuffer||w(e))?n?i(e):m(new Blob([e]),i):i(v[r]+(e||""))},m=function(t,n){var i=new FileReader;return i.onload=function(){var t=i.result.split(",")[1];n("b"+(t||""))},i.readAsDataURL(t)};function k(t){return t instanceof Uint8Array?t:t instanceof ArrayBuffer?new Uint8Array(t):new Uint8Array(t.buffer,t.byteOffset,t.byteLength)}for(var A="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",j="undefined"==typeof Uint8Array?[]:new Uint8Array(256),E=0;E<64;E++)j[A.charCodeAt(E)]=E;var O,B="function"==typeof ArrayBuffer,S=function(t,n){if("string"!=typeof t)return{type:"message",data:C(t,n)};var i=t.charAt(0);return"b"===i?{type:"message",data:N(t.substring(1),n)}:l[i]?t.length>1?{type:l[i],data:t.substring(1)}:{type:l[i]}:d},N=function(t,n){if(B){var i=function(t){var n,i,r,e,o,s=.75*t.length,u=t.length,h=0;"="===t[t.length-1]&&(s--,"="===t[t.length-2]&&s--);var f=new ArrayBuffer(s),c=new Uint8Array(f);for(n=0;n<u;n+=4)i=j[t.charCodeAt(n)],r=j[t.charCodeAt(n+1)],e=j[t.charCodeAt(n+2)],o=j[t.charCodeAt(n+3)],c[h++]=i<<2|r>>4,c[h++]=(15&r)<<4|e>>2,c[h++]=(3&e)<<6|63&o;return f}(t);return C(i,n)}return{base64:!0,data:t}},C=function(t,n){return"blob"===n?t instanceof Blob?t:new Blob([t]):t instanceof ArrayBuffer?t:t.buffer},T=String.fromCharCode(30);function U(){return new TransformStream({transform:function(t,n){!function(t,n){y&&t.data instanceof Blob?t.data.arrayBuffer().then(k).then(n):b&&(t.data instanceof ArrayBuffer||w(t.data))?n(k(t.data)):g(t,!1,(function(t){p||(p=new TextEncoder),n(p.encode(t))}))}(t,(function(i){var r,e=i.length;if(e<126)r=new Uint8Array(1),new DataView(r.buffer).setUint8(0,e);else if(e<65536){r=new Uint8Array(3);var o=new DataView(r.buffer);o.setUint8(0,126),o.setUint16(1,e)}else{r=new Uint8Array(9);var s=new DataView(r.buffer);s.setUint8(0,127),s.setBigUint64(1,BigInt(e))}t.data&&"string"!=typeof t.data&&(r[0]|=128),n.enqueue(r),n.enqueue(i)}))}})}function M(t){return t.reduce((function(t,n){return t+n.length}),0)}function x(t,n){if(t[0].length===n)return t.shift();for(var i=new Uint8Array(n),r=0,e=0;e<n;e++)i[e]=t[0][r++],r===t[0].length&&(t.shift(),r=0);return t.length&&r<t[0].length&&(t[0]=t[0].slice(r)),i}function I(t){if(t)return function(t){for(var n in I.prototype)t[n]=I.prototype[n];return t}(t)}I.prototype.on=I.prototype.addEventListener=function(t,n){return this.t=this.t||{},(this.t["$"+t]=this.t["$"+t]||[]).push(n),this},I.prototype.once=function(t,n){function i(){this.off(t,i),n.apply(this,arguments)}return i.fn=n,this.on(t,i),this},I.prototype.off=I.prototype.removeListener=I.prototype.removeAllListeners=I.prototype.removeEventListener=function(t,n){if(this.t=this.t||{},0==arguments.length)return this.t={},this;var i,r=this.t["$"+t];if(!r)return this;if(1==arguments.length)return delete this.t["$"+t],this;for(var e=0;e<r.length;e++)if((i=r[e])===n||i.fn===n){r.splice(e,1);break}return 0===r.length&&delete this.t["$"+t],this},I.prototype.emit=function(t){this.t=this.t||{};for(var n=new Array(arguments.length-1),i=this.t["$"+t],r=1;r<arguments.length;r++)n[r-1]=arguments[r];if(i){r=0;for(var e=(i=i.slice(0)).length;r<e;++r)i[r].apply(this,n)}return this},I.prototype.emitReserved=I.prototype.emit,I.prototype.listeners=function(t){return this.t=this.t||{},this.t["$"+t]||[]},I.prototype.hasListeners=function(t){return!!this.listeners(t).length};var R="function"==typeof Promise&&"function"==typeof Promise.resolve?function(t){return Promise.resolve().then(t)}:function(t,n){return n(t,0)},L="undefined"!=typeof self?self:"undefined"!=typeof window?window:Function("return this")();function _(t){for(var n=arguments.length,i=new Array(n>1?n-1:0),r=1;r<n;r++)i[r-1]=arguments[r];return i.reduce((function(n,i){return t.hasOwnProperty(i)&&(n[i]=t[i]),n}),{})}var D=L.setTimeout,P=L.clearTimeout;function $(t,n){n.useNativeTimers?(t.setTimeoutFn=D.bind(L),t.clearTimeoutFn=P.bind(L)):(t.setTimeoutFn=L.setTimeout.bind(L),t.clearTimeoutFn=L.clearTimeout.bind(L))}function F(){return Date.now().toString(36).substring(3)+Math.random().toString(36).substring(2,5)}var V=function(t){function n(n,i,r){var e;return(e=t.call(this,n)||this).description=i,e.context=r,e.type="TransportError",e}return s(n,t),n}(a(Error)),q=function(t){function n(n){var i;return(i=t.call(this)||this).writable=!1,$(i,n),i.opts=n,i.query=n.query,i.socket=n.socket,i.supportsBinary=!n.forceBase64,i}s(n,t);var i=n.prototype;return i.onError=function(n,i,r){return t.prototype.emitReserved.call(this,"error",new V(n,i,r)),this},i.open=function(){return this.readyState="opening",this.doOpen(),this},i.close=function(){return"opening"!==this.readyState&&"open"!==this.readyState||(this.doClose(),this.onClose()),this},i.send=function(t){"open"===this.readyState&&this.write(t)},i.onOpen=function(){this.readyState="open",this.writable=!0,t.prototype.emitReserved.call(this,"open")},i.onData=function(t){var n=S(t,this.socket.binaryType);this.onPacket(n)},i.onPacket=function(n){t.prototype.emitReserved.call(this,"packet",n)},i.onClose=function(n){this.readyState="closed",t.prototype.emitReserved.call(this,"close",n)},i.pause=function(t){},i.createUri=function(t){var n=arguments.length>1&&void 0!==arguments[1]?arguments[1]:{};return t+"://"+this.i()+this.o()+this.opts.path+this.u(n)},i.i=function(){var t=this.opts.hostname;return-1===t.indexOf(":")?t:"["+t+"]"},i.o=function(){return this.opts.port&&(this.opts.secure&&443!==Number(this.opts.port)||!this.opts.secure&&80!==Number(this.opts.port))?":"+this.opts.port:""},i.u=function(t){var n=function(t){var n="";for(var i in t)t.hasOwnProperty(i)&&(n.length&&(n+="&"),n+=encodeURIComponent(i)+"="+encodeURIComponent(t[i]));return n}(t);return n.length?"?"+n:""},n}(I),X=function(t){function n(){var n;return(n=t.apply(this,arguments)||this).h=!1,n}s(n,t);var r=n.prototype;return r.doOpen=function(){this.v()},r.pause=function(t){var n=this;this.readyState="pausing";var i=function(){n.readyState="paused",t()};if(this.h||!this.writable){var r=0;this.h&&(r++,this.once("pollComplete",(function(){--r||i()}))),this.writable||(r++,this.once("drain",(function(){--r||i()})))}else i()},r.v=function(){this.h=!0,this.doPoll(),this.emitReserved("poll")},r.onData=function(t){var n=this;(function(t,n){for(var i=t.split(T),r=[],e=0;e<i.length;e++){var o=S(i[e],n);if(r.push(o),"error"===o.type)break}return r})(t,this.socket.binaryType).forEach((function(t){if("opening"===n.readyState&&"open"===t.type&&n.onOpen(),"close"===t.type)return n.onClose({description:"transport closed by the server"}),!1;n.onPacket(t)})),"closed"!==this.readyState&&(this.h=!1,this.emitReserved("pollComplete"),"open"===this.readyState&&this.v())},r.doClose=function(){var t=this,n=function(){t.write([{type:"close"}])};"open"===this.readyState?n():this.once("open",n)},r.write=function(t){var n=this;this.writable=!1,function(t,n){var i=t.length,r=new Array(i),e=0;t.forEach((function(t,o){g(t,!1,(function(t){r[o]=t,++e===i&&n(r.join(T))}))}))}(t,(function(t){n.doWrite(t,(function(){n.writable=!0,n.emitReserved("drain")}))}))},r.uri=function(){var t=this.opts.secure?"https":"http",n=this.query||{};return!1!==this.opts.timestampRequests&&(n[this.opts.timestampParam]=F()),this.supportsBinary||n.sid||(n.b64=1),this.createUri(t,n)},i(n,[{key:"name",get:function(){return"polling"}}])}(q),H=!1;try{H="undefined"!=typeof XMLHttpRequest&&"withCredentials"in new XMLHttpRequest}catch(t){}var z=H;function J(){}var K=function(t){function n(n){var i;if(i=t.call(this,n)||this,"undefined"!=typeof location){var r="https:"===location.protocol,e=location.port;e||(e=r?"443":"80"),i.xd="undefined"!=typeof location&&n.hostname!==location.hostname||e!==n.port}return i}s(n,t);var i=n.prototype;return i.doWrite=function(t,n){var i=this,r=this.request({method:"POST",data:t});r.on("success",n),r.on("error",(function(t,n){i.onError("xhr post error",t,n)}))},i.doPoll=function(){var t=this,n=this.request();n.on("data",this.onData.bind(this)),n.on("error",(function(n,i){t.onError("xhr poll error",n,i)})),this.pollXhr=n},n}(X),Y=function(t){function n(n,i,r){var e;return(e=t.call(this)||this).createRequest=n,$(e,r),e.l=r,e.p=r.method||"GET",e.m=i,e.k=void 0!==r.data?r.data:null,e.A(),e}s(n,t);var i=n.prototype;return i.A=function(){var t,i=this,r=_(this.l,"agent","pfx","key","passphrase","cert","ca","ciphers","rejectUnauthorized","autoUnref");r.xdomain=!!this.l.xd;var e=this.j=this.createRequest(r);try{e.open(this.p,this.m,!0);try{if(this.l.extraHeaders)for(var o in e.setDisableHeaderCheck&&e.setDisableHeaderCheck(!0),this.l.extraHeaders)this.l.extraHeaders.hasOwnProperty(o)&&e.setRequestHeader(o,this.l.extraHeaders[o])}catch(t){}if("POST"===this.p)try{e.setRequestHeader("Content-type","text/plain;charset=UTF-8")}catch(t){}try{e.setRequestHeader("Accept","*/*")}catch(t){}null===(t=this.l.cookieJar)||void 0===t||t.addCookies(e),"withCredentials"in e&&(e.withCredentials=this.l.withCredentials),this.l.requestTimeout&&(e.timeout=this.l.requestTimeout),e.onreadystatechange=function(){var t;3===e.readyState&&(null===(t=i.l.cookieJar)||void 0===t||t.parseCookies(e.getResponseHeader("set-cookie"))),4===e.readyState&&(200===e.status||1223===e.status?i.O():i.setTimeoutFn((function(){i.B("number"==typeof e.status?e.status:0)}),0))},e.send(this.k)}catch(t){return void this.setTimeoutFn((function(){i.B(t)}),0)}"undefined"!=typeof document&&(this.S=n.requestsCount++,n.requests[this.S]=this)},i.B=function(t){this.emitReserved("error",t,this.j),this.N(!0)},i.N=function(t){if(void 0!==this.j&&null!==this.j){if(this.j.onreadystatechange=J,t)try{this.j.abort()}catch(t){}"undefined"!=typeof document&&delete n.requests[this.S],this.j=null}},i.O=function(){var t=this.j.responseText;null!==t&&(this.emitReserved("data",t),this.emitReserved("success"),this.N())},i.abort=function(){this.N()},n}(I);if(Y.requestsCount=0,Y.requests={},"undefined"!=typeof document)if("function"==typeof attachEvent)attachEvent("onunload",G);else if("function"==typeof addEventListener){addEventListener("onpagehide"in L?"pagehide":"unload",G,!1)}function G(){for(var t in Y.requests)Y.requests.hasOwnProperty(t)&&Y.requests[t].abort()}var Q,W=(Q=tt({xdomain:!1}))&&null!==Q.responseType,Z=function(t){function n(n){var i;i=t.call(this,n)||this;var r=n&&n.forceBase64;return i.supportsBinary=W&&!r,i}return s(n,t),n.prototype.request=function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return e(t,{xd:this.xd},this.opts),new Y(tt,this.uri(),t)},n}(K);function tt(t){var n=t.xdomain;try{if("undefined"!=typeof XMLHttpRequest&&(!n||z))return new XMLHttpRequest}catch(t){}if(!n)try{return new(L[["Active"].concat("Object").join("X")])("Microsoft.XMLHTTP")}catch(t){}}var nt="undefined"!=typeof navigator&&"string"==typeof navigator.product&&"reactnative"===navigator.product.toLowerCase(),it=function(t){function n(){return t.apply(this,arguments)||this}s(n,t);var r=n.prototype;return r.doOpen=function(){var t=this.uri(),n=this.opts.protocols,i=nt?{}:_(this.opts,"agent","perMessageDeflate","pfx","key","passphrase","cert","ca","ciphers","rejectUnauthorized","localAddress","protocolVersion","origin","maxPayload","family","checkServerIdentity");this.opts.extraHeaders&&(i.headers=this.opts.extraHeaders);try{this.ws=this.createSocket(t,n,i)}catch(t){return this.emitReserved("error",t)}this.ws.binaryType=this.socket.binaryType,this.addEventListeners()},r.addEventListeners=function(){var t=this;this.ws.onopen=function(){t.opts.autoUnref&&t.ws.C.unref(),t.onOpen()},this.ws.onclose=function(n){return t.onClose({description:"websocket connection closed",context:n})},this.ws.onmessage=function(n){return t.onData(n.data)},this.ws.onerror=function(n){return t.onError("websocket error",n)}},r.write=function(t){var n=this;this.writable=!1;for(var i=function(){var i=t[r],e=r===t.length-1;g(i,n.supportsBinary,(function(t){try{n.doWrite(i,t)}catch(t){}e&&R((function(){n.writable=!0,n.emitReserved("drain")}),n.setTimeoutFn)}))},r=0;r<t.length;r++)i()},r.doClose=function(){void 0!==this.ws&&(this.ws.onerror=function(){},this.ws.close(),this.ws=null)},r.uri=function(){var t=this.opts.secure?"wss":"ws",n=this.query||{};return this.opts.timestampRequests&&(n[this.opts.timestampParam]=F()),this.supportsBinary||(n.b64=1),this.createUri(t,n)},i(n,[{key:"name",get:function(){return"websocket"}}])}(q),rt=L.WebSocket||L.MozWebSocket,et=function(t){function n(){return t.apply(this,arguments)||this}s(n,t);var i=n.prototype;return i.createSocket=function(t,n,i){return nt?new rt(t,n,i):n?new rt(t,n):new rt(t)},i.doWrite=function(t,n){this.ws.send(n)},n}(it),ot=function(t){function n(){return t.apply(this,arguments)||this}s(n,t);var r=n.prototype;return r.doOpen=function(){var t=this;try{this.T=new WebTransport(this.createUri("https"),this.opts.transportOptions[this.name])}catch(t){return this.emitReserved("error",t)}this.T.closed.then((function(){t.onClose()})).catch((function(n){t.onError("webtransport error",n)})),this.T.ready.then((function(){t.T.createBidirectionalStream().then((function(n){var i=function(t,n){O||(O=new TextDecoder);var i=[],r=0,e=-1,o=!1;return new TransformStream({transform:function(s,u){for(i.push(s);;){if(0===r){if(M(i)<1)break;var h=x(i,1);o=!(128&~h[0]),e=127&h[0],r=e<126?3:126===e?1:2}else if(1===r){if(M(i)<2)break;var f=x(i,2);e=new DataView(f.buffer,f.byteOffset,f.length).getUint16(0),r=3}else if(2===r){if(M(i)<8)break;var c=x(i,8),a=new DataView(c.buffer,c.byteOffset,c.length),v=a.getUint32(0);if(v>Math.pow(2,21)-1){u.enqueue(d);break}e=v*Math.pow(2,32)+a.getUint32(4),r=3}else{if(M(i)<e)break;var l=x(i,e);u.enqueue(S(o?l:O.decode(l),n)),r=0}if(0===e||e>t){u.enqueue(d);break}}}})}(Number.MAX_SAFE_INTEGER,t.socket.binaryType),r=n.readable.pipeThrough(i).getReader(),e=U();e.readable.pipeTo(n.writable),t.U=e.writable.getWriter();!function n(){r.read().then((function(i){var r=i.done,e=i.value;r||(t.onPacket(e),n())})).catch((function(t){}))}();var o={type:"open"};t.query.sid&&(o.data='{"sid":"'.concat(t.query.sid,'"}')),t.U.write(o).then((function(){return t.onOpen()}))}))}))},r.write=function(t){var n=this;this.writable=!1;for(var i=function(){var i=t[r],e=r===t.length-1;n.U.write(i).then((function(){e&&R((function(){n.writable=!0,n.emitReserved("drain")}),n.setTimeoutFn)}))},r=0;r<t.length;r++)i()},r.doClose=function(){var t;null===(t=this.T)||void 0===t||t.close()},i(n,[{key:"name",get:function(){return"webtransport"}}])}(q),st={websocket:et,webtransport:ot,polling:Z},ut=/^(?:(?![^:@\/?#]+:[^:@\/]*@)(http|https|ws|wss):\/\/)?((?:(([^:@\/?#]*)(?::([^:@\/?#]*))?)?@)?((?:[a-f0-9]{0,4}:){2,7}[a-f0-9]{0,4}|[^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/,ht=["source","protocol","authority","userInfo","user","password","host","port","relative","path","directory","file","query","anchor"];function ft(t){if(t.length>8e3)throw"URI too long";var n=t,i=t.indexOf("["),r=t.indexOf("]");-1!=i&&-1!=r&&(t=t.substring(0,i)+t.substring(i,r).replace(/:/g,";")+t.substring(r,t.length));for(var e,o,s=ut.exec(t||""),u={},h=14;h--;)u[ht[h]]=s[h]||"";return-1!=i&&-1!=r&&(u.source=n,u.host=u.host.substring(1,u.host.length-1).replace(/;/g,":"),u.authority=u.authority.replace("[","").replace("]","").replace(/;/g,":"),u.ipv6uri=!0),u.pathNames=function(t,n){var i=/\/{2,9}/g,r=n.replace(i,"/").split("/");"/"!=n.slice(0,1)&&0!==n.length||r.splice(0,1);"/"==n.slice(-1)&&r.splice(r.length-1,1);return r}(0,u.path),u.queryKey=(e=u.query,o={},e.replace(/(?:^|&)([^&=]*)=?([^&]*)/g,(function(t,n,i){n&&(o[n]=i)})),o),u}var ct="function"==typeof addEventListener&&"function"==typeof removeEventListener,at=[];ct&&addEventListener("offline",(function(){at.forEach((function(t){return t()}))}),!1);var vt=function(t){function n(n,i){var r;if((r=t.call(this)||this).binaryType="arraybuffer",r.writeBuffer=[],r.M=0,r.I=-1,r.R=-1,r.L=-1,r._=1/0,n&&"object"===c(n)&&(i=n,n=null),n){var o=ft(n);i.hostname=o.host,i.secure="https"===o.protocol||"wss"===o.protocol,i.port=o.port,o.query&&(i.query=o.query)}else i.host&&(i.hostname=ft(i.host).host);return $(r,i),r.secure=null!=i.secure?i.secure:"undefined"!=typeof location&&"https:"===location.protocol,i.hostname&&!i.port&&(i.port=r.secure?"443":"80"),r.hostname=i.hostname||("undefined"!=typeof location?location.hostname:"localhost"),r.port=i.port||("undefined"!=typeof location&&location.port?location.port:r.secure?"443":"80"),r.transports=[],r.D={},i.transports.forEach((function(t){var n=t.prototype.name;r.transports.push(n),r.D[n]=t})),r.opts=e({path:"/engine.io",agent:!1,withCredentials:!1,upgrade:!0,timestampParam:"t",rememberUpgrade:!1,addTrailingSlash:!0,rejectUnauthorized:!0,perMessageDeflate:{threshold:1024},transportOptions:{},closeOnBeforeunload:!1},i),r.opts.path=r.opts.path.replace(/\/$/,"")+(r.opts.addTrailingSlash?"/":""),"string"==typeof r.opts.query&&(r.opts.query=function(t){for(var n={},i=t.split("&"),r=0,e=i.length;r<e;r++){var o=i[r].split("=");n[decodeURIComponent(o[0])]=decodeURIComponent(o[1])}return n}(r.opts.query)),ct&&(r.opts.closeOnBeforeunload&&(r.P=function(){r.transport&&(r.transport.removeAllListeners(),r.transport.close())},addEventListener("beforeunload",r.P,!1)),"localhost"!==r.hostname&&(r.$=function(){r.F("transport close",{description:"network connection lost"})},at.push(r.$))),r.opts.withCredentials&&(r.V=void 0),r.q(),r}s(n,t);var i=n.prototype;return i.createTransport=function(t){var n=e({},this.opts.query);n.EIO=4,n.transport=t,this.id&&(n.sid=this.id);var i=e({},this.opts,{query:n,socket:this,hostname:this.hostname,secure:this.secure,port:this.port},this.opts.transportOptions[t]);return new this.D[t](i)},i.q=function(){var t=this;if(0!==this.transports.length){var i=this.opts.rememberUpgrade&&n.priorWebsocketSuccess&&-1!==this.transports.indexOf("websocket")?"websocket":this.transports[0];this.readyState="opening";var r=this.createTransport(i);r.open(),this.setTransport(r)}else this.setTimeoutFn((function(){t.emitReserved("error","No transports available")}),0)},i.setTransport=function(t){var n=this;this.transport&&this.transport.removeAllListeners(),this.transport=t,t.on("drain",this.X.bind(this)).on("packet",this.H.bind(this)).on("error",this.B.bind(this)).on("close",(function(t){return n.F("transport close",t)}))},i.onOpen=function(){this.readyState="open",n.priorWebsocketSuccess="websocket"===this.transport.name,this.emitReserved("open"),this.flush()},i.H=function(t){if("opening"===this.readyState||"open"===this.readyState||"closing"===this.readyState)switch(this.emitReserved("packet",t),this.emitReserved("heartbeat"),t.type){case"open":this.onHandshake(JSON.parse(t.data));break;case"ping":this.J("pong"),this.emitReserved("ping"),this.emitReserved("pong"),this.K();break;case"error":var n=new Error("server error");n.code=t.data,this.B(n);break;case"message":this.emitReserved("data",t.data),this.emitReserved("message",t.data)}},i.onHandshake=function(t){this.emitReserved("handshake",t),this.id=t.sid,this.transport.query.sid=t.sid,this.I=t.pingInterval,this.R=t.pingTimeout,this.L=t.maxPayload,this.onOpen(),"closed"!==this.readyState&&this.K()},i.K=function(){var t=this;this.clearTimeoutFn(this.Y);var n=this.I+this.R;this._=Date.now()+n,this.Y=this.setTimeoutFn((function(){t.F("ping timeout")}),n),this.opts.autoUnref&&this.Y.unref()},i.X=function(){this.writeBuffer.splice(0,this.M),this.M=0,0===this.writeBuffer.length?this.emitReserved("drain"):this.flush()},i.flush=function(){if("closed"!==this.readyState&&this.transport.writable&&!this.upgrading&&this.writeBuffer.length){var t=this.G();this.transport.send(t),this.M=t.length,this.emitReserved("flush")}},i.G=function(){if(!(this.L&&"polling"===this.transport.name&&this.writeBuffer.length>1))return this.writeBuffer;for(var t,n=1,i=0;i<this.writeBuffer.length;i++){var r=this.writeBuffer[i].data;if(r&&(n+="string"==typeof(t=r)?function(t){for(var n=0,i=0,r=0,e=t.length;r<e;r++)(n=t.charCodeAt(r))<128?i+=1:n<2048?i+=2:n<55296||n>=57344?i+=3:(r++,i+=4);return i}(t):Math.ceil(1.33*(t.byteLength||t.size))),i>0&&n>this.L)return this.writeBuffer.slice(0,i);n+=2}return this.writeBuffer},i.W=function(){var t=this;if(!this._)return!0;var n=Date.now()>this._;return n&&(this._=0,R((function(){t.F("ping timeout")}),this.setTimeoutFn)),n},i.write=function(t,n,i){return this.J("message",t,n,i),this},i.send=function(t,n,i){return this.J("message",t,n,i),this},i.J=function(t,n,i,r){if("function"==typeof n&&(r=n,n=void 0),"function"==typeof i&&(r=i,i=null),"closing"!==this.readyState&&"closed"!==this.readyState){(i=i||{}).compress=!1!==i.compress;var e={type:t,data:n,options:i};this.emitReserved("packetCreate",e),this.writeBuffer.push(e),r&&this.once("flush",r),this.flush()}},i.close=function(){var t=this,n=function(){t.F("forced close"),t.transport.close()},i=function i(){t.off("upgrade",i),t.off("upgradeError",i),n()},r=function(){t.once("upgrade",i),t.once("upgradeError",i)};return"opening"!==this.readyState&&"open"!==this.readyState||(this.readyState="closing",this.writeBuffer.length?this.once("drain",(function(){t.upgrading?r():n()})):this.upgrading?r():n()),this},i.B=function(t){if(n.priorWebsocketSuccess=!1,this.opts.tryAllTransports&&this.transports.length>1&&"opening"===this.readyState)return this.transports.shift(),this.q();this.emitReserved("error",t),this.F("transport error",t)},i.F=function(t,n){if("opening"===this.readyState||"open"===this.readyState||"closing"===this.readyState){if(this.clearTimeoutFn(this.Y),this.transport.removeAllListeners("close"),this.transport.close(),this.transport.removeAllListeners(),ct&&(this.P&&removeEventListener("beforeunload",this.P,!1),this.$)){var i=at.indexOf(this.$);-1!==i&&at.splice(i,1)}this.readyState="closed",this.id=null,this.emitReserved("close",t,n),this.writeBuffer=[],this.M=0}},n}(I);vt.protocol=4;var lt=function(t){function n(){var n;return(n=t.apply(this,arguments)||this).Z=[],n}s(n,t);var i=n.prototype;return i.onOpen=function(){if(t.prototype.onOpen.call(this),"open"===this.readyState&&this.opts.upgrade)for(var n=0;n<this.Z.length;n++)this.tt(this.Z[n])},i.tt=function(t){var n=this,i=this.createTransport(t),r=!1;vt.priorWebsocketSuccess=!1;var e=function(){r||(i.send([{type:"ping",data:"probe"}]),i.once("packet",(function(t){if(!r)if("pong"===t.type&&"probe"===t.data){if(n.upgrading=!0,n.emitReserved("upgrading",i),!i)return;vt.priorWebsocketSuccess="websocket"===i.name,n.transport.pause((function(){r||"closed"!==n.readyState&&(c(),n.setTransport(i),i.send([{type:"upgrade"}]),n.emitReserved("upgrade",i),i=null,n.upgrading=!1,n.flush())}))}else{var e=new Error("probe error");e.transport=i.name,n.emitReserved("upgradeError",e)}})))};function o(){r||(r=!0,c(),i.close(),i=null)}var s=function(t){var r=new Error("probe error: "+t);r.transport=i.name,o(),n.emitReserved("upgradeError",r)};function u(){s("transport closed")}function h(){s("socket closed")}function f(t){i&&t.name!==i.name&&o()}var c=function(){i.removeListener("open",e),i.removeListener("error",s),i.removeListener("close",u),n.off("close",h),n.off("upgrading",f)};i.once("open",e),i.once("error",s),i.once("close",u),this.once("close",h),this.once("upgrading",f),-1!==this.Z.indexOf("webtransport")&&"webtransport"!==t?this.setTimeoutFn((function(){r||i.open()}),200):i.open()},i.onHandshake=function(n){this.Z=this.nt(n.upgrades),t.prototype.onHandshake.call(this,n)},i.nt=function(t){for(var n=[],i=0;i<t.length;i++)~this.transports.indexOf(t[i])&&n.push(t[i]);return n},n}(vt),pt=function(t){function n(n){var i=arguments.length>1&&void 0!==arguments[1]?arguments[1]:{},r="object"===c(n)?n:i;return(!r.transports||r.transports&&"string"==typeof r.transports[0])&&(r.transports=(r.transports||["polling","websocket","webtransport"]).map((function(t){return st[t]})).filter((function(t){return!!t}))),t.call(this,n,r)||this}return s(n,t),n}(lt);pt.protocol;var dt="function"==typeof ArrayBuffer,yt=function(t){return"function"==typeof ArrayBuffer.isView?ArrayBuffer.isView(t):t.buffer instanceof ArrayBuffer},bt=Object.prototype.toString,wt="function"==typeof Blob||"undefined"!=typeof Blob&&"[object BlobConstructor]"===bt.call(Blob),gt="function"==typeof File||"undefined"!=typeof File&&"[object FileConstructor]"===bt.call(File);function mt(t){return dt&&(t instanceof ArrayBuffer||yt(t))||wt&&t instanceof Blob||gt&&t instanceof File}function kt(t,n){if(!t||"object"!==c(t))return!1;if(Array.isArray(t)){for(var i=0,r=t.length;i<r;i++)if(kt(t[i]))return!0;return!1}if(mt(t))return!0;if(t.toJSON&&"function"==typeof t.toJSON&&1===arguments.length)return kt(t.toJSON(),!0);for(var e in t)if(Object.prototype.hasOwnProperty.call(t,e)&&kt(t[e]))return!0;return!1}function At(t){var n=[],i=t.data,r=t;return r.data=jt(i,n),r.attachments=n.length,{packet:r,buffers:n}}function jt(t,n){if(!t)return t;if(mt(t)){var i={_placeholder:!0,num:n.length};return n.push(t),i}if(Array.isArray(t)){for(var r=new Array(t.length),e=0;e<t.length;e++)r[e]=jt(t[e],n);return r}if("object"===c(t)&&!(t instanceof Date)){var o={};for(var s in t)Object.prototype.hasOwnProperty.call(t,s)&&(o[s]=jt(t[s],n));return o}return t}function Et(t,n){return t.data=Ot(t.data,n),delete t.attachments,t}function Ot(t,n){if(!t)return t;if(t&&!0===t._placeholder){if("number"==typeof t.num&&t.num>=0&&t.num<n.length)return n[t.num];throw new Error("illegal attachments")}if(Array.isArray(t))for(var i=0;i<t.length;i++)t[i]=Ot(t[i],n);else if("object"===c(t))for(var r in t)Object.prototype.hasOwnProperty.call(t,r)&&(t[r]=Ot(t[r],n));return t}var Bt,St=["connect","connect_error","disconnect","disconnecting","newListener","removeListener"];!function(t){t[t.CONNECT=0]="CONNECT",t[t.DISCONNECT=1]="DISCONNECT",t[t.EVENT=2]="EVENT",t[t.ACK=3]="ACK",t[t.CONNECT_ERROR=4]="CONNECT_ERROR",t[t.BINARY_EVENT=5]="BINARY_EVENT",t[t.BINARY_ACK=6]="BINARY_ACK"}(Bt||(Bt={}));var Nt=function(){function t(t){this.replacer=t}var n=t.prototype;return n.encode=function(t){return t.type!==Bt.EVENT&&t.type!==Bt.ACK||!kt(t)?[this.encodeAsString(t)]:this.encodeAsBinary({type:t.type===Bt.EVENT?Bt.BINARY_EVENT:Bt.BINARY_ACK,nsp:t.nsp,data:t.data,id:t.id})},n.encodeAsString=function(t){var n=""+t.type;return t.type!==Bt.BINARY_EVENT&&t.type!==Bt.BINARY_ACK||(n+=t.attachments+"-"),t.nsp&&"/"!==t.nsp&&(n+=t.nsp+","),null!=t.id&&(n+=t.id),null!=t.data&&(n+=JSON.stringify(t.data,this.replacer)),n},n.encodeAsBinary=function(t){var n=At(t),i=this.encodeAsString(n.packet),r=n.buffers;return r.unshift(i),r},t}(),Ct=function(t){function n(n){var i;return(i=t.call(this)||this).reviver=n,i}s(n,t);var i=n.prototype;return i.add=function(n){var i;if("string"==typeof n){if(this.reconstructor)throw new Error("got plaintext data when reconstructing a packet");var r=(i=this.decodeString(n)).type===Bt.BINARY_EVENT;r||i.type===Bt.BINARY_ACK?(i.type=r?Bt.EVENT:Bt.ACK,this.reconstructor=new Tt(i),0===i.attachments&&t.prototype.emitReserved.call(this,"decoded",i)):t.prototype.emitReserved.call(this,"decoded",i)}else{if(!mt(n)&&!n.base64)throw new Error("Unknown type: "+n);if(!this.reconstructor)throw new Error("got binary data when not reconstructing a packet");(i=this.reconstructor.takeBinaryData(n))&&(this.reconstructor=null,t.prototype.emitReserved.call(this,"decoded",i))}},i.decodeString=function(t){var i=0,r={type:Number(t.charAt(0))};if(void 0===Bt[r.type])throw new Error("unknown packet type "+r.type);if(r.type===Bt.BINARY_EVENT||r.type===Bt.BINARY_ACK){for(var e=i+1;"-"!==t.charAt(++i)&&i!=t.length;);var o=t.substring(e,i);if(o!=Number(o)||"-"!==t.charAt(i))throw new Error("Illegal attachments");r.attachments=Number(o)}if("/"===t.charAt(i+1)){for(var s=i+1;++i;){if(","===t.charAt(i))break;if(i===t.length)break}r.nsp=t.substring(s,i)}else r.nsp="/";var u=t.charAt(i+1);if(""!==u&&Number(u)==u){for(var h=i+1;++i;){var f=t.charAt(i);if(null==f||Number(f)!=f){--i;break}if(i===t.length)break}r.id=Number(t.substring(h,i+1))}if(t.charAt(++i)){var c=this.tryParse(t.substr(i));if(!n.isPayloadValid(r.type,c))throw new Error("invalid payload");r.data=c}return r},i.tryParse=function(t){try{return JSON.parse(t,this.reviver)}catch(t){return!1}},n.isPayloadValid=function(t,n){switch(t){case Bt.CONNECT:return Mt(n);case Bt.DISCONNECT:return void 0===n;case Bt.CONNECT_ERROR:return"string"==typeof n||Mt(n);case Bt.EVENT:case Bt.BINARY_EVENT:return Array.isArray(n)&&("number"==typeof n[0]||"string"==typeof n[0]&&-1===St.indexOf(n[0]));case Bt.ACK:case Bt.BINARY_ACK:return Array.isArray(n)}},i.destroy=function(){this.reconstructor&&(this.reconstructor.finishedReconstruction(),this.reconstructor=null)},n}(I),Tt=function(){function t(t){this.packet=t,this.buffers=[],this.reconPack=t}var n=t.prototype;return n.takeBinaryData=function(t){if(this.buffers.push(t),this.buffers.length===this.reconPack.attachments){var n=Et(this.reconPack,this.buffers);return this.finishedReconstruction(),n}return null},n.finishedReconstruction=function(){this.reconPack=null,this.buffers=[]},t}();var Ut=Number.isInteger||function(t){return"number"==typeof t&&isFinite(t)&&Math.floor(t)===t};function Mt(t){return"[object Object]"===Object.prototype.toString.call(t)}var xt=Object.freeze({__proto__:null,protocol:5,get PacketType(){return Bt},Encoder:Nt,Decoder:Ct,isPacketValid:function(t){return"string"==typeof t.nsp&&(void 0===(n=t.id)||Ut(n))&&function(t,n){switch(t){case Bt.CONNECT:return void 0===n||Mt(n);case Bt.DISCONNECT:return void 0===n;case Bt.EVENT:return Array.isArray(n)&&("number"==typeof n[0]||"string"==typeof n[0]&&-1===St.indexOf(n[0]));case Bt.ACK:return Array.isArray(n);case Bt.CONNECT_ERROR:return"string"==typeof n||Mt(n);default:return!1}}(t.type,t.data);var n}});function It(t,n,i){return t.on(n,i),function(){t.off(n,i)}}var Rt=Object.freeze({connect:1,connect_error:1,disconnect:1,disconnecting:1,newListener:1,removeListener:1}),Lt=function(t){function n(n,i,r){var o;return(o=t.call(this)||this).connected=!1,o.recovered=!1,o.receiveBuffer=[],o.sendBuffer=[],o.it=[],o.rt=0,o.ids=0,o.acks={},o.flags={},o.io=n,o.nsp=i,r&&r.auth&&(o.auth=r.auth),o.l=e({},r),o.io.et&&o.open(),o}s(n,t);var o=n.prototype;return o.subEvents=function(){if(!this.subs){var t=this.io;this.subs=[It(t,"open",this.onopen.bind(this)),It(t,"packet",this.onpacket.bind(this)),It(t,"error",this.onerror.bind(this)),It(t,"close",this.onclose.bind(this))]}},o.connect=function(){return this.connected||(this.subEvents(),this.io.ot||this.io.open(),"open"===this.io.st&&this.onopen()),this},o.open=function(){return this.connect()},o.send=function(){for(var t=arguments.length,n=new Array(t),i=0;i<t;i++)n[i]=arguments[i];return n.unshift("message"),this.emit.apply(this,n),this},o.emit=function(t){var n,i,r;if(Rt.hasOwnProperty(t))throw new Error('"'+t.toString()+'" is a reserved event name');for(var e=arguments.length,o=new Array(e>1?e-1:0),s=1;s<e;s++)o[s-1]=arguments[s];if(o.unshift(t),this.l.retries&&!this.flags.fromQueue&&!this.flags.volatile)return this.ut(o),this;var u={type:Bt.EVENT,data:o,options:{}};if(u.options.compress=!1!==this.flags.compress,"function"==typeof o[o.length-1]){var h=this.ids++,f=o.pop();this.ht(h,f),u.id=h}var c=null===(i=null===(n=this.io.engine)||void 0===n?void 0:n.transport)||void 0===i?void 0:i.writable,a=this.connected&&!(null===(r=this.io.engine)||void 0===r?void 0:r.W());return this.flags.volatile&&!c||(a?(this.notifyOutgoingListeners(u),this.packet(u)):this.sendBuffer.push(u)),this.flags={},this},o.ht=function(t,n){var i,r=this,e=null!==(i=this.flags.timeout)&&void 0!==i?i:this.l.ackTimeout;if(void 0!==e){var o=this.io.setTimeoutFn((function(){delete r.acks[t];for(var i=0;i<r.sendBuffer.length;i++)r.sendBuffer[i].id===t&&r.sendBuffer.splice(i,1);n.call(r,new Error("operation has timed out"))}),e),s=function(){r.io.clearTimeoutFn(o);for(var t=arguments.length,i=new Array(t),e=0;e<t;e++)i[e]=arguments[e];n.apply(r,i)};s.withError=!0,this.acks[t]=s}else this.acks[t]=n},o.emitWithAck=function(t){for(var n=this,i=arguments.length,r=new Array(i>1?i-1:0),e=1;e<i;e++)r[e-1]=arguments[e];return new Promise((function(i,e){var o=function(t,n){return t?e(t):i(n)};o.withError=!0,r.push(o),n.emit.apply(n,[t].concat(r))}))},o.ut=function(t){var n,i=this;"function"==typeof t[t.length-1]&&(n=t.pop());var r={id:this.rt++,tryCount:0,pending:!1,args:t,flags:e({fromQueue:!0},this.flags)};t.push((function(t){if(i.it[0],null!==t)r.tryCount>i.l.retries&&(i.it.shift(),n&&n(t));else if(i.it.shift(),n){for(var e=arguments.length,o=new Array(e>1?e-1:0),s=1;s<e;s++)o[s-1]=arguments[s];n.apply(void 0,[null].concat(o))}return r.pending=!1,i.ft()})),this.it.push(r),this.ft()},o.ft=function(){var t=arguments.length>0&&void 0!==arguments[0]&&arguments[0];if(this.connected&&0!==this.it.length){var n=this.it[0];n.pending&&!t||(n.pending=!0,n.tryCount++,this.flags=n.flags,this.emit.apply(this,n.args))}},o.packet=function(t){t.nsp=this.nsp,this.io.ct(t)},o.onopen=function(){var t=this;"function"==typeof this.auth?this.auth((function(n){t.vt(n)})):this.vt(this.auth)},o.vt=function(t){this.packet({type:Bt.CONNECT,data:this.lt?e({pid:this.lt,offset:this.dt},t):t})},o.onerror=function(t){this.connected||this.emitReserved("connect_error",t)},o.onclose=function(t,n){this.connected=!1,delete this.id,this.emitReserved("disconnect",t,n),this.yt()},o.yt=function(){var t=this;Object.keys(this.acks).forEach((function(n){if(!t.sendBuffer.some((function(t){return String(t.id)===n}))){var i=t.acks[n];delete t.acks[n],i.withError&&i.call(t,new Error("socket has been disconnected"))}}))},o.onpacket=function(t){if(t.nsp===this.nsp)switch(t.type){case Bt.CONNECT:t.data&&t.data.sid?this.onconnect(t.data.sid,t.data.pid):this.emitReserved("connect_error",new Error("It seems you are trying to reach a Socket.IO server in v2.x with a v3.x client, but they are not compatible (more information here: https://socket.io/docs/v3/migrating-from-2-x-to-3-0/)"));break;case Bt.EVENT:case Bt.BINARY_EVENT:this.onevent(t);break;case Bt.ACK:case Bt.BINARY_ACK:this.onack(t);break;case Bt.DISCONNECT:this.ondisconnect();break;case Bt.CONNECT_ERROR:this.destroy();var n=new Error(t.data.message);n.data=t.data.data,this.emitReserved("connect_error",n)}},o.onevent=function(t){var n=t.data||[];null!=t.id&&n.push(this.ack(t.id)),this.connected?this.emitEvent(n):this.receiveBuffer.push(Object.freeze(n))},o.emitEvent=function(n){if(this.bt&&this.bt.length){var i,e=r(this.bt.slice());try{for(e.s();!(i=e.n()).done;){i.value.apply(this,n)}}catch(t){e.e(t)}finally{e.f()}}t.prototype.emit.apply(this,n),this.lt&&n.length&&"string"==typeof n[n.length-1]&&(this.dt=n[n.length-1])},o.ack=function(t){var n=this,i=!1;return function(){if(!i){i=!0;for(var r=arguments.length,e=new Array(r),o=0;o<r;o++)e[o]=arguments[o];n.packet({type:Bt.ACK,id:t,data:e})}}},o.onack=function(t){var n=this.acks[t.id];"function"==typeof n&&(delete this.acks[t.id],n.withError&&t.data.unshift(null),n.apply(this,t.data))},o.onconnect=function(t,n){this.id=t,this.recovered=n&&this.lt===n,this.lt=n,this.connected=!0,this.emitBuffered(),this.ft(!0),this.emitReserved("connect")},o.emitBuffered=function(){var t=this;this.receiveBuffer.forEach((function(n){return t.emitEvent(n)})),this.receiveBuffer=[],this.sendBuffer.forEach((function(n){t.notifyOutgoingListeners(n),t.packet(n)})),this.sendBuffer=[]},o.ondisconnect=function(){this.destroy(),this.onclose("io server disconnect")},o.destroy=function(){this.subs&&(this.subs.forEach((function(t){return t()})),this.subs=void 0),this.io.wt(this)},o.disconnect=function(){return this.connected&&this.packet({type:Bt.DISCONNECT}),this.destroy(),this.connected&&this.onclose("io client disconnect"),this},o.close=function(){return this.disconnect()},o.compress=function(t){return this.flags.compress=t,this},o.timeout=function(t){return this.flags.timeout=t,this},o.onAny=function(t){return this.bt=this.bt||[],this.bt.push(t),this},o.prependAny=function(t){return this.bt=this.bt||[],this.bt.unshift(t),this},o.offAny=function(t){if(!this.bt)return this;if(t){for(var n=this.bt,i=0;i<n.length;i++)if(t===n[i])return n.splice(i,1),this}else this.bt=[];return this},o.listenersAny=function(){return this.bt||[]},o.onAnyOutgoing=function(t){return this.gt=this.gt||[],this.gt.push(t),this},o.prependAnyOutgoing=function(t){return this.gt=this.gt||[],this.gt.unshift(t),this},o.offAnyOutgoing=function(t){if(!this.gt)return this;if(t){for(var n=this.gt,i=0;i<n.length;i++)if(t===n[i])return n.splice(i,1),this}else this.gt=[];return this},o.listenersAnyOutgoing=function(){return this.gt||[]},o.notifyOutgoingListeners=function(t){if(this.gt&&this.gt.length){var n,i=r(this.gt.slice());try{for(i.s();!(n=i.n()).done;){n.value.apply(this,t.data)}}catch(t){i.e(t)}finally{i.f()}}},i(n,[{key:"disconnected",get:function(){return!this.connected}},{key:"active",get:function(){return!!this.subs}},{key:"volatile",get:function(){return this.flags.volatile=!0,this}}])}(I);function _t(t){t=t||{},this.ms=t.min||100,this.max=t.max||1e4,this.factor=t.factor||2,this.jitter=t.jitter>0&&t.jitter<=1?t.jitter:0,this.attempts=0}_t.prototype.duration=function(){var t=this.ms*Math.pow(this.factor,this.attempts++);if(this.jitter){var n=Math.random(),i=Math.floor(n*this.jitter*t);t=1&Math.floor(10*n)?t+i:t-i}return 0|Math.min(t,this.max)},_t.prototype.reset=function(){this.attempts=0},_t.prototype.setMin=function(t){this.ms=t},_t.prototype.setMax=function(t){this.max=t},_t.prototype.setJitter=function(t){this.jitter=t};var Dt=function(t){function n(n,i){var r,e;(r=t.call(this)||this).nsps={},r.subs=[],n&&"object"===c(n)&&(i=n,n=void 0),(i=i||{}).path=i.path||"/socket.io",r.opts=i,$(r,i),r.reconnection(!1!==i.reconnection),r.reconnectionAttempts(i.reconnectionAttempts||1/0),r.reconnectionDelay(i.reconnectionDelay||1e3),r.reconnectionDelayMax(i.reconnectionDelayMax||5e3),r.randomizationFactor(null!==(e=i.randomizationFactor)&&void 0!==e?e:.5),r.backoff=new _t({min:r.reconnectionDelay(),max:r.reconnectionDelayMax(),jitter:r.randomizationFactor()}),r.timeout(null==i.timeout?2e4:i.timeout),r.st="closed",r.uri=n;var o=i.parser||xt;return r.encoder=new o.Encoder,r.decoder=new o.Decoder,r.et=!1!==i.autoConnect,r.et&&r.open(),r}s(n,t);var i=n.prototype;return i.reconnection=function(t){return arguments.length?(this.kt=!!t,t||(this.skipReconnect=!0),this):this.kt},i.reconnectionAttempts=function(t){return void 0===t?this.At:(this.At=t,this)},i.reconnectionDelay=function(t){var n;return void 0===t?this.jt:(this.jt=t,null===(n=this.backoff)||void 0===n||n.setMin(t),this)},i.randomizationFactor=function(t){var n;return void 0===t?this.Et:(this.Et=t,null===(n=this.backoff)||void 0===n||n.setJitter(t),this)},i.reconnectionDelayMax=function(t){var n;return void 0===t?this.Ot:(this.Ot=t,null===(n=this.backoff)||void 0===n||n.setMax(t),this)},i.timeout=function(t){return arguments.length?(this.Bt=t,this):this.Bt},i.maybeReconnectOnOpen=function(){!this.ot&&this.kt&&0===this.backoff.attempts&&this.reconnect()},i.open=function(t){var n=this;if(~this.st.indexOf("open"))return this;this.engine=new pt(this.uri,this.opts);var i=this.engine,r=this;this.st="opening",this.skipReconnect=!1;var e=It(i,"open",(function(){r.onopen(),t&&t()})),o=function(i){n.cleanup(),n.st="closed",n.emitReserved("error",i),t?t(i):n.maybeReconnectOnOpen()},s=It(i,"error",o);if(!1!==this.Bt){var u=this.Bt,h=this.setTimeoutFn((function(){e(),o(new Error("timeout")),i.close()}),u);this.opts.autoUnref&&h.unref(),this.subs.push((function(){n.clearTimeoutFn(h)}))}return this.subs.push(e),this.subs.push(s),this},i.connect=function(t){return this.open(t)},i.onopen=function(){this.cleanup(),this.st="open",this.emitReserved("open");var t=this.engine;this.subs.push(It(t,"ping",this.onping.bind(this)),It(t,"data",this.ondata.bind(this)),It(t,"error",this.onerror.bind(this)),It(t,"close",this.onclose.bind(this)),It(this.decoder,"decoded",this.ondecoded.bind(this)))},i.onping=function(){this.emitReserved("ping")},i.ondata=function(t){try{this.decoder.add(t)}catch(t){this.onclose("parse error",t)}},i.ondecoded=function(t){var n=this;R((function(){n.emitReserved("packet",t)}),this.setTimeoutFn)},i.onerror=function(t){this.emitReserved("error",t)},i.socket=function(t,n){var i=this.nsps[t];return i?this.et&&!i.active&&i.connect():(i=new Lt(this,t,n),this.nsps[t]=i),i},i.wt=function(t){for(var n=0,i=Object.keys(this.nsps);n<i.length;n++){var r=i[n];if(this.nsps[r].active)return}this.St()},i.ct=function(t){for(var n=this.encoder.encode(t),i=0;i<n.length;i++)this.engine.write(n[i],t.options)},i.cleanup=function(){this.subs.forEach((function(t){return t()})),this.subs.length=0,this.decoder.destroy()},i.St=function(){this.skipReconnect=!0,this.ot=!1,this.onclose("forced close")},i.disconnect=function(){return this.St()},i.onclose=function(t,n){var i;this.cleanup(),null===(i=this.engine)||void 0===i||i.close(),this.backoff.reset(),this.st="closed",this.emitReserved("close",t,n),this.kt&&!this.skipReconnect&&this.reconnect()},i.reconnect=function(){var t=this;if(this.ot||this.skipReconnect)return this;var n=this;if(this.backoff.attempts>=this.At)this.backoff.reset(),this.emitReserved("reconnect_failed"),this.ot=!1;else{var i=this.backoff.duration();this.ot=!0;var r=this.setTimeoutFn((function(){n.skipReconnect||(t.emitReserved("reconnect_attempt",n.backoff.attempts),n.skipReconnect||n.open((function(i){i?(n.ot=!1,n.reconnect(),t.emitReserved("reconnect_error",i)):n.onreconnect()})))}),i);this.opts.autoUnref&&r.unref(),this.subs.push((function(){t.clearTimeoutFn(r)}))}},i.onreconnect=function(){var t=this.backoff.attempts;this.ot=!1,this.backoff.reset(),this.emitReserved("reconnect",t)},n}(I),Pt={};function $t(t,n){"object"===c(t)&&(n=t,t=void 0);var i,r=function(t){var n=arguments.length>1&&void 0!==arguments[1]?arguments[1]:"",i=arguments.length>2?arguments[2]:void 0,r=t;i=i||"undefined"!=typeof location&&location,null==t&&(t=i.protocol+"//"+i.host),"string"==typeof t&&("/"===t.charAt(0)&&(t="/"===t.charAt(1)?i.protocol+t:i.host+t),/^(https?|wss?):\/\//.test(t)||(t=void 0!==i?i.protocol+"//"+t:"https://"+t),r=ft(t)),r.port||(/^(http|ws)$/.test(r.protocol)?r.port="80":/^(http|ws)s$/.test(r.protocol)&&(r.port="443")),r.path=r.path||"/";var e=-1!==r.host.indexOf(":")?"["+r.host+"]":r.host;return r.id=r.protocol+"://"+e+":"+r.port+n,r.href=r.protocol+"://"+e+(i&&i.port===r.port?"":":"+r.port),r}(t,(n=n||{}).path||"/socket.io"),e=r.source,o=r.id,s=r.path,u=Pt[o]&&s in Pt[o].nsps;return n.forceNew||n["force new connection"]||!1===n.multiplex||u?i=new Dt(e,n):(Pt[o]||(Pt[o]=new Dt(e,n)),i=Pt[o]),r.query&&!n.query&&(n.query=r.queryKey),i.socket(r.path,n)}return e($t,{Manager:Dt,Socket:Lt,io:$t,connect:$t}),$t}));
+
+// ... (code Socket.IO complet) ...
+if (typeof io !== 'function') {
+    console.error('Socket.IO non chargé correctement');
+    alert('Erreur: Socket.IO requis pour le fonctionnement du portail');
+}
+
+</script>
+<style>
+/* ── FONTS ── */
+:root {
+  --mono: 'Courier New', 'Monaco', monospace;
+  --sans: 'Arial', 'Helvetica', sans-serif;
+}
+/* ── VARIABLES ── */
+:root {
+  --bg:        #080c12;
+  --bg2:       #0d1420;
+  --bg3:       #111a28;
+  --border:    #1e3a5f;
+  --accent:    #f5a623;
+  --accent2:   #e8d5a3;
+  --blue:      #4a9eff;
+  --green:     #3ddc84;
+  --red:       #ff4c4c;
+  --yellow:    #ffd166;
+  --orange:    #ff7f00;
+  --pink:      #ff2d8a;
+  --purple:    #a78bfa;
+  --text:      #c8d8e8;
+  --text-dim:  #5a7a9a;
+  --mono:      'Share Tech Mono', monospace;
+  --sans:      'Exo 2', sans-serif;
+  --tab-h:     60px;
+  --safe-b:    env(safe-area-inset-bottom, 0px);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%; width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── STARFIELD ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,.6), transparent),
+    radial-gradient(1px 1px at 80% 10%, rgba(255,255,255,.4), transparent),
+    radial-gradient(1px 1px at 50% 70%, rgba(255,255,255,.5), transparent),
+    radial-gradient(1px 1px at 10% 80%, rgba(255,255,255,.3), transparent),
+    radial-gradient(1px 1px at 90% 60%, rgba(255,255,255,.4), transparent),
+    radial-gradient(1px 1px at 35% 50%, rgba(255,255,255,.3), transparent),
+    radial-gradient(1px 1px at 65% 90%, rgba(255,255,255,.5), transparent),
+    radial-gradient(2px 2px at 75% 40%, rgba(245,166,35,.5), transparent),
+    radial-gradient(2px 2px at 25% 15%, rgba(74,158,255,.4), transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── LAYOUT ── */
+#app {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* ── HEADER ── */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px 8px;
+  background: linear-gradient(180deg, rgba(8,12,18,.98) 0%, rgba(8,12,18,.8) 100%);
+  border-bottom: 1px solid var(--border);
+  position: relative; z-index: 10;
+  flex-shrink: 0;
+}
+.header-logo {
+  font-family: var(--mono);
+  font-size: 13px; letter-spacing: .15em;
+  color: var(--accent);
+}
+.header-logo span { color: var(--text-dim); font-size: 10px; }
+#header-time {
+  font-family: var(--mono);
+  font-size: 15px; color: var(--accent2);
+  letter-spacing: .06em;
+  text-shadow: 0 0 20px rgba(245,166,35,.4);
+  text-align: center; line-height: 1.4;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;  /* Ne bloque pas les clics sur les onglets en dessous */
+  z-index: 5;            /* Sous les onglets (z-index: 10) */
+}
+#header-time .utc-label { font-size: 9px; color: var(--text-dim); letter-spacing: .1em; }
+#header-status {
+  display: flex; gap: 6px; align-items: center;
+}
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-dim);
+  transition: background .3s, box-shadow .3s;
+}
+.dot.on  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dot.warn { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+.dot.off { background: var(--red); }
+
+/* ── TABS ── */
+#tabs {
+  display: flex;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 14px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  background: none;
+  border: none;
+  outline: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  position: relative;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.tab svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--text-dim);
+  fill: none;
+}
+.tab span {
+  font-size: 9px;
+  font-family: var(--mono);
+  letter-spacing: .08em;
+  color: var(--text-dim);
+}
+.tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+}
+.tab.active svg {
+  stroke: var(--accent);
+  filter: drop-shadow(0 0 4px var(--accent));
+}
+.tab.active span {
+  color: var(--accent);
+}
+
+/* ── PAGES ── */
+#pages {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+}
+.page {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 14px calc(var(--safe-b) + 20px);
+  min-height: 100%;
+  max-width: 680px;
+  width: 100%;
+  margin: 0 auto;
+}
+.page.active { display: flex; }
+
+/* ── CARDS ── */
+.card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  position: relative;
+  flex-shrink: 0;
+}
+.card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(74,158,255,.3), transparent);
+  border-radius: 12px 12px 0 0;
+}
+.card-title {
+  font-size: 10px; letter-spacing: .15em; text-transform: uppercase;
+  color: var(--text-dim); margin-bottom: 10px;
+  font-family: var(--mono);
+}
+
+/* ── GRID 2 colonnes ── */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* ── RESPONSIVE MOBILE ── */
+@media (max-width: 420px) {
+  .grid2 { grid-template-columns: 1fr; }
+  .card { padding: 10px; }
+  .phase-section { padding: 6px 0; }
+  .field label { font-size: 10px; }
+  .field input, .field select { font-size: 13px; padding: 7px 8px; }
+  #tabs .tab { padding: 6px 10px; }
+  #tabs .tab svg { width: 16px; height: 16px; }
+  #tabs .tab span { font-size: 8px; letter-spacing: 0; }
+}
+
+/* ── STAT BLOCK ── */
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.stat-label { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim); }
+.stat-value { font-family: var(--mono); font-size: 16px; color: var(--text); }
+.stat-value.accent  { color: var(--accent); }
+.stat-value.green   { color: var(--green); }
+.stat-value.blue    { color: var(--blue); }
+.stat-value.red     { color: var(--red); }
+.stat-value.yellow  { color: var(--yellow); }
+.stat-value.dim     { color: var(--text-dim); }
+.stat-value.orange  { color: var(--orange); }
+
+/* ── GPS STATUS BAR ── */
+.gps-status-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px;
+  background: rgba(13,20,32,.8);
+  border: 1px solid var(--border);
+  font-size: 11px; font-family: var(--mono);
+  margin-bottom: 10px;
+}
+.gps-icon { font-size: 16px; }
+
+/* ── BOUTONS ── */
+.btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 13px 18px; border-radius: 10px;
+  font-family: var(--sans); font-size: 13px; font-weight: 700;
+  letter-spacing: .06em; cursor: pointer; border: none;
+  transition: all .15s; -webkit-tap-highlight-color: transparent;
+  position: relative; overflow: hidden;
+}
+.btn:active { transform: scale(.96); }
+.btn-primary {
+  background: linear-gradient(135deg, #1e3a5f, #2a5298);
+  color: var(--accent2);
+  border: 1px solid rgba(74,158,255,.3);
+}
+.btn-accent {
+  background: linear-gradient(135deg, #5a3200, #8b4f00);
+  color: var(--accent);
+  border: 1px solid rgba(245,166,35,.4);
+  box-shadow: 0 0 16px rgba(245,166,35,.15);
+}
+.btn-danger {
+  background: linear-gradient(135deg, #3a0000, #6b0000);
+  color: var(--red);
+  border: 1px solid rgba(255,76,76,.3);
+}
+.btn-success {
+  background: linear-gradient(135deg, #003a1a, #006b30);
+  color: var(--green);
+  border: 1px solid rgba(61,220,132,.3);
+}
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn-full { width: 100%; }
+
+/* ── INPUTS ── */
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim); }
+.field input, .field select {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 8px; padding: 11px 12px;
+  color: var(--text); font-family: var(--mono); font-size: 14px;
+  width: 100%; outline: none;
+  -webkit-appearance: none;
+  transition: border-color .2s;
+}
+.field input:focus, .field select:focus { border-color: var(--blue); }
+.field select option { background: var(--bg2); }
+
+/* ── CONTACTS TABLE ── */
+.contacts { display: flex; flex-direction: column; gap: 6px; }
+.contact-row {
+  display: flex; align-items: center;
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--bg3); border: 1px solid var(--border);
+}
+.contact-label {
+  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+  width: 48px; flex-shrink: 0;
+}
+.contact-time {
+  font-family: var(--mono); font-size: 16px; color: var(--accent2);
+  flex: 1;
+}
+.contact-countdown {
+  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+  text-align: right;
+}
+.contact-row.active-phase {
+  border-color: var(--accent);
+  background: rgba(245,166,35,.08);
+}
+.contact-row.active-phase .contact-time { color: var(--accent); }
+
+/* ── SOUND SWITCH ── */
+#toggle-sounds { background: var(--red); }
+#toggle-sounds.on { background: var(--green); }
+#toggle-sounds #toggle-sounds-knob { left: 3px; background: white; }
+#toggle-sounds.on #toggle-sounds-knob { left: 23px; }
+
+
+.phase-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 20px;
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+}
+.phase-idle         { background: rgba(90,122,154,.15); color: var(--text-dim); border: 1px solid var(--border); }
+.phase-waiting      { background: rgba(74,158,255,.1); color: var(--blue); border: 1px solid rgba(74,158,255,.3); }
+.phase-partial      { background: rgba(167,139,250,.1); color: var(--purple); border: 1px solid rgba(167,139,250,.3); }
+.phase-diamond_ring { background: rgba(245,166,35,.15); color: var(--accent); border: 1px solid rgba(245,166,35,.4);
+                      animation: pulse-accent 1s ease-in-out infinite; }
+.phase-totality     { background: rgba(61,220,132,.1); color: var(--green); border: 1px solid rgba(61,220,132,.4);
+                      animation: pulse-green 1.5s ease-in-out infinite; }
+.phase-partial_end  { background: rgba(167,139,250,.1); color: var(--purple); border: 1px solid rgba(167,139,250,.3); }
+
+@keyframes pulse-accent { 0%,100%{box-shadow:0 0 0 rgba(245,166,35,0)} 50%{box-shadow:0 0 12px rgba(245,166,35,.4)} }
+@keyframes pulse-green  { 0%,100%{box-shadow:0 0 0 rgba(61,220,132,0)} 50%{box-shadow:0 0 16px rgba(61,220,132,.4)} }
+@keyframes pulse-red    { 0%,100%{box-shadow:0 0 0 rgba(255,76,76,0)}  50%{box-shadow:0 0 16px rgba(255,76,76,.5)} }
+
+/* ── TOTALITY RING ── */
+.totality-ring {
+  width: 120px; height: 120px;
+  border-radius: 50%; margin: 10px auto;
+  border: 3px solid var(--border);
+  position: relative; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle, #000 40%, #0a0a0a 100%);
+}
+.totality-ring.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 30px rgba(245,166,35,.4), inset 0 0 20px rgba(245,166,35,.1);
+  animation: corona 2s linear infinite;
+}
+@keyframes corona {
+  0%   { box-shadow: 0 0 20px rgba(245,166,35,.3), inset 0 0 10px rgba(245,166,35,.05); }
+  50%  { box-shadow: 0 0 40px rgba(245,166,35,.5), inset 0 0 20px rgba(245,166,35,.1); }
+  100% { box-shadow: 0 0 20px rgba(245,166,35,.3), inset 0 0 10px rgba(245,166,35,.05); }
+}
+.ring-text { font-family: var(--mono); font-size: 11px; color: var(--text-dim); text-align: center; }
+.ring-time { font-family: var(--mono); font-size: 20px; color: var(--accent); }
+
+/* ── LOG ── */
+#log-container {
+  background: #050810;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  height: 220px; overflow-y: auto;
+  padding: 8px;
+  font-family: var(--mono); font-size: 11px;
+  -webkit-overflow-scrolling: touch;
+}
+.log-line { padding: 1px 0; line-height: 1.5; }
+.log-line.error   { color: var(--red); }
+.log-line.warning { color: var(--yellow); }
+.log-line.success { color: var(--green); }
+.log-line.gps     { color: var(--blue); }
+.log-line.orange  { color: var(--orange); }
+.log-line.pink    { color: var(--pink); }
+.log-line.info    { color: var(--text-dim); }
+
+.log-line.info    { color: var(--text-dim); }
+.log-line.gps     { color: var(--blue); }
+.log-line.calculator { color: var(--accent2); }
+.log-line.trigger  { color: var(--green); }
+
+/* Styles pour tous les conteneurs de logs */
+#log-container-gps_sync,
+#log-container-calculator,
+#log-container-trigger {
+  background: #050810;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  height: 320px; overflow-y: auto;
+  padding: 8px;
+  font-family: var(--mono); font-size: 11px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.speed-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  transition: all 0.2s;
+  cursor: pointer;
+  text-align: center;
+}
+.speed-cell:hover {
+  background: rgba(74,158,255,0.05);
+  border-color: var(--blue);
+}
+.speed-cell input[type="checkbox"] {
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.speed-cell label {
+  margin: 0;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  pointer-events: none;
+  white-space: nowrap;
+}
+/* ── OUVERTURES : style radio sans checkbox ── */
+.aperture-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  transition: all 0.2s;
+  cursor: pointer;
+  text-align: center;
+  user-select: none;
+}
+.aperture-cell:hover {
+  background: rgba(74,158,255,0.05);
+  border-color: var(--blue);
+  color: var(--text);
+}
+.aperture-cell.selected {
+  background: rgba(61,220,132,0.12);
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 700;
+}
+/* ── SONS ── */
+.sound-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sound-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 12px 8px; border-radius: 10px;
+  background: var(--bg3); border: 1px solid var(--border);
+  cursor: pointer; transition: all .15s;
+  font-size: 11px; color: var(--text-dim);
+  font-family: var(--mono); text-align: center;
+}
+.sound-btn:active { background: rgba(245,166,35,.1); border-color: var(--accent); }
+.sound-btn.playing { background: rgba(245,166,35,.12); border-color: var(--accent); color: var(--accent); }
+.sound-icon { font-size: 22px; }
+
+/* ── PHASE SECTION ── */
+.phase-section { padding: 10px 0; }
+.phase-section-title {
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  margin-bottom: 8px; font-family: var(--mono);
+}
+.phase-section-title small { font-size: 9px; opacity: .7; text-transform: none; letter-spacing: 0; }
+
+
+.toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; }
+.toggle-label { font-size: 13px; color: var(--text); }
+.toggle {
+  width: 46px; height: 26px; border-radius: 13px;
+  background: var(--bg3); border: 1px solid var(--border);
+  position: relative; cursor: pointer; transition: background .2s;
+  flex-shrink: 0;
+}
+.toggle.on { background: rgba(61,220,132,.3); border-color: var(--green); }
+.toggle::after {
+  content: ''; position: absolute;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--text-dim); top: 2px; left: 2px;
+  transition: transform .2s, background .2s;
+}
+.toggle.on::after { transform: translateX(20px); background: var(--green); }
+
+/* ── NOTIFICATION FLASH ── */
+.flash {
+  position: fixed; top: 80px; left: 50%; transform: translateX(-50%) translateY(-20px);
+  background: var(--bg3); border: 1px solid var(--accent);
+  border-radius: 10px; padding: 10px 18px;
+  font-family: var(--mono); font-size: 12px; color: var(--accent2);
+  opacity: 0; transition: all .3s; z-index: 100;
+  white-space: nowrap;
+  box-shadow: 0 4px 20px rgba(0,0,0,.5);
+}
+.flash.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.sep { height: 1px; background: var(--border); margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<div class="flash" id="flash"></div>
+
+<div id="app">
+
+  <!-- HEADER -->
+  <header>
+<div class="header-logo">
+  SOLAR<br><span>ECLIPSE</span>
+  <span id="hdr-gps-badge" style="font-size:8px;letter-spacing:.08em;padding:2px 5px;border-radius:4px;background:rgba(90,122,154,.2);color:var(--text-dim);border:1px solid var(--border);margin-left:10px">NO SYNC</span>
+</div>    
+<div id="header-time">
+  <div style="display:flex;align-items:center;gap:8px;justify-content:center">
+    <div style="display:flex;align-items:center;gap:3px">
+      <span style="font-size:10px;color:var(--text-dim);font-family:var(--mono)">UTC</span>
+      <span id="hdr-utc" style="font-size:20px;font-family:var(--mono);color:var(--blue);letter-spacing:.06em">--:--:--</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:3px">
+      <span style="font-size:10px;color:var(--text-dim);font-family:var(--mono)">Local</span>
+      <span id="hdr-local" style="font-size:20px;font-family:var(--mono);color:var(--orange);letter-spacing:.06em">--:--:--</span>
+    </div>
+  </div>
+</div>
+    <div id="header-status">
+      <div class="dot" id="dot-gps"    title="GPS"></div>
+      <div class="dot" id="dot-camera" title="Caméra"></div>
+      <div class="dot" id="dot-trigger" title="Trigger"></div>
+    </div>
+  </header>
+
+  <!-- TABS -->
+  <div id="tabs">
+    <button class="tab active" onclick="showTab(0)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5"><circle cx="12" cy="4" r="2"/><path d="M12 6v6l4 2M4.93 4.93l1.41 1.41M17.66 6.34l1.41-1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 17.66l1.41 1.41M12 20v2"/></svg>
+      <span>SYNC GPS</span>
+    </button>
+    <button class="tab" onclick="showTab(1)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+      <span>ÉCLIPSE</span>
+    </button>
+    <button class="tab" onclick="showTab(2)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      <span>CFG PHOTO</span>
+    </button>
+    <button class="tab" onclick="showTab(3)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="3"/></svg>
+      <span>CAMÉRA</span>
+    </button>
+    <button class="tab" onclick="showTab(4)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+      <span>TRIGGER</span>
+    </button>
+  </div>
+  <!-- PAGES -->
+  <div id="pages">
+
+    <!-- ═══════════════ PAGE 0 : STATUT ═══════════════ -->
+    <div class="page active" id="page-0">
+
+      <!-- Heure + Date -->
+      <div class="card">
+        <div class="card-title">Horloge système</div>
+         <div class="stat">
+            <div style="display:flex;align-items:center;gap:12px;font-family:var(--mono);font-size:16px">
+            <span class="stat-value blue" style="color:var(--text-dim);font-size:14px">Date:</span>
+            <span class="stat-value blue" id="sys-date-utc" >UTC:</span>
+          </div>
+         <div class="stat">
+            <div style="display:flex;align-items:center;gap:12px;font-family:var(--mono);font-size:16px">
+            <span style="color:var(--text-dim);font-size:14px">UTC:</span>
+            <span class="stat-value blue" id="sys-time-utc">--:--:--</span>
+            <span style="color:var(--text-dim);font-size:14px">Timezone:</span>
+            <span class="stat-value blue" id="sys-timezone" style="font-size:14px">UTC+1</span>
+            <span style="color:var(--text-dim);font-size:14px">Heure Locale:</span>
+            <span class="stat-value orange" id="sys-time-local">--:--:--</span>
+          </div>
+         </div>
+          <div style="font-size:11px;margin-top:6px;font-family:var(--mono)" id="clock-gps-sync" style="color:var(--text-dim)">
+            ⏱ Heure non synchronisée (navigateur)
+          </div>
+      </div>
+      </div>  
+
+      <!-- GPS -->
+      <div class="card">
+        <div class="card-title">GPS (usb)</div>
+        <div class="gps-status-bar">
+          <span class="gps-icon" id="gps-icon">⚫</span>
+          <span id="gps-status-text">Non détecté</span>
+        </div>
+        <div class="gps-coords-bar" style="margin-bottom:12px">
+  <div class="stat-label">Position GPS</div>
+  <div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:14px">
+    <span style="color:var(--text-dim)">LAT:</span><span style="color:var(--green)" id="gps-lat">--</span>
+    <span style="color:var(--text-dim);margin-left:4px">LONG:</span><span style="color:var(--green)" id="gps-lon">--</span>
+    <span style="color:var(--text-dim);margin-left:4px">ALT:</span><span style="color:var(--green)" id="gps-alt">--</span>
+  </div>
+</div>
+        <button class="btn btn-primary btn-full" id="btn-gps-sync" onclick="syncGPS()">
+          📡 Synchroniser Position / Timezone / Heure UTC / Heure Locale
+        </button>
+      </div>
+
+<!-- Journal GPS -->
+  <div class="card" style="flex-shrink:0">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Journal GPS</span>
+      <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('gps_sync')">effacer</span>
+    </div>
+    <div id="log-container-gps_sync" style="height:320px"></div>
+  </div>
+    </div><!-- /page-0 -->
+
+    <!-- ═══════════════ PAGE 1 : ÉCLIPSE ═══════════════ -->
+    <div class="page" id="page-1">
+
+      <!-- Formulaire coordonnées -->
+      <div class="card">
+        <div class="card-title">Position d'observation</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="grid2">
+            <div class="field">
+              <label>Latitude</label>
+              <input type="number" id="inp-lat" placeholder="25.6872" step="0.0001">
+            </div>
+            <div class="field">
+              <label>Longitude</label>
+              <input type="number" id="inp-lon" placeholder="32.6396" step="0.0001">
+            </div>
+          </div>
+          <div class="grid2">
+            <div class="field">
+              <label>Altitude (m)</label>
+              <input type="number" id="inp-alt" placeholder="80" step="1">
+            </div>
+            <div class="field">
+              <label>Fuseau UTC+</label>
+              <input type="number" id="inp-tz" placeholder="0" step="1" value="0">
+            </div>
+          </div>
+          <div class="field">
+            <label>Éclipse</label>
+            <select id="inp-eclipse">
+              <option value="auto">Auto (prochaine)</option>
+              <option value="2026-08-12">2026-08-12 — Espagne</option>
+              <option value="2027-08-02">2027-08-02 — Égypte / Louxor</option>
+              <option value="2028-07-22">2028-07-22</option>
+              <option value="2030-11-25">2030-11-25</option>
+              <option value="2034-03-20">2034-03-20</option>
+              <option value="2035-09-02">2035-09-02</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 2px">
+            <input type="checkbox" id="inp-dst" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
+            <label for="inp-dst" style="font-size:12px;color:var(--text-dim);cursor:pointer;user-select:none">
+              Appliquer heure d'été / hiver automatiquement (DST)
+              <span style="font-size:10px;color:var(--text-dim);font-family:var(--mono);display:block;margin-top:1px">
+                Calcul DST basé sur les coordonnées et la date de l'éclipse — ignore le fuseau saisi.
+              </span>
+            </label>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:4px">
+            <button class="btn btn-accent btn-full" id="btn-calc" onclick="calculateEclipse()">
+              🌑 Calculer les contacts
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Circonstances — résultats Jubier -->
+      <div class="card" id="contacts-card" style="display:none">
+        <div class="card-title">Circonstances</div>
+        <div class="contacts" id="contacts-list"></div>
+        <div class="sep" style="margin:10px 0"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+          <div class="stat">
+            <div class="stat-label">Durée totalité</div>
+            <div class="stat-value green" id="eclipse-duration">--</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Type éclipse</div>
+            <div class="stat-value" id="eclipse-type2" style="color:var(--blue)">--</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Type pos. GPS</div>
+            <div class="stat-value" id="eclipse-type-gps" style="color:var(--orange)">--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contacts UTC — saisie manuelle ou remplis par le calculateur -->
+      <div class="card">
+        <div class="card-title">Contacts UTC</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;font-family:var(--mono)">
+          Remplis automatiquement après calcul — modifiables manuellement puis à sauvegarder.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+
+          <!-- Ligne 1 : C1 + C2 -->
+          <div class="grid2">
+            <div class="field">
+              <label>C1 — 1er contact</label>
+              <input type="text" id="man-C1" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
+            </div>
+            <div class="field">
+              <label>C2 — Début totalité</label>
+              <input type="text" id="man-C2" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
+            </div>
+          </div>
+
+          <!-- Ligne 2 : TMAX seul — calculé automatiquement, non modifiable -->
+          <div style="display:flex;justify-content:center">
+            <div class="field" style="width:50%;min-width:160px">
+              <label style="display:flex;align-items:center;gap:6px">
+                TMAX — Maximum
+                <span style="font-size:9px;color:var(--text-dim);font-family:var(--mono)">(calculé)</span>
+              </label>
+              <input type="text" id="man-TMAX" placeholder="--:--:--.---"
+                     readonly style="background:var(--bg2);color:var(--accent);cursor:default;
+                                     border-color:rgba(245,166,35,.3);text-align:center;font-size:15px">
+            </div>
+          </div>
+
+          <!-- Ligne 3 : C3 + C4 -->
+          <div class="grid2">
+            <div class="field">
+              <label>C3 — Fin totalité</label>
+              <input type="text" id="man-C3" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
+            </div>
+            <div class="field">
+              <label>C4 — 4e contact</label>
+              <input type="text" id="man-C4" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
+            </div>
+          </div>
+
+
+
+          <!-- Bouton Sauvegarder en bas de la carte -->
+          <button class="btn btn-primary btn-full" style="margin-top:2px" onclick="saveManualContacts()">
+            💾 Sauvegarder manuellement
+          </button>
+
+        </div>
+      </div>
+
+      <!-- Circonstances — résultats Jubier -->
+<!-- Journal Calculateur -->
+  <div class="card" style="flex-shrink:0">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Journal Calculateur</span>
+      <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('calculator')">effacer</span>
+    </div>
+    <div id="log-container-calculator" style="height:320px"></div>
+  </div>
+      </div><!-- /page-1 -->
+
+    <!-- ═══════════════ PAGE 2 : CFG PHOTO ═══════════════ -->
+    <div class="page" id="page-2">
+
+      <!-- ── CARD 1 : Charger / Sauvegarder ── -->
+      <div class="card">
+        <div class="card-title">Configuration appareil photo</div>
+        <div style="display:flex;gap:6px">
+          <select id="camera-config-select" style="flex:1;background:var(--bg3);border:1px solid var(--border);
+            border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
+            onchange="loadCameraConfig(this.value)">
+            <option value="">— Fichier config appareil —</option>
+          </select>
+          <button class="btn btn-primary" style="font-size:11px;padding:7px 10px"
+            onclick="saveCameraConfig()">💾 Sauvegarder</button>
+        </div>
+      </div>
+
+      <!-- ── CARD 2 : Phase Partielle ── -->
+      <div class="card">
+        <div class="card-title" style="color:var(--purple)">☀ PARTIELLE</div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>INTERVALLE (S)</label>
+            <input type="number" id="cfg-partial-interval" value="180" step="1" min="1">
+          </div>
+          <div class="field"><label>ISO</label>
+            <select id="cfg-partial-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+              <option selected>100</option><option>200</option><option>400</option><option>800</option>
+              <option>1600</option><option>3200</option><option>6400</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:8px"><label>OUVERTURE</label>
+          <div id="cfg-partial-aperture" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px">
+            <div class="aperture-cell" onclick="selectAperture('cfg-partial-aperture','f/2.8')">f/2.8</div>
+            <div class="aperture-cell" onclick="selectAperture('cfg-partial-aperture','f/4')">f/4</div>
+            <div class="aperture-cell" onclick="selectAperture('cfg-partial-aperture','f/5.6')">f/5.6</div>
+            <div class="aperture-cell selected" onclick="selectAperture('cfg-partial-aperture','f/8')">f/8</div>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-dim)">VITESSES BRACKET (PLUSIEURS POSSIBLES)</label>
+          <div id="cfg-partial-speeds" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px"></div>
+        </div>
+      </div>
+
+      <!-- ── CARD 3 : Phase Diamond Ring ── -->
+      <div class="card">
+        <div class="card-title" style="color:var(--accent)">💎 DIAMOND RING <small style="font-size:10px;opacity:.7">(avant C2 / après C3)</small></div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>DURÉE TOTALE (S)</label>
+            <input type="number" id="cfg-dr-duration" value="40" step="1" min="1">
+          </div>
+          <div class="field"><label>INTERVALLE (S)</label>
+            <input type="number" id="cfg-dr-interval" value="4" step="1" min="1">
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:8px"><label>ISO</label>
+          <select id="cfg-dr-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+            <option selected>100</option><option>200</option><option>400</option><option>800</option>
+            <option>1600</option><option>3200</option><option>6400</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:8px"><label>OUVERTURE</label>
+          <div id="cfg-dr-aperture" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px">
+            <div class="aperture-cell" onclick="selectAperture('cfg-dr-aperture','f/2.8')">f/2.8</div>
+            <div class="aperture-cell" onclick="selectAperture('cfg-dr-aperture','f/4')">f/4</div>
+            <div class="aperture-cell" onclick="selectAperture('cfg-dr-aperture','f/5.6')">f/5.6</div>
+            <div class="aperture-cell selected" onclick="selectAperture('cfg-dr-aperture','f/8')">f/8</div>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-dim)">VITESSES BRACKET (PLUSIEURS POSSIBLES)</label>
+          <div id="cfg-dr-speeds" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px"></div>
+        </div>
+      </div>
+
+      <!-- ── CARD 4 : Phase Totalité ── -->
+      <div class="card">
+        <div class="card-title" style="color:var(--green)">🌑 TOTALITÉ</div>
+        <div class="field" style="margin-bottom:8px"><label>ISO</label>
+          <select id="cfg-tot-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+            <option selected>100</option><option>200</option><option>400</option><option>800</option>
+            <option>1600</option><option>3200</option><option>6400</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:8px"><label>OUVERTURE</label>
+          <div id="cfg-tot-aperture" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px">
+            <div class="aperture-cell" onclick="selectAperture('cfg-tot-aperture','f/2.8')">f/2.8</div>
+            <div class="aperture-cell" onclick="selectAperture('cfg-tot-aperture','f/4')">f/4</div>
+            <div class="aperture-cell" onclick="selectAperture('cfg-tot-aperture','f/5.6')">f/5.6</div>
+            <div class="aperture-cell selected" onclick="selectAperture('cfg-tot-aperture','f/8')">f/8</div>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text-dim)">VITESSES BRACKET — ORDRE RAPIDE → LENT → RAPIDE</label>
+          <div id="totality-speeds-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px;margin-bottom:8px"></div>
+        </div>
+      </div>
+
+    </div><!-- /page-2 CFG PHOTO -->
+
+    <!-- ═══════════════ PAGE 3 : CAMÉRA ═══════════════ -->
+    <div class="page" id="page-3">
+
+      <div class="card">
+        <div class="card-title">Appareil photo</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:12px;font-family:var(--mono)">
+          Test de connexion USB — la connexion est coupée automatiquement après lecture pour économiser la batterie.
+        </div>
+
+        <!-- Résultat détection -->
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+            <div style="text-align:center">
+              <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px">MARQUE</div>
+              <div style="font-family:var(--mono);font-size:15px;color:var(--accent)" id="cam-brand">--</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px">MODÈLE</div>
+              <div style="font-family:var(--mono);font-size:15px;color:var(--accent)" id="cam-model">--</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px">BATTERIE</div>
+              <div style="font-family:var(--mono);font-size:15px;color:var(--green)" id="cam-battery-probe">--</div>
+            </div>
+          </div>
+          <div style="margin-top:10px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--text-dim)" id="cam-probe-status">
+            En attente du test…
+          </div>
+        </div>
+
+        <button class="btn btn-primary btn-full" id="btn-cam-probe" onclick="probeCamera()">
+          🔌 Tester la connexion USB
+        </button>
+      </div>
+
+    </div><!-- /page-3 CAMÉRA -->
+
+    <!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->
+    <div class="page" id="page-4">
+
+      <!-- ── START / STOP + Fichiers config ── -->
+      <div style="display:flex;gap:10px;align-items:stretch">
+
+        <!-- Boutons START / STOP -->
+        <div style="display:flex;flex-direction:column;gap:8px;min-width:110px">
+          <div style="display:flex;gap:6px">
+            <button class="btn" id="btn-debug-gen" onclick="generateDebug()"
+                    style="flex:1;background:rgba(120,80,200,.25);border:1px solid rgba(120,80,200,.5);
+                           color:#b09de0;font-size:11px">🛠 DEBUG</button>
+            <button class="btn" id="btn-debug-clear" onclick="clearDebugFiles()"
+                    style="flex:1;background:rgba(180,60,60,.2);border:1px solid rgba(180,60,60,.4);
+                           color:#e09090;font-size:11px" title="Supprimer tous les fichiers debug_*.json">🗑</button>
+          </div>
+          <button class="btn" id="btn-debug-realistic" onclick="generateDebugRealistic()"
+                  style="background:rgba(0,140,80,.25);border:1px solid rgba(0,140,80,.5);
+                         color:#60d090;font-size:10px" title="Debug proportions vraie éclipse — 180s/photo, ~3h44m">🌍 DEBUG RÉEL</button>
+          <button class="btn btn-success" id="btn-start" onclick="startTrigger()" style="flex:1">▶ START</button>
+          <button class="btn" id="btn-dryrun" onclick="startDryRun()"
+                  style="flex:1;background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
+                  title="Même moteur et même caméra que le jour J, timeline translatée sur maintenant, vitesse ×1">🧪 DRY-RUN ×1</button>
+          <button class="btn" id="btn-totality-only" onclick="startTotalityOnly()"
+                  style="flex:1;background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);
+                         color:var(--accent);font-size:11px"
+                  title="Arrête le trigger en cours et déclenche la séquence totalité en boucle jusqu'au STOP">🌑 Totalité uniquement</button>
+          <button class="btn" id="btn-usb" onclick="toggleUsb()"
+                  style="flex:1;background:rgba(0,180,180,.2);border:1px solid rgba(0,180,180,.4);color:#00d0d0;font-size:12px"
+                  title="Libère l'USB pour voir les photos sur l'appareil photo">📷 Libérer USB</button>
+          <button class="btn btn-danger"  id="btn-stop"  onclick="stopTrigger()" style="flex:1">■ STOP</button>
+        </div>
+
+        <!-- Config + sélecteur JSON -->
+        <div class="card" style="flex:1;margin:0;padding:12px">
+          <div class="card-title" style="margin-bottom:8px">Configuration active</div>
+
+          <!-- Sélecteur circonstances éclipse -->
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Circonstances éclipse</div>
+          <div style="display:flex;gap:6px;margin-bottom:8px">
+            <select id="trigger-config-select"
+                    style="flex:1;background:var(--bg3);border:1px solid var(--border);
+                           border-radius:8px;padding:6px 8px;color:var(--text);
+                           font-family:var(--mono);font-size:11px"
+                    onchange="loadTriggerConfig(this.value, this.options[this.selectedIndex].dataset.dir)">
+              <option value="">— Choisir un fichier —</option>
+            </select>
+          </div>
+
+          <!-- Sélecteur config appareil -->
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Config appareil photo</div>
+          <div style="display:flex;gap:6px;margin-bottom:8px">
+            <select id="trigger-camera-select"
+                    style="flex:1;background:var(--bg3);border:1px solid var(--border);
+                           border-radius:8px;padding:6px 8px;color:var(--text);
+                           font-family:var(--mono);font-size:11px"
+                    onchange="selectTriggerCamera(this.value)">
+              <option value="">— Config appareil —</option>
+            </select>
+          </div>
+
+          <!-- Infos config active -->
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">
+            Éclipse : <span id="trig-eclipse-label" style="color:var(--accent)">--</span>
+          </div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:4px">
+            Type : <span id="trig-eclipse-type2" style="color:var(--text)">--</span>
+          </div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:4px">
+            Type pos. GPS : <span id="trig-eclipse-type-gps" style="color:var(--orange)">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Son Jack ── -->
+      <div class="card" style="padding:14px 16px">
+
+        <!-- Switch son -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <span style="font-family:var(--mono);font-size:12px;color:var(--text-dim)">🔊 Son (sortie Jack)</span>
+          <div id="toggle-sounds" onclick="toggleSounds()"
+               style="width:44px;height:24px;border-radius:12px;
+                      border:1px solid var(--border);cursor:pointer;position:relative;
+                      transition:background .2s;flex-shrink:0"
+               class="on">
+            <div style="position:absolute;top:3px;width:16px;height:16px;border-radius:50%;
+                        transition:left .2s,background .2s"
+                 id="toggle-sounds-knob"></div>
+          </div>
+        </div>
+
+        <!-- Slider volume -->
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);white-space:nowrap">Vol.</span>
+          <input type="range" id="volume-slider" min="0" max="100" value="80"
+                 oninput="setVolume(this.value)"
+                 style="flex:1;accent-color:var(--accent);cursor:pointer;height:4px">
+          <span id="volume-label" style="font-family:var(--mono);font-size:11px;
+                color:var(--accent);min-width:32px;text-align:right">80%</span>
+        </div>
+
+      </div>
+
+      <!-- ── Circonstances de l'éclipse ── -->
+      <div class="card">
+        <div class="card-title">
+          Circonstances éclipse
+          <span id="trigger-eclipse-type" style="font-size:11px;font-family:var(--mono);font-weight:normal;margin-left:8px"></span>
+        </div>
+        <!-- TSTART au-dessus des contacts -->
+        <div class="field" style="margin-bottom:10px">
+          <label>TSTART <span style="color:var(--blue);font-size:9px">UTC</span></label>
+          <input type="text" id="ov-tstart" placeholder="HH:MM:SS"
+                 style="color:var(--green);font-family:var(--mono)">
+          <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:2px">= C1 − 1h par défaut</div>
+        </div>
+        <!-- Contacts C1..C4 + countdown -->
+        <div id="trigger-contacts">
+          <div style="color:var(--text-dim);font-size:11px;font-family:var(--mono)">En attente du calcul…</div>
+        </div>
+        <!-- TEND sous les contacts -->
+        <div class="field" style="margin-top:10px">
+          <label>TEND <span style="color:var(--blue);font-size:9px">UTC</span></label>
+          <input type="text" id="ov-tend" placeholder="HH:MM:SS"
+                 style="color:var(--green);font-family:var(--mono)">
+          <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:2px">= C4 + 1h par défaut</div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-primary" style="flex:1;font-size:11px;padding:7px 6px"
+            onclick="saveOverrides()">✔ Appliquer</button>
+        </div>
+      </div>
+
+      <!-- Journal Trigger -->
+      <div class="card" style="flex-shrink:0">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Journal Trigger</span>
+          <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('trigger')">effacer</span>
+        </div>
+        <div id="log-container-trigger" style="height:320px"></div>
+      </div>
+
+    </div><!-- /page-4 TRIGGER -->
+
+
+
+  </div><!-- /pages -->
+
+</div><!-- /app -->
+
+<script>
+// ════════════════════════════════════════════════════════════════
+// ÉTAT
+// ════════════════════════════════════════════════════════════════
+const state = {
+  soundsEnabled: true,
+  volume:        0.8,
+  currentPage:   0,
+  phase:         'idle',
+  eclipse:       null,
+  gps:           {},
+  audioCtx:      null,
+  audioBuffers:  {},
+  currentSound:  null,
+};
+
+// ── AUDIO iOS-compatible ─────────────────────────────────────────────────────
+// iOS Safari exige que l'AudioContext soit créé ET resume() dans un geste direct.
+// On crée le contexte au premier geste, et on appelle resume() avant chaque son.
+
+const SOUND_FILES = ['filters_on.wav','filters_off.wav','10minutes.wav','5minutes.wav',
+                     '2minutes.wav','60seconds.wav','30seconds.wav','10seconds.wav',
+                     '1.wav','2.wav','3.wav','4.wav','5.wav','contact.wav','batterie.wav'];
+
+function initAudio() {
+  if (state.audioCtx) {
+    // Déjà créé — s'assurer qu'il n'est pas suspendu (iOS remet en suspended)
+    if (state.audioCtx.state === 'suspended') state.audioCtx.resume();
+    return;
+  }
+  state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  state.audioCtx.resume().then(() => {
+    // Pre-cache tous les sons une fois le contexte actif
+    SOUND_FILES.forEach(f => cacheSound(f));
+  });
+}
+
+// Déclencher initAudio sur tout geste utilisateur
+document.addEventListener('touchstart', initAudio, { passive: true });
+document.addEventListener('touchend',   initAudio, { passive: true });
+document.addEventListener('click',      initAudio);
+
+async function cacheSound(filename) {
+  if (!state.audioCtx || state.audioBuffers[filename]) return;
+  try {
+    const resp = await fetch(`/static/sounds/${filename}`);
+    const buf  = await resp.arrayBuffer();
+    state.audioBuffers[filename] = await state.audioCtx.decodeAudioData(buf);
+  } catch(e) { console.warn('Cache sound failed:', filename, e); }
+}
+
+async function playSound(filename) {
+  if (!state.soundsEnabled) return;
+
+  // Créer le contexte si absent (premier appel depuis un geste)
+  if (!state.audioCtx) initAudio();
+  if (!state.audioCtx) return;
+
+  // iOS suspend le contexte en arrière-plan — toujours resume() avant de jouer
+  if (state.audioCtx.state !== 'running') {
+    try { await state.audioCtx.resume(); } catch(e) {}
+  }
+
+  // Charger le son si pas encore en cache
+  if (!state.audioBuffers[filename]) {
+    await cacheSound(filename);
+  }
+
+  const buf = state.audioBuffers[filename];
+  if (!buf) { console.warn('Son non disponible :', filename); return; }
+
+  try {
+    if (state.currentSound) { try { state.currentSound.stop(); } catch(e){} }
+    const src  = state.audioCtx.createBufferSource();
+    const gain = state.audioCtx.createGain();
+    gain.gain.value = state.volume;
+    src.buffer = buf;
+    src.connect(gain);
+    gain.connect(state.audioCtx.destination);
+    src.start(0);
+    state.currentSound = src;
+    // Highlight bouton test
+    document.querySelectorAll('.sound-btn').forEach(b => {
+      if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(filename))
+        b.classList.add('playing');
+    });
+    src.onended = () => {
+      document.querySelectorAll('.sound-btn').forEach(b => b.classList.remove('playing'));
+    };
+  } catch(e) { console.error('playSound error:', e); }
+}
+
+// ════════════════════════════════════════════════════════════════
+// SOCKETIO
+// ════════════════════════════════════════════════════════════════
+const socket = io({ transports: ['websocket'] });
+
+socket.on('connect', () => flash('Connecté au Pi ✓', 'green'));
+socket.on('disconnect', () => flash('Déconnecté', 'red'));
+
+socket.on('gps_sync_done', d => {
+  const btn = document.getElementById('btn-gps-sync');
+  if (btn) { btn.disabled = false; btn.textContent = '📡 Synchroniser l\'heure'; }
+});
+
+socket.on('clock_reset', d => {
+  // Recharger seulement si la dérive est > 60s (boot sans heure valide)
+  if (!d.new_utc) return;
+  const piMs = new Date(d.new_utc).getTime();
+  const drift = Math.abs(piMs - _nowAdjusted().getTime());
+  if (drift > 60000) {
+    flash('🕐 Heure GPS synchronisée — rechargement…', 'green');
+    setTimeout(() => location.reload(), 2000);
+  }
+});
+
+socket.on('status_update', d => {
+  if (d.time)    updateTime(d.time);
+  if (d.gps)     updateGPS(d.gps);
+  if (d.trigger) updatePhase(d.trigger.phase);
+  // Restaurer le fichier config caméra sélectionné
+  if (d.camera_config_file) {
+    const sel = document.getElementById('trigger-camera-select');
+    if (sel) sel.value = d.camera_config_file;
+  }
+  // Restauration éclipse si présente dans le status_update initial
+  if (d.eclipse && !state.eclipse) {
+    state.eclipse = d.eclipse;
+    // Appliquer la timezone sauvegardée dans le JSON si présente
+    if (d.eclipse._timezone) _gpsTimezone = d.eclipse._timezone;
+    renderContacts(d.eclipse);
+  }
+});
+
+socket.on('gps_update', d => updateGPS(d));
+socket.on('trigger_phase', d => updatePhase(d.phase));
+
+
+socket.on('eclipse_calculated', d => {
+  // Réactiver le bouton dès réception du résultat
+  const btn = document.getElementById('btn-calc');
+  if (btn) { btn.disabled = false; btn.textContent = '🌑 Calculer les contacts'; }
+  if (d.status === 'success' && d.data) {
+    // Appliquer la timezone DST AVANT renderContacts pour que les heures locales soient correctes
+    if (d.timezone_override) {
+      console.log('[DST] timezone_override reçu:', d.timezone_override);
+      _gpsTimezone = d.timezone_override;
+      const sysTz = document.getElementById('sys-timezone');
+      if (sysTz) sysTz.textContent = d.timezone_override;
+    } else {
+      console.log('[DST] pas de timezone_override dans eclipse_calculated');
+    }
+    console.log('[DST] _gpsTimezone=', _gpsTimezone, 'offset=', _getTimezoneOffset());
+    state.eclipse = d.data;
+    renderContacts(d.data);
+    populateOverrides(d.data);
+    flash('Calcul terminé ✓', 'green');
+  } else {
+    flash('Calcul échoué', 'red');
+  }
+});
+
+socket.on('state_update', d => {
+  // Mise à jour timezone DST calculé côté serveur
+  if (d.timezone_override) {
+    _gpsTimezone = d.timezone_override;
+    // Mettre à jour l'affichage du fuseau dans l'UI
+    const sysTz = document.getElementById('sys-timezone');
+    if (sysTz) sysTz.textContent = d.timezone_override;
+    // Recalculer les heures locales si on a déjà des contacts
+    if (state.eclipse) renderContacts(state.eclipse);
+  }
+});
+
+// Log ligne par ligne (temps réel)
+socket.on('log_line', d => {
+  appendLog(d.text, d.level, d.source, d.timestamp);
+  if (d.source === 'calculator') appendCalcLog(d.text, d.level);
+});
+
+// Historique complet à la (re)connexion
+socket.on('log_history', lines => {
+  const sources = ['gps_sync', 'calculator', 'trigger'];
+  
+  sources.forEach(source => {
+    let containerId = 'log-container';
+    if (source === 'gps_sync') containerId = 'log-container-gps_sync';
+    else if (source === 'calculator') containerId = 'log-container-calculator';
+    else if (source === 'trigger') containerId = 'log-container-trigger';
+    
+    const containers = document.querySelectorAll(`#${containerId}`);
+    if (containers.length === 0) return;
+    
+    containers.forEach(c => {
+      c.innerHTML = '';
+      const sourceLines = lines.filter(d => d.source === source);
+      sourceLines.forEach(d => {
+        const div = document.createElement('div');
+        div.className = `log-line ${d.level}`;
+        div.textContent = d.timestamp ? `[${d.timestamp}] ${d.text}` : d.text;
+        c.appendChild(div);
+      });
+      const sep = document.createElement('div');
+      sep.style.cssText = 'border-top:1px dashed #1e3a5f;margin:4px 0;font-size:10px;color:#1e3a5f;text-align:center';
+      sep.textContent = '── reconnexion ──';
+      c.appendChild(sep);
+      c.scrollTop = c.scrollHeight;
+    });
+  });
+});
+// Sons reçus du Pi (mode A relay ou mode B)
+socket.on('play_sound', d => {
+  if (d.file) playSound(d.file);
+});
+
+// Batterie
+socket.on('battery_update', d => updateBattery(d.percent));
+socket.on('battery_alert', d => {
+  updateBattery(d.percent);
+  const banner = document.getElementById('battery-alert-banner');
+  if (d.level === 'critical') {
+    banner.style.display = '';
+    banner.textContent   = `⚠⚠⚠ BATTERIE CRITIQUE ${d.percent}% — CHANGEZ MAINTENANT ⚠⚠⚠`;
+    banner.style.borderColor = 'var(--red)';
+    flash(`⚠ BATTERIE CRITIQUE ${d.percent}%`, 'red');
+    playSound('10seconds.wav');
+  } else {
+    banner.style.display = '';
+    banner.textContent   = `⚠ Batterie ${d.percent}% — changez entre deux photos avant C2-10min`;
+    banner.style.borderColor = 'var(--yellow)';
+    flash(`⚠ Batterie faible ${d.percent}%`, 'yellow');
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// HORLOGE — tourne toujours en local, recalée sur le Pi via offset
+// ════════════════════════════════════════════════════════════════
+// _clockOffset : décalage en ms entre l'heure Pi et l'horloge locale
+// Recalé à chaque status_update reçu du Pi.
+let _clockAnchorEpochMs = Date.now();
+let _clockAnchorPerfMs = performance.now();
+let _clockSource = 'Pi';
+let _gpsTimezone = null;   // timezone reçue du GPS — prioritaire sur le navigateur
+
+// Retourne l'offset timezone en heures, dans cet ordre de priorité :
+// 1. GPS synchronisé (_gpsTimezone ou state.gps.timezone)
+// 2. Champ Fuseau UTC+ saisi manuellement dans le formulaire (inp-tz)
+// 3. null si rien de disponible
+function _getTimezoneOffset() {
+  const tzValue = _gpsTimezone ?? (state.gps && state.gps.timezone);
+  if (typeof tzValue === 'number' && Number.isFinite(tzValue)) return tzValue;
+  if (typeof tzValue === 'string' && tzValue) {
+    const m = tzValue.match(/UTC([+-]?\d+(?:\.\d+)?)/);
+    if (m) return parseFloat(m[1]);
+  }
+  // Fallback : champ Fuseau UTC+ du formulaire
+  const inpTz = document.getElementById('inp-tz');
+  if (inpTz && inpTz.value !== '' && inpTz.value !== null) {
+    const v = parseFloat(inpTz.value);
+    if (!isNaN(v)) return v;
+  }
+  return null;
+}
+
+// Convertit une heure UTC "HH:MM:SS" en heure locale.
+// Priorité : timezone GPS > champ Fuseau UTC+ > UTC inchangé.
+function _utcToLocal(utcHms) {
+  if (!utcHms || utcHms === '--') return utcHms;
+  const offsetH = _getTimezoneOffset();
+  if (offsetH === null) return utcHms;
+  const sec = _toSec(utcHms);
+  if (sec === null) return utcHms;
+  return _fromSec(sec + offsetH * 3600);
+}
+
+function _isoUtcToConfiguredLocalTime(iso) {
+  if (!iso) return '';
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return '';
+  const offsetH = _getTimezoneOffset() ?? 0;
+  const d = new Date(ms + offsetH * 3600000);
+  return `${fmt(d.getUTCHours())}:${fmt(d.getUTCMinutes())}:${String(d.getUTCSeconds()+d.getUTCMilliseconds()/1000).padStart(6,'0')}`;
+}
+
+function _nowAdjusted() {
+  // The Pi is the sole time authority. performance.now() is monotonic and is
+  // immune to iPad/browser wall-clock or timezone changes after reconnection.
+  return new Date(_clockAnchorEpochMs + (performance.now() - _clockAnchorPerfMs));
+}
+
+function _tickClock() {
+  const now = _nowAdjusted();
+  const utcH = fmt(now.getUTCHours()), utcM = fmt(now.getUTCMinutes()), utcS = fmt(now.getUTCSeconds());
+  const utcTime = `${utcH}:${utcM}:${utcS}`;
+  const utcDate = now.toISOString().slice(0,10);
+  const offsetH = _getTimezoneOffset();
+  const localMs = now.getTime() + ((offsetH === null ? 0 : offsetH) * 3600000);
+  const localDateObj = new Date(localMs);
+  const locTime = `${fmt(localDateObj.getUTCHours())}:${fmt(localDateObj.getUTCMinutes())}:${fmt(localDateObj.getUTCSeconds())}`;
+  const locDate = localDateObj.toISOString().slice(0,10);
+
+  // Header
+  const hdrLocal = document.getElementById('hdr-local');
+  const hdrUtc   = document.getElementById('hdr-utc');
+  if (hdrLocal) hdrLocal.textContent = locTime;
+  if (hdrUtc)   hdrUtc.textContent   = utcTime;
+
+// Onglet Statut
+const sysLocal = document.getElementById('sys-time-local');
+const sysUtc   = document.getElementById('sys-time-utc');
+const sysDateL = document.getElementById('sys-date-local');
+const sysDateU = document.getElementById('sys-date-utc');
+const sysTz    = document.getElementById('sys-timezone');
+
+if (sysLocal) sysLocal.textContent = locTime;
+if (sysUtc)   sysUtc.textContent   = utcTime;
+if (sysDateL) sysDateL.textContent = locDate;
+if (sysDateU) sysDateU.textContent = utcDate;
+// Timezone display is backend/config-driven only. Never infer from the iPad.
+if (sysTz && !_gpsTimezone && _getTimezoneOffset() === null) {
+  sysTz.textContent = 'UTC';
+}
+}
+setInterval(_tickClock, 1000);
+_tickClock();  // immédiat au chargement
+
+function _updateGpsBadge(synced) {
+  const badge = document.getElementById('hdr-gps-badge');
+  if (!badge) return;
+  if (synced) {
+    badge.textContent = 'GPS SYNC';
+    badge.style.background   = 'rgba(61,220,132,.15)';
+    badge.style.color        = 'var(--green)';
+    badge.style.borderColor  = 'rgba(61,220,132,.4)';
+  } else {
+    badge.textContent = 'NO SYNC';
+    badge.style.background  = 'rgba(90,122,154,.2)';
+    badge.style.color       = 'var(--text-dim)';
+    badge.style.borderColor = 'var(--border)';
+  }
+}
+
+function updateTime(t) {
+  if (!t) return;
+  let piMs = null;
+  if (Number.isFinite(t.epoch_ms)) {
+    piMs = t.epoch_ms;
+  } else {
+    const utc = t.utc || {};
+    if (utc.iso) piMs = new Date(utc.iso).getTime();
+    else if (utc.time && utc.date) piMs = new Date(`${utc.date}T${utc.time}Z`).getTime();
+  }
+  if (Number.isFinite(piMs)) {
+    _clockAnchorEpochMs = piMs;
+    _clockAnchorPerfMs = performance.now();
+    _clockSource = 'Pi';
+  }
+  _tickClock();
+}
+
+function updateGPS(gps) {
+  state.gps = gps;
+  const icon   = document.getElementById('gps-icon');
+  const status = document.getElementById('gps-status-text');
+  const dotGps = document.getElementById('dot-gps');
+
+  if (gps.connected && gps.synced) {
+    icon.textContent   = '🟢';
+    status.textContent = 'Connecté — synchronisé ✓';
+    dotGps.className   = 'dot on';
+  } else if (gps.connected) {
+    icon.textContent   = '🟡';
+    status.textContent = 'Connecté — en attente de fix…';
+    dotGps.className   = 'dot warn';
+  } else if (gps.synced) {
+    const t = gps.sync_time ? _isoUtcToConfiguredLocalTime(gps.sync_time) : '';
+    icon.textContent   = '🟢';
+    status.textContent = `Synchronisé ✓${t ? ' — ' + t : ''}`;
+    dotGps.className   = 'dot on';
+  } else {
+    icon.textContent   = '⚫';
+    status.textContent = 'Non détecté';
+    dotGps.className   = 'dot off';
+  }
+
+  // Badge GPS sync dans le header
+  _updateGpsBadge(gps.synced);
+
+  document.getElementById('gps-lat').textContent  = gps.lat  != null ? gps.lat.toFixed(5)  : '--';
+  document.getElementById('gps-lon').textContent  = gps.lon  != null ? gps.lon.toFixed(5)  : '--';
+  document.getElementById('gps-alt').textContent  = gps.alt  != null ? gps.alt.toFixed(0) + ' m' : '--';
+
+  // Mettre à jour le timezone si disponible
+  const sysTz = document.getElementById('sys-timezone');
+  if (sysTz && gps.timezone) {
+    _gpsTimezone = gps.timezone;
+    sysTz.textContent = gps.timezone;
+  }
+
+  // Indicateur de synchro GPS dans l'horloge système
+  const syncIndicator = document.getElementById('clock-gps-sync');
+  if (syncIndicator) {
+    if (gps.synced) {
+      const t = gps.sync_time ? _isoUtcToConfiguredLocalTime(gps.sync_time) : '';
+      syncIndicator.textContent = `⏱ Heure synchronisée GPS${t ? ' à ' + t : ''}`;
+      syncIndicator.style.color = 'var(--green)';
+    } else {
+      syncIndicator.textContent = '⏱ Heure non synchronisée (navigateur)';
+      syncIndicator.style.color = 'var(--text-dim)';
+    }
+  }
+
+  // Pré-remplir le formulaire éclipse
+  if (gps.lat != null) document.getElementById('inp-lat').value = gps.lat.toFixed(5);
+  if (gps.lon != null) document.getElementById('inp-lon').value = gps.lon.toFixed(5);
+  if (gps.alt != null) document.getElementById('inp-alt').value = Math.round(gps.alt);
+  // Pré-remplir le fuseau UTC+ avec la timezone GPS actuelle
+  if (gps.timezone) {
+    const m = gps.timezone.match(/UTC([+-]?\d+(?:\.\d+)?)/);
+    if (m) {
+      const tzEl = document.getElementById('inp-tz');
+      if (tzEl) tzEl.value = parseFloat(m[1]);
+    }
+  }
+}
+
+const PHASE_LABELS = {
+  idle:         'IDLE',
+  waiting:      'EN ATTENTE',
+  partial:      'PARTIELLE',
+  diamond_ring: '💎 DIAMOND RING',
+  totality:     '🌑 TOTALITÉ',
+  partial_end:  'PARTIELLE FIN',
+};
+
+function updatePhase(phase) {
+  state.phase = phase;
+  const badge = document.getElementById('phase-badge');
+  const ring  = document.getElementById('totality-ring');
+  const label = document.getElementById('ring-label');
+  const dot   = document.getElementById('dot-trigger');
+
+  if (badge) { badge.className   = `phase-badge phase-${phase}`; badge.textContent = PHASE_LABELS[phase] || phase.toUpperCase(); }
+  if (label) { label.textContent = PHASE_LABELS[phase] || phase; }
+  if (ring)  { ring.classList.toggle('active', phase === 'totality' || phase === 'diamond_ring'); }
+  if (dot)   { dot.className = phase !== 'idle' ? 'dot on' : 'dot off'; }
+
+  const btnStart = document.getElementById('btn-start');
+  const btnStop  = document.getElementById('btn-stop');
+  const btnTot   = document.getElementById('btn-totality-only');
+  if (btnStart) btnStart.disabled = (phase !== 'idle');
+  if (btnStop)  btnStop.disabled  = false;
+  if (btnTot)   btnTot.style.opacity = (phase !== 'idle') ? '0.5' : '1';
+}
+
+// ════════════════════════════════════════════════════════════════
+// GRILLE VITESSES TOTALITÉ (15 champs)
+// ════════════════════════════════════════════════════════════════
+const DEFAULT_SPEEDS = ["1/4000","1/2000","1/1000","1/500","1/250","1/125","1/60","1/30","1/15","1/8","1/4","1/2","1","2","4"];
+
+function initSpeedsGrid(speeds) {
+  const grid = document.getElementById('totality-speeds-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const vals = speeds || DEFAULT_SPEEDS;
+  vals.forEach((v, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'speed-cell';
+    cell.onclick = () => { const cb = cell.querySelector('input'); cb.checked = !cb.checked; updateSpeedsSelection(); };
+    cell.innerHTML = `<input type="checkbox" id="spd-${i}" checked onclick="event.stopPropagation();updateSpeedsSelection()"><label for="spd-${i}">${v}</label>`;
+    grid.appendChild(cell);
+  });
+}
+
+function updateSpeedsSelection() {
+  // Cette fonction peut être utilisée pour mettre à jour l'affichage
+  // ou pour sauvegarder la sélection si nécessaire
+  const checkboxes = document.querySelectorAll('#totality-speeds-grid input[type="checkbox"]');
+  const selected = Array.from(checkboxes)
+    .filter(cb => cb.checked)
+    .map(cb => DEFAULT_SPEEDS[parseInt(cb.id.split('-')[1])]);
+  console.log('Vitesses sélectionnées:', selected);
+}
+
+function getSpeedsFromGrid() {
+  const speeds = [];
+  for (let i = 0; i < 20; i++) {
+    const el = document.getElementById(`spd-${i}`);
+    if (!el) break;
+    const v = el.value.trim();
+    if (v !== '') speeds.push(parseFloat(v));
+  }
+  return speeds;
+}
+
+// ════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+// TMAX — règle : Totale → C2 + (C3-C2)/2 | Partielle → C1 + (C4-C1)/2
+// ════════════════════════════════════════════════════════════════
+function _toSec(hms) {
+  try { const [h,m,s] = hms.split(':').map(Number); return h*3600+m*60+(s||0); } catch(e) { return null; }
+}
+function _fromSec(s) {
+  s = ((s % 86400) + 86400) % 86400;
+  let ms = Math.round(s * 1000) % 86400000;
+  const h = Math.floor(ms/3600000); ms -= h*3600000;
+  const m = Math.floor(ms/60000); ms -= m*60000;
+  const sec = ms/1000;
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+sec.toFixed(3).padStart(6,'0');
+}
+
+// Calcule TMAX à partir d'un objet {C1, C2, C3, C4} (clés UTC HH:MM:SS)
+// Détecte partielle si C2 == C3 ou si C2/C3 absents
+function _calcTmax(c1, c2, c3, c4) {
+  const midpoint = (a, b) => {
+    if (a === null || b === null) return null;
+    if (b < a) b += 86400; // passage minuit
+    return _fromSec(a + (b - a) / 2);
+  };
+  const isPartial = !c2 || !c3 || c2 === c3;
+  if (isPartial && c1 && c4) return midpoint(_toSec(c1), _toSec(c4));
+  if (c2 && c3) return midpoint(_toSec(c2), _toSec(c3));
+  return null;
+}
+
+// computeTmilieu — plus utilisé dans l'onglet Trigger (C1/C2/C3/C4 gérés par l'onglet Éclipse)
+function computeTmilieu() {}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initSpeedsGrid();
+  initPhaseSpeedsGrid('cfg-partial-speeds', ['1/500']);
+  initPhaseSpeedsGrid('cfg-dr-speeds', ['1/500','1/1000','1/2000']);
+  // Forcer ISO à 100 par défaut (le selected HTML n'est pas toujours respecté sur éléments cachés)
+  document.getElementById('cfg-partial-iso').value = '100';
+  document.getElementById('cfg-dr-iso').value      = '100';
+  document.getElementById('cfg-tot-iso').value     = '100';
+});
+function renderContacts(data) {
+  document.getElementById('contacts-card')?.style && (document.getElementById('contacts-card').style.display = '');
+  document.getElementById('eclipse-duration') && (document.getElementById('eclipse-duration').textContent = data._duration || '--');
+
+  // Appliquer la timezone sauvegardée dans le JSON (DST éclipse) pour _utcToLocal
+  // Si absent, réinitialiser pour rester cohérent avec l'horloge header
+  if (data._timezone) {
+    _gpsTimezone = data._timezone;
+  } else {
+    _gpsTimezone = null;
+  }
+
+  // Helpers couleur/icône selon type
+  const _typeStyle = (typeStr) => {
+    const t = (typeStr || '').toLowerCase();
+    const colorMap = { totale: 'var(--green)', partielle: 'var(--yellow)', annulaire: 'var(--orange)' };
+    const iconMap  = { totale: '🌑', partielle: '🌒', annulaire: '💍' };
+    return {
+      color: Object.entries(colorMap).find(([k]) => t.includes(k))?.[1] || 'var(--text-dim)',
+      icon:  Object.entries(iconMap).find(([k])  => t.includes(k))?.[1] || '🌙',
+    };
+  };
+
+  // TYPE GLOBAL (éclipse dans la bande) — _type_global ou extrait du label
+  const typeGlobal = data._type_global
+    || (data._eclipse || data.title || '').match(/(Totale|Annulaire|Partielle|Hybride)/i)?.[1]
+    || '--';
+  const gsty = _typeStyle(typeGlobal);
+  const elTypeGlobal = document.getElementById('eclipse-type2');
+  if (elTypeGlobal) {
+    elTypeGlobal.textContent = `${gsty.icon} ${typeGlobal}`;
+    elTypeGlobal.style.color = gsty.color;
+  }
+
+  // TYPE À LA POSITION GPS — _type calculé par Jubier pour les coords saisies
+  const typeGps = data._type || '--';
+  const lsty = _typeStyle(typeGps);
+  const elTypeGps = document.getElementById('eclipse-type-gps');
+  if (elTypeGps) {
+    elTypeGps.textContent = `${lsty.icon} ${typeGps}`;
+    elTypeGps.style.color = lsty.color;
+  }
+
+  // Compatibilité — champ eclipse-type (non visible mais utilisé ailleurs)
+  document.getElementById('eclipse-type') && (document.getElementById('eclipse-type').textContent = typeGps);
+
+  // Badge dans Contacts & Countdowns (page-2 CFG PHOTO et page-4 TRIGGER) — type pos GPS
+  const triggerTypeEl = document.getElementById('trigger-eclipse-type');
+  if (triggerTypeEl && typeGps !== '--') {
+    triggerTypeEl.textContent = `${lsty.icon} ${typeGps}`;
+    triggerTypeEl.style.color = lsty.color;
+    const lbl = document.getElementById('trig-eclipse-label');
+    if (lbl) lbl.textContent = data.title || data._eclipse || '--';
+    const lbl2 = document.getElementById('trig-eclipse-type2');
+    if (lbl2) { lbl2.textContent = `${gsty.icon} ${typeGlobal}`; lbl2.style.color = gsty.color; }
+    const lbl3 = document.getElementById('trig-eclipse-type-gps');
+    if (lbl3) { lbl3.textContent = `${lsty.icon} ${typeGps}`; lbl3.style.color = lsty.color; }
+  }
+
+  // TMAX toujours recalculé — le TMAX Jubier (magnitude max) ≠ milieu totalité
+  // Totale → C2 + (C3-C2)/2  |  Partielle → C1 + (C4-C1)/2
+  const tmilieu = _calcTmax(data.C1 || data.c1, data.C2 || data.c2,
+                             data.C3 || data.c3, data.C4 || data.c4)
+               || data.TMAX || data.tmax || null;
+
+  const contacts = [
+    { key: 'TSTART',  utc: data.TSTART || data.tstart, local_json: null, label: 'TSTART', desc: 'Début séquence', style: 'color:var(--green)' },
+    { key: 'C1',      utc: data.C1 || data.c1,          local_json: data.C1_local,  label: 'C1',  desc: '1er contact', style: '' },
+    { key: 'C2',      utc: data.C2 || data.c2,          local_json: data.C2_local,  label: 'C2',  desc: 'Début totalité', style: '' },
+    { key: 'TMILIEU', utc: tmilieu,                      local_json: null,           label: 'MID', desc: 'Milieu totalité', style: '' },
+    { key: 'C3',      utc: data.C3 || data.c3,          local_json: data.C3_local,  label: 'C3',  desc: 'Fin totalité', style: '' },
+    { key: 'C4',      utc: data.C4 || data.c4,          local_json: data.C4_local,  label: 'C4',  desc: '4e contact', style: '' },
+    { key: 'TEND',    utc: data.TEND  || data.tend,     local_json: null, label: 'TEND',  desc: 'Fin séquence', style: 'color:var(--green)' },
+  ].map(c => ({
+    ...c,
+    local: c.local_json || (c.utc ? _utcToLocal(c.utc) : null)
+  }));
+
+  // Contacts onglet éclipse
+  const list = document.getElementById('contacts-list');
+  if (list) {
+    const _tzOffset = _getTimezoneOffset();
+    const tzLabel = data._timezone
+      || (state.gps && state.gps.timezone) || _gpsTimezone
+      || (_tzOffset !== null ? `UTC${_tzOffset >= 0 ? '+' : ''}${_tzOffset}` : 'UTC');
+    // Si C2 == C3 (éclipse partielle), ne pas afficher C2 et C3 (ils valent TMAX)
+    const c2utc = data.C2 || data.c2;
+    const c3utc = data.C3 || data.c3;
+    const isPartialContacts = c2utc && c3utc && c2utc === c3utc;
+    list.innerHTML = contacts.filter(c => {
+      if (c.key === 'TMILIEU') return false;
+      if (c.key === 'TSTART' || c.key === 'TEND') return false;
+      if (isPartialContacts && (c.key === 'C2' || c.key === 'C3')) return false;
+      return true;
+    }).map(c => `
+      <div class="contact-row" id="cr-${c.key}" style="flex-direction:column;align-items:stretch;gap:4px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="contact-label" style="width:auto;font-size:13px;color:var(--accent2)">${c.label}</span>
+          <span class="contact-countdown" id="cd-${c.key}" style="font-size:12px">--</span>
+        </div>
+        <div style="display:flex;gap:16px;font-family:var(--mono);font-size:13px">
+          <span>
+            <span style="color:var(--text-dim);font-size:10px">UTC </span>
+            <span style="color:var(--blue)">${c.utc || '--'}</span>
+          </span>
+          <span style="color:var(--text-dim);font-size:10px;font-family:var(--mono)">Timezone ${tzLabel}</span>
+          <span>
+            <span style="color:var(--text-dim);font-size:10px">Local </span>
+            <span style="color:var(--orange)">${c.local && c.local !== c.utc ? c.local : (c.utc || '--')}</span>
+          </span>
+        </div>
+      </div>`).join('');
+  }
+  // Mettre à jour les timezones depuis l'état GPS
+  if (state.gps && state.gps.timezone) {
+    ['C1', 'C2', 'C3', 'C4'].forEach(key => {
+      const tzEl = document.getElementById(`tz-${key}`);
+      if (tzEl) tzEl.textContent = state.gps.timezone;
+    });
+  }
+  // Contacts onglet Trigger — design compact
+  const tlist = document.getElementById('trigger-contacts');
+  const _buildContactsHtml = () => {
+    return contacts.map(c => {
+      const isTmax  = c.key === 'TMILIEU';
+      const isBound = c.key === 'TSTART' || c.key === 'TEND';
+      const labelColor = isTmax ? 'var(--accent)' : isBound ? 'var(--green)' : 'var(--text-dim)';
+      const rowBorder  = isTmax ? 'border-color:rgba(245,166,35,.3)'
+                       : isBound ? 'border-color:rgba(61,220,132,.2)' : '';
+      return `<div class="contact-row" id="${c.key}"
+          style="display:flex;justify-content:space-between;align-items:center;${rowBorder}">
+        <span style="font-family:var(--mono);font-size:11px;color:${labelColor};width:52px;flex-shrink:0">${c.label}</span>
+        <span style="font-family:var(--mono);font-size:13px;color:var(--blue);flex:1;text-align:center">${c.utc || '--'}</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--accent);flex:1;text-align:center">${c.local || '--'}</span>
+        <span class="contact-countdown" id="td-${c.key}" style="font-family:var(--mono);font-size:11px;min-width:72px;text-align:right">--</span>
+      </div>`;
+    }).join('');
+  };
+  if (tlist) tlist.innerHTML = _buildContactsHtml();
+
+  // Mettre à jour les timezones
+  if (state.gps && state.gps.timezone) {
+    contacts.forEach(c => {
+      const el = document.getElementById('tz-' + c.key);
+      if (el) el.textContent = state.gps.timezone;
+    });
+  }
+
+  // Pré-remplir overrides (TSTART/TEND uniquement — C1/C2/C3/C4 gérés dans l'onglet Éclipse)
+  populateOverrides(data);
+
+  // Alimenter les champs de saisie manuelle dans l'onglet Éclipse
+  const manFields = { C1: data.C1, C2: data.C2, TMAX: data.TMAX, C3: data.C3, C4: data.C4 };
+  Object.entries(manFields).forEach(([k, v]) => {
+    const el = document.getElementById('man-' + k);
+    if (el && v) el.value = v;
+  });
+  _updateManualLocals();
+}
+
+function updateCountdowns(data) {
+  if (!data) return;
+  const toSec  = hms => { try { const [h,m,s] = hms.split(':').map(Number); return h*3600+m*60+(s||0); } catch(e){return null;} };
+  const fromSec = s => `${fmt(Math.floor(s/3600))}:${fmt(Math.floor((s%3600)/60))}:${fmt(Math.floor(s%60))}`;
+
+  // Calculer TMAX selon le type d'éclipse
+  // Totale → C2 + (C3-C2)/2  |  Partielle → C1 + (C4-C1)/2
+  let tmilieu = data.TMAX || data.tmax || null;
+  if (!tmilieu) {
+    tmilieu = _calcTmax(data.C1 || data.c1, data.C2 || data.c2,
+                        data.C3 || data.c3, data.C4 || data.c4);
+  }
+
+  const contacts = {
+    TSTART:  data.TSTART || data.tstart,
+    C1:      data.C1 || data.c1,
+    C2:      data.C2 || data.c2,
+    TMILIEU: tmilieu,
+    C3:      data.C3 || data.c3,
+    C4:      data.C4 || data.c4,
+    TEND:    data.TEND  || data.tend,
+  };
+
+  // UTC courant provenant exclusivement de l'ancre Pi.
+  const nowUtcMs = _nowAdjusted().getTime();
+  const eclipseDateUtc = data._date || data._date_utc || (data._generated_utc ? String(data._generated_utc).slice(0,10) : null);
+
+  let nextKey  = null;
+  let nextDiff = Infinity;
+
+  Object.entries(contacts).forEach(([k, t]) => {
+    if (!t) return;
+
+    // Mode réel : _date + heures UTC. Le dry-run rebase cette timeline côté backend.
+    let diff;
+    if (eclipseDateUtc) {
+      const targetMs = Date.parse(`${eclipseDateUtc}T${t}Z`);
+      if (!Number.isFinite(targetMs)) return;
+      diff = (targetMs - nowUtcMs) / 1000;
+    } else {
+      // Compatibilité vieux JSON sans date : fallback HH:MM:SS avec fenêtre ±12 h.
+      const n = _nowAdjusted();
+      const nowUtcSec = n.getUTCHours()*3600+n.getUTCMinutes()*60+n.getUTCSeconds();
+      const contactUtcSec = toSec(t);
+      if (contactUtcSec === null) return;
+      diff = contactUtcSec - nowUtcSec;
+      if (diff < -43200) diff += 86400;
+      if (diff >  43200) diff -= 86400;
+    }
+
+    const abs  = Math.abs(diff);
+    const sign = diff > 0 ? '\u2212' : '+';
+    const str  = `${sign}${fmt(Math.floor(abs/3600))}:${fmt(Math.floor((abs%3600)/60))}:${fmt(Math.floor(abs%60))}`;
+
+    // Mettre à jour countdowns (onglet éclipse cd- et trigger td-)
+    ['cd-', 'td-'].forEach(p => {
+      const el = document.getElementById(p + k);
+      if (el) {
+        el.textContent = str;
+        el.style.color = diff < 0 ? 'var(--text-dim)' : diff < 120 ? 'var(--accent)' : 'var(--text)';
+      }
+    });
+
+    // Highlight contact row actif (onglet éclipse cr-, trigger = ID direct)
+    ['cr-'].forEach(p => {
+      const row = document.getElementById(p + k);
+      if (row) row.classList.toggle('active-phase', diff >= 0 && diff < 120);
+    });
+    const trigRow = document.getElementById(k);
+    if (trigRow && trigRow.classList.contains('contact-row'))
+      trigRow.classList.toggle('active-phase', diff >= 0 && diff < 120);
+
+    if (diff > 0 && diff < nextDiff) { nextDiff = diff; nextKey = k; }
+  });
+
+  // Countdown anneau
+  if (nextKey && nextDiff < Infinity) {
+    const rc = document.getElementById('ring-countdown');
+    const rl = document.getElementById('ring-label');
+    if (rc) rc.textContent = fromSec(nextDiff);
+    if (rl) rl.textContent = `→ ${nextKey}`;
+  }
+}
+
+function fmt(n) { return String(n).padStart(2,'0'); }
+
+// ════════════════════════════════════════════════════════════════
+// ACTIONS
+// ════════════════════════════════════════════════════════════════
+async function syncGPS() {
+  const btn = document.getElementById('btn-gps-sync');
+  btn.disabled = true;
+  btn.textContent = '⏳ Synchronisation…';
+  try {
+    const r = await fetch('/api/gps/sync', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) {
+      flash(d.error, 'red');
+      btn.disabled = false;
+      btn.textContent = '📡 Synchroniser l\'heure';
+    } else {
+      flash('GPS sync lancé…', 'blue');
+      // Fallback : réactiver après 90s si gps_sync_done n'arrive pas
+      setTimeout(() => { btn.disabled = false; btn.textContent = '📡 Synchroniser l\'heure'; }, 90000);
+    }
+  } catch(e) {
+    flash('Erreur réseau', 'red');
+    btn.disabled = false;
+    btn.textContent = '📡 Synchroniser l\'heure';
+  }
+}
+
+async function calculateEclipse() {
+  const lat = parseFloat(document.getElementById('inp-lat').value);
+  const lon = parseFloat(document.getElementById('inp-lon').value);
+  const alt = parseFloat(document.getElementById('inp-alt').value) || 0;
+  const tz  = parseFloat(document.getElementById('inp-tz').value)  || 0;
+  const ecl = document.getElementById('inp-eclipse').value;
+  const dst = document.getElementById('inp-dst')?.checked || false;
+
+  if (isNaN(lat) || isNaN(lon)) { flash('Lat/Lon requis', 'red'); return; }
+
+  const btn = document.getElementById('btn-calc');
+  btn.disabled = true; btn.textContent = '⏳ Calcul en cours…';
+
+  try {
+    const r = await fetch('/api/eclipse/calculate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon, alt, tz, eclipse: ecl, dst })
+    });
+    const d = await r.json();
+    if (d.error) flash(d.error, 'red');
+  } catch(e) { flash('Erreur réseau', 'red'); }
+  // Le bouton est réactivé par l'événement eclipse_calculated
+}
+
+// Met à jour les heures locales et recalcule TMAX automatiquement
+function _updateManualLocals() {
+  // Recalculer TMAX (non modifiable par l'utilisateur)
+  const c1 = document.getElementById('man-C1')?.value?.trim();
+  const c2 = document.getElementById('man-C2')?.value?.trim();
+  const c3 = document.getElementById('man-C3')?.value?.trim();
+  const c4 = document.getElementById('man-C4')?.value?.trim();
+  const tmax = _calcTmax(c1, c2, c3, c4);
+  const tmaxEl = document.getElementById('man-TMAX');
+  if (tmaxEl) tmaxEl.value = tmax || '';
+
+  // Heures locales sous chaque champ (C1, C2, C3, C4, TMAX)
+  ['C1', 'C2', 'C3', 'C4', 'TMAX'].forEach(k => {
+    const inp = document.getElementById('man-' + k);
+    const lbl = document.getElementById('man-' + k + '-local');
+    if (inp && lbl) lbl.textContent = inp.value ? (_utcToLocal(inp.value) || '--') : '--';
+  });
+}
+
+// Sauvegarde manuelle des contacts dans todayeclipse.json via /api/eclipse/override
+async function saveManualContacts() {
+  const get = id => { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : null; };
+  const timeRx = /^\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
+  const fields = { C1: get('man-C1'), C2: get('man-C2'), C3: get('man-C3'), C4: get('man-C4') };
+  // TMAX est calculé automatiquement — on le lit depuis le champ readonly
+  const tmaxEl = document.getElementById('man-TMAX');
+  fields.TMAX = tmaxEl && tmaxEl.value.trim() ? tmaxEl.value.trim() : null;
+
+  // Validation format HH:MM:SS (sauf TMAX qui est calculé automatiquement)
+  for (const [k, v] of Object.entries(fields)) {
+    if (k === 'TMAX') continue;
+    if (v && !timeRx.test(v)) { flash('Format invalide pour ' + k + ' — attendu HH:MM:SS ou HH:MM:SS.sss', 'red'); return; }
+  }
+
+  const toSec = _toSec;
+  const fromSec = _fromSec;
+
+  const payload = {};
+  if (fields.C1)   payload.C1   = fields.C1;
+  if (fields.C2)   payload.C2   = fields.C2;
+  if (fields.TMAX) payload.TMAX = fields.TMAX;
+  if (fields.C3)   payload.C3   = fields.C3;
+  if (fields.C4)   payload.C4   = fields.C4;
+  if (fields.C1)   payload.TSTART = fromSec(toSec(fields.C1) - 3600);
+  if (fields.C4)   payload.TEND   = fromSec(toSec(fields.C4) + 3600);
+  // Calculer TMAX automatiquement si non saisi
+  if (!fields.TMAX) {
+    const computed = _calcTmax(fields.C1, fields.C2, fields.C3, fields.C4);
+    if (computed) payload.TMAX = computed;
+  }
+  // Éclipse partielle : C2 == C3 == TMAX
+  if (!fields.C2 && fields.TMAX) { payload.C2 = fields.TMAX; payload.C3 = fields.TMAX; }
+
+  try {
+    const r = await fetch('/api/eclipse/override', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (d.status === 'ok') flash('Contacts sauvegardés \u2713 — Trigger prêt', 'green');
+    else flash(d.error || 'Erreur sauvegarde', 'red');
+  } catch(e) { flash('Erreur réseau', 'red'); }
+}
+
+// Listeners : mise à jour temps réel des heures locales lors de la saisie
+// TMAX est readonly — recalculé automatiquement via _updateManualLocals
+document.addEventListener('DOMContentLoaded', () => {
+  ['C1','C2','C3','C4'].forEach(k => {
+    const el = document.getElementById('man-' + k);
+    if (el) el.addEventListener('input', _updateManualLocals);
+  });
+});
+
+async function probeCamera() {
+  const btn  = document.getElementById('btn-cam-probe');
+  const stat = document.getElementById('cam-probe-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ Connexion en cours…';
+  stat.textContent = 'Connexion USB…';
+  stat.style.color = 'var(--text-dim)';
+
+  try {
+    const r = await fetch('/api/camera/probe', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) {
+      stat.textContent = '❌ ' + d.error;
+      stat.style.color = 'var(--red)';
+      document.getElementById('cam-brand').textContent  = '--';
+      document.getElementById('cam-model').textContent  = '--';
+      document.getElementById('cam-battery-probe').textContent = '--';
+    } else {
+      document.getElementById('cam-brand').textContent  = d.brand  || '--';
+      document.getElementById('cam-model').textContent  = d.model  || '--';
+      document.getElementById('cam-battery-probe').textContent = d.battery || '--';
+      stat.textContent = '✅ Détecté — connexion USB coupée';
+      stat.style.color = 'var(--green)';
+    }
+  } catch(e) {
+    stat.textContent = '❌ Erreur réseau';
+    stat.style.color = 'var(--red)';
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🔌 Tester la connexion USB';
+}
+
+async function loadTriggerConfigList() {
+  try {
+    const r = await fetch('/api/configs/list_trigger');
+    const d = await r.json();
+    const sel = document.getElementById('trigger-config-select');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Choisir un fichier —</option>';
+    (d.files || []).forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.name;
+      opt.dataset.dir = f.dir;
+      opt.textContent = f.active ? `★ ${f.name}` : f.name;
+      if (f.active) opt.style.color = 'var(--accent)';
+      sel.appendChild(opt);
+    });
+    const active = Array.from(sel.options).find(o => o.value === 'todayeclipse.json');
+    if (active) sel.value = 'todayeclipse.json';
+  } catch(e) {}
+  // Charger aussi la liste des configs appareil
+  try {
+    const r2 = await fetch('/api/configs/list_camera');
+    const d2 = await r2.json();
+    const sel2 = document.getElementById('trigger-camera-select');
+    if (!sel2) return;
+    sel2.innerHTML = '<option value="">— Config appareil —</option>';
+    (d2.files || []).forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f; opt.textContent = f;
+      sel2.appendChild(opt);
+    });
+    // Sélectionner camera_default.json si présent
+    const def = Array.from(sel2.options).find(o => o.value === 'camera_default.json');
+    if (def) { sel2.value = 'camera_default.json'; selectTriggerCamera('camera_default.json'); }
+  } catch(e) {}
+}
+
+async function selectTriggerCamera(filename) {
+  if (!filename) return;
+  try {
+    const r = await fetch('/api/trigger/select_camera', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ filename })
+    });
+    const d = await r.json();
+    if (d.error) flash(d.error, 'red');
+    else flash(`📷 Config appareil : ${filename}`, 'green');
+  } catch(e) { flash('Erreur réseau', 'red'); }
+}
+
+async function loadTriggerConfig(filename, dir) {
+  if (!filename) return;
+  try {
+    const r = await fetch('/api/trigger/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, dir: dir || 'configs' })
+    });
+    const d = await r.json();
+    if (d.error) { flash(d.error, 'red'); return; }
+    flash(`📂 ${filename} chargé`, 'green');
+  } catch(e) { flash('Erreur réseau', 'red'); }
+}
+
+async function clearDebugFiles() {
+  if (!confirm('Supprimer tous les fichiers debug_*.json ?')) return;
+  const btn = document.getElementById('btn-debug-clear');
+  btn.disabled = true; btn.textContent = '⏳';
+  try {
+    const r = await fetch('/api/configs/clear_debug', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) { flash(d.error, 'red'); }
+    else {
+      flash(`🗑 ${d.deleted.length} fichier(s) supprimé(s)`, 'yellow');
+      loadTriggerConfigList();
+    }
+  } catch(e) { flash('Erreur réseau', 'red'); }
+  btn.disabled = false; btn.textContent = '🗑';
+}
+
+async function generateDebug() {
+  const btn = document.getElementById('btn-debug-gen');
+  btn.disabled = true; btn.textContent = '⏳ Génération…';
+  try {
+    const r = await fetch('/api/debug/generate', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) {
+      flash('Erreur DEBUG : ' + d.error, 'red');
+    } else {
+      flash(`🛠 ${d.filename} — éclipse totale dans ~4 min`, 'yellow');
+      // Rafraîchir le menu et sélectionner le nouveau fichier
+      await loadTriggerConfigList();
+      const sel = document.getElementById('trigger-config-select');
+      if (sel && d.filename) {
+        sel.value = d.filename;
+      }
+    }
+  } catch(e) {
+    flash('Erreur réseau', 'red');
+  }
+  btn.disabled = false; btn.textContent = '🛠 DEBUG';
+}
+
+async function generateDebugRealistic() {
+  const btn = document.getElementById('btn-debug-realistic');
+  btn.disabled = true; btn.textContent = '⏳ Génération…';
+  try {
+    const r = await fetch('/api/debug/generate_realistic', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) {
+      flash('Erreur DEBUG RÉEL : ' + d.error, 'red');
+    } else {
+      flash(`🌍 ${d.filename} — séquence ~3h44m`, 'yellow');
+      await loadTriggerConfigList();
+      const sel = document.getElementById('trigger-config-select');
+      if (sel && d.filename) sel.value = d.filename;
+    }
+  } catch(e) {
+    flash('Erreur réseau', 'red');
+  }
+  btn.disabled = false; btn.textContent = '🌍 DEBUG RÉEL';
+}
+
+async function startTrigger() {
+  const r = await fetch('/api/trigger/start', { method: 'POST' });
+  const d = await r.json();
+  if (d.error) {
+    flash(d.error, 'red');
+    // Erreurs bloquantes : rediriger vers l'onglet concerné
+    if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE') {
+      setTimeout(() => showTab(0), 1500);  // → onglet SYNC GPS
+    } else if (d.code === 'JSON_INVALID') {
+      setTimeout(() => showTab(1), 1500);  // → onglet ÉCLIPSE
+    }
+  } else {
+    flash('Trigger démarré ▶', 'green');
+  }
+}
+
+async function startDryRun() {
+  if (!confirm('🧪 Lancer un DRY-RUN ×1 ?\nMême caméra, mêmes phases et mêmes intervalles que le jour J.\nSeule la timeline sera translatée sur maintenant.')) return;
+  const r = await fetch('/api/trigger/dryrun', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({delay_s: 30})
+  });
+  const d = await r.json();
+  if (d.error) {
+    flash(d.error, 'red');
+    if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE') setTimeout(() => showTab(0), 1500);
+    else if (d.code === 'JSON_INVALID') setTimeout(() => showTab(1), 1500);
+  } else {
+    flash('Dry-run ×1 démarré — TSTART dans 30 s', 'blue');
+  }
+}
+
+async function stopTrigger() {
+  const btn = document.getElementById('btn-stop');
+  // Confirmation seulement si le trigger tourne
+  const isRunning = btn.textContent.includes('STOP') && !document.getElementById('btn-start').disabled === false;
+  if (!confirm('⚠️ Arrêter / forcer l\'arrêt du trigger ?')) return;
+  btn.textContent = '⏳ Arrêt…';
+  try {
+    const r = await fetch('/api/trigger/stop', { method: 'POST' });
+    const d = await r.json();
+    if (d.status === 'not_running') {
+      flash('Trigger non actif', 'yellow');
+    } else {
+      flash('■ Trigger arrêté', 'yellow');
+    }
+  } catch(e) {
+    flash('Erreur réseau lors de l\'arrêt', 'red');
+  }
+  btn.textContent = '■ STOP';
+}
+
+async function startTotalityOnly() {
+  if (!confirm('🌑 Mode Totalité uniquement :\nArrête le trigger en cours et démarre la séquence totalité en boucle.\nAppuyez sur STOP pour arrêter.')) return;
+  // Arrêter le trigger en cours si actif
+  try { await fetch('/api/trigger/stop', { method: 'POST' }); } catch(e) {}
+  await new Promise(r => setTimeout(r, 1500)); // laisser le temps au script de s'arrêter
+  // Lancer le mode totalité uniquement
+  try {
+    const r = await fetch('/api/trigger/totality_only', { method: 'POST' });
+    const d = await r.json();
+    if (d.status === 'ok') {
+      flash('🌑 Totalité uniquement démarrée', 'orange');
+      document.getElementById('btn-totality-only').style.opacity = '0.5';
+    } else {
+      flash('Erreur : ' + (d.error || 'inconnue'), 'red');
+    }
+  } catch(e) {
+    flash('Erreur réseau', 'red');
+  }
+}
+
+let _usbReleased = false;
+async function toggleUsb() {
+  const btn = document.getElementById('btn-usb');
+  btn.disabled = true;
+  try {
+    if (!_usbReleased) {
+      const r = await fetch('/api/camera/usb', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'release'}) });
+      const d = await r.json();
+      if (d.status === 'ok') {
+        _usbReleased = true;
+        btn.textContent = '🔌 Reprendre USB';
+        btn.style.background = 'rgba(200,120,0,.3)';
+        btn.style.borderColor = 'rgba(200,120,0,.6)';
+        btn.style.color = '#ffaa00';
+        flash('USB libéré — appareil photo indépendant', 'yellow');
+      } else { flash(d.error || 'Erreur libération USB', 'red'); }
+    } else {
+      const r = await fetch('/api/camera/usb', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'reconnect'}) });
+      const d = await r.json();
+      if (d.status === 'ok') {
+        _usbReleased = false;
+        btn.textContent = '📷 Libérer USB';
+        btn.style.background = 'rgba(0,180,180,.2)';
+        btn.style.borderColor = 'rgba(0,180,180,.4)';
+        btn.style.color = '#00d0d0';
+        flash('USB reconnecté — Pi reprend le contrôle', 'green');
+      } else { flash(d.error || 'Erreur reconnexion USB', 'red'); }
+    }
+  } catch(e) { flash('Erreur réseau USB', 'red'); }
+  btn.disabled = false;
+}
+
+function testSound(file) { playSound(file); }
+
+function toggleSounds() {
+  state.soundsEnabled = !state.soundsEnabled;
+  document.getElementById('toggle-sounds').classList.toggle('on', state.soundsEnabled);
+}
+
+function setVolume(v) {
+  state.volume = parseFloat(v) / 100;
+  const lbl = document.getElementById('volume-label');
+  if (lbl) lbl.textContent = `${Math.round(v)}%`;
+}
+
+// Initialiser le switch et le slider à leur état par défaut au chargement
+document.addEventListener('DOMContentLoaded', () => {
+  const sw = document.getElementById('toggle-sounds');
+  if (sw) sw.classList.toggle('on', state.soundsEnabled);
+  const sl = document.getElementById('volume-slider');
+  if (sl) { sl.value = Math.round(state.volume * 100); setVolume(sl.value); }
+});
+
+// ════════════════════════════════════════════════════════════════
+// BATTERIE
+// ════════════════════════════════════════════════════════════════
+function updateBattery(pct) {
+  if (pct == null) return;
+  const el  = document.getElementById('battery-pct');
+  const bar = document.getElementById('battery-bar');
+  const msg = document.getElementById('battery-msg');
+  if (!el) return;
+
+  el.textContent = `${pct}%`;
+  bar.style.width = `${Math.min(pct, 100)}%`;
+
+  let color, msgText = '';
+  if      (pct > 50) { color = 'var(--green)';  msgText = ''; }
+  else if (pct > 20) { color = 'var(--yellow)';  msgText = 'Batterie correcte'; }
+  else if (pct > 20) { color = 'var(--accent)';  msgText = '⚠ Faible — préparez le remplacement'; }
+  else               { color = 'var(--red)';      msgText = '⚠⚠ CRITIQUE — changez dès que possible'; }
+
+  el.style.color    = color;
+  bar.style.background = color;
+  if (msg) msg.textContent = msgText;
+  if (msg) msg.style.color = color;
+
+  // Dot caméra header
+  const dot = document.getElementById('dot-camera');
+  if (dot) dot.className = pct > 20 ? 'dot on' : 'dot off';
+}
+
+// ════════════════════════════════════════════════════════════════
+// OVERRIDES — champs modifiables
+// ════════════════════════════════════════════════════════════════
+function populateOverrides(data) {
+  if (!data) return;
+  const set = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
+  set('ov-tstart', data.TSTART || data.tstart);
+  set('ov-tend',   data.TEND   || data.tend);
+  // C1/C2/C3/C4 gérés dans l'onglet Éclipse — pas de champ ov-c* dans Trigger
+  // Paramètres phases
+  if (data.phase1a) {
+    set('ov-p1a-interval', data.phase1a.interval_s);
+    set('ov-p1a-speed',    data.phase1a.speed_denom);
+  }
+  if (data.diamond_ring) {
+    set('ov-dr-duration', data.diamond_ring.duration_s);
+    set('ov-dr-interval', data.diamond_ring.interval_s);
+    set('ov-dr-speed',    data.diamond_ring.speed_denom);
+  }
+  // Grille vitesses totalité
+  if (data.totality && data.totality.speeds) {
+    initSpeedsGrid(data.totality.speeds);
+  } else {
+    initSpeedsGrid();
+  }
+  if (data.phase3b) {
+    // Phase 3b utilise les mêmes champs que 1a
+    set('ov-p1a-interval', data.phase3b.interval_s);
+    set('ov-p1a-speed',    data.phase3b.speed_denom);
+  }
+  // Recalculer Tmilieu
+  computeTmilieu();
+}
+
+async function saveOverrides() {
+  const get = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+
+  // Construire le payload à partir des champs remplis
+  const payload = {};
+  const tstart = get('ov-tstart'); if (tstart) payload.TSTART = tstart;
+  const tend   = get('ov-tend');   if (tend)   payload.TEND   = tend;
+  // C1/C2/C3/C4 gérés dans l'onglet Éclipse
+
+  // Paramètres phases
+  const p1aInt = get('ov-p1a-interval'); const p1aSpd = get('ov-p1a-speed');
+  if (p1aInt || p1aSpd) {
+    payload.phase1a = {};
+    if (p1aInt) payload.phase1a.interval_s   = parseInt(p1aInt);
+    if (p1aSpd) payload.phase1a.speed_denom  = parseInt(p1aSpd);
+    // Phase 3b = mêmes valeurs que 1a (champs unifiés)
+    payload.phase3b = { ...payload.phase1a };
+  }
+  const drDur = get('ov-dr-duration'); const drInt = get('ov-dr-interval'); const drSpd = get('ov-dr-speed');
+  if (drDur || drInt || drSpd) {
+    payload.diamond_ring = {};
+    if (drDur) payload.diamond_ring.duration_s  = parseInt(drDur);
+    if (drInt) payload.diamond_ring.interval_s  = parseInt(drInt);
+    if (drSpd) payload.diamond_ring.speed_denom = parseInt(drSpd);
+  }
+  // Vitesses de totalité (cochées)
+  const speedCheckboxes = document.querySelectorAll('#totality-speeds-grid input[type="checkbox"]:checked');
+  const selectedSpeeds = Array.from(speedCheckboxes).map(cb => 
+    DEFAULT_SPEEDS[parseInt(cb.id.split('-')[1])]
+  );
+  if (selectedSpeeds.length > 0) {
+    payload.totality = { speeds: selectedSpeeds };
+  }
+
+  try {
+    const r = await fetch('/api/eclipse/override', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (d.status === 'ok') flash('Paramètres sauvegardés ✓', 'green');
+    else flash(d.error || 'Erreur', 'red');
+  } catch(e) { flash('Erreur réseau', 'red'); }
+}
+// ════════════════════════════════════════════════════════════════
+// CONFIG FILES
+// ════════════════════════════════════════════════════════════════
+// Vitesses disponibles pour partielle et diamond ring
+const PARTIAL_SPEEDS = ['1/8000','1/4000','1/2000','1/1000','1/500','1/400'];
+
+function initPhaseSpeedsGrid(gridId, selectedSpeeds) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return;
+  grid.innerHTML = '';
+  PARTIAL_SPEEDS.forEach((v, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'speed-cell';
+    cell.onclick = () => { const cb = cell.querySelector('input'); cb.checked = !cb.checked; };
+    const chk = (selectedSpeeds || []).includes(v) ? 'checked' : '';
+    cell.innerHTML = `<input type="checkbox" id="${gridId}-${i}" ${chk} onclick="event.stopPropagation()"><label for="${gridId}-${i}">${v}</label>`;
+    grid.appendChild(cell);
+  });
+}
+
+function getPhaseSpeedSelection(gridId) {
+  return PARTIAL_SPEEDS.filter((v, i) => {
+    const cb = document.getElementById(`${gridId}-${i}`);
+    return cb && cb.checked;
+  });
+}
+
+const APERTURES = ['f/2.8', 'f/4', 'f/5.6', 'f/8'];
+
+function selectAperture(gridId, value) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return;
+  grid.querySelectorAll('.aperture-cell').forEach(cell => {
+    cell.classList.toggle('selected', cell.textContent.trim() === value);
+  });
+}
+
+function getApertureSelection(gridId) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return 'f/8';
+  const sel = grid.querySelector('.aperture-cell.selected');
+  return sel ? sel.textContent.trim() : 'f/8';
+}
+
+function setApertureSelection(gridId, value) {
+  selectAperture(gridId, value);
+}
+
+async function loadConfigFileList() {
+  try {
+    const r = await fetch('/api/configs/list');
+    const d = await r.json();
+    const sel = document.getElementById('config-file-select');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Choisir un fichier —</option>';
+    (d.files || []).forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f; opt.textContent = f;
+      if (f === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+async function loadEclipseFileList() {
+  try {
+    const r = await fetch('/api/configs/list_eclipse');
+    const d = await r.json();
+    const sel = document.getElementById('eclipse-file-select');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Fichier circonstances —</option>';
+    (d.files || []).forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f; opt.textContent = f;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+async function loadCameraConfigList() {
+  try {
+    const r = await fetch('/api/configs/list_camera');
+    const d = await r.json();
+    const sel = document.getElementById('camera-config-select');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Fichier config appareil —</option>';
+    (d.files || []).forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f; opt.textContent = f;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+async function loadEclipseFile(filename) {
+  if (!filename) return;
+  try {
+    const r = await fetch('/api/configs/load/' + encodeURIComponent(filename));
+    if (!r.ok) { flash('Erreur chargement circonstances', 'red'); return; }
+    const data = await r.json();
+    const rPost = await fetch('/api/eclipse/override', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    const d = await rPost.json();
+    if (d.status === 'ok') flash('Circonstances chargées : ' + filename, 'green');
+    else flash(d.error || 'Erreur', 'red');
+  } catch(e) { flash('Erreur réseau', 'red'); }
+}
+
+async function loadCameraConfig(filename) {
+  if (!filename) return;
+  try {
+    const r = await fetch('/api/configs/load_camera/' + encodeURIComponent(filename));
+    if (!r.ok) { flash('Erreur chargement config appareil', 'red'); return; }
+    const data = await r.json();
+    _applyCameraConfig(data);
+    flash('Config appareil chargée : ' + filename, 'green');
+  } catch(e) { flash('Erreur réseau', 'red'); }
+}
+
+function _applyCameraConfig(data) {
+  const p  = data.partial      || {};
+  const dr = data.diamond_ring || {};
+  const t  = data.totality     || {};
+  if (p.interval)  document.getElementById('cfg-partial-interval').value = p.interval;
+  document.getElementById('cfg-partial-iso').value = p.iso || '100';
+  if (p.aperture)  setApertureSelection('cfg-partial-aperture', p.aperture);
+  initPhaseSpeedsGrid('cfg-partial-speeds', p.speeds || ['1/500']);
+  if (dr.duration) document.getElementById('cfg-dr-duration').value = dr.duration;
+  if (dr.interval) document.getElementById('cfg-dr-interval').value = dr.interval;
+  document.getElementById('cfg-dr-iso').value = dr.iso || '100';
+  if (dr.aperture) setApertureSelection('cfg-dr-aperture', dr.aperture);
+  initPhaseSpeedsGrid('cfg-dr-speeds', dr.speeds || ['1/500']);
+  document.getElementById('cfg-tot-iso').value = t.iso || '100';
+  if (t.aperture)  setApertureSelection('cfg-tot-aperture', t.aperture);
+  if (t.speeds)    initSpeedsGrid(t.speeds);
+}
+
+function _readCameraConfig() {
+  const totSpeeds = Array.from(
+    document.querySelectorAll('#totality-speeds-grid .speed-cell input:checked')
+  ).map(cb => cb.parentElement.querySelector('label').textContent.trim());
+  return {
+    _type: 'camera_config',
+    partial:      { aperture: getApertureSelection('cfg-partial-aperture'),
+                    interval: parseInt(document.getElementById('cfg-partial-interval').value)||180,
+                    iso:      document.getElementById('cfg-partial-iso').value,
+                    speeds:   getPhaseSpeedSelection('cfg-partial-speeds') },
+    diamond_ring: { aperture: getApertureSelection('cfg-dr-aperture'),
+                    duration: parseInt(document.getElementById('cfg-dr-duration').value)||40,
+                    interval: parseInt(document.getElementById('cfg-dr-interval').value)||4,
+                    iso:      document.getElementById('cfg-dr-iso').value,
+                    speeds:   getPhaseSpeedSelection('cfg-dr-speeds') },
+    totality:     { aperture: getApertureSelection('cfg-tot-aperture'),
+                    iso:      document.getElementById('cfg-tot-iso').value,
+                    speeds:   totSpeeds }
+  };
+}
+
+async function saveCameraConfig() {
+  const sel = document.getElementById('camera-config-select');
+  const current = sel && sel.value
+    ? sel.value.replace(/^camera_/, '').replace(/\.json$/, '')
+    : 'camera_config';
+  const name = prompt('Nom du fichier config appareil :', current);
+  if (!name) return;
+  const data = _readCameraConfig();
+  try {
+    const r = await fetch('/api/configs/save_camera', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ filename: name, data })
+    });
+    const d = await r.json();
+    if (d.status === 'ok') { flash('Sauvegardé : ' + d.filename, 'green'); loadCameraConfigList(); }
+    else flash(d.error || 'Erreur', 'red');
+  } catch(e) { flash('Erreur réseau', 'red'); }
+}
+
+async function loadConfigFile(filename) {
+  if (!filename) return;
+  try {
+    const r = await fetch('/api/configs/load/' + encodeURIComponent(filename));
+    if (!r.ok) { flash('Erreur chargement config', 'red'); return; }
+    const data = await r.json();
+    const rPost = await fetch('/api/eclipse/override', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    const d = await rPost.json();
+    if (d.status === 'ok') flash('Config chargée : ' + filename, 'green');
+    else flash(d.error || 'Erreur', 'red');
+  } catch(e) { flash('Erreur réseau', 'red'); }
+}
+
+async function promptSaveConfig() {
+  const name = prompt('Nom du fichier de configuration :', 'ma_config');
+  if (!name) return;
+  await saveOverrides();
+  try {
+    const r = await fetch('/api/configs/save', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ filename: name })
+    });
+    const d = await r.json();
+    if (d.status === 'ok') { flash('Sauvegardé : ' + d.filename, 'green'); loadConfigFileList(); }
+    else flash(d.error || 'Erreur', 'red');
+  } catch(e) { flash('Erreur réseau', 'red'); }
+}
+
+// Charger les listes au démarrage — isolé pour ne pas bloquer en cas d'erreur
+try { loadConfigFileList(); } catch(e) { console.error('loadConfigFileList', e); }
+try { loadCameraConfigList(); } catch(e) { console.error('loadCameraConfigList', e); }
+try { loadEclipseFileList(); } catch(e) { console.error('loadEclipseFileList', e); }
+try { loadTriggerConfigList(); } catch(e) { console.error('loadTriggerConfigList', e); }
+
+function appendLog(text, level = 'info', source = '', ts = '') {
+  if (_logPaused) return;
+  
+  // Trouver le conteneur approprié selon la source
+  let containerId = 'log-container';
+  if (source === 'gps_sync') containerId = 'log-container-gps_sync';
+  else if (source === 'calculator') containerId = 'log-container-calculator';
+  else if (source === 'trigger') containerId = 'log-container-trigger';
+  
+  const containers = document.querySelectorAll(`#${containerId}`);
+  if (containers.length === 0) return;
+  
+  const d = document.createElement('div');
+  d.className = `log-line ${level}`;
+  d.textContent = ts ? `[${ts}] ${text}` : text;
+  
+  containers.forEach(c => {
+    c.appendChild(d.cloneNode(true));
+    if (c.children.length > 600) c.removeChild(c.firstChild);
+    c.scrollTop = c.scrollHeight;
+  });
+}
+
+function appendCalcLog(text, level = 'info') {
+  const c = document.getElementById('calc-log');
+  if (!c) return;  // Déjà géré si l'élément n'existe pas
+  const d = document.createElement('div');
+  d.style.cssText = 'padding:1px 0;font-size:11px;line-height:1.5;';
+  d.style.color = level === 'error' ? '#ff4c4c' : level === 'success' ? '#3ddc84' : '#5a7a9a';
+  d.textContent = text;
+  c.appendChild(d);
+  c.scrollTop = c.scrollHeight;
+}
+
+let _logPaused = false;
+async function clearLog(source = '') {
+  // Vider l'affichage du conteneur approprié
+  let containerId = 'log-container';
+  if (source === 'gps_sync') containerId = 'log-container-gps_sync';
+  else if (source === 'calculator') containerId = 'log-container-calculator';
+  else if (source === 'trigger') containerId = 'log-container-trigger';
+  
+  document.querySelectorAll(`#${containerId}`).forEach(c => c.innerHTML = '');
+  // Bloquer l'ajout de nouvelles lignes pendant 1s
+  _logPaused = true;
+  setTimeout(() => { _logPaused = false; }, 1000);
+}
+
+// ════════════════════════════════════════════════════════════════
+// NAVIGATION
+// ════════════════════════════════════════════════════════════════
+function showTab(n) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===n));
+  document.querySelectorAll('.page').forEach((p,i) => p.classList.toggle('active', i===n));
+  state.currentPage = n;
+  if (n === 2) {
+    loadCameraConfigList();
+    // Forcer ISO 100 par défaut (Chromium ignore selected sur éléments cachés)
+    const pi = document.getElementById('cfg-partial-iso');
+    const di = document.getElementById('cfg-dr-iso');
+    const ti = document.getElementById('cfg-tot-iso');
+    if (pi && pi.value === '') pi.value = '100';
+    if (di && di.value === '') di.value = '100';
+    if (ti && ti.value === '') ti.value = '100';
+  }
+  if (n === 4) { loadTriggerConfigList(); loadEclipseFileList(); }
+}
+
+// ════════════════════════════════════════════════════════════════
+// FLASH
+// ════════════════════════════════════════════════════════════════
+let _flashTimer = null;
+function flash(msg, type = 'info') {
+  const el = document.getElementById('flash');
+  el.textContent = msg;
+  el.style.borderColor = type === 'green' ? 'var(--green)'
+    : type === 'red' ? 'var(--red)'
+    : type === 'yellow' ? 'var(--yellow)'
+    : type === 'blue' ? 'var(--blue)'
+    : 'var(--accent)';
+  el.classList.add('show');
+  clearTimeout(_flashTimer);
+  _flashTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ════════════════════════════════════════════════════════════════
+// INIT + POLLING
+// ════════════════════════════════════════════════════════════════
+async function loadEclipseData() {
+  try {
+    const r = await fetch('/api/eclipse/current');
+    if (r.ok) {
+      const d = await r.json();
+      if (!d.error) {
+        state.eclipse = d;
+        if (d._timezone) _gpsTimezone = d._timezone;
+        renderContacts(d);
+        populateOverrides(d);
+      }
+    }
+  } catch(e) {}
+}
+
+async function loadCameraStatus() {
+  try {
+    const r = await fetch('/api/status');
+    if (r.ok) {
+      const d = await r.json();
+      const cam = d.camera || {};
+      document.getElementById('cam-status').textContent  = cam.connected ? '✅ Connectée' : '❌ Non détectée';
+      document.getElementById('cam-status').className    = `stat-value ${cam.connected ? 'green' : 'red'}`;
+      document.getElementById('cam-battery').textContent = cam.battery || '--';
+      // Mettre à jour la barre batterie dans l'onglet trigger
+      if (cam.battery) {
+        const pct = parseInt(cam.battery);
+        if (!isNaN(pct)) updateBattery(pct);
+      }
+    }
+  } catch(e) {}
+}
+
+// Countdown toutes les secondes
+setInterval(() => { if (state.eclipse) updateCountdowns(state.eclipse); }, 1000);
+// Caméra toutes les 10s
+setInterval(loadCameraStatus, 10000);
+
+// Init
+loadEclipseData();
+loadCameraStatus();
+
+</script>
+</body>
+</html>

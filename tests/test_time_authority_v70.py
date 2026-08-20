@@ -1,0 +1,99 @@
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from backend.trigger_runtime import RuntimeClock
+from services.camera_service import CameraService
+from plugins.camera.base import seconds_until_deadline, CaptureResult
+
+
+class FakeTime:
+    def __init__(self):
+        self.wall = datetime(2027, 8, 2, 9, 0, 0, tzinfo=timezone.utc)
+        self.mono = 1000.0
+    def wall_now(self): return self.wall
+    def monotonic(self): return self.mono
+    def sleep(self, seconds): self.mono += seconds
+
+
+def test_runtime_clock_ignores_wall_clock_jump():
+    ft = FakeTime()
+    clock = RuntimeClock(wall_clock_fn=ft.wall_now, monotonic_fn=ft.monotonic, sleep_fn=ft.sleep)
+    clock.configure(simulate=False)
+    assert clock.now() == datetime(2027, 8, 2, 9, 0, 0)
+    ft.mono += 10
+    assert clock.now() == datetime(2027, 8, 2, 9, 0, 10)
+    # Simulate NTP/GPS/iPad-related system correction: wall clock jumps +2 hours.
+    ft.wall += timedelta(hours=2)
+    ft.mono += 5
+    assert clock.now() == datetime(2027, 8, 2, 9, 0, 15)
+
+
+def test_runtime_clock_simulation_is_monotonic():
+    ft = FakeTime()
+    clock = RuntimeClock(wall_clock_fn=ft.wall_now, monotonic_fn=ft.monotonic, sleep_fn=ft.sleep)
+    clock.configure(simulate=True, speed=60)
+    clock.start_simulation(datetime(2027, 8, 2, 8, 0, 0))
+    ft.mono += 2
+    assert clock.now() == datetime(2027, 8, 2, 8, 2, 0)
+    ft.wall -= timedelta(hours=8)
+    ft.mono += 1
+    assert clock.now() == datetime(2027, 8, 2, 8, 3, 0)
+
+
+class FakePlugin:
+    def __init__(self): self.deadline = None
+    def shoot_speeds(self, *args, **kwargs):
+        self.deadline = kwargs.get('deadline')
+        return CaptureResult(1, 1, 'ok')
+
+
+def test_camera_service_converts_phase_deadline_to_monotonic(monkeypatch):
+    ft = FakeTime()
+    clock = RuntimeClock(wall_clock_fn=ft.wall_now, monotonic_fn=ft.monotonic, sleep_fn=ft.sleep)
+    clock.configure(False)
+    service = CameraService(clock=clock)
+    plugin = FakePlugin()
+    service.plugin = plugin
+    monkeypatch.setattr('services.camera_service.time.monotonic', lambda: 5000.0)
+    deadline = clock.now() + timedelta(seconds=12)
+    service.shoot_speed_list(['1/500'], deadline=deadline)
+    assert isinstance(plugin.deadline, float)
+    assert abs(plugin.deadline - 5012.0) < 0.001
+
+
+def test_numeric_deadline_uses_monotonic(monkeypatch):
+    monkeypatch.setattr('plugins.camera.base.time.monotonic', lambda: 100.0)
+    assert seconds_until_deadline(107.5) == 7.5
+
+
+def test_frontend_time_authority_does_not_use_browser_wall_clock_offset():
+    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    assert 'performance.now()' in html
+    assert 't.epoch_ms' in html
+    assert 'Date.now() + _clockOffset' not in html
+    assert 'offset = -now.getTimezoneOffset() / 60' not in html
+
+
+def test_gps_sync_is_blocked_while_trigger_runs():
+    app = (ROOT/'flask_app/app.py').read_text(encoding='utf-8')
+    route = app[app.index('def api_gps_sync():'):app.index('@app.route("/api/gps/state")')]
+    assert 'trigger_state.get("running")' in route
+    assert 'TRIGGER_RUNNING' in route
+
+
+def test_trigger_uses_independent_date_and_contact_times():
+    src = (ROOT/'scripts/eclipse_trigger.py').read_text(encoding='utf-8')
+    assert 'build_timeline' in src
+    assert 'rebase_timeline' in src
+    assert 'contacts_utc' not in src
+
+def test_frontend_timezone_accepts_numeric_and_string_without_ipad_locale():
+    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    assert "typeof tzValue === 'number'" in html
+    assert "typeof tzValue === 'string'" in html
+    assert 'toLocaleTimeString()' not in html
