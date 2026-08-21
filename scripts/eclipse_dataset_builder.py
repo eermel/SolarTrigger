@@ -10,10 +10,25 @@ from typing import Any
 
 
 DEFAULT_INDEX_PATH = Path(__file__).resolve().parent.parent / "jubier_files" / "index.html"
+DEFAULT_ELEMENTS_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "jubier_files"
+    / "SolarEclipseTimerSVG_VML.js"
+)
 _LABEL_PATTERN = re.compile(
     r"^\s*(?P<year>\d{4})\s+(?P<month>[A-Za-z]{3})\s+"
     r"(?P<day>\d{1,2})\s+\((?P<type>[TAPH])\)\s*$"
 )
+_ELEMENTS_DECLARATION_PATTERN = re.compile(
+    r"\bvar\s+elements\s*=\s*new\s+Array\s*\((?P<body>.*?)\)\s*;",
+    re.DOTALL,
+)
+_JS_COMMENT_PATTERN = re.compile(r"//[^\r\n]*|/\*.*?\*/", re.DOTALL)
+_NUMBER_PATTERN = re.compile(
+    r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+)
+ELEMENTS_PER_ECLIPSE = 28
+ELEMENTS_VAL_BIAS = 65
 
 
 class _EclipseIndexParser(HTMLParser):
@@ -111,3 +126,92 @@ def discover_eclipses(index_path: str | Path = DEFAULT_INDEX_PATH) -> list[dict[
 
     eclipses, _anomalies = discover_eclipses_with_anomalies(index_path)
     return eclipses
+
+
+def parse_elements_array(javascript: str) -> list[float]:
+    """Parse the numeric values from the JavaScript ``elements`` array.
+
+    Comments and whitespace may occur between values. Any other token is
+    rejected instead of being interpreted as JavaScript.
+    """
+
+    declaration = _ELEMENTS_DECLARATION_PATTERN.search(javascript)
+    if declaration is None:
+        raise ValueError("elements array declaration not found")
+
+    body = _JS_COMMENT_PATTERN.sub("", declaration.group("body"))
+    fields = body.split(",")
+    if fields and not fields[-1].strip():
+        fields.pop()
+
+    elements: list[float] = []
+    for element_index, field in enumerate(fields):
+        token = field.strip()
+        if not _NUMBER_PATTERN.fullmatch(token):
+            raise ValueError(
+                f"elements array value at index {element_index} is not numeric: "
+                f"{token!r}"
+            )
+        elements.append(float(token))
+    return elements
+
+
+def load_elements_array(
+    elements_path: str | Path = DEFAULT_ELEMENTS_PATH,
+) -> list[float]:
+    """Load and parse the JavaScript eclipse-elements array."""
+
+    return parse_elements_array(Path(elements_path).read_text(encoding="utf-8"))
+
+
+def extract_elements_slice(elements: list[float], val: int) -> tuple[int, list[float]]:
+    """Return ``(elements_offset, 28-value slice)`` for one eclipse value."""
+
+    elements_offset = ELEMENTS_PER_ECLIPSE * (val + ELEMENTS_VAL_BIAS)
+    slice_end = elements_offset + ELEMENTS_PER_ECLIPSE
+    if elements_offset < 0 or slice_end > len(elements):
+        raise ValueError(
+            f"elements slice [{elements_offset}:{slice_end}] exceeds array length "
+            f"{len(elements)}"
+        )
+    return elements_offset, elements[elements_offset:slice_end]
+
+
+def extract_eclipse_elements(
+    val: int,
+    elements_path: str | Path = DEFAULT_ELEMENTS_PATH,
+) -> tuple[int, list[float]]:
+    """Load the local source and extract the elements for one eclipse."""
+
+    return extract_elements_slice(load_elements_array(elements_path), val)
+
+
+def add_elements_with_anomalies(
+    eclipses: list[dict[str, Any]],
+    elements_path: str | Path = DEFAULT_ELEMENTS_PATH,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Attach element slices, excluding eclipses whose slice cannot be read."""
+
+    try:
+        elements = load_elements_array(elements_path)
+    except (OSError, ValueError) as exc:
+        return [], [{"error": str(exc)}]
+
+    enriched: list[dict[str, Any]] = []
+    anomalies: list[dict[str, Any]] = []
+    for eclipse in eclipses:
+        try:
+            elements_offset, element_slice = extract_elements_slice(
+                elements, eclipse["val"]
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            anomalies.append({"eclipse": eclipse, "error": str(exc)})
+            continue
+        enriched.append(
+            {
+                **eclipse,
+                "elements_offset": elements_offset,
+                "elements": element_slice,
+            }
+        )
+    return enriched, anomalies

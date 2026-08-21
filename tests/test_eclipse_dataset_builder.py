@@ -1,8 +1,14 @@
 from scripts.eclipse_dataset_builder import (
+    DEFAULT_ELEMENTS_PATH,
     DEFAULT_INDEX_PATH,
+    add_elements_with_anomalies,
     discover_eclipses,
     discover_eclipses_with_anomalies,
+    extract_eclipse_elements,
+    parse_elements_array,
 )
+
+import pytest
 
 
 EXPECTED_DATE_VALUES = [
@@ -56,3 +62,34 @@ def test_invalid_date_is_an_anomaly_and_not_an_eclipse(tmp_path):
         "option_index": 0,
         "error": "option date is invalid",
     }]
+
+
+@pytest.mark.parametrize("val", [59, 61, 63, 69, 76, 79])
+def test_extracts_28_elements_at_the_expected_offset(val):
+    elements_offset, elements = extract_eclipse_elements(val, DEFAULT_ELEMENTS_PATH)
+
+    assert elements_offset == 28 * (val + 65)
+    assert len(elements) == 28
+    assert all(isinstance(item, float) for item in elements)
+
+
+def test_non_numeric_elements_value_is_rejected():
+    with pytest.raises(ValueError, match="index 1 is not numeric"):
+        parse_elements_array("var elements = new Array(1, nope, 3);")
+
+
+def test_out_of_range_slice_is_an_anomaly_and_excludes_eclipse(tmp_path):
+    elements_path = tmp_path / "elements.js"
+    elements_path.write_text(
+        "var elements = new Array(" + ",".join(["1"] * 28) + ");",
+        encoding="utf-8",
+    )
+
+    eclipses, anomalies = add_elements_with_anomalies(
+        [{"val": 59, "date": "2026-08-12"}], elements_path
+    )
+
+    assert eclipses == []
+    assert len(anomalies) == 1
+    assert anomalies[0]["eclipse"]["val"] == 59
+    assert "exceeds array length" in anomalies[0]["error"]
