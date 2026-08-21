@@ -1,0 +1,687 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xml:lang="en-US" lang="en-US">
+
+<head>
+ <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+ <meta http-equiv="Window-target" content="_top">
+ <meta http-equiv="Author" content="Xavier Jubier">
+ <meta http-equiv="Content-Language" content="en">
+<!--[if IE]>
+ <meta http-equiv="X-UA-Compatible" content="IE=edge">
+<![endif]-->
+
+ <meta name="copyright" content="1991-2025 by Xavier M. Jubier">
+ <meta name="expires" content="never">
+ <meta name="revisit-after" content="7 days">
+ <meta name="robots" content="index,follow">
+ <meta name="author" content="Xavier Jubier">
+ <meta name="MSSmartTagsPreventParsing" content="true">
+ <meta name="subject" content="'Solar Eclipse Calculator'">
+ <meta name="rating" content="general">
+ <meta name="keywords" content="solar, eclipse, calculator, sun, Jubier">
+ <meta name="description" content="Solar Eclipse Calculator for determining an eclipse local circumstances by Xavier Jubier">
+
+ <link rel="shortcut icon" href="http://xjubier.free.fr/favicon.ico" type="image/x-icon">
+ <link rel="icon" href="http://xjubier.free.fr/favicon.ico" type="image/ico">
+ <link rel="home" href="http://xjubier.free.fr/en/index_en.html">
+ <link rel="index" href="http://xjubier.free.fr/en/site_pages/sitemap.html">
+ <link rel="alternate" href="http://xjubier.free.fr/en/index.xml" type="application/rss+xml" title="RSS 2.0">
+
+ <script language="JavaScript" type="text/javascript" src="../../javascript/SunMoonCalculatorSVG_VML.js"></script>
+ <script language="JavaScript" type="text/javascript" src="../../javascript/NewPopWindow.js" defer></script>
+ <script src="http://www.googletagmanager.com/gtag/js?id=G-TKGCRDT1Y8" async></script>
+ <script language="JavaScript" type="text/javascript" src="../../javascript/Analytics4Tracking.js"></script>
+ <script language="JavaScript" type="text/javascript" src="../../javascript/AnalyticsTracking.js"></script>
+
+ <link rel="stylesheet" href="../../styles/commonprivate.css" type="text/css">
+<!--[if gte IE 5]>
+ <style type="text/css">
+  v\:*
+  {
+   behavior: url(#default#VML);
+  }
+ </style>
+<![endif]-->
+
+ <title>Solar Eclipse Calculator &amp; Diagram - Xavier Jubier</title>
+</head>
+
+<body onload="initCalculator('en');">
+
+<!-- V&eacute;rification du support de JavaScript -->
+<noscript>
+ <div class="jsError">
+  ERROR<br><br>
+  Javascript isn&rsquo;t activated or your browser does not support Javascript<br><br>
+  You cannot browse this web page and site correctly before activating Javascript in the browser prefs
+ </div>
+</noscript>
+
+<table border="0" cellspacing="0" cellpadding="2" style="border-left: solid 1px black; border-top: solid 1px black; border-right: solid 1px black; border-bottom: solid 1px black; background-color: white;">
+ <tr valign="top">
+  <td>
+<!-- La barre des chevrons -->
+   <table border="0" cellspacing="0" cellpadding="5" style="border-bottom: solid 1px lightgrey;" width="100%">
+    <tr>
+     <td class="Chevrons" align="left" valign="middle" nowrap>
+      <a href="../index_en.html" class="Chevrons" title="Travel Landscape Eclipse Xavier Jubier">Home</a>&nbsp;&gt;&nbsp;<a href="eclipses.html" class="Chevrons" title="Eclipses">Eclipses</a>&nbsp;&gt;&nbsp;<a href="Solar_Eclipses.html" class="Chevrons">Solar Eclipses</a>&nbsp;&gt;&nbsp;Solar Eclipse Calculator
+     </td>
+     <td class="Language" align="right" valign="middle" nowrap>
+      <a href="../../site_pages/SolarEclipseCalc_Diagram.html" class="Language" title="Page en Fran&ccedil;ais"><img src="../../images/Flag_France.gif" width="26" height="16" border="0" title="Fran&ccedil;ais" alt="Drapeau Langue" style="vertical-align: middle;">Fran&ccedil;ais</a>
+     </td>
+    </tr>
+   </table>
+<!-- Calculatrice -->
+   <table border="0" cellspacing="2" cellpadding="2" width="100%">
+    <tr>
+     <td>
+      <h1 align="center">Local Circumstances Calculator (v1.0.6)</h1>
+      <div align="center" style="text-align: center;">
+       <table border="0" align="center" style="text-align: center;">
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;" nowrap>
+          Select the eclipse&nbsp;:&nbsp;
+          <select name="index" id="eclipse_index" size="1" onchange="changeEclipse('en');">
+           <option value="-65">1970 Mar 07 (T)</option>
+           <option value="-64">1970 Aug 31 (A)</option>
+           <option value="-63">1971 Feb 25 (P)</option>
+           <option value="-62">1971 Jul 22 (P)</option>
+           <option value="-61">1971 Aug 20 (P)</option>
+           <option value="-60">1972 Jan 16 (A)</option>
+           <option value="-59">1972 Jul 10 (T)</option>
+           <option value="-58">1973 Jan 04 (A)</option>
+           <option value="-57">1973 Jun 30 (T)</option>
+           <option value="-56">1973 Dec 24 (A)</option>
+           <option value="-55">1974 Jun 20 (T)</option>
+           <option value="-54">1974 Dec 13 (P)</option>
+           <option value="-53">1975 May 11 (P)</option>
+           <option value="-52">1975 Nov 03 (P)</option>
+           <option value="-51">1976 Apr 29 (A)</option>
+           <option value="-50">1976 Oct 23 (T)</option>
+           <option value="-49">1977 Apr 18 (A)</option>
+           <option value="-48">1977 Oct 12 (T)</option>
+           <option value="-47">1978 Apr 07 (P)</option>
+           <option value="-46">1978 Oct 02 (P)</option>
+           <option value="-45">1979 Feb 26 (T)</option>
+           <option value="-44">1979 Aug 22 (A)</option>
+           <option value="-43">1980 Feb 16 (T)</option>
+           <option value="-42">1980 Aug 10 (A)</option>
+           <option value="-41">1981 Feb 04 (A)</option>
+           <option value="-40">1981 Jul 31 (T)</option>
+           <option value="-39">1982 Jan 25 (P)</option>
+           <option value="-38">1982 Jun 21 (P)</option>
+           <option value="-37">1982 Jul 20 (P)</option>
+           <option value="-36">1982 Dec 15 (P)</option>
+           <option value="-35">1983 Jun 11 (T)</option>
+           <option value="-34">1983 Dec 04 (A)</option>
+           <option value="-33">1984 May 30 (A)</option>
+           <option value="-32">1984 Nov 22 (T)</option>
+           <option value="-31">1985 May 19 (P)</option>
+           <option value="-30">1985 Nov 12 (T)</option>
+           <option value="-29">1986 Apr 09 (P)</option>
+           <option value="-28">1986 Oct 03 (H)</option>
+           <option value="-27">1987 Mar 29 (H)</option>
+           <option value="-26">1987 Sep 23 (A)</option>
+           <option value="-25">1988 Mar 18 (T)</option>
+           <option value="-24">1988 Sep 11 (A)</option>
+           <option value="-23">1989 Mar 07 (P)</option>
+           <option value="-22">1989 Aug 31 (P)</option>
+           <option value="-21">1990 Jan 26 (A)</option>
+           <option value="-20">1990 Jul 22 (T)</option>
+           <option value="-19">1991 Jan 15 (A)</option>
+           <option value="-18">1991 Jul 11 (T)</option>
+           <option value="-17">1992 Jan 04 (A)</option>
+           <option value="-16">1992 Jun 30 (T)</option>
+           <option value="-15">1992 Dec 24 (P)</option>
+           <option value="-14">1993 May 21 (P)</option>
+           <option value="-13">1993 Nov 13 (P)</option>
+           <option value="-12">1994 May 10 (A)</option>
+           <option value="-11">1994 Nov 03 (T)</option>
+           <option value="-10">1995 Apr 29 (A)</option>
+           <option value="-9">1995 Oct 24 (T)</option>
+           <option value="-8">1996 Apr 17 (P)</option>
+           <option value="-7">1996 Oct 12 (P)</option>
+           <option value="-6">1997 Mar 09 (T)</option>
+           <option value="-5">1997 Sep 02 (P)</option>
+           <option value="-4">1998 Feb 26 (T)</option>
+           <option value="-3">1998 Aug 22 (A)</option>
+           <option value="-2">1999 Feb 16 (A)</option>
+           <option value="-1">1999 Aug 11 (T)</option>
+           <option value="0">2000 Feb 05 (P)</option>
+           <option value="1">2000 Jul 01 (P)</option>
+           <option value="2">2000 Jul 31 (P)</option>
+           <option value="3">2000 Dec 25 (P)</option>
+           <option value="4">2001 Jun 21 (T)</option>
+           <option value="5">2001 Dec 14 (A)</option>
+           <option value="6">2002 Jun 10 (A)</option>
+           <option value="7">2002 Dec 04 (T)</option>
+           <option value="8">2003 May 31 (A)</option>
+           <option value="9">2003 Nov 23 (T)</option>
+           <option value="10">2004 Apr 19 (P)</option>
+           <option value="11">2004 Oct 14 (P)</option>
+           <option value="12">2005 Apr 08 (H)</option>
+           <option value="13">2005 Oct 03 (A)</option>
+           <option value="14">2006 Mar 29 (T)</option>
+           <option value="15">2006 Sep 22 (A)</option>
+           <option value="16">2007 Mar 19 (P)</option>
+           <option value="17">2007 Sep 11 (P)</option>
+           <option value="18">2008 Feb 07 (A)</option>
+           <option value="19">2008 Aug 01 (T)</option>
+           <option value="20">2009 Jan 26 (A)</option>
+           <option value="21">2009 Jul 22 (T)</option>
+           <option value="22">2010 Jan 15 (A)</option>
+           <option value="23">2010 Jul 11 (T)</option>
+           <option value="24">2011 Jan 04 (P)</option>
+           <option value="25">2011 Jun 01 (P)</option>
+           <option value="26">2011 Jul 01 (P)</option>
+           <option value="27">2011 Nov 25 (P)</option>
+           <option value="28">2012 May 20 (A)</option>
+           <option value="29">2012 Nov 13 (T)</option>
+           <option value="30">2013 May 10 (A)</option>
+           <option value="31" selected>2013 Nov 03 (H)</option>
+           <option value="32">2014 Apr 29 (A)</option>
+           <option value="33">2014 Oct 23 (P)</option>
+           <option value="34">2015 Mar 20 (T)</option>
+           <option value="35">2015 Sep 13 (P)</option>
+           <option value="36">2016 Mar 09 (T)</option>
+           <option value="37">2016 Sep 01 (A)</option>
+           <option value="38">2017 Feb 26 (A)</option>
+           <option value="39">2017 Aug 21 (T)</option>
+           <option value="40">2018 Feb 15 (P)</option>
+           <option value="41">2018 Jul 13 (P)</option>
+           <option value="42">2018 Aug 11 (P)</option>
+           <option value="43">2019 Jan 06 (P)</option>
+           <option value="44">2019 Jul 02 (T)</option>
+           <option value="45">2019 Dec 26 (A)</option>
+           <option value="46">2020 Jun 21 (A)</option>
+           <option value="47">2020 Dec 14 (T)</option>
+           <option value="48">2021 Jun 10 (A)</option>
+           <option value="49">2021 Dec 04 (T)</option>
+           <option value="50">2022 Apr 30 (P)</option>
+           <option value="51">2022 Oct 25 (P)</option>
+           <option value="52">2023 Apr 20 (H)</option>
+           <option value="53">2023 Oct 14 (A)</option>
+           <option value="54">2024 Apr 08 (T)</option>
+           <option value="55">2024 Oct 02 (A)</option>
+           <option value="56">2025 Mar 29 (P)</option>
+           <option value="57">2025 Sep 21 (P)</option>
+           <option value="58">2026 Feb 17 (A)</option>
+           <option value="59">2026 Aug 12 (T)</option>
+           <option value="60">2027 Feb 06 (A)</option>
+           <option value="61">2027 Aug 02 (T)</option>
+           <option value="62">2028 Jan 26 (A)</option>
+           <option value="63">2028 Jul 22 (T)</option>
+           <option value="64">2029 Jan 14 (P)</option>
+           <option value="65">2029 Jun 12 (P)</option>
+           <option value="66">2029 Jul 11 (P)</option>
+           <option value="67">2029 Dec 05 (P)</option>
+           <option value="68">2030 Jun 01 (A)</option>
+           <option value="69">2030 Nov 25 (T)</option>
+           <option value="70">2031 May 21 (A)</option>
+           <option value="71">2031 Nov 14 (H)</option>
+           <option value="72">2032 May 09 (A)</option>
+           <option value="73">2032 Nov 03 (P)</option>
+           <option value="74">2033 Mar 30 (T)</option>
+           <option value="75">2033 Sep 23 (P)</option>
+           <option value="76">2034 Mar 20 (T)</option>
+           <option value="77">2034 Sep 12 (A)</option>
+           <option value="78">2035 Mar 09 (A)</option>
+           <option value="79">2035 Sep 02 (T)</option>
+           <option value="80">2036 Feb 27 (P)</option>
+           <option value="81">2036 Jul 23 (P)</option>
+           <option value="82">2036 Aug 21 (P)</option>
+           <option value="83">2037 Jan 16 (P)</option>
+           <option value="84">2037 Jul 13 (T)</option>
+           <option value="85">2038 Jan 05 (A)</option>
+           <option value="86">2038 Jul 02 (A)</option>
+           <option value="87">2038 Dec 26 (T)</option>
+           <option value="88">2039 Jun 21 (A)</option>
+           <option value="89">2039 Dec 15 (T)</option>
+          </select>
+         </td>
+         <td rowspan="24">&nbsp;</td>
+         <td rowspan="2">
+          <div id="googlemap"></div>
+          <div id="googleearth"></div>
+          <div id="gpstrack"></div>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;">
+          <hr>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;" nowrap>
+          <span class="h2">Observer Geographic Coordinates</span>
+          <br>
+          <span class="td">(enter your position <a href="javascript:makeNewWindow('DMS2DD_Converter.html',850,400,'topright');" class="Presentation" title="dms &lt;-&gt; dd Converter">[Lat/Lon DMS&lt;-&gt;DD Converter]</a> and time zone)</span>
+          <br>
+          <img src="../../images/Globe.gif" width="18" height="18" align="absmiddle" border="0" title="World coordinates" alt="Coordinates" style="vertical-align: middle;">&nbsp;<a href="http://www.heavens-above.com/SelectLocation.aspx" rel="nofollow" target="_blank" class="Presentation">Find your coordinates by place name</a>&nbsp;&nbsp;&nbsp;<img src="../../images/Clock.gif" width="18" height="18" align="absmiddle" border="0" title= "World time zones" alt="Time Zone" style="vertical-align: middle;">&nbsp;<a href="https://www.cia.gov/library/publications/resources/the-world-factbook/graphics/ref_maps/physical/pdf/standard_time_zones_of_the_world.pdf" rel="nofollow" target="_blank" class="Presentation" title="PDF file">Find your standard time zone</a>&nbsp;(<a href="http://www.timeanddate.com/time/map/" rel="nofollow" target="_blank" class="Presentation" title="Interactive webpage">webpage</a>)
+         </td>
+         <td rowspan="7" align="center" style="text-align: center;" nowrap>
+          <div id="observer_map" style="clear: both; position: relative; cursor: pointer;" onmousemove="latlonCoords(event, 'en');" onmouseout="clearCoords('en');" onclick="javascript:makeNewWindow('GoogleMap_Location.html?Lat=48.75449&#38;Lng=2.30168',502,402,'topright',false);" title="Google Map locator...">
+           <img id="world_map" src="../../images/Equirectangular_Map_368x184.jpg" width="368" height="184" style="margin: 0;" alt="Observer Location Map">
+           <img id="observer" src="../../images/Observer.png" width="4" height="4" style="position: absolute; display: none; left: 0px; top: 0px;" alt="">
+          </div>
+          <div id="latlonInfo" style="text-align: center;"></div>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;">
+          <hr width="200">
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          Latitude&nbsp;:&nbsp;
+         </td>
+         <td colspan="4" nowrap>
+          <input type="text" size="4" id="latd" onchange="modifiedCoordinates(1, 'en');"><sup>&deg;</sup>&nbsp;
+          <input type="text" size="8" id="latm" onchange="modifiedCoordinates(1, 'en');"><sup>&prime;</sup>&nbsp;
+          <select id="latx" size="1" onchange="modifiedCoordinates(1, 'en');">
+           <option value="1">N</option>
+           <option value="-1">S</option>
+          </select>
+          <span id="Lat_dd" style="text-align: left;"></span>
+         </td>
+         <td rowspan="2" colspan="3" align="center" style="text-align: center;">
+          <input id="geolocation" type="button" value=" Geolocate " style="font-weight: bold; background-color: #FFE279; cursor: pointer; -webkit-appearance: none;" onclick="getVisitorPosition();">
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          Longitude&nbsp;:&nbsp;
+         </td>
+         <td colspan="4" nowrap>
+          <input type="text" size="4" id="lond" onchange="modifiedCoordinates(2, 'en');"><sup>&deg;</sup>&nbsp;
+          <input type="text" size="8" id="lonm" onchange="modifiedCoordinates(2, 'en');"><sup>&prime;</sup>&nbsp;
+          <select id="lonx" size="1" onchange="modifiedCoordinates(2, 'en');">
+           <option value="-1">E</option>
+           <option value="1">W</option>
+          </select>
+          <span id="Lon_dd" style="text-align: left;"></span>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          Altitude&nbsp;:&nbsp;
+         </td>
+         <td colspan="7" nowrap>
+          <input type="text" size="6" id="alt" onchange="clearresults();">&nbsp;meters
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          Time zone&nbsp;:&nbsp;
+         </td>
+         <td colspan="7" nowrap>
+          <select id="tzh" size="1" onchange="clearresults();">
+           <option value="0">00</option>
+           <option value="1">01</option>
+           <option value="2">02</option>
+           <option value="3">03</option>
+           <option value="4">04</option>
+           <option value="5">05</option>
+           <option value="6">06</option>
+           <option value="7">07</option>
+           <option value="8">08</option>
+           <option value="9">09</option>
+           <option value="10">10</option>
+           <option value="11">11</option>
+           <option value="12">12</option>
+           <option value="13">13</option>
+           <option value="14">14</option>
+          </select>
+          <b>:</b>
+          <select id="tzm" size="1" onchange="clearresults();">
+           <option value="0">00</option>
+           <option value="15">15</option>
+           <option value="30">30</option>
+           <option value="45">45</option>
+          </select>
+          <select id="tzx" size="1" onchange="clearresults();">
+           <option value="-1">E</option>
+           <option value="1">W</option>
+          </select>
+          <select id="dst" size="1" onchange="clearresults();">
+           <option value="0">(Winter / Regular Time)</option>
+           <option value="1">(Daylight Savings Time)</option>
+          </select>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;">
+          <br>
+          <input type="button" value=" Calculate Eclipse Circumstances " style="font-weight: bold; background-color: #FFE279; cursor: pointer;" onclick="recalculate('en');">
+         </td>
+        </tr>
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;">
+          <hr noshade>
+         </td>
+         <td rowspan="15" align="center" style="text-align: center;" width="368" height="368">
+          <div id="svg_vml_diagram" align="center" style="text-align: center; width: 368px; height: 368px; border: solid 1px lightgrey;"></div>
+          <span class="li2">Relative positions of the Sun and Moon</span><br>
+          <span class="li2">(astronomical horizon, no atmospheric refraction)</span>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;" nowrap>
+          <span class="h2">Predicted Eclipse Local Circumstances</span>
+          <br>
+          <span class="hd">(for above coordinates with &Delta;T=<span id="Delta_T" style="text-align: left;">xx.x</span>s)</span>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;">
+          <hr width="200">
+          <br>
+         </td>
+        </tr>
+        <tr align="center">
+         <th style="text-align: center;">Event</th>
+         <th style="text-align: center;">Date</th>
+         <th style="text-align: center;">Time<span id="time_ref" style="text-align: left;"></span></th>
+         <th style="text-align: center;">Alt</th>
+         <th style="text-align: center;">Azi</th>
+         <th style="text-align: center;">P</th>
+         <th style="text-align: center;">V</th>
+         <th style="text-align: center;">LC</th>
+        </tr>
+        <tr onmouseover="this.style.backgroundColor = '#D8E4F1'; drawDiagram('C1', 0);" onmouseout="this.style.backgroundColor = 'white';">
+         <td colspan="1" align="right" nowrap>
+          Start of partial eclipse&nbsp;:&nbsp;<br>
+          <div class="tdm1">(1<sup>st</sup> contact)</div>
+         </td>
+         <td><input type="text" id="c1_date" size="11" style="text-align: center;" readonly></td>
+         <td><input type="text" id="c1_time" size="11" style="text-align: center;" readonly></td>
+         <td nowrap><input type="text" id="c1_alt" size="6" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c1_azi" size="6" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c1_p" size="4" style="text-align: right;" readonly></td>
+         <td><input type="text" id="c1_v" size="4" style="text-align: right;" readonly></td>
+         <td>&nbsp;</td>
+        </tr>
+        <tr onmouseover="this.style.backgroundColor = '#D8E4F1'; drawDiagram('C2', 0);" onmouseout="this.style.backgroundColor = 'white';">
+         <td colspan="1" align="right" nowrap>
+          Start of central eclipse&nbsp;:&nbsp;<br>
+          <div class="tdm1">(2<sup>nd</sup> contact)</div>
+         </td>
+         <td><input type="text" id="c2_date" size="11" style="text-align: center;" readonly></td>
+         <td><input type="text" id="c2_time" size="11" style="text-align: center;" readonly></td>
+         <td nowrap><input type="text" id="c2_alt" size="6" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c2_azi" size="6" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c2_p" size="4" style="text-align: right;" readonly></td>
+         <td><input type="text" id="c2_v" size="4" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c2_lc" size="5" style="text-align: right;" readonly></td>
+        </tr>
+        <tr onmouseover="this.style.backgroundColor = '#D8E4F1'; drawDiagram('mid', 0);" onmouseout="this.style.backgroundColor = 'white';">
+         <td colspan="1" align="right" nowrap>
+          Mid eclipse&nbsp;:&nbsp;
+         </td>
+         <td><input type="text" id="mid_date" size="11" style="text-align: center;" readonly></td>
+         <td><input type="text" id="mid_time" size="11" style="text-align: center;" readonly></td>
+         <td nowrap><input type="text" id="mid_alt" size="6" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="mid_azi" size="6" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="mid_p" size="4" style="text-align: right;" readonly></td>
+         <td><input type="text" id="mid_v" size="4" style="text-align: right;" readonly></td>
+         <td>&nbsp;</td>
+        </tr>
+        <tr onmouseover="this.style.backgroundColor = '#D8E4F1'; drawDiagram('C3', 0);" onmouseout="this.style.backgroundColor = 'white';">
+         <td colspan="1" align="right" nowrap>
+          End of central eclipse&nbsp;:&nbsp;<br>
+          <div class="tdm1">(3<sup>rd</sup> contact)</div>
+         </td>
+         <td><input type="text" id="c3_date" size="11" style="text-align: center;" readonly></td>
+         <td><input type="text" id="c3_time" size="11" style="text-align: center;" readonly></td>
+         <td nowrap><input type="text" id="c3_alt" size="6" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c3_azi" size="6" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c3_p" size="4" style="text-align: right;" readonly></td>
+         <td><input type="text" id="c3_v" size="4" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c3_lc" size="5" style="text-align: right;" readonly></td>
+        </tr>
+        <tr onmouseover="this.style.backgroundColor = '#D8E4F1'; drawDiagram('C4', 0);" onmouseout="this.style.backgroundColor = 'white';">
+         <td colspan="1" align="right" nowrap>
+          End of partial eclipse&nbsp;:&nbsp;<br>
+          <div class="tdm1">(4<sup>th</sup> contact)</div>
+         </td>
+         <td><input type="text" id="c4_date" size="11" style="text-align: center;" readonly></td>
+         <td><input type="text" id="c4_time" size="11" style="text-align: center;" readonly></td>
+         <td nowrap><input type="text" id="c4_alt" size="6" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c4_azi" size="6" style="text-align: right;" readonly></td>
+         <td nowrap><input type="text" id="c4_p" size="4" style="text-align: right;" readonly></td>
+         <td><input type="text" id="c4_v" size="4" style="text-align: right;" readonly></td>
+         <td>&nbsp;</td>
+        </tr>
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;">
+          <hr noshade>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right">
+          Eclipse type&nbsp;:&nbsp;
+         </td>
+         <td colspan="7" nowrap>
+          <input type="text" id="type" size="8" readonly>
+          &nbsp;Duration&nbsp;:&nbsp;<input type="text" id="duration" size="8" readonly>
+          &nbsp;<input type="text" id="durationCorr" name="durationCorr" size="10" title="Duration corrected with the lunar limb profile" readonly>
+          &nbsp;Obscuration&nbsp;:&nbsp;<input type="text" id="coverage" size="7" title="Obscuration at maximum" readonly>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          Magnitude at mid eclipse&nbsp;:&nbsp;
+         </td>
+         <td colspan="7" nowrap>
+          <input type="text" id="mag" size="8" readonly>
+          &nbsp;Moon/Sun size ratio&nbsp;:&nbsp;<input type="text" id="ratio" size="7" readonly>
+          &nbsp;<span id="watts_chart_link"></span>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="1" align="right" nowrap>
+          <span id="eclipse_depth">Umbral/Antumbral depth</span>&nbsp;:&nbsp;
+         </td>
+         <td colspan="7">
+          <input type="text" id="depth" size="8" readonly>
+          &nbsp;Moon libration l&nbsp;:&nbsp;<input type="text" id="libl" size="6" readonly>
+          &nbsp;b&nbsp;:&nbsp;<input type="text" id="libb" size="6" readonly>
+          &nbsp;c&nbsp;:&nbsp;<input type="text" id="pac" size="6" readonly>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;">
+          <hr noshade>
+         </td>
+        </tr>
+        <tr>
+         <td colspan="8" align="center" style="text-align: center;">
+          <br>
+          <input type="reset" value=" Reset the Calculator " style="background-color: #FFE279; cursor: pointer;" onclick="setTimeout('resetCalculator(\'en\')', 50);">
+         </td>
+        </tr>
+       </table>
+      </div>
+     </td>
+    </tr>
+   </table>
+   <table border="0" width="100%">
+<!-- Instructions d'utilisation -->
+    <tr>
+     <td>
+      <h2 style="margin-left: 10px;">Instructions</h2>
+      <ul>
+       <li class="Instructions">
+        To find the local circumstances of an eclipse, first select the eclipse and then enter your location and time zone information in the <b>Geographic Coordinates</b> section. Then click on the "Calculate Eclipse Circumstances" button. The predicted eclipse circumstances will appear in the table below that button. A diagram showing the position of the Sun and Moon at maximum eclipse will be displayed, and updated in realtime while hovering over the various contact events. The Sun&rsquo;s axis is also shown.
+       </li>
+       <li class="Instructions">
+        To start with other default geographic or eclipse parameters you can append a query string to this web page URL. The parameters can be specified in any order or can be omitted. It should look something like&nbsp;:<br>
+        &nbsp;<tt>?Eclipse='20060329'&amp;Lat=24.4958333&amp;Lng=17.9600000&amp;Alt=545&amp;TZ='+0200'&amp;DST=0</tt>&nbsp;(<a href="http://xjubier.free.fr/en/site_pages/SolarEclipseCalc_Diagram.html?Eclipse='20060329'&amp;Lat=24.4958333&amp;Lng=17.9600000&amp;Alt=545&amp;TZ='+0200'&amp;DST=0" target="_blank" class="Instructions">example</a>)
+        <ul>
+         <li class="Instructions3"><b>Eclipse</b> is a text string specifying the eclipse&rsquo;s date in the following format <b>YYYYMMDD</b>,</li>
+         <li class="Instructions3"><b>Lat</b>itude is a number in decimal notation and is positive in the Northern hemisphere,</li>
+         <li class="Instructions3"><b>Lng</b> for Longitude is a number in decimal notation and is positive if East of Greenwich,</li>
+         <li class="Instructions3"><b>Alt</b>itude is a number,</li>
+         <li class="Instructions3"><b>T</b>ime <b>Z</b>one is a text string in the following format <b>SHHMM</b>,</li>
+         <li class="Instructions3"><b>DST</b> for Daylight Savings Time is a number (0 for Regular Time, else 1).</li>
+        </ul>
+       </li>
+       <li class="Instructions">The times and local circumstances of the eclipse from your location are given in the <b>Predicted Eclipse Local Circumstances</b> section. The information given in the first five lines is -
+        <ul>
+         <li class="Instructions2">Eclipse event,</li>
+         <li class="Instructions2">The local date and time of the event (if the event occurs while the Sun is below the horizon, an asterisk (*) will appear after the hour),</li>
+         <li class="Instructions2">Alt - The altitude of the sun, in degrees, above the horizon,</li>
+         <li class="Instructions2">Azi - The azimuth of the Sun (0&deg; = due north, 90&deg; = due east, etc.),</li>
+         <li class="Instructions2">P - The angle between the north point on the Sun&rsquo;s disk and the contact point with the Moon,</li>
+         <li class="Instructions2">V - The "o&rsquo;clock" position on the Sun&rsquo;s face of the contact point with the Moon (eg V=12.0 means that the contact point is in the "12 o&rsquo;clock" position - ie the top of the Sun&rsquo;s disk).<br>This differs from the definition of V in the <a href="http://eclipse.gsfc.nasa.gov/SEpubs/TP211618.html" rel="nofollow" target="_blank" class="Instructions2">"Annular and Total Solar Eclipses of 2003" (NASA TP 2002-211618)</a> bulletin, where V is measured counter-clockwise in degrees,</li>
+         <li class="Instructions2">LC - The calculator is able to determine a correction factor to the time of the start and end of the eclipse due to the fact that the Moon&rsquo;s limb is not smooth. When it is, then the correction (in seconds) it has applied is given. When it isn&rsquo;t, then you can use a <a href="../../download/limb_profiles/TSE_2009_Limb_Profile_0130UT.pdf" target="_blank" class="Instructions2">lunar limb correction diagram</a>, available for each eclipse, that will indicate the correction is seconds. For second contact start by reading the angle "P" value and then look at the corresponding correction on the diagram. Do the same at third contact.</li>
+        </ul>
+        The information in the bottom three lines is -
+        <ul>
+         <li class="Instructions2">Eclipse type - The type of the eclipse as seen at your location (taking into account that the Sun may not be above the horizon until the eclipse is in progress, etc.),</li>
+         <li class="Instructions2">Duration - The duration of the eclipse followed by the duration corrected with the lunar limb profile when available (this box will display "n/a" if the eclipse is partial only, or "???" if the eclipse is underway at sunrise or sunset),</li>
+         <li class="Instructions2">Obscuration - The percentage of the Sun&rsquo;s disk surface covered at mid eclipse (this box will display "???" if the Sun is below the horizon at mid eclipse),</li>
+         <li class="Instructions2">Magnitude - The fraction of the Sun&rsquo;s diameter covered by the Moon at mid eclipse,</li>
+         <li class="Instructions2">Ratio - The ratio of the apparent size of the Moon to that of the Sun,</li>
+         <li class="Instructions2">Umbral/Antumbral depth - The percentage of the way from the edge of the eclipse to the centre line that this location is at.</li>
+        </ul>
+       </li>
+      </ul>
+      <h2 style="margin-left: 10px;">Limitations</h2>
+      <ul>
+       <li class="Instructions">This calculator does not account for atmospheric refraction, which makes a difference if the eclipse occurs close to sunrise or sunset (a good example of this was the midnight Sun eclipse in Antarctica on November 23, 2003),</li>
+       <li class="Instructions">Corrections for the irregular lunar limb are available if you are online, i.e. connected to the Internet. This can produce a few seconds time difference on the start and end of totality or annularity,</li>
+       <li class="Instructions">It is not possible to predict the exact value of <a href="http://eclipse.gsfc.nasa.gov/SEhelp/deltaT.html" rel="nofollow" target="_blank" class="Instructions">&Delta;T</a> in advance, although the extrapolated value should be good to better than 0.5 seconds.</li>
+      </ul>
+      <h2 style="margin-left: 10px;">Acknowledgements</h2>
+      <ul>
+       <li class="Instructions">Jean Meeus - for his excellent books <a href="http://www.willbell.com/math/mc6.htm" rel="nofollow" target="_blank" class="Instructions"><i>Elements of Solar Eclipses 1951-2200</i></a> and <a href="http://www.willbell.com/math/mc1.htm" rel="nofollow" target="_blank" class="Instructions"><i>Astronomical Algorithms</i></a>, which provided the algorithms for this page,</li>
+       <li class="Instructions">Fred Espenak (aka <a href="http://www.mreclipse.com/" rel="nofollow" target="_blank" class="Instructions">Mr.&nbsp;Eclipse</a>) - who provided the solar eclipse elements data and the lunar limb correction data upon which this page depends and the <a href="http://eclipse.gsfc.nasa.gov/eclipse.html" rel="nofollow" target="_blank" class="Instructions">NASA Eclipse Bulletins</a>.</li>
+      </ul>
+     </td>
+    </tr>
+<!-- Bas de la page -->
+    <tr>
+     <td style="text-align: center;">
+      <hr align="center">
+      <table border="0" cellspacing="0" cellpadding="0" width="100%">
+       <tr>
+        <td width="15%" align="center" valign="middle" style="text-align: center;">
+         <script language="JavaScript" type="text/javascript" src="../../javascript/Meteo.js"></script>
+        </td>
+        <td width="70%" align="center" valign="middle" style="text-align: center;" nowrap>
+         <p class="Bottom">
+          <script language="JavaScript" type="text/javascript" src="../../javascript/Email.js"></script>
+          <span style="font-size: 9px;">Last page update on July 7, 2007.</span><br>
+          <a href="sitemap.html" class="Bottom">Site Map</a>&nbsp;&mdash;&nbsp;<a href="LegalMentions.html" class="Bottom">Legal Mentions</a>
+         </p>
+        </td>
+        <td width="15%" align="center" valign="middle" style="text-align: center;">
+         <script language="JavaScript" type="text/javascript" src="../../javascript/Compteur.js"></script>
+        </td>
+       </tr>
+      </table>
+     </td>
+    </tr>
+   </table>
+  </td>
+  <td valign="top" style="border-left: solid 1px lightgrey; background-color: #E7E7E7;" width="120">
+   <div align="center">
+<!-- Search Google -->
+    <form method="get" action="http://www.google.com/custom" target="google_window">
+     <table style="background-color: #E7E7E7;">
+      <tr>
+       <td valign="top" align="left" height="32" nowrap>
+        <a href="http://www.google.com/" rel="nofollow" class="none">
+         <img src="http://www.google.com/logos/Logo_25wht.gif" border="0" alt="Google" align="middle">
+        </a>
+        <br>
+        <input type="text" name="q" size="16" maxlength="255" value="">
+       </td>
+      </tr>
+      <tr>
+       <td valign="top" align="left">
+        <input type="hidden" name="domains" value="xjubier.free.fr">
+        <input type="checkbox" name="sitesearch" id="sitesearch" value="xjubier.free.fr" checked>
+        <label for="sitesearch" class="sitesearch">xjubier.free.fr</label><br>
+        <input type="hidden" name="client" value="pub-0817360300089666">
+        <input type="hidden" name="forid" value="1">
+        <input type="hidden" name="ie" value="ISO-8859-1">
+        <input type="hidden" name="oe" value="ISO-8859-1">
+        <input type="hidden" name="cof" value="S:http://xjubier.free.fr/;AH:center;LH:80;L:http://xjubier.free.fr/images/Logo_xjubier.jpg;LW:487;AWFID:b90af53b731018cc;">
+        <input type="hidden" name="hl" value="en">
+       </td>
+      </tr>
+      <tr>
+       <td valign="middle" align="center" style="text-align: center;">
+        <input type="submit" name="sa" value="Search">
+       </td>
+      </tr>
+     </table>
+    </form>
+    <hr>
+    <div class="IndexCenter">
+     <a href="../../guestbook/index.php?lang=english" target="_blank" class="IndexCenterLg" title="Guest Book"><img src="../../images/Guestbook_sm.gif" width="26" height="14" style="vertical-align: middle;" border="0" alt="Guest Book">&nbsp;Guest&nbsp;Book</a><br>
+     Xavier&nbsp;M.&nbsp;Jubier
+    </div>
+<!-- Links -->
+    <hr>
+    <div class="IndexCenter">
+     <a href="SolarEclipseTimer_Diagram.html" target="_blank" class="IndexCenter" title="Solar Eclipse Timer">Solar&nbsp;Eclipse&nbsp;Timer</a><br>
+     <a href="SolarEclipseWeather.html#MeanCloudCover" target="_blank" class="IndexCenter" title="Solar Eclipse Weather">Eclipse&nbsp;Weather</a><br>
+     <a href="SolarEclipsesDownloads.html" target="_blank" class="IndexCenter" title="Solar Eclipse Widget">Solar&nbsp;Eclipse&nbsp;Widget</a>
+    </div>
+    <hr>
+    <div class="IndexCenter">
+     <img src="../../images/RSS_Safari_36x14.gif" border="0" width="36" height="14" align="middle" alt="RSS">&nbsp;
+     <img src="../../images/RSS_16x16.png" border="0" width="16" height="16" align="middle" alt="RSS"><br>
+     <a href="RSS.html" class="Index">RSS&nbsp;Service...</a>
+    </div>
+    <hr>
+<!-- Skype 'My status' button http://www.skype.com/go/skypebuttons -->
+    <div class="IndexCenter">
+<!--     Stopped working on 2015 May 15 -->
+<!--     <script language="JavaScript" type="text/javascript" src="http://download.skype.com/share/skypebuttons/js/skypeCheck.js"></script>
+     <a href="skype:xjubier?call" title="Skype me..."><img src="http://mystatus.skype.com/smallclassic/xjubier" style="border: none;" width="114" height="20" alt="Skype Status"></a>-->
+     <script language="JavaScript" type="text/javascript" src="http://www.skypeassets.com/i/scom/js/skype-uri.js"></script>
+     <div id="SkypeButton_Call_xjubier_1" title="Skype me...">
+      <script type="text/javascript">Skype.ui({"name": "dropdown", "element": "SkypeButton_Call_xjubier_1", "participants": ["xjubier"]});</script>
+     </div>
+    </div>
+<!-- Google Ads -->
+    <hr><br>
+    <script language="JavaScript" type="text/javascript">
+     <!--
+     google_ad_client = "ca-pub-0817360300089666";
+     /* 120x600_Main */
+     google_ad_slot = "5763637814";
+     google_ad_width = 120;
+     google_ad_height = 600;
+     //-->
+    </script>
+    <script language="JavaScript" type="text/javascript" src="http://pagead2.googlesyndication.com/pagead/show_ads.js"></script>
+    <hr>
+    <div class="IndexCenter">
+     <script language="JavaScript" type="text/javascript" id="mapmyvisitors" src="http://mapmyvisitors.com/map.js?cl=ffffff&w=a&t=n&d=uW4VOcu71K_QpDEVdpsvR7rl9ASRZx4hPOQLGqlJYLw"></script>
+    </div>
+   </div>
+  </td>
+ </tr>
+</table>
+
+<!-- phpmyvisites -->
+<div style="visibility: hidden; display: none;">
+ <script type="text/javascript">
+  <!--
+  var a_vars = Array();
+  var pagename = "";
+  var phpmyvisitesSite = 7048;
+  var phpmyvisitesURL = "http://st.free.fr/phpmyvisites.php";
+  //-->
+ </script>
+ <script language="javascript" type="text/javascript" src="http://st.free.fr/phpmyvisites.js"></script>
+</div>
+</body>
+
+</html>
