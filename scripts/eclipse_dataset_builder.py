@@ -11,14 +11,18 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_INDEX_PATH = Path(__file__).resolve().parent.parent / "jubier_files" / "index.html"
+DEFAULT_INDEX_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "jubier_files"
+    / "SolarEclipseCalc_Diagram.html"
+)
 DEFAULT_ELEMENTS_PATH = (
     Path(__file__).resolve().parent.parent
     / "jubier_files"
-    / "SolarEclipseTimerSVG_VML.js"
+    / "SunMoonCalculatorSVG_VML.js"
 )
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "eclipses"
-SOURCE_INDEX_FILE = "jubier_files/index.html"
+SOURCE_INDEX_FILE = "jubier_files/SolarEclipseCalc_Diagram.html"
 _LABEL_PATTERN = re.compile(
     r"^\s*(?P<year>\d{4})\s+(?P<month>[A-Za-z]{3})\s+"
     r"(?P<day>\d{1,2})\s+\((?P<type>[TAPH])\)\s*$"

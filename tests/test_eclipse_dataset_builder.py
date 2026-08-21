@@ -39,11 +39,11 @@ EXPECTED_DATE_VALUES = [
 def test_discovers_every_local_eclipse_in_order():
     eclipses = discover_eclipses(DEFAULT_INDEX_PATH)
 
-    assert len(eclipses) == 34
-    assert [(item["date"], item["val"]) for item in eclipses] == EXPECTED_DATE_VALUES
-    assert [item["option_index"] for item in eclipses] == list(range(34))
+    assert len(eclipses) == 155
+    assert [(item["date"], item["val"]) for item in eclipses[-34:]] == EXPECTED_DATE_VALUES
+    assert [item["option_index"] for item in eclipses] == list(range(155))
     assert all(item["type"] in {"T", "A", "P", "H"} for item in eclipses)
-    assert eclipses[3]["label"] == "2026 Aug 12 (T)"
+    assert eclipses[124]["label"] == "2026 Aug 12 (T)"
 
 
 def test_invalid_date_is_an_anomaly_and_not_an_eclipse(tmp_path):
@@ -112,10 +112,10 @@ MINIMAL_ECLIPSE_DATES = [
 def test_build_all_writes_structured_datasets_and_registry(tmp_path):
     generated, anomalies = build_all(tmp_path)
 
-    assert len(generated) == len(EXPECTED_DATE_VALUES)
+    assert len(generated) == 155
     assert anomalies == []
     registry = json.loads((tmp_path / "registry.json").read_text(encoding="utf-8"))
-    assert len(registry["eclipses"]) == len(EXPECTED_DATE_VALUES)
+    assert len(registry["eclipses"]) == 155
 
     registry_dates = {item["date"] for item in registry["eclipses"]}
     for date_iso in MINIMAL_ECLIPSE_DATES:
@@ -126,7 +126,10 @@ def test_build_all_writes_structured_datasets_and_registry(tmp_path):
         assert dataset["header"]["date_iso"] == date_iso
         assert dataset["header"]["generated_utc"]
         assert set(dataset["jubier"]) == {"val", "elements_offset"}
-        assert dataset["source"]["file"] == "jubier_files/index.html"
+        assert (
+            dataset["source"]["file"]
+            == "jubier_files/SolarEclipseCalc_Diagram.html"
+        )
         assert dataset["source"]["type"] == "index_option"
         assert dataset["source"]["option_text"]
         assert isinstance(dataset["source"]["option_index"], int)
@@ -139,3 +142,15 @@ def test_build_one_only_writes_requested_dataset(tmp_path):
     assert [item["date"] for item in generated] == ["2026-08-12"]
     assert anomalies == []
     assert sorted(path.name for path in tmp_path.iterdir()) == ["2026-08-12.json"]
+
+
+def test_build_one_uses_canonical_2027_element_times(tmp_path):
+    generated, anomalies = build_one("2027-08-02", tmp_path)
+
+    assert [item["date"] for item in generated] == ["2027-08-02"]
+    assert anomalies == []
+    dataset = json.loads(
+        (tmp_path / "2027-08-02.json").read_text(encoding="utf-8")
+    )
+    assert dataset["elements"]["dUTC"] == 69.25
+    assert dataset["elements"]["dT"] == 69.25
