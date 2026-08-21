@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,8 @@ DEFAULT_ELEMENTS_PATH = (
     / "jubier_files"
     / "SolarEclipseTimerSVG_VML.js"
 )
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "eclipses"
+SOURCE_INDEX_FILE = "jubier_files/index.html"
 _LABEL_PATTERN = re.compile(
     r"^\s*(?P<year>\d{4})\s+(?P<month>[A-Za-z]{3})\s+"
     r"(?P<day>\d{1,2})\s+\((?P<type>[TAPH])\)\s*$"
@@ -29,6 +33,36 @@ _NUMBER_PATTERN = re.compile(
 )
 ELEMENTS_PER_ECLIPSE = 28
 ELEMENTS_VAL_BIAS = 65
+ELEMENT_NAMES = (
+    "julian_day",
+    "t0",
+    "tmin",
+    "tmax",
+    "dUTC",
+    "dT",
+    "x0",
+    "x1",
+    "x2",
+    "x3",
+    "y0",
+    "y1",
+    "y2",
+    "y3",
+    "d0",
+    "d1",
+    "d2",
+    "m0",
+    "m1",
+    "m2",
+    "l10",
+    "l11",
+    "l12",
+    "l20",
+    "l21",
+    "l22",
+    "tan_f1",
+    "tan_f2",
+)
 
 
 class _EclipseIndexParser(HTMLParser):
@@ -215,3 +249,149 @@ def add_elements_with_anomalies(
             }
         )
     return enriched, anomalies
+
+
+def structure_elements(elements: list[float]) -> dict[str, float]:
+    """Associate one complete element slice with the documented symbols."""
+
+    if len(elements) != len(ELEMENT_NAMES):
+        raise ValueError(
+            f"expected {len(ELEMENT_NAMES)} eclipse elements, got {len(elements)}"
+        )
+    return dict(zip(ELEMENT_NAMES, elements, strict=True))
+
+
+def _generated_utc() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def make_dataset(eclipse: dict[str, Any], generated_utc: str) -> dict[str, Any]:
+    """Create the public JSON representation of an enriched eclipse."""
+
+    return {
+        "header": {
+            "generated_utc": generated_utc,
+            "date_iso": eclipse["date"],
+        },
+        "jubier": {
+            "val": eclipse["val"],
+            "elements_offset": eclipse["elements_offset"],
+        },
+        "source": {
+            "file": SOURCE_INDEX_FILE,
+            "type": "index_option",
+            "option_text": eclipse["label"],
+            "option_index": eclipse["option_index"],
+        },
+        "elements": structure_elements(eclipse["elements"]),
+    }
+
+
+def _write_json(path: Path, content: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(content, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _registry_entry(eclipse: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "date": eclipse["date"],
+        "file": f'{eclipse["date"]}.json',
+        "val": eclipse["val"],
+        "option_index": eclipse["option_index"],
+        "elements_offset": eclipse["elements_offset"],
+    }
+
+
+def build_all(
+    output_dir: str | Path = DEFAULT_OUTPUT_DIR,
+    index_path: str | Path = DEFAULT_INDEX_PATH,
+    elements_path: str | Path = DEFAULT_ELEMENTS_PATH,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Generate every valid eclipse dataset and its registry."""
+
+    eclipses, anomalies = discover_eclipses_with_anomalies(index_path)
+    enriched, element_anomalies = add_elements_with_anomalies(eclipses, elements_path)
+    anomalies.extend(element_anomalies)
+
+    destination = Path(output_dir)
+    destination.mkdir(parents=True, exist_ok=True)
+    generated_utc = _generated_utc()
+    for eclipse in enriched:
+        _write_json(
+            destination / f'{eclipse["date"]}.json',
+            make_dataset(eclipse, generated_utc),
+        )
+
+    registry = {
+        "generated_utc": generated_utc,
+        "eclipses": [_registry_entry(eclipse) for eclipse in enriched],
+    }
+    _write_json(destination / "registry.json", registry)
+    return enriched, anomalies
+
+
+def build_one(
+    date_iso: str,
+    output_dir: str | Path = DEFAULT_OUTPUT_DIR,
+    index_path: str | Path = DEFAULT_INDEX_PATH,
+    elements_path: str | Path = DEFAULT_ELEMENTS_PATH,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Generate the dataset for one discovered ISO date."""
+
+    eclipses, anomalies = discover_eclipses_with_anomalies(index_path)
+    matches = [eclipse for eclipse in eclipses if eclipse["date"] == date_iso]
+    if not matches:
+        anomalies.append({"date_iso": date_iso, "error": "eclipse date not found"})
+        return [], anomalies
+
+    enriched, element_anomalies = add_elements_with_anomalies(matches, elements_path)
+    anomalies.extend(element_anomalies)
+    destination = Path(output_dir)
+    destination.mkdir(parents=True, exist_ok=True)
+    generated_utc = _generated_utc()
+    for eclipse in enriched:
+        _write_json(
+            destination / f'{eclipse["date"]}.json',
+            make_dataset(eclipse, generated_utc),
+        )
+    return enriched, anomalies
+
+
+def _print_report(generated: list[dict[str, Any]], anomalies: list[dict[str, Any]]) -> None:
+    print(f"Generated eclipses: {len(generated)}")
+    if anomalies:
+        print("Skipped eclipses:")
+        for anomaly in anomalies:
+            print(json.dumps(anomaly, ensure_ascii=False, sort_keys=True))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build local Jubier eclipse datasets")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("list", help="list discovered eclipses")
+    subparsers.add_parser("build-all", help="build every valid eclipse")
+    build_one_parser = subparsers.add_parser("build-one", help="build one ISO date")
+    build_one_parser.add_argument("date", help="eclipse date in YYYY-MM-DD format")
+    args = parser.parse_args(argv)
+
+    if args.command == "list":
+        eclipses, anomalies = discover_eclipses_with_anomalies()
+        for eclipse in eclipses:
+            print(
+                f'{eclipse["date"]} val={eclipse["val"]} '
+                f'option_index={eclipse["option_index"]} {eclipse["label"]}'
+            )
+        _print_report([], anomalies)
+        return 1 if anomalies else 0
+
+    if args.command == "build-all":
+        generated, anomalies = build_all()
+    else:
+        generated, anomalies = build_one(args.date)
+    _print_report(generated, anomalies)
+    return 1 if anomalies or not generated else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,7 +1,11 @@
+import json
+
 from scripts.eclipse_dataset_builder import (
     DEFAULT_ELEMENTS_PATH,
     DEFAULT_INDEX_PATH,
     add_elements_with_anomalies,
+    build_all,
+    build_one,
     discover_eclipses,
     discover_eclipses_with_anomalies,
     extract_eclipse_elements,
@@ -93,3 +97,45 @@ def test_out_of_range_slice_is_an_anomaly_and_excludes_eclipse(tmp_path):
     assert len(anomalies) == 1
     assert anomalies[0]["eclipse"]["val"] == 59
     assert "exceeds array length" in anomalies[0]["error"]
+
+
+MINIMAL_ECLIPSE_DATES = [
+    "2026-08-12",
+    "2027-08-02",
+    "2028-07-22",
+    "2030-11-25",
+    "2034-03-20",
+    "2035-09-02",
+]
+
+
+def test_build_all_writes_structured_datasets_and_registry(tmp_path):
+    generated, anomalies = build_all(tmp_path)
+
+    assert len(generated) == len(EXPECTED_DATE_VALUES)
+    assert anomalies == []
+    registry = json.loads((tmp_path / "registry.json").read_text(encoding="utf-8"))
+    assert len(registry["eclipses"]) == len(EXPECTED_DATE_VALUES)
+
+    registry_dates = {item["date"] for item in registry["eclipses"]}
+    for date_iso in MINIMAL_ECLIPSE_DATES:
+        dataset_path = tmp_path / f"{date_iso}.json"
+        assert dataset_path.is_file()
+        assert date_iso in registry_dates
+        dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+        assert dataset["header"]["date_iso"] == date_iso
+        assert dataset["header"]["generated_utc"]
+        assert set(dataset["jubier"]) == {"val", "elements_offset"}
+        assert dataset["source"]["file"] == "jubier_files/index.html"
+        assert dataset["source"]["type"] == "index_option"
+        assert dataset["source"]["option_text"]
+        assert isinstance(dataset["source"]["option_index"], int)
+        assert len(dataset["elements"]) == 28
+
+
+def test_build_one_only_writes_requested_dataset(tmp_path):
+    generated, anomalies = build_one("2026-08-12", tmp_path)
+
+    assert [item["date"] for item in generated] == ["2026-08-12"]
+    assert anomalies == []
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["2026-08-12.json"]
