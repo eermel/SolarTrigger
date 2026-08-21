@@ -1,0 +1,58 @@
+from scripts.eclipse_dataset_builder import (
+    DEFAULT_INDEX_PATH,
+    discover_eclipses,
+    discover_eclipses_with_anomalies,
+)
+
+
+EXPECTED_DATE_VALUES = [
+    ("2025-03-29", 56), ("2025-09-21", 57),
+    ("2026-02-17", 58), ("2026-08-12", 59),
+    ("2027-02-06", 60), ("2027-08-02", 61),
+    ("2028-01-26", 62), ("2028-07-22", 63),
+    ("2029-01-14", 64), ("2029-06-12", 65),
+    ("2029-07-11", 66), ("2029-12-05", 67),
+    ("2030-06-01", 68), ("2030-11-25", 69),
+    ("2031-05-21", 70), ("2031-11-14", 71),
+    ("2032-05-09", 72), ("2032-11-03", 73),
+    ("2033-03-30", 74), ("2033-09-23", 75),
+    ("2034-03-20", 76), ("2034-09-12", 77),
+    ("2035-03-09", 78), ("2035-09-02", 79),
+    ("2036-02-27", 80), ("2036-07-23", 81),
+    ("2036-08-21", 82), ("2037-01-16", 83),
+    ("2037-07-13", 84), ("2038-01-05", 85),
+    ("2038-07-02", 86), ("2038-12-26", 87),
+    ("2039-06-21", 88), ("2039-12-15", 89),
+]
+
+
+def test_discovers_every_local_eclipse_in_order():
+    eclipses = discover_eclipses(DEFAULT_INDEX_PATH)
+
+    assert len(eclipses) == 34
+    assert [(item["date"], item["val"]) for item in eclipses] == EXPECTED_DATE_VALUES
+    assert [item["option_index"] for item in eclipses] == list(range(34))
+    assert all(item["type"] in {"T", "A", "P", "H"} for item in eclipses)
+    assert eclipses[3]["label"] == "2026 Aug 12 (T)"
+
+
+def test_invalid_date_is_an_anomaly_and_not_an_eclipse(tmp_path):
+    index_path = tmp_path / "index.html"
+    index_path.write_text(
+        '<select id="other"><option value="1">2025 Jan 01 (T)</option></select>'
+        '<select id="eclipse_index">'
+        '<option value="56">2025 Feb 30 (T)</option>'
+        '<option value="59">2026 Aug 12 (T)</option>'
+        "</select>",
+        encoding="utf-8",
+    )
+
+    eclipses, anomalies = discover_eclipses_with_anomalies(index_path)
+
+    assert [(item["date"], item["val"]) for item in eclipses] == [("2026-08-12", 59)]
+    assert anomalies == [{
+        "value": "56",
+        "label": "2025 Feb 30 (T)",
+        "option_index": 0,
+        "error": "option date is invalid",
+    }]
