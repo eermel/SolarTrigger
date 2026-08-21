@@ -43,7 +43,10 @@ def test_minimal_eclipse_dataset_structure_and_value(date_iso, expected_val):
     assert set(dataset["source"]) == {
         "file", "type", "option_text", "option_index",
     }
-    assert dataset["source"]["file"] == "jubier_files/index.html"
+    assert (
+        dataset["source"]["file"]
+        == "jubier_files/SolarEclipseCalc_Diagram.html"
+    )
     assert dataset["source"]["type"] == "index_option"
     assert dataset["source"]["option_text"]
     assert isinstance(dataset["source"]["option_index"], int)
