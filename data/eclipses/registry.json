@@ -1,0 +1,243 @@
+{
+  "generated_utc": "2026-08-21T21:56:25.767513Z",
+  "eclipses": [
+    {
+      "date": "2025-03-29",
+      "file": "2025-03-29.json",
+      "val": 56,
+      "option_index": 0,
+      "elements_offset": 3388
+    },
+    {
+      "date": "2025-09-21",
+      "file": "2025-09-21.json",
+      "val": 57,
+      "option_index": 1,
+      "elements_offset": 3416
+    },
+    {
+      "date": "2026-02-17",
+      "file": "2026-02-17.json",
+      "val": 58,
+      "option_index": 2,
+      "elements_offset": 3444
+    },
+    {
+      "date": "2026-08-12",
+      "file": "2026-08-12.json",
+      "val": 59,
+      "option_index": 3,
+      "elements_offset": 3472
+    },
+    {
+      "date": "2027-02-06",
+      "file": "2027-02-06.json",
+      "val": 60,
+      "option_index": 4,
+      "elements_offset": 3500
+    },
+    {
+      "date": "2027-08-02",
+      "file": "2027-08-02.json",
+      "val": 61,
+      "option_index": 5,
+      "elements_offset": 3528
+    },
+    {
+      "date": "2028-01-26",
+      "file": "2028-01-26.json",
+      "val": 62,
+      "option_index": 6,
+      "elements_offset": 3556
+    },
+    {
+      "date": "2028-07-22",
+      "file": "2028-07-22.json",
+      "val": 63,
+      "option_index": 7,
+      "elements_offset": 3584
+    },
+    {
+      "date": "2029-01-14",
+      "file": "2029-01-14.json",
+      "val": 64,
+      "option_index": 8,
+      "elements_offset": 3612
+    },
+    {
+      "date": "2029-06-12",
+      "file": "2029-06-12.json",
+      "val": 65,
+      "option_index": 9,
+      "elements_offset": 3640
+    },
+    {
+      "date": "2029-07-11",
+      "file": "2029-07-11.json",
+      "val": 66,
+      "option_index": 10,
+      "elements_offset": 3668
+    },
+    {
+      "date": "2029-12-05",
+      "file": "2029-12-05.json",
+      "val": 67,
+      "option_index": 11,
+      "elements_offset": 3696
+    },
+    {
+      "date": "2030-06-01",
+      "file": "2030-06-01.json",
+      "val": 68,
+      "option_index": 12,
+      "elements_offset": 3724
+    },
+    {
+      "date": "2030-11-25",
+      "file": "2030-11-25.json",
+      "val": 69,
+      "option_index": 13,
+      "elements_offset": 3752
+    },
+    {
+      "date": "2031-05-21",
+      "file": "2031-05-21.json",
+      "val": 70,
+      "option_index": 14,
+      "elements_offset": 3780
+    },
+    {
+      "date": "2031-11-14",
+      "file": "2031-11-14.json",
+      "val": 71,
+      "option_index": 15,
+      "elements_offset": 3808
+    },
+    {
+      "date": "2032-05-09",
+      "file": "2032-05-09.json",
+      "val": 72,
+      "option_index": 16,
+      "elements_offset": 3836
+    },
+    {
+      "date": "2032-11-03",
+      "file": "2032-11-03.json",
+      "val": 73,
+      "option_index": 17,
+      "elements_offset": 3864
+    },
+    {
+      "date": "2033-03-30",
+      "file": "2033-03-30.json",
+      "val": 74,
+      "option_index": 18,
+      "elements_offset": 3892
+    },
+    {
+      "date": "2033-09-23",
+      "file": "2033-09-23.json",
+      "val": 75,
+      "option_index": 19,
+      "elements_offset": 3920
+    },
+    {
+      "date": "2034-03-20",
+      "file": "2034-03-20.json",
+      "val": 76,
+      "option_index": 20,
+      "elements_offset": 3948
+    },
+    {
+      "date": "2034-09-12",
+      "file": "2034-09-12.json",
+      "val": 77,
+      "option_index": 21,
+      "elements_offset": 3976
+    },
+    {
+      "date": "2035-03-09",
+      "file": "2035-03-09.json",
+      "val": 78,
+      "option_index": 22,
+      "elements_offset": 4004
+    },
+    {
+      "date": "2035-09-02",
+      "file": "2035-09-02.json",
+      "val": 79,
+      "option_index": 23,
+      "elements_offset": 4032
+    },
+    {
+      "date": "2036-02-27",
+      "file": "2036-02-27.json",
+      "val": 80,
+      "option_index": 24,
+      "elements_offset": 4060
+    },
+    {
+      "date": "2036-07-23",
+      "file": "2036-07-23.json",
+      "val": 81,
+      "option_index": 25,
+      "elements_offset": 4088
+    },
+    {
+      "date": "2036-08-21",
+      "file": "2036-08-21.json",
+      "val": 82,
+      "option_index": 26,
+      "elements_offset": 4116
+    },
+    {
+      "date": "2037-01-16",
+      "file": "2037-01-16.json",
+      "val": 83,
+      "option_index": 27,
+      "elements_offset": 4144
+    },
+    {
+      "date": "2037-07-13",
+      "file": "2037-07-13.json",
+      "val": 84,
+      "option_index": 28,
+      "elements_offset": 4172
+    },
+    {
+      "date": "2038-01-05",
+      "file": "2038-01-05.json",
+      "val": 85,
+      "option_index": 29,
+      "elements_offset": 4200
+    },
+    {
+      "date": "2038-07-02",
+      "file": "2038-07-02.json",
+      "val": 86,
+      "option_index": 30,
+      "elements_offset": 4228
+    },
+    {
+      "date": "2038-12-26",
+      "file": "2038-12-26.json",
+      "val": 87,
+      "option_index": 31,
+      "elements_offset": 4256
+    },
+    {
+      "date": "2039-06-21",
+      "file": "2039-06-21.json",
+      "val": 88,
+      "option_index": 32,
+      "elements_offset": 4284
+    },
+    {
+      "date": "2039-12-15",
+      "file": "2039-12-15.json",
+      "val": 89,
+      "option_index": 33,
+      "elements_offset": 4312
+    }
+  ]
+}

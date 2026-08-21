@@ -252,6 +252,99 @@ timedatectl
 
 ---
 
+## Migration vers le moteur Python local
+
+La migration remplace le calcul JS piloté par navigateur par un moteur Python
+alimenté par des datasets versionnés. Elle ne modifie ni l'IHM, ni ses routes et
+formats d'échange, ni la séquence de déclenchement. Le calculateur historique
+`scripts/eclipse_calculator_jubier.py` reste l'oracle de comparaison pendant la
+validation ; Playwright n'est requis que pour ce test différentiel (voir son guide
+d'installation officiel), pas pour le moteur Python en exploitation.
+
+### Générer les datasets
+
+L'outil `scripts/eclipse_dataset_builder.py` lit exclusivement les sources locales
+`jubier_files/index.html` (`select#eclipse_index`) et
+`jubier_files/SolarEclipseTimerSVG_VML.js` (`elements`). Il écrit dans
+`data/eclipses/` : un fichier `<YYYY-MM-DD>.json` par éclipse et, pour
+`build-all`, le registre `registry.json`.
+
+Depuis la racine du dépôt :
+
+```bash
+python3 scripts/eclipse_dataset_builder.py list
+python3 scripts/eclipse_dataset_builder.py build-all
+python3 scripts/eclipse_dataset_builder.py build-one 2027-08-02
+```
+
+- `list` inventorie les options valides sans écrire de fichier.
+- `build-all` régénère tous les datasets valides et remplace `registry.json`.
+- `build-one` remplace uniquement le JSON demandé ; il ne crée ni ne met à jour
+  `registry.json`. Il sert donc à régénérer une date déjà enregistrée, pas à
+  publier seul une nouvelle date.
+- Une option mal formée, une date absente, une valeur non numérique ou une tranche
+  de moins de 28 éléments est signalée sous `Skipped eclipses`, exclue de la
+  sortie et provoque un code de retour non nul. L'outil ne complète ni ne corrige
+  silencieusement les sources.
+
+La génération est idempotente sur le contenu astronomique : à sources identiques,
+les dates, offsets, métadonnées de source et 28 éléments sont identiques, et les
+fichiers de même nom sont remplacés. Elle n'est pas identique octet pour octet car
+`generated_utc` est renouvelé à chaque exécution. `build-all` ne supprime pas
+d'éventuels fichiers obsolètes déjà présents dans `data/eclipses/` ; seul son
+`registry.json` définit les datasets chargeables.
+
+### Utiliser et valider le moteur Python
+
+Le point d'entrée utilisateur est `scripts/eclipse_calculator_py.py`. Il charge
+uniquement une date déclarée dans `data/eclipses/registry.json`, calcule les
+circonstances locales, puis produit le même document de configuration destiné au
+trigger que le flux historique :
+
+```bash
+python3 scripts/eclipse_calculator_py.py \
+  --lat 25.6872 --lon 32.6396 --alt 80 --tz 2 \
+  --eclipse 2027-08-02 --output todayeclipse.json
+```
+
+Sans `--output`, le résultat est écrit sous
+`data/eclipses/out/<date>_<latitude>_<longitude>.json`. `--tz` est le décalage
+UTC total en heures, heure d'été comprise ; les champs `C1` à `C4` et `TMAX`
+restent en UTC et leurs variantes `_local` appliquent ce décalage.
+
+La procédure de non-régression est :
+
+```bash
+~/dev/eclipse-ai/.venv/bin/python -m pytest -q \
+  tests/test_eclipse_dataset_builder.py \
+  tests/test_eclipse_datasets.py \
+  tests/test_eclipse_loader.py \
+  tests/test_eclipse_observer.py \
+  tests/test_eclipse_compute.py \
+  tests/test_eclipse_calculator_py.py
+
+ECLIPSE_DIFF_DATES=2026-08-12,2027-08-02 \
+  ~/dev/eclipse-ai/.venv/bin/python -m pytest -q \
+  tests/test_diff_jubier_vs_python.py
+
+~/dev/eclipse-ai/.venv/bin/python -m pytest -q
+```
+
+Sans `ECLIPSE_DIFF_DATES`, le test différentiel couvre toutes les dates du registre,
+à Louxor, Madrid et Sydney. La politique de tolérance par rapport au JS Jubier est
+de `0,5 s` par contact (écart circulaire sur 24 h), `1e-6` pour la magnitude et le
+rapport Lune/Soleil, et `0,05°` pour l'altitude de chaque contact. Le type d'éclipse
+et la présence ou l'absence de chaque contact doivent être strictement identiques.
+Le test est explicitement ignoré si Playwright ou un Chromium lançable manque ;
+un tel skip ne constitue donc pas une validation différentielle réussie. Après les
+tests automatisés, vérifier dans l'IHM qu'un JSON produit se charge et s'affiche
+comme avant, sans changement de route, de champ ou de séquencement.
+
+Pour les responsabilités internes du chargeur, du calcul et du différentiel, voir
+`ARCHITECTURE_V6.md`, addendum « moteur d'éclipse Python ».
+
+---
+
 *Projet SolarEclipse — Raspberry Pi 3B — 2026/2027*
 
 ## 🛰️ Architecture GPS — v5.26

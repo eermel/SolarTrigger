@@ -91,3 +91,90 @@ défaut < profil caméra < séquence éclipse/debug < CLI.
 ## v7.0 — autorité temporelle
 
 Le trigger réel utilise une horloge UTC ancrée une fois au lancement puis avancée par `time.monotonic()`. Les plugins caméra reçoivent également des deadlines monotonic. L'IHM reçoit l'epoch UTC de la Pi et utilise `performance.now()` uniquement pour interpoler entre deux mises à jour. Voir `TIME_AUDIT_V7.md`.
+
+## Addendum — moteur d'éclipse Python et migration des datasets
+
+Cette migration est isolée du moteur de déclenchement et des services matériels.
+Elle ajoute une chaîne de calcul locale sans modifier Flask, les routes HTTP/
+SocketIO, les templates, le JavaScript de l'IHM, les formats consommés par l'IHM,
+ni le séquencement des phases :
+
+```text
+jubier_files/index.html + SolarEclipseTimerSVG_VML.js
+                    │ génération hors exécution
+                    ▼
+scripts/eclipse_dataset_builder.py
+                    │
+                    ▼
+data/eclipses/registry.json + <date>.json
+                    │ lecture seule, date enregistrée uniquement
+                    ▼
+backend/eclipse_engine/loader.py
+                    │ dataset complet et inchangé
+                    ▼
+backend/eclipse_engine/compute.py
+                    │ circonstances locales
+                    ▼
+scripts/eclipse_calculator_py.py
+                    │ JSON compatible avec le trigger existant
+                    ▼
+data/eclipses/out/ (ou --output)
+```
+
+### Chargement et calcul
+
+`backend/eclipse_engine/loader.py` considère
+`data/eclipses/registry.json` comme la liste d'autorité. Il refuse une date absente,
+un JSON invalide et tout nom de fichier contenant un chemin ; il retourne le
+dataset enregistré sans le transformer. Chaque dataset conserve la valeur et
+l'offset Jubier, la provenance de l'option HTML et les 28 éléments besseliens
+nommés.
+
+`backend/eclipse_engine/compute.py` accepte le dataset complet ou exactement le
+mapping de ces 28 éléments. Il rejette les clés supplémentaires/manquantes et les
+valeurs non numériques, prépare les constantes de l'observateur dans
+`backend/eclipse_engine/observer.py`, puis porte les itérations du JS Jubier pour
+le maximum et les contacts externes/internes. Il retourne le type local, magnitude,
+rapport Lune/Soleil, durée, altitude et heures UTC/locales. Le module ne lit aucun
+matériel, ne modifie aucun état global et n'accède pas au réseau.
+
+`scripts/eclipse_calculator_py.py` est l'adaptateur de sortie : il valide latitude,
+longitude, altitude, fuseau et date, appelle le chargeur puis le calculateur, et
+construit le schéma historique destiné au trigger. Les éclipses partielles, sans
+contacts internes, placent comme auparavant C2 et C3 à TMAX pour conserver un
+document complet. Cette compatibilité de sortie est la frontière de
+non-régression ; aucun changement d'IHM n'est requis ou autorisé par la migration.
+
+### Différentiel et critère de validation
+
+`tests/test_diff_jubier_vs_python.py` exécute le moteur Python et le JS local
+historique `scripts/eclipse_calculator_jubier.py` sur les mêmes datasets et
+observateurs. Par défaut, toutes les dates de `registry.json` sont testées à
+Louxor, Madrid et Sydney ; `ECLIPSE_DIFF_DATES`, liste de dates ISO séparées par
+des virgules, permet un contrôle ciblé.
+
+Les deux moteurs doivent produire exactement le même type d'éclipse et la même
+disponibilité de C1, C2, TMAX, C3 et C4. Les écarts maximaux admis sont :
+
+| Mesure | Tolérance | Règle |
+|---|---:|---|
+| Heure de chaque contact | 0,5 s | plus petit écart sur un cycle de 24 h |
+| Magnitude | 1e-6 | différence absolue |
+| Rapport Lune/Soleil | 1e-6 | différence absolue |
+| Altitude de chaque contact | 0,05° | différence absolue |
+
+Commande exhaustive depuis la racine :
+
+```bash
+~/dev/eclipse-ai/.venv/bin/python -m pytest -q \
+  tests/test_diff_jubier_vs_python.py
+```
+
+Playwright et un Chromium lançable ne servent qu'à cet oracle différentiel ; leur
+installation détaillée reste hors de cet addendum. Si l'un manque, pytest marque
+le test comme ignoré avec sa raison : ce résultat doit être signalé et ne remplace
+pas un passage différentiel. La validation complète enchaîne les tests ciblés du
+builder/chargeur/calculateur, ce différentiel, la suite pytest du dépôt, puis un
+contrôle manuel de chargement et d'affichage dans l'IHM existante. Tout écart hors
+des tolérances doit être expliqué et corrigé dans la chaîne dataset/calcul ; il ne
+doit pas être masqué par une modification de l'IHM, du trigger ou des seuils.
