@@ -1,6 +1,6 @@
 {
   "header": {
-    "generated_utc": "2026-08-21T21:56:25.767513Z",
+    "generated_utc": "2026-08-21T23:36:41.036156Z",
     "date_iso": "2034-03-20"
   },
   "jubier": {
@@ -8,18 +8,18 @@
     "elements_offset": 3948
   },
   "source": {
-    "file": "jubier_files/index.html",
+    "file": "jubier_files/SolarEclipseCalc_Diagram.html",
     "type": "index_option",
     "option_text": "2034 Mar 20 (T)",
-    "option_index": 20
+    "option_index": 141
   },
   "elements": {
     "julian_day": 2464041.9296824,
     "t0": 10.0,
     "tmin": -3.0,
     "tmax": 3.0,
-    "dUTC": 70.7,
-    "dT": 70.7,
+    "dUTC": 77.8,
+    "dT": 77.8,
     "x0": -0.25951614,
     "x1": 0.54816291,
     "x2": 2.3374e-05,

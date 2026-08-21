@@ -1,6 +1,6 @@
 {
   "header": {
-    "generated_utc": "2026-08-21T21:56:25.767513Z",
+    "generated_utc": "2026-08-21T23:36:41.036156Z",
     "date_iso": "2032-11-03"
   },
   "jubier": {
@@ -8,18 +8,18 @@
     "elements_offset": 3864
   },
   "source": {
-    "file": "jubier_files/index.html",
+    "file": "jubier_files/SolarEclipseCalc_Diagram.html",
     "type": "index_option",
     "option_text": "2032 Nov 03 (P)",
-    "option_index": 17
+    "option_index": 138
   },
   "elements": {
     "julian_day": 2463539.73208642,
     "t0": 6.0,
     "tmin": -3.0,
     "tmax": 2.0,
-    "dUTC": 70.4,
-    "dT": 70.4,
+    "dUTC": 77.2,
+    "dT": 77.2,
     "x0": 0.44932298,
     "x1": 0.51201906,
     "x2": 1.7019e-05,

@@ -83,9 +83,9 @@ def jubier_page():
                 pytest.skip(f"differential JS test requires launchable Chromium: {exc}")
 
             page = browser.new_page()
-            page.goto(
-                f"http://127.0.0.1:{server.server_port}/index.html",
-                wait_until="networkidle",
+            page.set_content(
+                "<script src='http://127.0.0.1:"
+                f"{server.server_port}/SunMoonCalculatorSVG_VML.js'></script>"
             )
             page.wait_for_function("typeof getall !== 'undefined'")
             yield page
