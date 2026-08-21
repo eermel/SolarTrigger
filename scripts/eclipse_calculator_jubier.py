@@ -5,11 +5,8 @@ This script prepares todayeclipse.json consumed by the trigger.
 """
 import argparse
 import json
-import os
 import shutil
 import sys
-import threading
-import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -25,15 +22,10 @@ RE = "\033[0m"
 
 # ── Chemins ───────────────────────────────────────────────────────────────────
 SCRIPT_DIR  = Path(__file__).parent
-JUBIER_DIR  = SCRIPT_DIR / "jubier_files"
-FLASK_HOST  = "127.0.0.1"
-FLASK_PORT  = 5051
+JUBIER_DIR  = SCRIPT_DIR.parent / "jubier_files"
 
 REQUIRED_FILES = [
-    "index.html",
-    "SolarEclipseTimerSVG_VML.js",
-    "SolarEclipseTimerDefaultSettings.js",
-    "NewPopWindow.js",
+    "SunMoonCalculatorSVG_VML.js",
 ]
 
 ECLIPSES = {
@@ -80,46 +72,6 @@ def setup_files():
         print(f"  {JUBIER_DIR}")
         sys.exit(1)
     print(f"{G}  Fichiers Jubier OK{RE}")
-
-
-def start_flask():
-    try:
-        from flask import Flask, send_from_directory
-    except ImportError:
-        print(f"{R}Flask manquant :{RE}")
-        print(f"  pip3 install flask --break-system-packages")
-        sys.exit(1)
-
-    import logging
-    logging.getLogger("werkzeug").setLevel(logging.ERROR)
-
-    app = Flask(__name__)
-
-    @app.route("/")
-    def index():
-        return send_from_directory(str(JUBIER_DIR), "index.html")
-
-    @app.route("/<path:filename>")
-    def static_file(filename):
-        return send_from_directory(str(JUBIER_DIR), filename)
-
-    thread = threading.Thread(
-        target=lambda: app.run(host=FLASK_HOST, port=FLASK_PORT,
-                               debug=False, use_reloader=False),
-        daemon=True
-    )
-    thread.start()
-
-    import urllib.request
-    for _ in range(40):
-        try:
-            urllib.request.urlopen(f"http://{FLASK_HOST}:{FLASK_PORT}/", timeout=1)
-            print(f"{G}  Flask OK → http://{FLASK_HOST}:{FLASK_PORT}/{RE}")
-            return
-        except Exception:
-            time.sleep(0.25)
-    print(f"{R}Flask n'a pas démarré.{RE}")
-    sys.exit(1)
 
 
 JS_CALCULATE = """(params) => {
@@ -219,8 +171,6 @@ def run_playwright(lat, lon, alt, tz_offset, eclipse_val):
         print(f"  playwright install chromium")
         sys.exit(1)
 
-    url = f"http://{FLASK_HOST}:{FLASK_PORT}/"
-
     chromium_system_paths = [
         "/usr/bin/chromium-browser",
         "/usr/bin/chromium",
@@ -256,11 +206,14 @@ def run_playwright(lat, lon, alt, tz_offset, eclipse_val):
         browser = pw.chromium.launch(**launch_kwargs)
         page = browser.new_page()
 
-        print(f"{B}  Chargement de la page Jubier...{RE}")
+        print(f"{B}  Chargement du calculateur JS Jubier...{RE}")
         try:
-            page.goto(url, wait_until="networkidle", timeout=20000)
+            page.goto("about:blank")
+            page.add_script_tag(
+                path=str(JUBIER_DIR / "SunMoonCalculatorSVG_VML.js")
+            )
         except Exception as e:
-            print(f"{R}  Erreur chargement : {e}{RE}")
+            print(f"{R}  Erreur de chargement du calculateur JS : {e}{RE}")
             browser.close()
             sys.exit(1)
 
@@ -268,7 +221,7 @@ def run_playwright(lat, lon, alt, tz_offset, eclipse_val):
             page.wait_for_function("typeof getall !== 'undefined'", timeout=10000)
         except Exception:
             print(f"{R}  Les fonctions JS Jubier ne se sont pas chargées.{RE}")
-            print(f"{Y}  Vérifiez que SolarEclipseTimerSVG_VML.js est dans {JUBIER_DIR}{RE}")
+            print(f"{Y}  Vérifiez que SunMoonCalculatorSVG_VML.js est dans {JUBIER_DIR}{RE}")
             browser.close()
             sys.exit(1)
 
@@ -444,13 +397,10 @@ def main():
     print(f"{B}Position : Lat {args.lat:+.5f}°  Lon {args.lon:+.5f}°  Alt {args.alt}m{RE}")
     print(f"{B}Fuseau   : UTC{args.tz:+.1f}{RE}\n")
 
-    print(f"{B}[1/3] Vérification des fichiers Jubier...{RE}")
+    print(f"{B}[1/2] Vérification du calculateur JS Jubier...{RE}")
     setup_files()
 
-    print(f"{B}[2/3] Démarrage du serveur Flask...{RE}")
-    start_flask()
-
-    print(f"{B}[3/3] Calcul via Chromium headless + JS Jubier...{RE}")
+    print(f"{B}[2/2] Calcul via Chromium headless + JS Jubier...{RE}")
     result = run_playwright(
         lat          = args.lat,
         lon          = args.lon,
