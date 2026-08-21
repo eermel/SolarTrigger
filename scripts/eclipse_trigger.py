@@ -119,6 +119,7 @@ from backend.timeline import build_timeline, rebase_timeline, format_hms_ms
 from services.camera_service import CameraService
 from services.camera_service import _normalized_speed_plan as _norm_plan
 from backend.atmo import facteur_atmospherique, interpolate_altitude
+from backend import audio_service
 
 _runtime_clock = RuntimeClock()
 _watchdog = TriggerWatchdog(Path.home() / "python_solareclipsetrigger" / "trigger_state.json", _runtime_clock)
@@ -128,34 +129,6 @@ def sleep_sim(seconds): return _runtime_clock.sleep(seconds)
 def _watchdog_write(phase, next_shot_time=None): return _watchdog.write(phase, next_shot_time)
 def _watchdog_read(): return _watchdog.read()
 def _watchdog_clear(): return _watchdog.clear()
-
-# Audio : lecture directe sur sortie jack Raspberry Pi via pygame/ALSA.
-# ══════════════════════════════════════════════════════════════════════════════
-# ── Audio pygame (lecture locale — optionnel) ─────────────────────────────────
-# Sur Pi sans écran/HP, pygame.mixer.init() plante si SDL_AUDIODRIVER n'est
-# pas forcé. On essaie ALSA puis pulse puis dummy (silencieux mais sans crash).
-# SOUNDS_ENABLED = False si pygame absent ou si aucun driver ne fonctionne.
-_SOUND_DRIVERS = ["alsa"]
-SOUNDS_ENABLED = False
-pygame = None
-
-try:
-    import pygame as _pygame
-    # Forcer ALSA pour la sortie jack de la Raspberry Pi
-    os.environ["SDL_AUDIODRIVER"] = "alsa"
-    try:
-        _pygame.mixer.pre_init(44100, -16, 1, 1024)
-        _pygame.mixer.init()
-        _pygame.mixer.quit()  # Libéré ici, réouvert à chaque son
-        pygame = _pygame
-        SOUNDS_ENABLED = True
-        _log(f"Audio Jack OK (driver ALSA sur sortie jack)")
-    except Exception as e:
-        _log(f"pygame.mixer ALSA échoué : {e} — sons désactivés.")
-        SOUNDS_ENABLED = False
-except ImportError:
-    _log("WARNING pygame non installé — sons désactivés.")
-    SOUNDS_ENABLED = False
 
 # Couleurs ANSI
 class Colors:
@@ -169,6 +142,8 @@ class Colors:
     ORANGE = "\033[38;2;255;127;0m"
     CYAN = "\033[1;36m"   # Ajouter cette ligne
     RESET = "\033[0m"
+
+audio_service.init(log_fn=_log, colors=Colors, driver='alsa')
 
 import json
 import os
@@ -331,6 +306,7 @@ if args.shutterspeed_diamondring is not None:
 
 # Alertes sonores — fichiers WAV dans le sous-dossier Sounds/ (relatif au script)
 _SOUNDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Sounds")
+audio_service.set_sounds_dir(_SOUNDS_DIR)
 
 # Variables globales
 debug    = args.debug
@@ -805,88 +781,17 @@ def attendre_heure(heure_cible):
 def afficher_messages_temps():
     """Affiche un message à une heure donnée."""
     messages_restants = sorted(messages_temps, key=lambda x: x[0])
-    while messages_restants and not _audio_stop_event.is_set():
+    while messages_restants and not audio_service.is_stopped():
         heure_actuelle = now()
         for message in messages_restants[:]:
             if heure_actuelle >= message[0]:
                 _log(f"{Colors.PINK}INFO - {message[1]}{Colors.RESET}")
                 messages_restants.remove(message)
-        _audio_stop_event.wait(0.1 if _sim_mode else 0.5)
-
-# Mutex pour serialiser les lectures pygame (evite double-init/quit concurrent)
-_pygame_lock = threading.Lock()
-_pygame_mixer_ready = False
-_audio_stop_event = threading.Event()
-_audio_threads = []
-_audio_threads_lock = threading.Lock()
-
-def _register_audio_thread(thread):
-    with _audio_threads_lock:
-        _audio_threads.append(thread)
+        audio_service.wait_stop(0.1 if _sim_mode else 0.5)
 
 def _shutdown_audio_threads(timeout=5.0):
-    """Arrête les alertes audio et attend les lectures en cours avant de fermer pygame."""
-    _audio_stop_event.set()
-    deadline = time.monotonic() + timeout
-    with _audio_threads_lock:
-        threads = list(_audio_threads)
-    for thread in threads:
-        if thread is threading.current_thread() or not thread.is_alive():
-            continue
-        remaining = max(0.0, deadline - time.monotonic())
-        thread.join(timeout=remaining)
-    if pygame is not None and _pygame_mixer_ready:
-        with _pygame_lock:
-            try:
-                pygame.mixer.music.stop()
-            except Exception:
-                pass
-
-
-def _ensure_mixer():
-    """Initialise pygame.mixer une seule fois."""
-    global _pygame_mixer_ready
-    if _pygame_mixer_ready:
-        return True
-    try:
-        pygame.mixer.pre_init(44100, -16, 1, 1024)
-        pygame.mixer.init()
-        _pygame_mixer_ready = True
-        return True
-    except Exception as e:
-        _log(f"{Colors.YELLOW}pygame.mixer init echouee : {e}{Colors.RESET}")
-        return False
-
-def jouer_son(nom_fichier):
-    """Joue un fichier WAV localement via pygame (si HP disponible).
-    Sans effet si SOUNDS_ENABLED = False.
-    Utilise un mutex pour eviter les conflits entre threads.
-    """
-    if not SOUNDS_ENABLED or pygame is None:
-        return
-    chemin = os.path.join(_SOUNDS_DIR, nom_fichier)
-    if not os.path.isfile(chemin):
-        _log(f"WARNING {Colors.YELLOW}Son introuvable : {chemin}{Colors.RESET}")
-        return
-    with _pygame_lock:
-        global _pygame_mixer_ready
-        try:
-            if not _ensure_mixer():
-                return
-            pygame.mixer.music.load(chemin)
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy() and not _audio_stop_event.is_set():
-                time.sleep(0.1)
-            if _audio_stop_event.is_set():
-                pygame.mixer.music.stop()
-        except Exception as e:
-            _log(f"ERROR {Colors.RED}Erreur audio ({nom_fichier}) : {e}{Colors.RESET}")
-            # Réinitialiser le mixer pour les prochains sons
-            _pygame_mixer_ready = False
-            try:
-                pygame.mixer.quit()
-            except Exception:
-                pass
+    """Arrête les alertes audio et attend les lectures en cours."""
+    audio_service.shutdown(timeout)
 
 def _emettre_evenement_batterie(pct):
     """Conservé pour compatibilité — Jack uniquement."""
@@ -898,11 +803,11 @@ def jouer_son_en_thread(nom_fichier):
     """Déclenche un son via Jack (pygame/ALSA) dans un thread daemon."""
     def _run():
         _log(f"INFO {Colors.ORANGE}♪ Son : {nom_fichier}{Colors.RESET}")
-        jouer_son(nom_fichier)
-    if _audio_stop_event.is_set():
+        audio_service.play(nom_fichier)
+    if audio_service.is_stopped():
         return
     t = threading.Thread(target=_run, daemon=True, name=f"audio-{nom_fichier}")
-    _register_audio_thread(t)
+    audio_service.register_thread(t)
     t.start()
 
 def ecouter_alertes():
@@ -918,14 +823,14 @@ def ecouter_alertes():
     ignored = len(alertes_sons) - len(restantes)
     if ignored:
         _log(f"{Colors.YELLOW}{ignored} alerte(s) son passée(s) ignorée(s).{Colors.RESET}")
-    while restantes and not _audio_stop_event.is_set():
+    while restantes and not audio_service.is_stopped():
         _now = now()
         for alerte in restantes[:]:
             if _now >= alerte[0]:
                 son = alerte[1]
                 jouer_son_en_thread(son)
                 restantes.remove(alerte)
-        _audio_stop_event.wait(0.1 if _sim_mode else 0.5)
+        audio_service.wait_stop(0.1 if _sim_mode else 0.5)
 
 def get_battery_level(camera_service):
     """Read battery through the active camera plugin and emit UI events."""
@@ -1091,14 +996,14 @@ def main():
 
 
         # Lancer l'écoute des alertes sonores
-        _log(f"{Colors.BLUE}Sons — Jack (pygame ALSA) : {SOUNDS_ENABLED}{Colors.RESET}")
+        _log(f"{Colors.BLUE}Sons — Jack (pygame ALSA) : {audio_service.SOUNDS_ENABLED}{Colors.RESET}")
         thread_alertes = threading.Thread(target=ecouter_alertes, daemon=True, name="audio-alert-scheduler")
-        _register_audio_thread(thread_alertes)
+        audio_service.register_thread(thread_alertes)
         thread_alertes.start()
 
         # Lancer alerte textuelle
         thread_messages = threading.Thread(target=afficher_messages_temps, daemon=True, name="message-scheduler")
-        _register_audio_thread(thread_messages)
+        audio_service.register_thread(thread_messages)
         thread_messages.start()
 
         # Attente du début des prises de vue
@@ -1330,11 +1235,6 @@ def main():
         _log(f"{Colors.RED}Unexpected error: {e}{Colors.RESET}")
     finally:
         _shutdown_audio_threads()
-        if SOUNDS_ENABLED and pygame is not None and _pygame_mixer_ready:
-            try:
-                pygame.mixer.quit()
-            except Exception:
-                pass
         if camera_service is not None:
             camera_service.close()
         _log(f"{Colors.GREEN}End of the script.{Colors.RESET}")
