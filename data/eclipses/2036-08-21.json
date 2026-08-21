@@ -1,6 +1,6 @@
 {
   "header": {
-    "generated_utc": "2026-08-21T21:56:25.767513Z",
+    "generated_utc": "2026-08-21T23:36:41.036156Z",
     "date_iso": "2036-08-21"
   },
   "jubier": {
@@ -8,18 +8,18 @@
     "elements_offset": 4116
   },
   "source": {
-    "file": "jubier_files/index.html",
+    "file": "jubier_files/SolarEclipseCalc_Diagram.html",
     "type": "index_option",
     "option_text": "2036 Aug 21 (P)",
-    "option_index": 26
+    "option_index": 147
   },
   "elements": {
     "julian_day": 2464927.22621146,
     "t0": 17.0,
     "tmin": -2.0,
     "tmax": 3.0,
-    "dUTC": 71.2,
-    "dT": 71.2,
+    "dUTC": 78.8,
+    "dT": 78.8,
     "x0": 0.03654715,
     "x1": 0.56328861,
     "x2": -2.8016e-05,

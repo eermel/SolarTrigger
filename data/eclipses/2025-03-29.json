@@ -1,6 +1,6 @@
 {
   "header": {
-    "generated_utc": "2026-08-21T21:56:25.767513Z",
+    "generated_utc": "2026-08-21T23:36:41.036156Z",
     "date_iso": "2025-03-29"
   },
   "jubier": {
@@ -8,18 +8,18 @@
     "elements_offset": 3388
   },
   "source": {
-    "file": "jubier_files/index.html",
+    "file": "jubier_files/SolarEclipseCalc_Diagram.html",
     "type": "index_option",
     "option_text": "2025 Mar 29 (P)",
-    "option_index": 0
+    "option_index": 121
   },
   "elements": {
     "julian_day": 2460763.95041224,
     "t0": 11.0,
     "tmin": -3.0,
     "tmax": 2.0,
-    "dUTC": 69.0,
-    "dT": 69.0,
+    "dUTC": 69.15,
+    "dT": 69.15,
     "x0": -0.4028119,
     "x1": 0.5094122,
     "x2": 4.1455e-05,

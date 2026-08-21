@@ -1,6 +1,6 @@
 {
   "header": {
-    "generated_utc": "2026-08-21T21:56:25.767513Z",
+    "generated_utc": "2026-08-21T23:36:41.036156Z",
     "date_iso": "2027-02-06"
   },
   "jubier": {
@@ -8,18 +8,18 @@
     "elements_offset": 3500
   },
   "source": {
-    "file": "jubier_files/index.html",
+    "file": "jubier_files/SolarEclipseCalc_Diagram.html",
     "type": "index_option",
     "option_text": "2027 Feb 06 (A)",
-    "option_index": 4
+    "option_index": 125
   },
   "elements": {
     "julian_day": 2461443.1672136,
     "t0": 16.0,
     "tmin": -4.0,
     "tmax": 4.0,
-    "dUTC": 69.2,
-    "dT": 69.2,
+    "dUTC": 69.22,
+    "dT": 69.22,
     "x0": 0.11174255,
     "x1": 0.4664951,
     "x2": -3.3711e-05,

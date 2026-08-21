@@ -1,6 +1,6 @@
 {
   "header": {
-    "generated_utc": "2026-08-21T21:56:25.767513Z",
+    "generated_utc": "2026-08-21T23:36:41.036156Z",
     "date_iso": "2034-09-12"
   },
   "jubier": {
@@ -8,18 +8,18 @@
     "elements_offset": 3976
   },
   "source": {
-    "file": "jubier_files/index.html",
+    "file": "jubier_files/SolarEclipseCalc_Diagram.html",
     "type": "index_option",
     "option_text": "2034 Sep 12 (A)",
-    "option_index": 21
+    "option_index": 142
   },
   "elements": {
     "julian_day": 2464218.18017245,
     "t0": 16.0,
     "tmin": -3.0,
     "tmax": 4.0,
-    "dUTC": 70.8,
-    "dT": 70.8,
+    "dUTC": 78.0,
+    "dT": 78.0,
     "x0": -0.28082184,
     "x1": 0.50283418,
     "x2": -1.0634e-05,
