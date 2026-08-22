@@ -111,6 +111,19 @@ class CameraPlugin(ABC):
             pass
         return None
 
+    def sync_datetime(self, ref):
+        """Report that camera date/time synchronization is unsupported."""
+        return {
+            "status": "unsupported",
+            "datetime_synced": False,
+            "timezone_synced": False,
+            "datetime_applied": None,
+            "timezone_name": getattr(ref, "timezone_name", None) or None,
+            "utc_offset_minutes": getattr(ref, "utc_offset_minutes", None) or None,
+            "message": f"Date/time synchronization is unsupported by {self.name}",
+            "plugin": self.name,
+        }
+
     @abstractmethod
     def shoot_speeds(self, v_max, v_min, step_il, photo_num_start=0,
                      deadline=None):

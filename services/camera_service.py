@@ -117,6 +117,29 @@ class CameraService:
             return None
         return self.plugin.get_battery_level()
 
+    def sync_datetime(self, ref):
+        if not self.connected:
+            self.connect()
+
+        result = dict(self.plugin.sync_datetime(ref))
+        result.setdefault("status", "partial")
+        result["datetime_synced"] = result.get("datetime_synced") is True
+        result["timezone_synced"] = result.get("timezone_synced") is True
+        result.setdefault("datetime_applied", None)
+        result.setdefault(
+            "timezone_name", getattr(ref, "timezone_name", None) or None
+        )
+        result.setdefault(
+            "utc_offset_minutes",
+            getattr(ref, "utc_offset_minutes", None) or None,
+        )
+        result.setdefault("message", "")
+        if not result.get("plugin"):
+            result["plugin"] = getattr(self.plugin, "name", None)
+        if not result.get("model"):
+            result["model"] = self.model or None
+        return result
+
     def shoot_speed_list(
         self,
         speeds,

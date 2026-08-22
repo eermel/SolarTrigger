@@ -37,6 +37,13 @@ class GpsController:
             if not self.time_sync_fn(snap.gps_time, dry_run=False):
                 raise RuntimeError("Échec de synchronisation de l'heure système")
             tz_offset = self.timezone_fn(pos.latitude, pos.longitude, eclipse_date=None)
+            utc_offset_minutes = round(tz_offset * 60)
+            try:
+                from timezonefinder import TimezoneFinder
+                timezone_name = TimezoneFinder().timezone_at(
+                    lat=pos.latitude, lng=pos.longitude)
+            except Exception:
+                timezone_name = None
             tz_str = f"UTC{tz_offset:+g}"
             gps_snap = self.state.update_section("gps", {
                 "connected": False, "synced": True,
@@ -46,6 +53,8 @@ class GpsController:
                 "hdop": round(pos.hdop, 2) if pos.hdop is not None else None,
                 "date": snap.gps_time.strftime("%Y-%m-%d"),
                 "sync_time": datetime.now(timezone.utc).isoformat(), "timezone": tz_str,
+                "timezone_name": timezone_name,
+                "utc_offset_minutes": utc_offset_minutes,
                 "gps_sync_running": False,
             })
             self.state.set("gps_sync_running", False); self.state.save(); synced = True
