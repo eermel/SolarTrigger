@@ -173,19 +173,47 @@ def test_devices_detect_is_ephemeral_and_does_not_renew_ttl(
     assert state_file.read_text(encoding="utf-8") == disk_before
 
 
-def test_status_includes_devices_snapshot(devices_api, monkeypatch):
-    client, state_store, _state_file = devices_api
+def test_status_includes_only_persisted_devices_without_detection(
+    devices_api, monkeypatch
+):
+    client, state_store, state_file = devices_api
     persisted = _selections()
-    state_store.update_section("devices", persisted)
-    with flask_module._device_detection_lock:
-        flask_module._device_detection_cache.update(_detection())
+    state_store.update_section("devices", persisted, persist=True)
+    disk_before = state_file.read_text(encoding="utf-8")
     monkeypatch.setattr(flask_module, "_get_camera_status", lambda: {})
     monkeypatch.setattr(flask_module, "_load_eclipse_json", lambda: None)
 
     response = client.get("/api/status")
 
     assert response.status_code == 200
-    assert response.get_json()["devices"]["camera"] == {
-        **persisted["camera"],
-        **_detection()["camera"],
+    assert response.get_json()["devices"] == persisted
+    assert state_store.snapshot("devices") == persisted
+    assert state_file.read_text(encoding="utf-8") == disk_before
+
+
+def test_status_includes_ephemeral_devices_only_after_detect(
+    devices_api, monkeypatch
+):
+    client, state_store, state_file = devices_api
+    persisted = _selections()
+    detected = _detection()
+    state_store.update_section("devices", persisted, persist=True)
+    disk_before = state_file.read_text(encoding="utf-8")
+    monkeypatch.setattr(flask_module, "detect_all", lambda _timeouts: detected)
+    monkeypatch.setattr(flask_module, "_get_camera_status", lambda: {})
+    monkeypatch.setattr(flask_module, "_load_eclipse_json", lambda: None)
+
+    detect_response = client.post("/api/devices/detect")
+    response = client.get("/api/status")
+
+    assert detect_response.status_code == 200
+    assert response.status_code == 200
+    expected = {
+        name: {**persisted[name], **detected[name]}
+        for name in CATEGORIES
     }
+    expected["updated_at"] = persisted["updated_at"]
+    assert response.get_json()["devices"] == expected
+    assert state_store.snapshot("devices") == persisted
+    assert state_store.snapshot("devices")["updated_at"] == persisted["updated_at"]
+    assert state_file.read_text(encoding="utf-8") == disk_before
