@@ -293,6 +293,19 @@ def _has_missing_device_selection(devices):
     return False
 
 
+def require_device_active(category):
+    """Return a conflict response when the selected device is inactive."""
+    devices = _state_store.snapshot("devices") or {}
+    device = devices.get(category) or {}
+    if device.get("active") is not True:
+        return jsonify({
+            "error": f"Device category '{category}' is inactive.",
+            "code": "DEVICE_INACTIVE",
+            "category": category,
+        }), 409
+    return None
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # API — DEVICES
 # ══════════════════════════════════════════════════════════════════════════════
@@ -420,6 +433,9 @@ _gps_controller = GpsController(
 
 @app.route("/api/gps/sync", methods=["POST"])
 def api_gps_sync():
+    inactive = require_device_active("gps")
+    if inactive is not None:
+        return inactive
     trigger_state = _state_store.snapshot("trigger") or {}
     if trigger_state.get("running"):
         return jsonify({"error": "Synchronisation GPS interdite pendant un trigger actif.", "code": "TRIGGER_RUNNING"}), 409
@@ -477,6 +493,9 @@ def api_camera_probe():
 
 @app.route("/api/camera/sync_time", methods=["POST"])
 def api_camera_sync_time():
+    inactive = require_device_active("camera")
+    if inactive is not None:
+        return inactive
     trigger_state = _state_store.snapshot("trigger") or {}
     if trigger_state.get("running"):
         return jsonify({
@@ -526,6 +545,9 @@ def api_camera_sync_time():
 @app.route("/api/camera/usb", methods=["POST"])
 def api_camera_usb():
     """Libère ou reconnecte l'appareil photo via le système USB du Pi."""
+    inactive = require_device_active("camera")
+    if inactive is not None:
+        return inactive
     action = (request.json or {}).get("action", "release")
     try:
         if action == "release":
