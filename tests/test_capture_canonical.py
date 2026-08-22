@@ -45,6 +45,102 @@ def test_build_capture_canonical_from_minimal_v2():
     assert canonical["exposure_correction"]["atmospheric_attenuation_enabled"] is True
 
 
+def test_dry_run_uses_same_canonical_phase_parameters_as_real_run(tmp_path):
+    circumstances = {
+        "_date": "2026-08-12",
+        "TSTART": "18:00:00",
+        "C1": "19:00:00",
+        "C2": "20:00:00",
+        "TMAX": "20:01:00",
+        "C3": "20:02:00",
+        "C4": "21:00:00",
+        "TEND": "22:00:00",
+    }
+    capture = _minimal_capture_v2()
+    capture["exposure_correction"]["atmospheric_attenuation_enabled"] = False
+    circumstances_path = tmp_path / "circumstances.json"
+    capture_path = tmp_path / "capture.json"
+    circumstances_path.write_text(json.dumps(circumstances), encoding="utf-8")
+    capture_path.write_text(json.dumps(capture), encoding="utf-8")
+
+    probe = """
+import json
+import sys
+import types
+
+sys.modules["gphoto2"] = types.SimpleNamespace(
+    GP_LOG_ERROR=0,
+    GP_LOG_VERBOSE=1,
+    GP_LOG_DEBUG=2,
+    GP_LOG_DATA=3,
+    use_python_logging=lambda mapping=None: None,
+    check_result=lambda *args, **kwargs: None,
+)
+sys.argv = ["eclipse_trigger.py", "--file", sys.argv[1], "--camera", sys.argv[2], *sys.argv[3:]]
+from scripts import eclipse_trigger as trigger
+
+phase_inputs = {
+    "partial": (trigger.TSTART, trigger.C1),
+    "diamond_ring": (trigger.C2, trigger.C2),
+    "totality": (trigger.TMAX, trigger.C3),
+}
+observed = {}
+service = trigger._SimulationCameraService()
+for name, (target, deadline) in phase_inputs.items():
+    phase = trigger.capture_phase(name)
+    apply = {"aperture": phase.get("aperture", "f/8"), "iso": str(phase.get("iso", "100"))}
+    service.apply_phase_settings(**apply)
+    intent = trigger._capture_intent(phase, name, target, deadline)
+    prepared = service.prepare_capture(intent)
+    prepared_intent, prepared_speeds = prepared.token
+    observed[name] = {
+        "apply": apply,
+        "prepare": {
+            "shutter_min": prepared_intent.shutter_min,
+            "shutter_max": prepared_intent.shutter_max,
+            "step_ev": prepared_intent.step_ev,
+            "speeds": prepared_intent.speeds,
+            "prepared_speeds": prepared_speeds,
+            "phase": prepared_intent.phase,
+            "overflow_policy": prepared_intent.overflow_policy,
+        },
+    }
+print("PARITY_PROBE=" + json.dumps({
+    "canonical": trigger.capture_canonical,
+    "phases": observed,
+    "timeline": {key: value.isoformat() for key, value in trigger._timeline.items()},
+}, sort_keys=True))
+"""
+
+    def run_probe(*extra_args):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                probe,
+                str(circumstances_path),
+                str(capture_path),
+                *extra_args,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        line = next(
+            item
+            for item in result.stdout.splitlines()
+            if item.startswith("PARITY_PROBE=")
+        )
+        return json.loads(line.removeprefix("PARITY_PROBE="))
+
+    real = run_probe()
+    dry_run = run_probe("--dry-run", "--dry-run-delay", "0")
+
+    assert dry_run["canonical"] == real["canonical"]
+    assert dry_run["phases"] == real["phases"]
+    assert dry_run["timeline"] != real["timeline"]
+
+
 def test_v2_initialization_ignores_photo_fields_from_circumstances(tmp_path):
     circumstances = {
         "_date": "2026-08-12",
