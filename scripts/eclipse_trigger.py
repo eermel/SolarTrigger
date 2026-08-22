@@ -236,7 +236,7 @@ _ASTRONOMY_KEYS = {
 _CAPTURE_PHASES = ("partial", "diamond_ring", "totality")
 
 def build_capture_canonical(capture):
-    """Validate a v2 capture or adapt a historical camera profile."""
+    """Validate and copy a capture_execution v2 configuration."""
     if not isinstance(capture, dict):
         raise ValueError("configuration capture invalide : objet JSON attendu")
 
@@ -284,14 +284,91 @@ def build_capture_canonical(capture):
             "exposure_correction": canonical_correction,
         }
 
+    raise ValueError("capture v2 invalide : marqueur 'phases' absent")
+
+
+def build_legacy_capture_canonical(camera_profile, circumstances):
+    """Adapt historical camera and eclipse fields to the in-memory v2 shape."""
+    camera_profile = camera_profile if isinstance(camera_profile, dict) else {}
+    circumstances = circumstances if isinstance(circumstances, dict) else {}
+
+    def phase_settings(name):
+        profile_phase = camera_profile.get(name, {})
+        circumstance_phase = circumstances.get(name, {})
+        profile_phase = profile_phase if isinstance(profile_phase, dict) else {}
+        circumstance_phase = (
+            circumstance_phase if isinstance(circumstance_phase, dict) else {}
+        )
+        settings = dict(profile_phase)
+        settings.update(circumstance_phase)
+        return settings
+
+    partial = phase_settings("partial")
+    diamond_ring = phase_settings("diamond_ring")
+    totality_profile = camera_profile.get("totality", {})
+    totality_profile = (
+        totality_profile if isinstance(totality_profile, dict) else {}
+    )
+    totality_circumstances = circumstances.get("totality", {})
+    totality_circumstances = (
+        totality_circumstances
+        if isinstance(totality_circumstances, dict) else {}
+    )
+    totality = dict(totality_profile)
+    if totality_circumstances.get("speeds"):
+        totality["speeds"] = totality_circumstances["speeds"]
+
+    partial_circumstances = circumstances.get("partial", {})
+    partial_circumstances = (
+        partial_circumstances if isinstance(partial_circumstances, dict) else {}
+    )
+    diamond_circumstances = circumstances.get("diamond_ring", {})
+    diamond_circumstances = (
+        diamond_circumstances if isinstance(diamond_circumstances, dict) else {}
+    )
+    if ("shutterspeed_partial" in circumstances
+            and not partial_circumstances.get("speeds")):
+        partial["speeds"] = [circumstances["shutterspeed_partial"]]
+    if ("shutterspeed_diamondring" in circumstances
+            and not diamond_circumstances.get("speeds")):
+        diamond_ring["speeds"] = [circumstances["shutterspeed_diamondring"]]
+
+    partial_interval = circumstances.get("interval_partial")
+    if partial_interval is None:
+        phase1a = circumstances.get("phase1a", {})
+        if isinstance(phase1a, dict):
+            partial_interval = phase1a.get("interval_s")
+    diamond_interval = circumstances.get("interval_diamond_ring")
+    if diamond_interval is None:
+        diamond_interval = diamond_circumstances.get("interval_s")
+    diamond_duration = circumstances.get("duree_diamond_ring")
+    if diamond_duration is None:
+        diamond_duration = diamond_circumstances.get("duration_s")
+
+    partial["interval_s"] = partial_interval
+    partial["duration_s"] = None
+    diamond_ring["interval_s"] = diamond_interval
+    diamond_ring["duration_s"] = diamond_duration
+
+    for phase in (partial, diamond_ring, totality):
+        speeds = phase.get("speeds")
+        if isinstance(speeds, list) and len(speeds) == 1:
+            phase["shutter_min"] = speeds[0]
+            phase["shutter_max"] = speeds[0]
+
     return {
         "phases": {
-            phase: dict(capture.get(phase, {}))
-            if isinstance(capture.get(phase, {}), dict) else {}
-            for phase in _CAPTURE_PHASES
+            "partial": partial,
+            "diamond_ring": diamond_ring,
+            "totality": totality,
         },
         "exposure_correction": {
-            "atmospheric": bool(capture.get("atmo_compensation", False)),
+            "atmospheric_attenuation_enabled": bool(
+                circumstances.get(
+                    "atmo_compensation",
+                    camera_profile.get("atmo_compensation", False),
+                )
+            ),
         },
     }
 
@@ -311,88 +388,50 @@ def exposure_correction(name, default=None):
     return capture_canonical["exposure_correction"].get(name, default)
 
 def atmospheric_correction_enabled():
-    if capture_is_v2:
-        return bool(
-            exposure_correction("atmospheric_attenuation_enabled", False)
+    enabled = bool(exposure_correction("atmospheric_attenuation_enabled", False))
+    if enabled or capture_is_v2:
+        return enabled
+    legacy_capture = build_legacy_capture_canonical({}, cfg)
+    return bool(
+        legacy_capture["exposure_correction"].get(
+            "atmospheric_attenuation_enabled", False
         )
-    # Compatibility for callers that still build a legacy in-memory cfg.
-    return bool(cfg.get("atmo_compensation", False))
+    )
 
 def _observer_location():
     return circumstances.get(
         "_circumstances_location", cfg.get("_circumstances_location", {})
     )
 
-def _apply_camera_profile(target, cam_cfg):
-    p = cam_cfg.get("partial", {})
-    dr = cam_cfg.get("diamond_ring", {})
-    t = cam_cfg.get("totality", {})
-    if p.get("speeds"):
-        target["speeds_partial"] = p["speeds"]
-    if p.get("aperture"):
-        target["aperture_partial"] = p["aperture"]
-    if p.get("iso") is not None:
-        target["iso_partial"] = str(p["iso"])
-    if p.get("step_il") is not None:
-        target["step_partial"] = float(p["step_il"])
-    if dr.get("speeds"):
-        target["speeds_diamond_ring"] = dr["speeds"]
-    if dr.get("aperture"):
-        target["aperture_diamond_ring"] = dr["aperture"]
-    if dr.get("iso") is not None:
-        target["iso_diamond_ring"] = str(dr["iso"])
-    if dr.get("step_il") is not None:
-        target["step_diamond_ring"] = float(dr["step_il"])
-    if t.get("speeds"):
-        target["totality"] = {"speeds": t["speeds"]}
-    if t.get("aperture"):
-        target["aperture_totality"] = t["aperture"]
-    if t.get("iso") is not None:
-        target["iso_totality"] = str(t["iso"])
-    if t.get("step_il") is not None:
-        target["step_totality"] = float(t["step_il"])
-
 def _apply_eclipse_file(target, ecl):
-    # Top-level keys are authoritative. Nested UI structures are only fallbacks.
+    # Preserve historical UI-only timing fallbacks before canonical adaptation.
     target.update(ecl)
     if "interval_partial" not in ecl:
-        ph = ecl.get("phase1a", {})
-        if ph.get("interval_s") is not None:
-            target["interval_partial"] = ph["interval_s"]
+        phase1a = ecl.get("phase1a", {})
+        if phase1a.get("interval_s") is not None:
+            target["interval_partial"] = phase1a["interval_s"]
     if "interval_diamond_ring" not in ecl:
-        dr = ecl.get("diamond_ring", {})
-        if dr.get("interval_s") is not None:
-            target["interval_diamond_ring"] = dr["interval_s"]
+        diamond = ecl.get("diamond_ring", {})
+        if diamond.get("interval_s") is not None:
+            target["interval_diamond_ring"] = diamond["interval_s"]
     if "duree_diamond_ring" not in ecl:
-        dr = ecl.get("diamond_ring", {})
-        if dr.get("duration_s") is not None:
-            target["duree_diamond_ring"] = dr["duration_s"]
+        diamond = ecl.get("diamond_ring", {})
+        if diamond.get("duration_s") is not None:
+            target["duree_diamond_ring"] = diamond["duration_s"]
 
 circumstances = load_config_file(args.file) if args.file else {}
-capture_source = load_config_file(args.camera) if args.camera else {}
-capture_is_v2 = "phases" in capture_source or "exposure_correction" in capture_source
-try:
-    capture_canonical = build_capture_canonical(capture_source)
-except ValueError as exc:
-    _log(f"{Colors.RED}{exc}{Colors.RESET}")
-    raise SystemExit(1) from exc
-
+capture_source = {}
 if args.camera:
-    _apply_camera_profile(cfg, capture_canonical["phases"])
+    capture_source = load_config_file(args.camera)
+capture_is_v2 = "phases" in capture_source or "exposure_correction" in capture_source
+if capture_is_v2:
+    try:
+        capture_canonical = build_capture_canonical(capture_source)
+    except ValueError as exc:
+        _log(f"{Colors.RED}{exc}{Colors.RESET}")
+        raise SystemExit(1) from exc
 if args.file:
     _apply_eclipse_file(cfg, circumstances)
-    if not capture_is_v2:
-        _apply_camera_profile(cfg, circumstances)
-        # Compatibilité legacy : une vitesse explicite de la séquence
-        # remplace le profil caméra, sauf si la phase fournit déjà sa liste.
-        if ("shutterspeed_partial" in circumstances
-                and not circumstances.get("partial", {}).get("speeds")):
-            cfg["speeds_partial"] = [circumstances["shutterspeed_partial"]]
-        if ("shutterspeed_diamondring" in circumstances
-                and not circumstances.get("diamond_ring", {}).get("speeds")):
-            cfg["speeds_diamond_ring"] = [
-                circumstances["shutterspeed_diamondring"]
-            ]
 if capture_is_v2:
     _log(f"{Colors.GREEN}Stratégie photo dérivée de capture v2{Colors.RESET}")
 
@@ -418,11 +457,20 @@ circumstances.update({
     if k in _ASTRONOMY_KEYS and v is not None
 })
 if args.shutterspeed_partial is not None:
-    cfg["speeds_partial"] = [args.shutterspeed_partial]
-    capture_canonical["phases"]["partial"]["speeds"] = [args.shutterspeed_partial]
+    if capture_is_v2:
+        capture_canonical["phases"]["partial"]["speeds"] = [args.shutterspeed_partial]
 if args.shutterspeed_diamondring is not None:
-    cfg["speeds_diamond_ring"] = [args.shutterspeed_diamondring]
-    capture_canonical["phases"]["diamond_ring"]["speeds"] = [args.shutterspeed_diamondring]
+    if capture_is_v2:
+        capture_canonical["phases"]["diamond_ring"]["speeds"] = [args.shutterspeed_diamondring]
+if capture_is_v2:
+    legacy_timings = build_legacy_capture_canonical({}, cfg)["phases"]
+    for phase_name in ("partial", "diamond_ring"):
+        for timing_name in ("interval_s", "duration_s"):
+            capture_canonical["phases"][phase_name].setdefault(
+                timing_name, legacy_timings[phase_name][timing_name]
+            )
+else:
+    capture_canonical = build_legacy_capture_canonical(capture_source, cfg)
 
 # Alertes sonores — fichiers WAV dans le sous-dossier Sounds/ (relatif au script)
 _SOUNDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Sounds")
@@ -447,35 +495,25 @@ C4_str                   = astronomy("C4") if circumstances else cfg["C4"]
 TMAX_str                 = astronomy("TMAX") if circumstances else cfg["TMAX"]
 TSTART_str               = astronomy("TSTART") if circumstances else cfg["TSTART"]
 TEND_str                 = astronomy("TEND") if circumstances else cfg["TEND"]
-interval_partial         = int(cfg["interval_partial"])
-interval_diamond_ring    = int(cfg["interval_diamond_ring"])
-duree_diamond_ring       = int(cfg["duree_diamond_ring"])
-shutterspeed_partial     = cfg["shutterspeed_partial"]
-shutterspeed_diamondring = cfg["shutterspeed_diamondring"]
 wake_up_time             = float(cfg.get("wake_up_time", 2.5))  # secondes
 
-# Bracket vitesses — depuis camera config ou fallback ancienne clé
+# Paramètres d'exécution exclusivement issus de la capture canonique.
 _partial_capture = capture_phase("partial")
 _diamond_capture = capture_phase("diamond_ring")
 _totality_capture = capture_phase("totality")
-if capture_is_v2:
-    speeds_partial      = _partial_capture.get("speeds", [shutterspeed_partial])
-    speeds_diamond_ring = _diamond_capture.get("speeds", [shutterspeed_diamondring])
-    aperture_partial    = _partial_capture.get("aperture", "f/8")
-    aperture_diamond    = _diamond_capture.get("aperture", "f/8")
-    aperture_totality   = _totality_capture.get("aperture", "f/8")
-    iso_partial         = str(_partial_capture.get("iso", "100"))
-    iso_diamond_ring    = str(_diamond_capture.get("iso", "100"))
-    iso_totality        = str(_totality_capture.get("iso", "100"))
-else:
-    speeds_partial      = cfg.get("speeds_partial", [shutterspeed_partial])
-    speeds_diamond_ring = cfg.get("speeds_diamond_ring", [shutterspeed_diamondring])
-    aperture_partial    = cfg.get("aperture_partial", "f/8")
-    aperture_diamond    = cfg.get("aperture_diamond_ring", "f/8")
-    aperture_totality   = cfg.get("aperture_totality", "f/8")
-    iso_partial         = cfg.get("iso_partial", "100")
-    iso_diamond_ring    = cfg.get("iso_diamond_ring", "100")
-    iso_totality        = cfg.get("iso_totality", "100")
+interval_partial         = int(_partial_capture["interval_s"])
+interval_diamond_ring    = int(_diamond_capture["interval_s"])
+duree_diamond_ring       = int(_diamond_capture["duration_s"])
+speeds_partial           = _partial_capture.get("speeds", ["1/500"])
+speeds_diamond_ring      = _diamond_capture.get("speeds", ["1/500"])
+shutterspeed_partial     = speeds_partial[0]
+shutterspeed_diamondring = speeds_diamond_ring[0]
+aperture_partial         = _partial_capture.get("aperture", "f/8")
+aperture_diamond         = _diamond_capture.get("aperture", "f/8")
+aperture_totality        = _totality_capture.get("aperture", "f/8")
+iso_partial              = str(_partial_capture.get("iso", "100"))
+iso_diamond_ring         = str(_diamond_capture.get("iso", "100"))
+iso_totality             = str(_totality_capture.get("iso", "100"))
 
 if interact:
     C1_str                   = input("C1 (H:M:S) ? ")
@@ -663,10 +701,7 @@ _DEFAULT_SPEEDS = ["1/4000", "1/2000", "1/1000", "1/500", "1/250",
                    "1/125",  "1/60",   "1/30",   "1/15",  "1/8",
                    "1/4",    "1/2",    "1",      "2",     "4"]
 
-_configured_totality_speeds = (
-    _totality_capture.get("speeds") if capture_is_v2
-    else cfg.get("totality", {}).get("speeds")
-)
+_configured_totality_speeds = _totality_capture.get("speeds")
 if _configured_totality_speeds:
     shutter_speeds = _configured_totality_speeds
     _log(f"{Colors.CYAN}Vitesses totalité depuis JSON ({len(shutter_speeds)} vitesses){Colors.RESET}")
