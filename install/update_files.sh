@@ -118,8 +118,8 @@ ok "  app.py + index.html + assets → $FLASK_DIR"
 # ── 3. Configs JSON runtime → TRIGGER_DIR/configs/
 info "Configs JSON runtime..."
 [ -d "$PACKAGE_DIR/configs" ] || err "configs/ absent du package"
-rm -rf "$CONFIGS_DIR"
-cp -a "$PACKAGE_DIR/configs" "$TRIGGER_DIR/"
+mkdir -p "$CONFIGS_DIR"
+cp -a "$PACKAGE_DIR/configs/." "$CONFIGS_DIR/"
 find "$CONFIGS_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 ok "  configs/ → $CONFIGS_DIR"
 
