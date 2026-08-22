@@ -229,6 +229,100 @@ args = parse_arguments()
 # ancien profil D850.
 cfg = dict(DEFAULTS)
 
+_ASTRONOMY_KEYS = {
+    "C1", "C2", "C3", "C4", "TMAX", "TSTART", "TEND",
+    "C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg", "C3_alt_deg", "C4_alt_deg",
+}
+_CAPTURE_PHASES = ("partial", "diamond_ring", "totality")
+
+def build_capture_canonical(capture):
+    """Validate a v2 capture or adapt a historical camera profile."""
+    if not isinstance(capture, dict):
+        raise ValueError("configuration capture invalide : objet JSON attendu")
+
+    has_v2_marker = "phases" in capture or "exposure_correction" in capture
+    if has_v2_marker:
+        phases = capture.get("phases")
+        correction = capture.get("exposure_correction", {})
+
+        if not isinstance(phases, dict):
+            raise ValueError("capture v2 invalide : 'phases' doit être un objet")
+
+        for phase in _CAPTURE_PHASES:
+            if not isinstance(phases.get(phase), dict):
+                raise ValueError(
+                    f"capture v2 invalide : 'phases.{phase}' doit être un objet"
+                )
+
+        if not isinstance(correction, dict):
+            raise ValueError(
+                "capture v2 invalide : 'exposure_correction' doit être un objet"
+            )
+
+        canonical_correction = dict(correction)
+
+        # Compatibilité avec la représentation transitoire utilisée avant
+        # finalisation du schéma capture_execution v2.
+        if ("atmospheric" in canonical_correction
+                and "atmospheric_attenuation_enabled" not in canonical_correction):
+            canonical_correction["atmospheric_attenuation_enabled"] = (
+                canonical_correction.pop("atmospheric")
+            )
+
+        atmospheric = canonical_correction.get(
+            "atmospheric_attenuation_enabled"
+        )
+        if atmospheric is not None and not isinstance(atmospheric, bool):
+            raise ValueError(
+                "capture v2 invalide : "
+                "'exposure_correction.atmospheric_attenuation_enabled' "
+                "doit être un booléen"
+            )
+
+        return {
+            "phases": {phase: dict(phases[phase]) for phase in _CAPTURE_PHASES},
+            "exposure_correction": canonical_correction,
+        }
+
+    return {
+        "phases": {
+            phase: dict(capture.get(phase, {}))
+            if isinstance(capture.get(phase, {}), dict) else {}
+            for phase in _CAPTURE_PHASES
+        },
+        "exposure_correction": {
+            "atmospheric": bool(capture.get("atmo_compensation", False)),
+        },
+    }
+
+def astronomy(name):
+    """Read an astronomical circumstance, never a capture setting."""
+    if name not in _ASTRONOMY_KEYS:
+        raise KeyError(f"champ astronomy inconnu : {name}")
+    return circumstances.get(name)
+
+def capture_phase(name):
+    """Read one phase exclusively from the injected canonical capture."""
+    if name not in _CAPTURE_PHASES:
+        raise KeyError(f"phase capture inconnue : {name}")
+    return capture_canonical["phases"][name]
+
+def exposure_correction(name, default=None):
+    return capture_canonical["exposure_correction"].get(name, default)
+
+def atmospheric_correction_enabled():
+    if capture_is_v2:
+        return bool(
+            exposure_correction("atmospheric_attenuation_enabled", False)
+        )
+    # Compatibility for callers that still build a legacy in-memory cfg.
+    return bool(cfg.get("atmo_compensation", False))
+
+def _observer_location():
+    return circumstances.get(
+        "_circumstances_location", cfg.get("_circumstances_location", {})
+    )
+
 def _apply_camera_profile(target, cam_cfg):
     p = cam_cfg.get("partial", {})
     dr = cam_cfg.get("diamond_ring", {})
@@ -274,17 +368,33 @@ def _apply_eclipse_file(target, ecl):
         if dr.get("duration_s") is not None:
             target["duree_diamond_ring"] = dr["duration_s"]
 
-    # Une vitesse explicitement fournie par la séquence remplace le profil caméra.
-    if "shutterspeed_partial" in ecl and not ecl.get("partial", {}).get("speeds"):
-        target["speeds_partial"] = [ecl["shutterspeed_partial"]]
-    if "shutterspeed_diamondring" in ecl and not ecl.get("diamond_ring", {}).get("speeds"):
-        target["speeds_diamond_ring"] = [ecl["shutterspeed_diamondring"]]
+circumstances = load_config_file(args.file) if args.file else {}
+capture_source = load_config_file(args.camera) if args.camera else {}
+capture_is_v2 = "phases" in capture_source or "exposure_correction" in capture_source
+try:
+    capture_canonical = build_capture_canonical(capture_source)
+except ValueError as exc:
+    _log(f"{Colors.RED}{exc}{Colors.RESET}")
+    raise SystemExit(1) from exc
 
 if args.camera:
-    _apply_camera_profile(cfg, load_config_file(args.camera))
-
+    _apply_camera_profile(cfg, capture_canonical["phases"])
 if args.file:
-    _apply_eclipse_file(cfg, load_config_file(args.file))
+    _apply_eclipse_file(cfg, circumstances)
+    if not capture_is_v2:
+        _apply_camera_profile(cfg, circumstances)
+        # Compatibilité legacy : une vitesse explicite de la séquence
+        # remplace le profil caméra, sauf si la phase fournit déjà sa liste.
+        if ("shutterspeed_partial" in circumstances
+                and not circumstances.get("partial", {}).get("speeds")):
+            cfg["speeds_partial"] = [circumstances["shutterspeed_partial"]]
+        if ("shutterspeed_diamondring" in circumstances
+                and not circumstances.get("diamond_ring", {}).get("speeds")):
+            cfg["speeds_diamond_ring"] = [
+                circumstances["shutterspeed_diamondring"]
+            ]
+if capture_is_v2:
+    _log(f"{Colors.GREEN}Stratégie photo dérivée de capture v2{Colors.RESET}")
 
 # Arguments CLI individuels : priorité maximale.
 cli_overrides = {
@@ -303,10 +413,16 @@ cli_overrides = {
     "shutterspeed_diamondring": args.shutterspeed_diamondring,
 }
 cfg.update({k: v for k, v in cli_overrides.items() if v is not None})
+circumstances.update({
+    k: v for k, v in cli_overrides.items()
+    if k in _ASTRONOMY_KEYS and v is not None
+})
 if args.shutterspeed_partial is not None:
     cfg["speeds_partial"] = [args.shutterspeed_partial]
+    capture_canonical["phases"]["partial"]["speeds"] = [args.shutterspeed_partial]
 if args.shutterspeed_diamondring is not None:
     cfg["speeds_diamond_ring"] = [args.shutterspeed_diamondring]
+    capture_canonical["phases"]["diamond_ring"]["speeds"] = [args.shutterspeed_diamondring]
 
 # Alertes sonores — fichiers WAV dans le sous-dossier Sounds/ (relatif au script)
 _SOUNDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Sounds")
@@ -324,13 +440,13 @@ if _sim_mode:
     _log(f"⚡ MODE SIMULATION ×{_sim_speed:.0f} activé")
 
 titre                    = cfg["title"]
-C1_str                   = cfg["C1"]
-C2_str                   = cfg["C2"]
-C3_str                   = cfg["C3"]
-C4_str                   = cfg["C4"]
-TMAX_str                 = cfg["TMAX"]
-TSTART_str               = cfg["TSTART"]
-TEND_str                 = cfg["TEND"]
+C1_str                   = astronomy("C1") if circumstances else cfg["C1"]
+C2_str                   = astronomy("C2") if circumstances else cfg["C2"]
+C3_str                   = astronomy("C3") if circumstances else cfg["C3"]
+C4_str                   = astronomy("C4") if circumstances else cfg["C4"]
+TMAX_str                 = astronomy("TMAX") if circumstances else cfg["TMAX"]
+TSTART_str               = astronomy("TSTART") if circumstances else cfg["TSTART"]
+TEND_str                 = astronomy("TEND") if circumstances else cfg["TEND"]
 interval_partial         = int(cfg["interval_partial"])
 interval_diamond_ring    = int(cfg["interval_diamond_ring"])
 duree_diamond_ring       = int(cfg["duree_diamond_ring"])
@@ -339,14 +455,27 @@ shutterspeed_diamondring = cfg["shutterspeed_diamondring"]
 wake_up_time             = float(cfg.get("wake_up_time", 2.5))  # secondes
 
 # Bracket vitesses — depuis camera config ou fallback ancienne clé
-speeds_partial      = cfg.get("speeds_partial",      [shutterspeed_partial])
-speeds_diamond_ring = cfg.get("speeds_diamond_ring", [shutterspeed_diamondring])
-aperture_partial    = cfg.get("aperture_partial",    "f/8")
-aperture_diamond    = cfg.get("aperture_diamond_ring","f/8")
-aperture_totality   = cfg.get("aperture_totality",   "f/8")
-iso_partial         = cfg.get("iso_partial",         "100")
-iso_diamond_ring    = cfg.get("iso_diamond_ring",    "100")
-iso_totality        = cfg.get("iso_totality",        "100")
+_partial_capture = capture_phase("partial")
+_diamond_capture = capture_phase("diamond_ring")
+_totality_capture = capture_phase("totality")
+if capture_is_v2:
+    speeds_partial      = _partial_capture.get("speeds", [shutterspeed_partial])
+    speeds_diamond_ring = _diamond_capture.get("speeds", [shutterspeed_diamondring])
+    aperture_partial    = _partial_capture.get("aperture", "f/8")
+    aperture_diamond    = _diamond_capture.get("aperture", "f/8")
+    aperture_totality   = _totality_capture.get("aperture", "f/8")
+    iso_partial         = str(_partial_capture.get("iso", "100"))
+    iso_diamond_ring    = str(_diamond_capture.get("iso", "100"))
+    iso_totality        = str(_totality_capture.get("iso", "100"))
+else:
+    speeds_partial      = cfg.get("speeds_partial", [shutterspeed_partial])
+    speeds_diamond_ring = cfg.get("speeds_diamond_ring", [shutterspeed_diamondring])
+    aperture_partial    = cfg.get("aperture_partial", "f/8")
+    aperture_diamond    = cfg.get("aperture_diamond_ring", "f/8")
+    aperture_totality   = cfg.get("aperture_totality", "f/8")
+    iso_partial         = cfg.get("iso_partial", "100")
+    iso_diamond_ring    = cfg.get("iso_diamond_ring", "100")
+    iso_totality        = cfg.get("iso_totality", "100")
 
 if interact:
     C1_str                   = input("C1 (H:M:S) ? ")
@@ -529,14 +658,17 @@ if debug:
     titre = "DEBUGGGGG SPAIN"
 
 
-# Liste des vitesses d'obturation — lue depuis cfg["totality"]["speeds"] si présent,
-# sinon liste complète par défaut.
+# Liste des vitesses d'obturation de totalité injectée depuis la capture canonique.
 _DEFAULT_SPEEDS = ["1/4000", "1/2000", "1/1000", "1/500", "1/250",
                    "1/125",  "1/60",   "1/30",   "1/15",  "1/8",
                    "1/4",    "1/2",    "1",      "2",     "4"]
 
-if cfg.get("totality") and cfg["totality"].get("speeds"):
-    shutter_speeds = cfg["totality"]["speeds"]
+_configured_totality_speeds = (
+    _totality_capture.get("speeds") if capture_is_v2
+    else cfg.get("totality", {}).get("speeds")
+)
+if _configured_totality_speeds:
+    shutter_speeds = _configured_totality_speeds
     _log(f"{Colors.CYAN}Vitesses totalité depuis JSON ({len(shutter_speeds)} vitesses){Colors.RESET}")
 else:
     shutter_speeds = _DEFAULT_SPEEDS
@@ -655,7 +787,7 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
     """Build the brand-neutral intent for one absolute scheduler slot."""
     intent_speeds = [str(speed) for speed in speeds]
     try:
-        use_atmo = bool(cfg.get("atmo_compensation", False))
+        use_atmo = atmospheric_correction_enabled()
         slowest_override_seconds = None
 
         fastest, slowest, step_il, regular = _norm_plan(
@@ -663,7 +795,7 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
         )
 
         if use_atmo and regular:
-            loc = cfg.get("_circumstances_location", {})
+            loc = _observer_location()
 
             if loc is None or loc.get("altitude_m") is None:
                 raise RuntimeError(
@@ -671,11 +803,11 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
                 )
 
             alts = {
-                "C1_alt_deg": cfg.get("C1_alt_deg"),
-                "C2_alt_deg": cfg.get("C2_alt_deg"),
-                "TMAX_alt_deg": cfg.get("TMAX_alt_deg"),
-                "C3_alt_deg": cfg.get("C3_alt_deg"),
-                "C4_alt_deg": cfg.get("C4_alt_deg"),
+                name: astronomy(name) if circumstances else cfg.get(name)
+                for name in (
+                    "C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg",
+                    "C3_alt_deg", "C4_alt_deg",
+                )
             }
 
             if any(v is None for v in alts.values()):
@@ -917,11 +1049,11 @@ def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, 
             )
         slowest_override_seconds = None
         _, slowest, _, regular = _norm_plan([str(speed) for speed in speeds])
-        if cfg.get("atmo_compensation", False) and regular:
-            loc = cfg.get("_circumstances_location")
+        if atmospheric_correction_enabled() and regular:
+            loc = _observer_location()
             if not loc or loc.get("altitude_m") is None:
                 raise RuntimeError("altitude observateur manquante")
-            alts = {name: cfg.get(name) for name in (
+            alts = {name: astronomy(name) if circumstances else cfg.get(name) for name in (
                 "C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg", "C3_alt_deg", "C4_alt_deg"
             )}
             if any(value is None for value in alts.values()):
