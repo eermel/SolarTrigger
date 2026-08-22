@@ -27,6 +27,42 @@ def test_estimate_duration_for_bracket_produced_by_plan():
 
 
 @pytest.mark.parametrize(
+    ("src_nimg", "nimg_target"),
+    [(9, 7), (7, 5), (5, 3)],
+)
+def test_make_fast_subset_uses_prefix_and_recalculates_centre(
+    src_nimg, nimg_target
+):
+    all_views = [
+        "1/4000",
+        "1/2000",
+        "1/1000",
+        "1/500",
+        "1/250",
+        "1/125",
+        "1/60",
+        "1/30",
+        "1/15",
+    ]
+    src_views = all_views[:src_nimg]
+    src_bracket = Bracket(
+        src_views[src_nimg // 2], 1.0, src_nimg, src_views
+    )
+
+    subset = planner.make_fast_subset(src_bracket, nimg_target)
+
+    assert subset.step == src_bracket.step
+    assert subset.nimg == nimg_target
+    assert subset.views == src_bracket.views[:nimg_target]
+    assert subset.centre == subset.views[nimg_target // 2]
+    assert estimate_duration(subset) == pytest.approx(
+        sum(planner.parse_speed(view) for view in subset.views)
+        + len(subset.views) * planner.OVERHEAD_BRACKET_PER_FRAME_S
+        + planner.OVERHEAD_BRACKET_FIXED_S
+    )
+
+
+@pytest.mark.parametrize(
     ("item", "expected_duration", "expected_budget"),
     [
         (SinglePhoto("1/500"), 2.802, 3.302),

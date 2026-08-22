@@ -76,6 +76,20 @@ class SinglePhoto:
         return f"<SinglePhoto {self.speed}>"
 
 
+def make_fast_subset(src_bracket, nimg_target):
+    """Construit un bracket reduit avec les vues les plus rapides de ``src_bracket``."""
+    if not isinstance(src_bracket, Bracket):
+        raise TypeError("src_bracket must be a Bracket")
+    if nimg_target not in (7, 5, 3):
+        raise ValueError("nimg_target must be one of 7, 5, or 3")
+    if len(src_bracket.views) < nimg_target:
+        raise ValueError("src_bracket does not contain enough views")
+
+    views = src_bracket.views[:nimg_target]
+    centre = views[nimg_target // 2]
+    return Bracket(centre, src_bracket.step, nimg_target, views)
+
+
 def _ev(sec):
     return math.log2(sec)
 
