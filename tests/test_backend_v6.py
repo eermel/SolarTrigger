@@ -36,6 +36,34 @@ def test_state_store_gps_timezone_defaults_survive_save_and_reload(tmp_path):
     assert restored_gps['utc_offset_minutes'] is None
 
 
+def test_state_store_persists_only_configured_device_fields(tmp_path):
+    path = tmp_path / 'state.json'
+    store = StateStore(path)
+    store.update_section('devices', {
+        'camera': {
+            'plugin': 'gphoto2',
+            'active': True,
+            'detected_model': 'Test Camera',
+            'suggested_plugin': 'other-camera-plugin',
+            'scan_status': 'complete',
+        },
+        'gps': {'plugin': 'gpsd', 'active': True, 'detected_port': '/dev/test'},
+        'updated_at': '2026-08-22T12:34:56Z',
+        'scan_status': 'complete',
+    })
+
+    store.save()
+    restored_devices = StateStore(path).snapshot('devices')
+
+    assert restored_devices == {
+        'camera': {'plugin': 'gphoto2', 'active': True},
+        'gps': {'plugin': 'gpsd', 'active': True},
+        'focuser': {'plugin': 'none', 'active': False},
+        'mount': {'plugin': 'none', 'active': False},
+        'updated_at': '2026-08-22T12:34:56Z',
+    }
+
+
 def test_camera_status_preserves_existing_camera_subkeys(monkeypatch):
     class FakeApp:
         def __init__(self, *args, **kwargs):
