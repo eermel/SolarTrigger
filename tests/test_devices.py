@@ -4,6 +4,7 @@ import threading
 import pytest
 
 from backend import devices
+from backend.state_store import StateStore
 
 
 def test_ttl_expired_is_strictly_after_72_hours_and_normalizes_dates():
@@ -69,6 +70,26 @@ def test_camera_plugin_for_model_requires_one_match(monkeypatch, plugins, expect
     monkeypatch.setattr(devices.camera, "_load_plugin_classes", lambda: plugins)
 
     assert devices.camera_plugin_for_model("Test model") == expected
+
+
+@pytest.mark.parametrize(
+    ("matches", "suggested"),
+    [
+        ([True, False], "camera-0"),
+        ([True, True], None),
+    ],
+)
+def test_detect_camera_suggests_only_a_unique_match(monkeypatch, matches, suggested):
+    plugins = [
+        _camera_plugin(f"camera-{index}", outcome)
+        for index, outcome in enumerate(matches)
+    ]
+    monkeypatch.setattr(devices.camera, "_load_plugin_classes", lambda: plugins)
+
+    result = devices.detect_camera("Test model")
+
+    assert result["detected"] is True
+    assert result["suggested_plugin"] == suggested
 
 
 class _Probe:
@@ -191,3 +212,59 @@ def test_detect_all_applies_independent_category_deadlines(monkeypatch):
 
     assert result["camera"]["detected_info"] == {"timeout": True}
     assert all(result[name]["detected"] for name in ("gps", "focuser", "mount"))
+
+
+def test_detection_only_probes_without_persisting_or_acting(monkeypatch):
+    calls = []
+
+    class ReadOnlyPlugin:
+        def __init__(self, plugin_id):
+            self.plugin_id = plugin_id
+
+        def probe(self):
+            calls.append((self.plugin_id, "probe"))
+            return True
+
+        def connect(self):
+            pytest.fail("detection must not connect hardware")
+
+        def move(self, *_args):
+            pytest.fail("detection must not move hardware")
+
+        def start_tracking(self, *_args):
+            pytest.fail("detection must not start hardware")
+
+        def trigger(self, *_args):
+            pytest.fail("detection must not trigger hardware")
+
+    monkeypatch.setattr(
+        StateStore, "save", lambda _self: pytest.fail("detection must not persist state")
+    )
+    monkeypatch.setattr(devices.camera, "_load_plugin_classes", lambda: [])
+    monkeypatch.setattr(
+        devices.gps,
+        "available_plugins",
+        lambda: {"gps-reader": ReadOnlyPlugin("gps-reader")},
+    )
+    for category, loader_name in (("focuser", "load_focuser"), ("mount", "load_mount")):
+        registry = getattr(devices, category)
+        monkeypatch.setattr(
+            registry,
+            "available_plugins",
+            lambda category=category: [{"id": category}],
+        )
+        monkeypatch.setattr(
+            registry,
+            loader_name,
+            lambda plugin_id, log_fn: ReadOnlyPlugin(plugin_id),
+        )
+
+    result = devices.detect_all(dict.fromkeys(devices.CATEGORIES, 0.5))
+
+    assert result["camera"]["detected"] is False
+    assert all(result[name]["detected"] for name in ("gps", "focuser", "mount"))
+    assert sorted(calls) == [
+        ("focuser", "probe"),
+        ("gps-reader", "probe"),
+        ("mount", "probe"),
+    ]
