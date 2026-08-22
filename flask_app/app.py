@@ -530,12 +530,14 @@ def api_focuser_jog_start():
     if not isinstance(payload, dict):
         return jsonify({"error": "Invalid focuser payload."}), 400
     direction = payload.get("direction")
-    mode = payload.get("mode")
-    if direction not in ("in", "out"):
-        return jsonify({"error": "Field 'direction' must be 'in' or 'out'."}), 400
-    if mode not in ("coarse", "fine"):
-        return jsonify({"error": "Field 'mode' must be 'coarse' or 'fine'."}), 400
-    return _focuser_result(_focuser_service.start_jog(direction, mode))
+    if direction not in ("increase", "decrease", "in", "out"):
+        return jsonify({
+            "error": (
+                "Field 'direction' must be 'increase', 'decrease', 'in' or 'out'."
+            ),
+            "code": "INVALID_DIRECTION",
+        }), 400
+    return _focuser_result(_focuser_service.start_jog(direction))
 
 
 @app.route("/api/focuser/jog/stop", methods=["POST"])
