@@ -63,6 +63,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import gphoto2 as gp
 from flask import Flask, jsonify, request, send_from_directory
@@ -178,6 +179,7 @@ from backend.event_log import EventLog
 from backend.gps_controller import GpsController
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
+from services.camera_service import CameraService
 
 # ── Flask ──────────────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder=str(STATIC_DIR),
@@ -199,6 +201,7 @@ _event_log = EventLog(LOGS_BUFFER_FILE, LOG_BUFFER_SIZE,
 _log_buffer = _event_log.buffer
 _log_lock = _event_log.lock
 _calc_proc = None
+_camera_sync_lock = threading.Lock()
 
 def _load_state(): return _state_store.data
 def _save_state():
@@ -383,6 +386,54 @@ def api_camera_probe():
     except Exception as e:
         _append_log(f"❌ Caméra non détectée : {e}", "error", "system")
         return jsonify({"error": str(e)}), 404
+
+@app.route("/api/camera/sync_time", methods=["POST"])
+def api_camera_sync_time():
+    trigger_state = _state_store.snapshot("trigger") or {}
+    if trigger_state.get("running"):
+        return jsonify({
+            "error": "Synchronisation caméra interdite pendant un trigger actif.",
+            "code": "TRIGGER_RUNNING",
+        }), 409
+
+    if not _camera_sync_lock.acquire(blocking=False):
+        return jsonify({"error": "Synchronisation caméra déjà en cours."}), 409
+
+    camera_service = None
+    try:
+        gps_state = _state_store.snapshot("gps") or {}
+        utc_offset_minutes = gps_state.get("utc_offset_minutes")
+        if utc_offset_minutes is None:
+            return jsonify({
+                "error": "Synchronisation GPS requise avant la synchronisation caméra."
+            }), 409
+
+        attempted = datetime.now(timezone.utc)
+        reference = SimpleNamespace(
+            datetime_utc=attempted,
+            datetime_local=attempted + timedelta(minutes=utc_offset_minutes),
+            timezone_name=gps_state.get("timezone_name"),
+            utc_offset_minutes=utc_offset_minutes,
+        )
+        camera_service = CameraService(log_fn=lambda message: log.info(message))
+        try:
+            result = camera_service.sync_datetime(reference)
+        except Exception as exc:
+            return jsonify({"error": f"Aucune caméra connectée : {exc}"}), 404
+
+        persisted_result = dict(result)
+        persisted_result.update({
+            "attempted_at": attempted.isoformat(),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        })
+        _state_store.update_section(
+            "camera", {"time_sync": persisted_result}, persist=True
+        )
+        return jsonify(result)
+    finally:
+        if camera_service is not None:
+            camera_service.close()
+        _camera_sync_lock.release()
 
 @app.route("/api/camera/usb", methods=["POST"])
 def api_camera_usb():
