@@ -8,10 +8,38 @@ from __future__ import annotations
 
 import math
 import time
+from dataclasses import dataclass, replace
+from datetime import datetime
 from statistics import median
+from typing import Any, List, Optional
 
 from plugins.camera import load_plugin, get_camera_model
 from plugins.camera.base import CaptureResult
+
+
+@dataclass
+class CaptureIntent:
+    """Brand-agnostic description of a requested capture sequence."""
+
+    shutter_min: Optional[str]
+    shutter_max: Optional[str]
+    step_ev: Optional[float]
+    speeds: Optional[List[str]]
+    phase: str
+    target_time: datetime
+    deadline: Optional[datetime]
+    overflow_policy: Optional[str]
+
+
+@dataclass
+class PreparedCapture:
+    """Opaque prepared capture and its brand-independent estimates."""
+
+    token: Any
+    estimated_total_s: Optional[float]
+    exposures_s: Optional[List[float]]
+    planned_count: Optional[int]
+    plugin_name: str
 
 
 def _parse_speed(value):
@@ -53,6 +81,7 @@ class CameraService:
         self.camera = None
         self.plugin = None
         self.model = ""
+        self._last_phase_settings = {}
 
     @property
     def connected(self):
@@ -98,6 +127,7 @@ class CameraService:
         self.release()
         self.camera = None
         self.plugin = None
+        self._last_phase_settings = {}
 
     def init_settings(self, aperture=None, iso=None, image_format="RAW",
                       white_balance="Daylight"):
@@ -111,6 +141,75 @@ class CameraService:
         if not self.plugin:
             raise RuntimeError("caméra non connectée")
         return self.plugin.set_exposure_settings(aperture=aperture, iso=iso)
+
+    def apply_phase_settings(self, aperture=None, iso=None):
+        if not self.plugin:
+            raise RuntimeError("caméra non connectée")
+        settings = {}
+        if (aperture is not None
+                and self._last_phase_settings.get("aperture") != aperture):
+            settings["aperture"] = aperture
+        if iso is not None and self._last_phase_settings.get("iso") != iso:
+            settings["iso"] = iso
+        if not settings:
+            return None
+        result = self.plugin.set_exposure_settings(**settings)
+        self._last_phase_settings.update(settings)
+        return result
+
+    def prepare_capture(self, intent):
+        if not self.plugin:
+            raise RuntimeError("caméra non connectée")
+
+        if intent.speeds:
+            speeds = [str(speed) for speed in intent.speeds]
+            fastest, slowest, step_ev, regular = _normalized_speed_plan(speeds)
+            if regular:
+                intent = replace(
+                    intent,
+                    shutter_min=slowest,
+                    shutter_max=fastest,
+                    step_ev=step_ev,
+                    speeds=None,
+                )
+            else:
+                intent = replace(intent, speeds=speeds)
+        else:
+            bounds = [
+                str(speed)
+                for speed in (intent.shutter_min, intent.shutter_max)
+                if speed is not None
+            ]
+            if not bounds:
+                raise ValueError("capture intent contains no shutter speeds")
+            fastest, slowest, _, _ = _normalized_speed_plan(bounds)
+            intent = replace(
+                intent,
+                shutter_min=slowest,
+                shutter_max=fastest,
+                step_ev=(
+                    float(intent.step_ev)
+                    if intent.step_ev is not None
+                    else 1.0
+                ),
+                speeds=None,
+            )
+
+        return self.plugin.prepare_capture(intent)
+
+    def trigger_prepared(self, prepared, deadline=None):
+        if not self.plugin:
+            raise RuntimeError("caméra non connectée")
+
+        plugin_deadline = None
+        if deadline is not None:
+            if self.clock is None:
+                raise RuntimeError("horloge d'exécution non configurée")
+            plugin_deadline = (
+                time.monotonic()
+                + max(0.0, self.clock.remaining(deadline))
+            )
+        return self.plugin.trigger_prepared(prepared, deadline=plugin_deadline)
 
     def get_battery_level(self):
         if not self.plugin:
@@ -219,4 +318,9 @@ class CameraService:
         )
 
 
-__all__ = ["CameraService", "_normalized_speed_plan"]
+__all__ = [
+    "CameraService",
+    "CaptureIntent",
+    "PreparedCapture",
+    "_normalized_speed_plan",
+]

@@ -18,7 +18,41 @@ Chaque plugin traduit cela comme il peut :
 """
 
 from abc import ABC, abstractmethod
+import math
+from statistics import median
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from services.camera_service import CaptureIntent, PreparedCapture
+
+
+def _parse_speed(value):
+    value = str(value).strip()
+    if "/" in value:
+        numerator, denominator = value.split("/", 1)
+        return float(numerator) / float(denominator)
+    return float(value)
+
+
+def _normalized_speed_plan(speeds, tolerance_il=0.12):
+    """Normalize an explicit speed list for the default capture adapter."""
+    unique = {str(speed): _parse_speed(speed) for speed in speeds}
+    ordered = sorted(unique.items(), key=lambda item: item[1])
+    if len(ordered) == 1:
+        return ordered[0][0], ordered[0][0], 1.0, True
+
+    evs = [math.log2(seconds) for _, seconds in ordered]
+    differences = [
+        evs[index + 1] - evs[index]
+        for index in range(len(evs) - 1)
+    ]
+    step_il = median(differences)
+    regular = all(
+        abs(difference - step_il) <= tolerance_il
+        for difference in differences
+    )
+    return ordered[0][0], ordered[-1][0], float(step_il), regular
 
 
 def seconds_until_deadline(deadline):
@@ -123,6 +157,82 @@ class CameraPlugin(ABC):
             "message": f"Date/time synchronization is unsupported by {self.name}",
             "plugin": self.name,
         }
+
+    def prepare_capture(self, intent):
+        """Build a shutter-free plan for a later :meth:`trigger_prepared`.
+
+        The default implementation only records the generic speed plan. Camera
+        plugins may override this hook to select modes, pre-arm brackets, and
+        compute more accurate duration/exposure estimates without firing the
+        shutter.
+        """
+        from services.camera_service import PreparedCapture
+
+        deadline = intent.deadline
+        if intent.speeds:
+            speeds = [str(speed) for speed in intent.speeds]
+            fastest, slowest, step_il, regular = _normalized_speed_plan(speeds)
+            if regular:
+                token = ("speeds", fastest, slowest, step_il, deadline)
+            else:
+                token = ("singles", tuple(speeds), deadline)
+            planned_count = len(speeds)
+        else:
+            fastest = intent.shutter_max or intent.shutter_min
+            slowest = intent.shutter_min or intent.shutter_max
+            if fastest is None:
+                raise ValueError("capture intent contains no shutter speeds")
+            token = (
+                "speeds",
+                str(fastest),
+                str(slowest),
+                float(intent.step_ev) if intent.step_ev is not None else 1.0,
+                deadline,
+            )
+            planned_count = 1 if fastest == slowest else None
+
+        return PreparedCapture(
+            token=token,
+            estimated_total_s=None,
+            exposures_s=None,
+            planned_count=planned_count,
+            plugin_name=self.name,
+        )
+
+    def trigger_prepared(self, prepared, deadline=None):
+        """Execute a plan returned by :meth:`prepare_capture`.
+
+        Plugins that override preparation may also override this method to
+        trigger their pre-armed, model-specific capture operation.
+        """
+        mode, *values = prepared.token
+        if mode == "speeds":
+            fastest, slowest, step_il, prepared_deadline = values
+            return self.shoot_speeds(
+                fastest,
+                slowest,
+                step_il,
+                deadline=deadline if deadline is not None else prepared_deadline,
+            )
+        if mode == "singles":
+            speeds, prepared_deadline = values
+            effective_deadline = (
+                deadline if deadline is not None else prepared_deadline
+            )
+            frames = 0
+            for speed in speeds:
+                result = self.shoot_single(
+                    speed,
+                    photo_num=frames,
+                    deadline=effective_deadline,
+                )
+                frames += result.frames
+            return CaptureResult(
+                frames=frames,
+                planned=len(speeds),
+                detail="explicit speed list",
+            )
+        raise ValueError(f"unsupported prepared capture mode: {mode!r}")
 
     @abstractmethod
     def shoot_speeds(self, v_max, v_min, step_il, photo_num_start=0,
