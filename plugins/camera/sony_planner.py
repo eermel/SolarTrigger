@@ -43,6 +43,10 @@ SONY_SPEEDS = [
 SONY_BRACKET_STEPS = [0.3, 0.5, 0.7, 1.0, 1.3, 1.5, 1.7, 2.0, 2.3, 2.5, 2.7, 3.0]
 SIZES = [9, 7, 5, 3]
 MAX_OVERSHOOT = 1     # crans de debordement autorises au-dela de v_min
+OVERHEAD_SINGLE_S = 2.8
+OVERHEAD_BRACKET_PER_FRAME_S = 0.25
+OVERHEAD_BRACKET_FIXED_S = 4.5
+SAFETY_MARGIN_S = 0.5
 
 
 class Bracket:
@@ -93,6 +97,15 @@ def parse_speed(s):
         a, b = s.split("/")
         return float(a) / float(b)
     return float(s)
+
+
+def estimate_duration(item):
+    """Estime la duree d'une photo unique ou d'un bracket Sony, en secondes."""
+    if isinstance(item, SinglePhoto):
+        return parse_speed(item.speed) + OVERHEAD_SINGLE_S
+    return (sum(parse_speed(view) for view in item.views)
+            + len(item.views) * OVERHEAD_BRACKET_PER_FRAME_S
+            + OVERHEAD_BRACKET_FIXED_S)
 
 
 def _best_composition(n_frames):
