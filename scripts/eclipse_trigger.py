@@ -128,6 +128,21 @@ _watchdog = TriggerWatchdog(Path.home() / "python_solareclipsetrigger" / "trigge
 C3_OVERFLOW_GRACE_S = 1.0
 SHORT_EXPOSURE_MAX_S = 0.5
 
+
+def _select_uniform_indices(exposures, target_size):
+    """Return evenly distributed indices including both bracket endpoints."""
+    total_size = len(exposures)
+    if target_size < 2 or target_size > total_size:
+        raise ValueError("target_size must satisfy 2 <= target_size <= len(exposures)")
+
+    intervals = target_size - 1
+    span = total_size - 1
+    return [
+        (2 * position * span + intervals) // (2 * intervals)
+        for position in range(target_size)
+    ]
+
+
 def now(): return _runtime_clock.now()
 def sleep_sim(seconds): return _runtime_clock.sleep(seconds)
 def _watchdog_write(phase, next_shot_time=None): return _watchdog.write(phase, next_shot_time)
