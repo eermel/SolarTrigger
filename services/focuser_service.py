@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import threading
+from datetime import datetime, timezone
 from typing import Any, Callable
 
+from backend.devices import ttl_expired
 from plugins.focuser import load_focuser
+from plugins.focuser.base import DIR_IN, DIR_OUT
 
 
 class FocuserService:
@@ -30,6 +33,94 @@ class FocuserService:
         self._lock = threading.RLock()
         self._plugin = None
         self._plugin_id: str | None = None
+        self._mode = "slow"
+        self._slow_step = 20
+        self._fast_step = 150
+        self._settings_updated_at: str | None = None
+        self._load_settings()
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _persist_settings(self) -> None:
+        self._settings_updated_at = self._now_iso()
+        self._state_store.update_section(
+            "focuser_settings",
+            {
+                "mode": self._mode,
+                "slow_step": self._slow_step,
+                "fast_step": self._fast_step,
+                "updated_at": self._settings_updated_at,
+            },
+            persist=True,
+        )
+
+    def _load_settings(self) -> None:
+        settings = self._state_store.snapshot("focuser_settings") or {}
+        updated_at = settings.get("updated_at")
+        if ttl_expired(updated_at):
+            self._mode = "slow"
+            self._slow_step = 20
+            self._fast_step = 150
+            self._persist_settings()
+            return
+
+        mode = settings.get("mode")
+        slow_step = settings.get("slow_step")
+        fast_step = settings.get("fast_step")
+        if (
+            mode not in ("slow", "fast")
+            or not isinstance(slow_step, int)
+            or isinstance(slow_step, bool)
+            or not isinstance(fast_step, int)
+            or isinstance(fast_step, bool)
+        ):
+            self._mode = "slow"
+            self._slow_step = 20
+            self._fast_step = 150
+            self._persist_settings()
+            return
+        self._mode = mode
+        self._slow_step = slow_step
+        self._fast_step = fast_step
+        self._settings_updated_at = updated_at
+
+    def _ensure_settings_current(self) -> None:
+        if ttl_expired(self._settings_updated_at):
+            self._mode = "slow"
+            self._slow_step = 20
+            self._fast_step = 150
+            self._persist_settings()
+
+    def active_step(self) -> int:
+        with self._lock:
+            self._ensure_settings_current()
+            return self._slow_step if self._mode == "slow" else self._fast_step
+
+    @staticmethod
+    def _plugin_direction(direction: str) -> str:
+        """Map canonical and legacy API directions to the plugin contract."""
+        try:
+            return {
+                "increase": DIR_OUT,
+                "decrease": DIR_IN,
+                "out": DIR_OUT,   # legacy HTTP compatibility
+                "in": DIR_IN,     # legacy HTTP compatibility
+            }[direction]
+        except KeyError as exc:
+            raise ValueError(
+                "direction must be 'increase', 'decrease', 'in' or 'out'"
+            ) from exc
+
+    def set_mode(self, mode: str) -> dict:
+        if mode not in ("slow", "fast"):
+            raise ValueError("mode must be 'slow' or 'fast'")
+        with self._lock:
+            self._ensure_settings_current()
+            self._mode = mode
+            self._persist_settings()
+            return self.status()
 
     def _selection(self) -> tuple[bool, str]:
         devices = self._state_store.snapshot("devices") or {}
@@ -64,6 +155,7 @@ class FocuserService:
         return self._plugin
 
     def _status_locked(self, plugin) -> dict:
+        self._ensure_settings_current()
         raw = dict(plugin.status() or {})
         # Position is deliberately read from the device, not from cached status.
         raw["position"] = plugin.get_position()
@@ -75,11 +167,18 @@ class FocuserService:
             "step_coarse": raw.get("step_coarse"),
             "step_fine": raw.get("step_fine"),
             "plugin": self._plugin_id,
+            "mode": self._mode,
+            "slow_step": self._slow_step,
+            "fast_step": self._fast_step,
+            "active_step": (
+                self._slow_step if self._mode == "slow" else self._fast_step
+            ),
         }
 
     def status(self) -> dict:
         """Return the selected plugin's live position and motion state."""
         with self._lock:
+            self._ensure_settings_current()
             active, plugin_id = self._selection()
             if not active or plugin_id == "none":
                 self._close_locked()
@@ -91,6 +190,12 @@ class FocuserService:
                     "step_coarse": None,
                     "step_fine": None,
                     "plugin": plugin_id,
+                    "mode": self._mode,
+                    "slow_step": self._slow_step,
+                    "fast_step": self._fast_step,
+                    "active_step": (
+                        self._slow_step if self._mode == "slow" else self._fast_step
+                    ),
                 }
             return self._status_locked(self._plugin_for_operation())
 
@@ -110,10 +215,20 @@ class FocuserService:
             plugin.move_relative(int(delta), wait=wait)
             return self._status_locked(plugin)
 
-    def start_jog(self, direction: str, mode: str = "coarse") -> dict:
+    def start_jog(self, direction: str, mode: str | None = None) -> dict:
+        """Start jogging using the backend-authoritative mode.
+
+        ``mode`` is retained only for compatibility with legacy callers.
+        Its value is deliberately ignored: POST /api/focuser/mode is the
+        authoritative way to select slow/fast operation.
+        """
         with self._lock:
+            self._ensure_settings_current()
             plugin = self._plugin_for_operation()
-            plugin.start_continuous(direction, mode)
+            plugin.start_continuous(
+                self._plugin_direction(direction),
+                "coarse" if self._mode == "fast" else "fine",
+            )
             return self._status_locked(plugin)
 
     def stop_jog(self) -> dict:
@@ -140,8 +255,14 @@ class FocuserService:
 
     def set_step(self, coarse: int | None = None, fine: int | None = None) -> dict:
         with self._lock:
+            self._ensure_settings_current()
             plugin = self._plugin_for_operation()
             plugin.set_step(coarse=coarse, fine=fine)
+            if coarse is not None:
+                self._fast_step = int(coarse)
+            if fine is not None:
+                self._slow_step = int(fine)
+            self._persist_settings()
             return self._status_locked(plugin)
 
     def close(self) -> None:
