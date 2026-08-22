@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT=Path(__file__).parents[1]
 TRIGGER=(ROOT/'scripts/eclipse_trigger.py').read_text(encoding='utf-8')
@@ -26,3 +27,9 @@ def test_plugin_owns_brand_specific_shutter_names():
     assert '"shutterspeed"' in sony
     assert '"shutterspeed2"' in nikon
     assert '"shutterspeed2"' not in TRIGGER
+
+
+def test_trigger_contains_no_camera_brand_branching():
+    lowered = TRIGGER.lower()
+    for brand_marker in ('sony', 'nikon', 'canon', 'fujifilm'):
+        assert re.search(rf'\b{brand_marker}\b', lowered) is None

@@ -229,62 +229,207 @@ args = parse_arguments()
 # ancien profil D850.
 cfg = dict(DEFAULTS)
 
-def _apply_camera_profile(target, cam_cfg):
-    p = cam_cfg.get("partial", {})
-    dr = cam_cfg.get("diamond_ring", {})
-    t = cam_cfg.get("totality", {})
-    if p.get("speeds"):
-        target["speeds_partial"] = p["speeds"]
-    if p.get("aperture"):
-        target["aperture_partial"] = p["aperture"]
-    if p.get("iso") is not None:
-        target["iso_partial"] = str(p["iso"])
-    if p.get("step_il") is not None:
-        target["step_partial"] = float(p["step_il"])
-    if dr.get("speeds"):
-        target["speeds_diamond_ring"] = dr["speeds"]
-    if dr.get("aperture"):
-        target["aperture_diamond_ring"] = dr["aperture"]
-    if dr.get("iso") is not None:
-        target["iso_diamond_ring"] = str(dr["iso"])
-    if dr.get("step_il") is not None:
-        target["step_diamond_ring"] = float(dr["step_il"])
-    if t.get("speeds"):
-        target["totality"] = {"speeds": t["speeds"]}
-    if t.get("aperture"):
-        target["aperture_totality"] = t["aperture"]
-    if t.get("iso") is not None:
-        target["iso_totality"] = str(t["iso"])
-    if t.get("step_il") is not None:
-        target["step_totality"] = float(t["step_il"])
+_ASTRONOMY_KEYS = {
+    "C1", "C2", "C3", "C4", "TMAX", "TSTART", "TEND",
+    "C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg", "C3_alt_deg", "C4_alt_deg",
+}
+_CAPTURE_PHASES = ("partial", "diamond_ring", "totality")
+
+def build_capture_canonical(capture):
+    """Validate and copy a capture_execution v2 configuration."""
+    if not isinstance(capture, dict):
+        raise ValueError("configuration capture invalide : objet JSON attendu")
+
+    has_v2_marker = "phases" in capture or "exposure_correction" in capture
+    if has_v2_marker:
+        phases = capture.get("phases")
+        correction = capture.get("exposure_correction", {})
+
+        if not isinstance(phases, dict):
+            raise ValueError("capture v2 invalide : 'phases' doit être un objet")
+
+        for phase in _CAPTURE_PHASES:
+            if not isinstance(phases.get(phase), dict):
+                raise ValueError(
+                    f"capture v2 invalide : 'phases.{phase}' doit être un objet"
+                )
+
+        if not isinstance(correction, dict):
+            raise ValueError(
+                "capture v2 invalide : 'exposure_correction' doit être un objet"
+            )
+
+        canonical_correction = dict(correction)
+
+        # Compatibilité avec la représentation transitoire utilisée avant
+        # finalisation du schéma capture_execution v2.
+        if ("atmospheric" in canonical_correction
+                and "atmospheric_attenuation_enabled" not in canonical_correction):
+            canonical_correction["atmospheric_attenuation_enabled"] = (
+                canonical_correction.pop("atmospheric")
+            )
+
+        atmospheric = canonical_correction.get(
+            "atmospheric_attenuation_enabled"
+        )
+        if atmospheric is not None and not isinstance(atmospheric, bool):
+            raise ValueError(
+                "capture v2 invalide : "
+                "'exposure_correction.atmospheric_attenuation_enabled' "
+                "doit être un booléen"
+            )
+
+        return {
+            "phases": {phase: dict(phases[phase]) for phase in _CAPTURE_PHASES},
+            "exposure_correction": canonical_correction,
+        }
+
+    raise ValueError("capture v2 invalide : marqueur 'phases' absent")
+
+
+def build_legacy_capture_canonical(camera_profile, circumstances):
+    """Adapt historical camera and eclipse fields to the in-memory v2 shape."""
+    camera_profile = camera_profile if isinstance(camera_profile, dict) else {}
+    circumstances = circumstances if isinstance(circumstances, dict) else {}
+
+    def phase_settings(name):
+        profile_phase = camera_profile.get(name, {})
+        circumstance_phase = circumstances.get(name, {})
+        profile_phase = profile_phase if isinstance(profile_phase, dict) else {}
+        circumstance_phase = (
+            circumstance_phase if isinstance(circumstance_phase, dict) else {}
+        )
+        settings = dict(profile_phase)
+        settings.update(circumstance_phase)
+        return settings
+
+    partial = phase_settings("partial")
+    diamond_ring = phase_settings("diamond_ring")
+    totality_profile = camera_profile.get("totality", {})
+    totality_profile = (
+        totality_profile if isinstance(totality_profile, dict) else {}
+    )
+    totality_circumstances = circumstances.get("totality", {})
+    totality_circumstances = (
+        totality_circumstances
+        if isinstance(totality_circumstances, dict) else {}
+    )
+    totality = dict(totality_profile)
+    if totality_circumstances.get("speeds"):
+        totality["speeds"] = totality_circumstances["speeds"]
+
+    partial_circumstances = circumstances.get("partial", {})
+    partial_circumstances = (
+        partial_circumstances if isinstance(partial_circumstances, dict) else {}
+    )
+    diamond_circumstances = circumstances.get("diamond_ring", {})
+    diamond_circumstances = (
+        diamond_circumstances if isinstance(diamond_circumstances, dict) else {}
+    )
+    if ("shutterspeed_partial" in circumstances
+            and not partial_circumstances.get("speeds")):
+        partial["speeds"] = [circumstances["shutterspeed_partial"]]
+    if ("shutterspeed_diamondring" in circumstances
+            and not diamond_circumstances.get("speeds")):
+        diamond_ring["speeds"] = [circumstances["shutterspeed_diamondring"]]
+
+    partial_interval = circumstances.get("interval_partial")
+    if partial_interval is None:
+        phase1a = circumstances.get("phase1a", {})
+        if isinstance(phase1a, dict):
+            partial_interval = phase1a.get("interval_s")
+    diamond_interval = circumstances.get("interval_diamond_ring")
+    if diamond_interval is None:
+        diamond_interval = diamond_circumstances.get("interval_s")
+    diamond_duration = circumstances.get("duree_diamond_ring")
+    if diamond_duration is None:
+        diamond_duration = diamond_circumstances.get("duration_s")
+
+    partial["interval_s"] = partial_interval
+    partial["duration_s"] = None
+    diamond_ring["interval_s"] = diamond_interval
+    diamond_ring["duration_s"] = diamond_duration
+
+    totality_interval = totality.get("interval_s")
+    if totality_interval is None:
+        phase2 = circumstances.get("phase2", {})
+        if isinstance(phase2, dict):
+            totality_interval = phase2.get("interval_s")
+    totality["interval_s"] = totality_interval
+
+    for phase in (partial, diamond_ring, totality):
+        speeds = phase.get("speeds")
+        if isinstance(speeds, list) and len(speeds) == 1:
+            phase["shutter_min"] = speeds[0]
+            phase["shutter_max"] = speeds[0]
+
+    return {
+        "phases": {
+            "partial": partial,
+            "diamond_ring": diamond_ring,
+            "totality": totality,
+        },
+        "exposure_correction": {
+            "atmospheric_attenuation_enabled": bool(
+                circumstances.get(
+                    "atmo_compensation",
+                    camera_profile.get("atmo_compensation", False),
+                )
+            ),
+        },
+    }
+
+def astronomy(name):
+    """Read an astronomical circumstance, never a capture setting."""
+    if name not in _ASTRONOMY_KEYS:
+        raise KeyError(f"champ astronomy inconnu : {name}")
+    return circumstances.get(name)
+
+def capture_phase(name):
+    """Read one phase exclusively from the injected canonical capture."""
+    if name not in _CAPTURE_PHASES:
+        raise KeyError(f"phase capture inconnue : {name}")
+    return capture_canonical["phases"][name]
+
+def exposure_correction(name, default=None):
+    return capture_canonical["exposure_correction"].get(name, default)
+
+def _observer_location():
+    return circumstances.get(
+        "_circumstances_location", cfg.get("_circumstances_location", {})
+    )
 
 def _apply_eclipse_file(target, ecl):
-    # Top-level keys are authoritative. Nested UI structures are only fallbacks.
+    # Preserve historical UI-only timing fallbacks before canonical adaptation.
     target.update(ecl)
     if "interval_partial" not in ecl:
-        ph = ecl.get("phase1a", {})
-        if ph.get("interval_s") is not None:
-            target["interval_partial"] = ph["interval_s"]
+        phase1a = ecl.get("phase1a", {})
+        if phase1a.get("interval_s") is not None:
+            target["interval_partial"] = phase1a["interval_s"]
     if "interval_diamond_ring" not in ecl:
-        dr = ecl.get("diamond_ring", {})
-        if dr.get("interval_s") is not None:
-            target["interval_diamond_ring"] = dr["interval_s"]
+        diamond = ecl.get("diamond_ring", {})
+        if diamond.get("interval_s") is not None:
+            target["interval_diamond_ring"] = diamond["interval_s"]
     if "duree_diamond_ring" not in ecl:
-        dr = ecl.get("diamond_ring", {})
-        if dr.get("duration_s") is not None:
-            target["duree_diamond_ring"] = dr["duration_s"]
+        diamond = ecl.get("diamond_ring", {})
+        if diamond.get("duration_s") is not None:
+            target["duree_diamond_ring"] = diamond["duration_s"]
 
-    # Une vitesse explicitement fournie par la séquence remplace le profil caméra.
-    if "shutterspeed_partial" in ecl and not ecl.get("partial", {}).get("speeds"):
-        target["speeds_partial"] = [ecl["shutterspeed_partial"]]
-    if "shutterspeed_diamondring" in ecl and not ecl.get("diamond_ring", {}).get("speeds"):
-        target["speeds_diamond_ring"] = [ecl["shutterspeed_diamondring"]]
-
+circumstances = load_config_file(args.file) if args.file else {}
+capture_source = {}
 if args.camera:
-    _apply_camera_profile(cfg, load_config_file(args.camera))
-
+    capture_source = load_config_file(args.camera)
+capture_is_v2 = "phases" in capture_source or "exposure_correction" in capture_source
+if capture_is_v2:
+    try:
+        capture_canonical = build_capture_canonical(capture_source)
+    except ValueError as exc:
+        _log(f"{Colors.RED}{exc}{Colors.RESET}")
+        raise SystemExit(1) from exc
 if args.file:
-    _apply_eclipse_file(cfg, load_config_file(args.file))
+    _apply_eclipse_file(cfg, circumstances)
+if capture_is_v2:
+    _log(f"{Colors.GREEN}Stratégie photo dérivée de capture v2{Colors.RESET}")
 
 # Arguments CLI individuels : priorité maximale.
 cli_overrides = {
@@ -303,10 +448,25 @@ cli_overrides = {
     "shutterspeed_diamondring": args.shutterspeed_diamondring,
 }
 cfg.update({k: v for k, v in cli_overrides.items() if v is not None})
+circumstances.update({
+    k: v for k, v in cli_overrides.items()
+    if k in _ASTRONOMY_KEYS and v is not None
+})
 if args.shutterspeed_partial is not None:
-    cfg["speeds_partial"] = [args.shutterspeed_partial]
+    if capture_is_v2:
+        capture_canonical["phases"]["partial"]["speeds"] = [args.shutterspeed_partial]
 if args.shutterspeed_diamondring is not None:
-    cfg["speeds_diamond_ring"] = [args.shutterspeed_diamondring]
+    if capture_is_v2:
+        capture_canonical["phases"]["diamond_ring"]["speeds"] = [args.shutterspeed_diamondring]
+if capture_is_v2:
+    legacy_timings = build_legacy_capture_canonical({}, cfg)["phases"]
+    for phase_name in ("partial", "diamond_ring"):
+        for timing_name in ("interval_s", "duration_s"):
+            capture_canonical["phases"][phase_name].setdefault(
+                timing_name, legacy_timings[phase_name][timing_name]
+            )
+else:
+    capture_canonical = build_legacy_capture_canonical(capture_source, cfg)
 
 # Alertes sonores — fichiers WAV dans le sous-dossier Sounds/ (relatif au script)
 _SOUNDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Sounds")
@@ -324,29 +484,44 @@ if _sim_mode:
     _log(f"⚡ MODE SIMULATION ×{_sim_speed:.0f} activé")
 
 titre                    = cfg["title"]
-C1_str                   = cfg["C1"]
-C2_str                   = cfg["C2"]
-C3_str                   = cfg["C3"]
-C4_str                   = cfg["C4"]
-TMAX_str                 = cfg["TMAX"]
-TSTART_str               = cfg["TSTART"]
-TEND_str                 = cfg["TEND"]
-interval_partial         = int(cfg["interval_partial"])
-interval_diamond_ring    = int(cfg["interval_diamond_ring"])
-duree_diamond_ring       = int(cfg["duree_diamond_ring"])
-shutterspeed_partial     = cfg["shutterspeed_partial"]
-shutterspeed_diamondring = cfg["shutterspeed_diamondring"]
+C1_str                   = astronomy("C1") if circumstances else cfg["C1"]
+C2_str                   = astronomy("C2") if circumstances else cfg["C2"]
+C3_str                   = astronomy("C3") if circumstances else cfg["C3"]
+C4_str                   = astronomy("C4") if circumstances else cfg["C4"]
+TMAX_str                 = astronomy("TMAX") if circumstances else cfg["TMAX"]
+TSTART_str               = astronomy("TSTART") if circumstances else cfg["TSTART"]
+TEND_str                 = astronomy("TEND") if circumstances else cfg["TEND"]
 wake_up_time             = float(cfg.get("wake_up_time", 2.5))  # secondes
 
-# Bracket vitesses — depuis camera config ou fallback ancienne clé
-speeds_partial      = cfg.get("speeds_partial",      [shutterspeed_partial])
-speeds_diamond_ring = cfg.get("speeds_diamond_ring", [shutterspeed_diamondring])
-aperture_partial    = cfg.get("aperture_partial",    "f/8")
-aperture_diamond    = cfg.get("aperture_diamond_ring","f/8")
-aperture_totality   = cfg.get("aperture_totality",   "f/8")
-iso_partial         = cfg.get("iso_partial",         "100")
-iso_diamond_ring    = cfg.get("iso_diamond_ring",    "100")
-iso_totality        = cfg.get("iso_totality",        "100")
+# Paramètres d'exécution exclusivement issus de la capture canonique.
+_partial_capture = capture_phase("partial")
+_diamond_capture = capture_phase("diamond_ring")
+_totality_capture = capture_phase("totality")
+
+def _capture_speed_summary(capture, default):
+    speeds = capture.get("speeds")
+    if isinstance(speeds, dict):
+        values = [speeds.get("fastest"), speeds.get("slowest")]
+        return list(dict.fromkeys(str(value) for value in values if value is not None))
+    if speeds:
+        return list(speeds)
+    values = [capture.get("shutter_max"), capture.get("shutter_min")]
+    summary = list(dict.fromkeys(str(value) for value in values if value is not None))
+    return summary or list(default)
+
+interval_partial         = int(_partial_capture["interval_s"])
+interval_diamond_ring    = int(_diamond_capture["interval_s"])
+interval_totality        = _totality_capture.get("interval_s")
+speeds_partial           = _capture_speed_summary(_partial_capture, ["1/500"])
+speeds_diamond_ring      = _capture_speed_summary(_diamond_capture, ["1/500"])
+shutterspeed_partial     = speeds_partial[0]
+shutterspeed_diamondring = speeds_diamond_ring[0]
+aperture_partial         = _partial_capture.get("aperture", "f/8")
+aperture_diamond         = _diamond_capture.get("aperture", "f/8")
+aperture_totality        = _totality_capture.get("aperture", "f/8")
+iso_partial              = str(_partial_capture.get("iso", "100"))
+iso_diamond_ring         = str(_diamond_capture.get("iso", "100"))
+iso_totality             = str(_totality_capture.get("iso", "100"))
 
 if interact:
     C1_str                   = input("C1 (H:M:S) ? ")
@@ -358,9 +533,15 @@ if interact:
     TEND_str                 = input("TEND (H:M:S) ? ")
     interval_partial         = int(input("Interval Partiality in s ? [180] ") or "180")
     interval_diamond_ring    = int(input("Interval Diamond Ring in s ? [4] ") or "4")
-    duree_diamond_ring       = int(input("Duration of Diamond Ring in s ? [40] ") or "40")
+    _diamond_capture["duration_s"] = int(
+        input("Duration of Diamond Ring in s ? [40] ") or "40"
+    )
     shutterspeed_partial     = input("Shutter speed for Partiality phase ? [1/500] ") or "1/500"
     shutterspeed_diamondring = input("Shutter speed for Diamond ring phase ? [1/500] ") or "1/500"
+
+diamond_ring_duration_s = int(
+    capture_canonical["phases"]["diamond_ring"]["duration_s"]
+)
 
 # Conversion des heures / timeline -------------------------------------------------
 # v7.1 : les circonstances restent `_date` + heures UTC indépendantes.
@@ -463,7 +644,7 @@ def _build_alertes():
         add(C2 - timedelta(minutes=5),              "5minutes.wav",   t_min=C1, t_max=C2)
         add(C2 - timedelta(minutes=2),              "2minutes.wav",   t_min=C1, t_max=C2)
         add(C2 - timedelta(seconds=60),             "60seconds.wav",  t_min=C1, t_max=C2)
-        add(C2 - timedelta(seconds=duree_diamond_ring), "filters_off.wav", t_min=C1, t_max=C2)
+        add(C2 - timedelta(seconds=diamond_ring_duration_s), "filters_off.wav", t_min=C1, t_max=C2)
         add(C2 - timedelta(seconds=30),             "30seconds.wav",  t_min=C1, t_max=C2)
         add(C2 - timedelta(seconds=10),             "10seconds.wav",  t_min=C1, t_max=C2)
         add(C2 - timedelta(seconds=5), "5.wav", t_min=C1)
@@ -485,7 +666,7 @@ def _build_alertes():
         add(C3,                                     "contact.wav",    t_min=C2)
 
         # ── Après C3 (diamond ring retour) ───────────────────────────────────
-        add(C3 + timedelta(seconds=duree_diamond_ring), "filters_on.wav",
+        add(C3 + timedelta(seconds=diamond_ring_duration_s), "filters_on.wav",
             t_min=C3, t_max=C4)
 
         _log(f"INFO {Colors.CYAN}Totalité : {totalite_s:.0f}s — alertes filtrées selon fenêtres de phase{Colors.RESET}")
@@ -529,14 +710,14 @@ if debug:
     titre = "DEBUGGGGG SPAIN"
 
 
-# Liste des vitesses d'obturation — lue depuis cfg["totality"]["speeds"] si présent,
-# sinon liste complète par défaut.
+# Liste des vitesses d'obturation de totalité injectée depuis la capture canonique.
 _DEFAULT_SPEEDS = ["1/4000", "1/2000", "1/1000", "1/500", "1/250",
                    "1/125",  "1/60",   "1/30",   "1/15",  "1/8",
                    "1/4",    "1/2",    "1",      "2",     "4"]
 
-if cfg.get("totality") and cfg["totality"].get("speeds"):
-    shutter_speeds = cfg["totality"]["speeds"]
+_configured_totality_speeds = _capture_speed_summary(_totality_capture, [])
+if _configured_totality_speeds:
+    shutter_speeds = _configured_totality_speeds
     _log(f"{Colors.CYAN}Vitesses totalité depuis JSON ({len(shutter_speeds)} vitesses){Colors.RESET}")
 else:
     shutter_speeds = _DEFAULT_SPEEDS
@@ -551,6 +732,11 @@ def parse_shutterspeed(speed_str):
         num, den = s.split('/')
         return float(num) / float(den)
     return float(s)
+
+if interval_totality is None:
+    interval_totality = max(
+        0.001, sum(parse_shutterspeed(s) for s in shutter_speeds)
+    )
 
 def _set_phase_exposure(camera_service, aperture=None, iso=None):
     """Apply phase-dependent settings once, through the service contract."""
@@ -653,17 +839,45 @@ def _format_seconds_as_speed(sec: float) -> str:
 
 def _capture_intent(speeds, phase, target_time, deadline=None):
     """Build the brand-neutral intent for one absolute scheduler slot."""
-    intent_speeds = [str(speed) for speed in speeds]
+    capture = speeds if isinstance(speeds, dict) else {"speeds": speeds}
+    configured_speeds = capture.get("speeds")
+    if isinstance(configured_speeds, dict):
+        shutter_max = configured_speeds.get("fastest")
+        shutter_min = configured_speeds.get("slowest")
+        step_ev = configured_speeds.get("step_il")
+        intent_speeds = None
+    elif configured_speeds:
+        shutter_min = shutter_max = step_ev = None
+        intent_speeds = [str(speed) for speed in configured_speeds]
+    else:
+        shutter_min = capture.get("shutter_min")
+        shutter_max = capture.get("shutter_max")
+        step_ev = capture.get("step_ev", capture.get("step_il"))
+        intent_speeds = None
+
+    if intent_speeds is None and (shutter_min is None or shutter_max is None):
+        raise RuntimeError(
+            "construction CaptureIntent impossible: bornes shutter_min/shutter_max manquantes"
+        )
+    if intent_speeds is None and step_ev is None:
+        step_ev = 1.0
     try:
-        use_atmo = bool(cfg.get("atmo_compensation", False))
+        use_atmo = bool(
+            capture_canonical["exposure_correction"].get(
+                "atmospheric_attenuation_enabled", False
+            )
+        )
         slowest_override_seconds = None
 
-        fastest, slowest, step_il, regular = _norm_plan(
-            [str(s) for s in speeds]
-        )
+        if intent_speeds is not None:
+            fastest, slowest, step_il, regular = _norm_plan(intent_speeds)
+        else:
+            fastest, slowest, step_il, regular = (
+                str(shutter_max), str(shutter_min), float(step_ev), True
+            )
 
         if use_atmo and regular:
-            loc = cfg.get("_circumstances_location", {})
+            loc = _observer_location()
 
             if loc is None or loc.get("altitude_m") is None:
                 raise RuntimeError(
@@ -671,11 +885,11 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
                 )
 
             alts = {
-                "C1_alt_deg": cfg.get("C1_alt_deg"),
-                "C2_alt_deg": cfg.get("C2_alt_deg"),
-                "TMAX_alt_deg": cfg.get("TMAX_alt_deg"),
-                "C3_alt_deg": cfg.get("C3_alt_deg"),
-                "C4_alt_deg": cfg.get("C4_alt_deg"),
+                name: astronomy(name) if circumstances else cfg.get(name)
+                for name in (
+                    "C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg",
+                    "C3_alt_deg", "C4_alt_deg",
+                )
             }
 
             if any(v is None for v in alts.values()):
@@ -715,16 +929,20 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
             target_slowest = slowest_seconds * float(facteur)
             next_exposure = slowest_seconds * (2.0 ** step_il)
             while next_exposure < target_slowest:
-                intent_speeds.append(_format_seconds_as_speed(next_exposure))
+                if intent_speeds is not None:
+                    intent_speeds.append(_format_seconds_as_speed(next_exposure))
                 next_exposure *= 2.0 ** step_il
             if target_slowest > slowest_seconds:
-                intent_speeds.append(_format_seconds_as_speed(next_exposure))
+                if intent_speeds is not None:
+                    intent_speeds.append(_format_seconds_as_speed(next_exposure))
+                else:
+                    shutter_min = _format_seconds_as_speed(next_exposure)
 
     except Exception as exc:
         raise RuntimeError(f"construction CaptureIntent impossible: {exc}") from exc
 
     return CaptureIntent(
-        shutter_min=None, shutter_max=None, step_ev=None,
+        shutter_min=shutter_min, shutter_max=shutter_max, step_ev=step_ev,
         speeds=intent_speeds, phase=phase, target_time=target_time,
         deadline=deadline, overflow_policy="truncate",
     )
@@ -736,18 +954,30 @@ class _SimulationCameraService:
         _log(f"INFO scheduler phase_settings aperture={aperture} iso={iso}")
 
     def prepare_capture(self, intent):
+        speeds = intent.speeds
+        if speeds is None:
+            fastest_s = parse_shutterspeed(intent.shutter_max)
+            slowest_s = parse_shutterspeed(intent.shutter_min)
+            step_ev = float(intent.step_ev if intent.step_ev is not None else 1.0)
+            exposures = []
+            current = fastest_s
+            while current < slowest_s:
+                exposures.append(current)
+                current *= 2.0 ** step_ev
+            exposures.append(slowest_s)
+            speeds = [_format_seconds_as_speed(value) for value in exposures]
         return PreparedCapture(
-            token=intent, estimated_total_s=sum(parse_shutterspeed(s) for s in intent.speeds),
-            exposures_s=[parse_shutterspeed(s) for s in intent.speeds],
-            planned_count=len(intent.speeds), plugin_name="simulation",
+            token=(intent, speeds), estimated_total_s=sum(parse_shutterspeed(s) for s in speeds),
+            exposures_s=[parse_shutterspeed(s) for s in speeds],
+            planned_count=len(speeds), plugin_name="simulation",
         )
 
     def trigger_prepared(self, prepared, deadline=None):
-        intent = prepared.token
+        intent, speeds = prepared.token
         frames = _sim_capture_speed_list(
-            intent.speeds, 1, intent.target_time, deadline,
+            speeds, 1, intent.target_time, deadline,
         )
-        return CaptureResult(frames=frames, planned=len(intent.speeds), detail="simulation")
+        return CaptureResult(frames=frames, planned=len(speeds), detail="simulation")
 
     def close(self):
         pass
@@ -917,11 +1147,16 @@ def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, 
             )
         slowest_override_seconds = None
         _, slowest, _, regular = _norm_plan([str(speed) for speed in speeds])
-        if cfg.get("atmo_compensation", False) and regular:
-            loc = cfg.get("_circumstances_location")
+        use_atmo = bool(
+            capture_canonical["exposure_correction"].get(
+                "atmospheric_attenuation_enabled", False
+            )
+        )
+        if use_atmo and regular:
+            loc = _observer_location()
             if not loc or loc.get("altitude_m") is None:
                 raise RuntimeError("altitude observateur manquante")
-            alts = {name: cfg.get(name) for name in (
+            alts = {name: astronomy(name) if circumstances else cfg.get(name) for name in (
                 "C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg", "C3_alt_deg", "C4_alt_deg"
             )}
             if any(value is None for value in alts.values()):
@@ -1198,7 +1433,7 @@ def main():
             ###
             ### PHASE 1a : START -> C1 -> C2-duree_diamond_ring
             ###
-            _log(f"{Colors.GREEN}# PHASE 1a : Start to C1 to C2-{duree_diamond_ring}s{Colors.RESET}")
+            _log(f"{Colors.GREEN}# PHASE 1a : Start to C1 to C2-{diamond_ring_duration_s}s{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_partial}{Colors.RESET}")
@@ -1210,14 +1445,14 @@ def main():
                     next_shot_time += timedelta(seconds=interval_partial)
                 _log(f"{Colors.ORANGE}⚠ REPRISE 1a : première photo à {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
 
-            nbTotalBracket = estimatedPhoto(next_shot_time, (C2 - timedelta(seconds=duree_diamond_ring)), interval_partial)
+            nbTotalBracket = estimatedPhoto(next_shot_time, (C2 - timedelta(seconds=diamond_ring_duration_s)), interval_partial)
             _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
             _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
 
             nbBracket = 1
             nbPhoto   = 1
-            fin_phase_1a = C2 - timedelta(seconds=duree_diamond_ring)
-            _run_absolute_grid(camera_service, "phase1a", speeds_partial,
+            fin_phase_1a = C2 - timedelta(seconds=diamond_ring_duration_s)
+            _run_absolute_grid(camera_service, "phase1a", _partial_capture,
                                next_shot_time, fin_phase_1a, interval_partial,
                                aperture_partial, iso_partial,
                                deadline=fin_phase_1a)
@@ -1225,17 +1460,17 @@ def main():
             ###
             ### PHASE 1b : DIAMOND RING -- C2-duree_diamond_ring -> C2
             ###
-            _log(f"{Colors.GREEN}# PHASE 1b : DIAMOND RING -- C2-{duree_diamond_ring}s -> C2{Colors.RESET}")
+            _log(f"{Colors.GREEN}# PHASE 1b : DIAMOND RING -- C2-{diamond_ring_duration_s}s -> C2{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
-            next_shot_time = calculer_temps_debut_sequence(C2 - timedelta(seconds=duree_diamond_ring), C2, interval_diamond_ring)
+            next_shot_time = calculer_temps_debut_sequence(C2 - timedelta(seconds=diamond_ring_duration_s), C2, interval_diamond_ring)
             nbTotalBracket = estimatedPhoto(next_shot_time, C2, interval_diamond_ring)
             _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
             _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
             nbBracket = 1
             nbPhoto   = 1
-            _run_absolute_grid(camera_service, "phase1b", speeds_diamond_ring,
+            _run_absolute_grid(camera_service, "phase1b", _diamond_capture,
                                next_shot_time, C2, interval_diamond_ring,
                                aperture_diamond, iso_diamond_ring, deadline=C2)
 
@@ -1249,26 +1484,25 @@ def main():
                  f"jusqu'à +{C3_OVERFLOW_GRACE_S:g}s pour les poses "
                  f"≤ {SHORT_EXPOSURE_MAX_S:g}s ({format_hms_ms(C3)}){Colors.RESET}")
 
-            totality_interval = max(0.001, sum(parse_shutterspeed(s) for s in shutter_speeds))
-            _run_absolute_grid(camera_service, "phase2", shutter_speeds, C2,
-                               C3, totality_interval, aperture_totality,
+            _run_absolute_grid(camera_service, "phase2", _totality_capture, C2,
+                               C3, float(interval_totality), aperture_totality,
                                iso_totality, deadline=C3)
 
             ###
             ### PHASE 3a : DIAMOND RING -- C3 -> C3+duree_diamond_ring
             ###
-            _log(f"{Colors.GREEN}# PHASE 3a : DIAMOND RING -- C3 -> C3+{duree_diamond_ring}s{Colors.RESET}")
+            _log(f"{Colors.GREEN}# PHASE 3a : DIAMOND RING -- C3 -> C3+{diamond_ring_duration_s}s{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
             next_shot_time = C3
-            nbTotalBracket = estimatedPhoto(next_shot_time, C3 + timedelta(seconds=duree_diamond_ring), interval_diamond_ring)
+            nbTotalBracket = estimatedPhoto(next_shot_time, C3 + timedelta(seconds=diamond_ring_duration_s), interval_diamond_ring)
             _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
             _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
             nbBracket = 1
             nbPhoto   = 1
-            fin_phase_3a = C3 + timedelta(seconds=duree_diamond_ring)
-            _run_absolute_grid(camera_service, "phase3a", speeds_diamond_ring,
+            fin_phase_3a = C3 + timedelta(seconds=diamond_ring_duration_s)
+            _run_absolute_grid(camera_service, "phase3a", _diamond_capture,
                                next_shot_time, fin_phase_3a,
                                interval_diamond_ring, aperture_diamond,
                                iso_diamond_ring, deadline=fin_phase_3a)
@@ -1276,12 +1510,12 @@ def main():
             ###
             ### PHASE 3b : C3+duree_diamond_ring -> C4 -> TEND
             ###
-            _log(f"{Colors.GREEN}# Phase 3b - C3+{duree_diamond_ring}s -> C4 -> TEND{Colors.RESET}")
+            _log(f"{Colors.GREEN}# Phase 3b - C3+{diamond_ring_duration_s}s -> C4 -> TEND{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
 
             next_shot_time = TMAX + timedelta(seconds=interval_partial)
-            debut_3b = C3 + timedelta(seconds=duree_diamond_ring)
+            debut_3b = C3 + timedelta(seconds=diamond_ring_duration_s)
             while next_shot_time < debut_3b:
                 next_shot_time += timedelta(seconds=interval_partial)
 
@@ -1297,7 +1531,7 @@ def main():
 
             nbBracket = 1
             nbPhoto   = 1
-            _run_absolute_grid(camera_service, "phase3b", speeds_partial,
+            _run_absolute_grid(camera_service, "phase3b", _partial_capture,
                                next_shot_time, TEND, interval_partial,
                                aperture_partial, iso_partial, deadline=TEND)
 
@@ -1327,7 +1561,7 @@ def main():
             nbBracket = 1
             nbPhoto   = 1
             fin_phase = TEND
-            _run_absolute_grid(camera_service, "partial", speeds_partial,
+            _run_absolute_grid(camera_service, "partial", _partial_capture,
                                next_shot_time, fin_phase, interval_partial,
                                aperture_partial, iso_partial, deadline=TEND)
 

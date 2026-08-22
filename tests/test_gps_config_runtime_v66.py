@@ -10,7 +10,9 @@ def test_flask_uses_runtime_gps_config_path():
 def test_update_deploys_configs_into_trigger_runtime():
     text = (ROOT / "install" / "update_files.sh").read_text(encoding="utf-8")
     assert 'CONFIGS_DIR="$TRIGGER_DIR/configs"' in text
-    assert 'cp -a "$PACKAGE_DIR/configs" "$TRIGGER_DIR/"' in text
+    assert 'mkdir -p "$CONFIGS_DIR"' in text
+    assert 'cp -a "$PACKAGE_DIR/configs/." "$CONFIGS_DIR/"' in text
+    assert 'rm -rf "$CONFIGS_DIR"' not in text
     assert 'CONFIGS_DIR="$USER_HOME/configs"' not in text
 
 def test_full_install_deploys_configs_into_trigger_runtime():
