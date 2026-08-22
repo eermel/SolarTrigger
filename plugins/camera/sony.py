@@ -208,12 +208,53 @@ class SonyPlugin(CameraPlugin):
                  f"{len(seq)} sequence(s), {planned} vues")
 
         total = 0
+        adapted = False
         for item in seq:
             if deadline is not None:
                 remaining = seconds_until_deadline(deadline)
                 if (remaining < planner.estimate_duration(item)
                         + planner.SAFETY_MARGIN_S):
-                    self.log("   [sony] deadline : sequence tronquee (ok)")
+                    if isinstance(item, planner.SinglePhoto):
+                        self.log("   [sony] single refuse pour deadline")
+                        break
+
+                    self.log(f"   [sony] bracket {item.nimg} refuse "
+                             "pour deadline")
+                    selected = None
+                    for nimg in (7, 5, 3):
+                        if nimg >= item.nimg:
+                            continue
+                        candidate = planner.make_fast_subset(item, nimg)
+                        remaining = seconds_until_deadline(deadline)
+                        if (remaining >= planner.estimate_duration(candidate)
+                                + planner.SAFETY_MARGIN_S):
+                            selected = candidate
+                            break
+
+                    if selected is not None:
+                        self.log("   [sony] adaptation deadline : bracket "
+                                 f"rapide {selected.nimg} vues selectionne")
+                        got = self._fire_bracket(selected, deadline=deadline)
+                        self.log(f"   [sony] {selected.mode_string} centre "
+                                 f"{selected.centre} : {got}/{selected.nimg}")
+                        total += got
+                        adapted = True
+                        break
+
+                    single = planner.SinglePhoto(item.views[0])
+                    remaining = seconds_until_deadline(deadline)
+                    if (remaining >= planner.estimate_duration(single)
+                            + planner.SAFETY_MARGIN_S):
+                        self.log("   [sony] adaptation deadline : single "
+                                 f"rapide {single.speed} selectionne")
+                        got = self._fire_single(single.speed,
+                                                deadline=deadline)
+                        self.log(f"   [sony] PHOTO {single.speed} : {got}/1")
+                        total += got
+                        adapted = True
+                    else:
+                        self.log("   [sony] adaptation deadline : aucune "
+                                 "sequence admissible")
                     break
             if isinstance(item, planner.SinglePhoto):
                 got = self._fire_single(item.speed, deadline=deadline)
@@ -225,4 +266,5 @@ class SonyPlugin(CameraPlugin):
             total += got
 
         return CaptureResult(frames=total, planned=planned,
-                             detail=f"{len(seq)} seq")
+                             detail=f"{len(seq)} seq"
+                                    f"{' adapt' if adapted else ''}")
