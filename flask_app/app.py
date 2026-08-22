@@ -177,6 +177,8 @@ if str(TRIGGER_DIR) not in sys.path:
 from backend.state_store import StateStore
 from backend.event_log import EventLog
 from backend.gps_controller import GpsController
+from backend.devices import CATEGORIES as DEVICE_CATEGORIES
+from backend.devices import detect_all, normalize_selection, ttl_expired
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
 from services.camera_service import CameraService
@@ -202,6 +204,14 @@ _log_buffer = _event_log.buffer
 _log_lock = _event_log.lock
 _calc_proc = None
 _camera_sync_lock = threading.Lock()
+_device_detection_lock = threading.Lock()
+_device_detection_cache = {}
+_DEVICE_DETECTION_TIMEOUTS = {
+    "camera": 2.0,
+    "gps": 2.0,
+    "focuser": 2.0,
+    "mount": 2.0,
+}
 
 def _load_state(): return _state_store.data
 def _save_state():
@@ -247,6 +257,81 @@ def _time_payload():
         },
     }
 
+
+def _devices_snapshot():
+    """Return persisted selections enriched with the latest transient scan."""
+    devices = _state_store.snapshot("devices") or {}
+    with _device_detection_lock:
+        detection = {name: dict(info)
+                     for name, info in _device_detection_cache.items()}
+    for name in DEVICE_CATEGORIES:
+        selected = devices.setdefault(name, {"plugin": "none", "active": False})
+        selected.update(detection.get(name, {}))
+    return devices
+
+
+def _detect_devices():
+    """Refresh transient detection data without changing persisted state."""
+    detected = detect_all(_DEVICE_DETECTION_TIMEOUTS)
+    with _device_detection_lock:
+        _device_detection_cache.clear()
+        _device_detection_cache.update(
+            {name: dict(detected.get(name, {})) for name in DEVICE_CATEGORIES}
+        )
+    return _devices_snapshot()
+
+
+def _has_missing_device_selection(devices):
+    """Return whether any category lacks a valid explicit selection."""
+    for name in DEVICE_CATEGORIES:
+        selection = devices.get(name)
+        if not isinstance(selection, dict):
+            return True
+        if (selection.get("plugin") in (None, "", "none")
+                or selection.get("active") is not True):
+            return True
+    return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# API — DEVICES
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/devices", methods=["GET"])
+def api_devices_get():
+    devices = _state_store.snapshot("devices") or {}
+    if (ttl_expired(devices.get("updated_at"))
+            or _has_missing_device_selection(devices)):
+        return jsonify(_detect_devices())
+    return jsonify(_devices_snapshot())
+
+
+@app.route("/api/devices", methods=["POST"])
+def api_devices_set():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid device selection payload."}), 400
+
+    selections = {}
+    for name in DEVICE_CATEGORIES:
+        if name in payload:
+            normalized = normalize_selection(payload[name])
+            selections[name] = {
+                "plugin": normalized.get("plugin"),
+                "active": normalized["active"],
+            }
+    if not selections:
+        return jsonify({"error": "No device category provided."}), 400
+
+    selections["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _state_store.update_section("devices", selections, persist=True)
+    return jsonify(_devices_snapshot())
+
+
+@app.route("/api/devices/detect", methods=["POST"])
+def api_devices_detect():
+    return jsonify(_detect_devices())
+
 # ══════════════════════════════════════════════════════════════════════════════
 # API — STATUT
 # ══════════════════════════════════════════════════════════════════════════════
@@ -265,6 +350,7 @@ def api_status():
         "eclipse": _load_eclipse_json(),
         "circumstances": _state_store.snapshot("circumstances"),
         "capture": _state_store.snapshot("capture"),
+        "devices": _devices_snapshot(),
     })
 
 def _get_camera_model_info(camera):
