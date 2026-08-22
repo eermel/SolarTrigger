@@ -82,7 +82,7 @@ sudo python3 ~/python_solareclipsetrigger/gps_sync_bu353n5_v2.py
 # Options :
 #   --port /dev/ttyUSB0    (port GPS, détection auto par défaut)
 #   --verbose              (affiche toutes les trames NMEA)
-#   --dry-run              (simule sans modifier l'horloge système)
+#   --dry-run              (transpose la chronologie à maintenant, utilise le même moteur et le matériel caméra ; ne modifie pas l'horloge système)
 ```
 
 Le script attend un signal GPS, accumule 5 fixes consécutifs,
