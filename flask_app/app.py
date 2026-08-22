@@ -1031,6 +1031,8 @@ def api_trigger_start():
             return jsonify({"error": "Trigger déjà en cours."}), 409
         return jsonify({"status": "started", "mode": "real"})
     except TriggerValidationError as exc:
+        if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
+            return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
 
 @app.route("/api/trigger/simulate", methods=["POST"])
@@ -1043,6 +1045,8 @@ def api_trigger_simulate():
             return jsonify({"error": "Trigger déjà en cours."}), 409
         return jsonify({"status": "started", "mode": "simulation", "speed": float(speed)})
     except TriggerValidationError as exc:
+        if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
+            return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
 
 @app.route("/api/trigger/dryrun", methods=["POST"])
@@ -1055,6 +1059,8 @@ def api_trigger_dryrun():
             return jsonify({"error": "Trigger déjà en cours."}), 409
         return jsonify({"status": "started", "mode": "dryrun", "speed": 1.0, "delay_s": float(delay)})
     except TriggerValidationError as exc:
+        if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
+            return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
 
 @app.route("/api/trigger/stop", methods=["POST"])

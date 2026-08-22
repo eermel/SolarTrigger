@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json, os, subprocess, sys, threading, time
 from datetime import datetime, timezone
-from backend.timeline import sequence_seconds
+from backend.timeline import parse_date_from_config, sequence_seconds
 
 class TriggerValidationError(RuntimeError):
     def __init__(self, message, code="TRIGGER_INVALID"):
@@ -47,9 +47,33 @@ class TriggerService:
                     raise
                 except Exception:
                     pass
-        if not self.json_file.exists(): raise TriggerValidationError("todayeclipse.json introuvable. Calculez d'abord.", "JSON_MISSING")
-        try: ecl=json.loads(self.json_file.read_text(encoding="utf-8"))
-        except Exception as exc: raise TriggerValidationError(f"JSON illisible : {exc}", "JSON_INVALID")
+        circumstances=self.state.snapshot("circumstances") or {}
+        if not circumstances.get("loaded") or not self.json_file.exists():
+            raise TriggerValidationError("Aucune circonstance d’éclipse sélectionnée", "CIRCUMSTANCES_NOT_LOADED")
+        try:
+            ecl=json.loads(self.json_file.read_text(encoding="utf-8"))
+            if not isinstance(ecl, dict):
+                raise ValueError("la racine JSON doit être un objet")
+        except Exception:
+            raise TriggerValidationError("Aucune circonstance d’éclipse sélectionnée", "CIRCUMSTANCES_NOT_LOADED")
+
+        capture=self.state.snapshot("capture") or {}
+        camera_config_file=self.state.get("camera_config_file")
+        camera_config_path=self.configs_dir/camera_config_file if camera_config_file else None
+        if not capture.get("loaded") or camera_config_path is None or not camera_config_path.exists():
+            raise TriggerValidationError("Aucune configuration de capture sélectionnée", "CAPTURE_NOT_LOADED")
+        try:
+            json.loads(camera_config_path.read_text(encoding="utf-8"))
+        except Exception:
+            raise TriggerValidationError("Aucune configuration de capture sélectionnée", "CAPTURE_NOT_LOADED")
+
+        try:
+            circumstances_date=parse_date_from_config(ecl)
+        except (TypeError, ValueError):
+            circumstances_date=None
+        if circumstances_date != datetime.now().astimezone().date():
+            raise TriggerValidationError("Les circonstances d’éclipse ne correspondent pas à la date locale", "CIRCUMSTANCES_DATE_INVALID")
+
         validate_eclipse(ecl); return ecl
 
     def start(self, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0):

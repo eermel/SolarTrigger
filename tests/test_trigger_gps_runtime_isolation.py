@@ -17,6 +17,13 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
             "sync_time": datetime.now(timezone.utc).isoformat(),
         },
     )
+    store.update_section(
+        "circumstances", {"loaded": True, "active_file": "todayeclipse.json"}
+    )
+    store.update_section(
+        "capture", {"loaded": True, "active_file": "camera.json"}
+    )
+    store.set("camera_config_file", "camera.json")
 
     eclipse = tmp_path / "todayeclipse.json"
     eclipse.write_text(
@@ -38,6 +45,7 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
     script.write_text("", encoding="utf-8")
     configs = tmp_path / "configs"
     configs.mkdir()
+    (configs / "camera.json").write_text("{}", encoding="utf-8")
 
     allow_process_exit = threading.Event()
     process_completed = threading.Event()
