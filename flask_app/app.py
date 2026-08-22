@@ -182,6 +182,7 @@ from backend.devices import detect_all, normalize_selection, ttl_expired
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
 from services.camera_service import CameraService
+from services.focuser_service import FocuserService
 
 # ── Flask ──────────────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder=str(STATIC_DIR),
@@ -198,6 +199,9 @@ log = logging.getLogger("solareclipse")
 _state_store = StateStore(STATE_FILE)
 _state = _state_store.data
 _state_lock = _state_store.lock
+_focuser_service = FocuserService(
+    _state_store, log_fn=lambda message: log.info(message)
+)
 _event_log = EventLog(LOGS_BUFFER_FILE, LOG_BUFFER_SIZE,
                       emit_fn=lambda event, payload: socketio.emit(event, payload))
 _log_buffer = _event_log.buffer
