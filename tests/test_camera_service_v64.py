@@ -1,7 +1,13 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from plugins.camera.base import CaptureResult
-from services.camera_service import CameraService, _normalized_speed_plan
+from services.camera_service import (
+    CameraService,
+    CaptureIntent,
+    PreparedCapture,
+    _normalized_speed_plan,
+)
 
 
 class FakeCamera:
@@ -22,6 +28,47 @@ class FakePlugin:
     def shoot_single(self, speed, photo_num=0, deadline=None):
         self.calls.append(('single', speed))
         return CaptureResult(frames=1, planned=1, detail='single')
+
+
+class FakePreparedPlugin(FakePlugin):
+    def prepare_capture(self, intent):
+        self.calls.append(('prepare', intent))
+        planned_count = len(intent.speeds) if intent.speeds else 3
+        return PreparedCapture(
+            token=intent,
+            estimated_total_s=0.5,
+            exposures_s=None,
+            planned_count=planned_count,
+            plugin_name=self.name,
+        )
+
+    def trigger_prepared(self, prepared, deadline=None):
+        self.calls.append(('trigger', prepared, deadline))
+        intent = prepared.token
+        if intent.speeds:
+            frames = 0
+            for speed in intent.speeds:
+                frames += self.shoot_single(
+                    speed,
+                    photo_num=frames,
+                    deadline=deadline,
+                ).frames
+            return CaptureResult(
+                frames=frames,
+                planned=len(intent.speeds),
+                detail='explicit speed list',
+            )
+        return CaptureResult(frames=3, planned=3, detail='prepared range')
+
+
+class FakeClock:
+    def __init__(self, remaining_seconds):
+        self.remaining_seconds = remaining_seconds
+        self.deadlines = []
+
+    def remaining(self, deadline):
+        self.deadlines.append(deadline)
+        return self.remaining_seconds
 
 
 def loader(camera, log): return FakePlugin(camera)
@@ -85,6 +132,70 @@ def test_service_owns_phase_settings_and_battery(monkeypatch):
     assert svc.get_battery_level() == 73
     assert any(c[0]=='init' for c in svc.plugin.calls)
     assert any(c[0]=='exposure' for c in svc.plugin.calls)
+
+
+def test_prepare_then_trigger_converts_deadline_at_service_boundary(monkeypatch):
+    deadline = datetime(2026, 8, 12, 17, 47, tzinfo=timezone.utc)
+    target_time = datetime(2026, 8, 12, 17, 46, tzinfo=timezone.utc)
+    clock = FakeClock(4.25)
+    plugin = FakePreparedPlugin(FakeCamera())
+    service = CameraService(clock=clock)
+    service.plugin = plugin
+    monkeypatch.setattr('services.camera_service.time.monotonic', lambda: 100.0)
+    intent = CaptureIntent(
+        shutter_min=None,
+        shutter_max=None,
+        step_ev=None,
+        speeds=['1/500', '1/1000', '1/2000'],
+        phase='C2',
+        target_time=target_time,
+        deadline=deadline,
+        overflow_policy='truncate',
+    )
+
+    prepared = service.prepare_capture(intent)
+    result = service.trigger_prepared(prepared, deadline)
+
+    normalized = plugin.calls[0][1]
+    assert normalized.shutter_min == '1/500'
+    assert normalized.shutter_max == '1/2000'
+    assert normalized.step_ev == 1.0
+    assert normalized.speeds is None
+    assert normalized.phase == 'C2'
+    assert normalized.target_time is target_time
+    assert normalized.deadline is deadline
+    assert clock.deadlines == [deadline]
+    plugin_deadline = plugin.calls[1][2]
+    assert isinstance(plugin_deadline, (int, float))
+    assert plugin_deadline == 104.25
+    assert result.frames == 3
+    assert result.planned == 3
+
+
+def test_prepare_then_trigger_preserves_irregular_speeds_as_singles():
+    plugin = FakePreparedPlugin(FakeCamera())
+    service = CameraService()
+    service.plugin = plugin
+    intent = CaptureIntent(
+        shutter_min=None,
+        shutter_max=None,
+        step_ev=None,
+        speeds=['1/1000', '1/500', '1/60'],
+        phase='C3',
+        target_time=datetime(2026, 8, 12, 17, 48),
+        deadline=None,
+        overflow_policy='truncate',
+    )
+
+    prepared = service.prepare_capture(intent)
+    result = service.trigger_prepared(prepared, None)
+
+    assert prepared.token.speeds == ['1/1000', '1/500', '1/60']
+    singles = [call[1] for call in plugin.calls if call[0] == 'single']
+    assert singles == ['1/1000', '1/500', '1/60']
+    assert plugin.calls[1][2] is None
+    assert result.frames == 3
+    assert result.planned == 3
 
 
 def test_sync_datetime_unsupported_autoconnects_and_fills_defaults(monkeypatch):

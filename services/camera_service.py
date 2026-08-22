@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from statistics import median
 from typing import Any, List, Optional
@@ -139,6 +139,70 @@ class CameraService:
         if not self.plugin:
             raise RuntimeError("caméra non connectée")
         return self.plugin.set_exposure_settings(aperture=aperture, iso=iso)
+
+    def apply_phase_settings(self, aperture=None, iso=None):
+        if not self.plugin:
+            raise RuntimeError("caméra non connectée")
+        settings = {}
+        if aperture is not None:
+            settings["aperture"] = aperture
+        if iso is not None:
+            settings["iso"] = iso
+        return self.plugin.set_exposure_settings(**settings)
+
+    def prepare_capture(self, intent):
+        if not self.plugin:
+            raise RuntimeError("caméra non connectée")
+
+        if intent.speeds:
+            speeds = [str(speed) for speed in intent.speeds]
+            fastest, slowest, step_ev, regular = _normalized_speed_plan(speeds)
+            if regular:
+                intent = replace(
+                    intent,
+                    shutter_min=slowest,
+                    shutter_max=fastest,
+                    step_ev=step_ev,
+                    speeds=None,
+                )
+            else:
+                intent = replace(intent, speeds=speeds)
+        else:
+            bounds = [
+                str(speed)
+                for speed in (intent.shutter_min, intent.shutter_max)
+                if speed is not None
+            ]
+            if not bounds:
+                raise ValueError("capture intent contains no shutter speeds")
+            fastest, slowest, _, _ = _normalized_speed_plan(bounds)
+            intent = replace(
+                intent,
+                shutter_min=slowest,
+                shutter_max=fastest,
+                step_ev=(
+                    float(intent.step_ev)
+                    if intent.step_ev is not None
+                    else 1.0
+                ),
+                speeds=None,
+            )
+
+        return self.plugin.prepare_capture(intent)
+
+    def trigger_prepared(self, prepared, deadline=None):
+        if not self.plugin:
+            raise RuntimeError("caméra non connectée")
+
+        plugin_deadline = None
+        if deadline is not None:
+            if self.clock is None:
+                raise RuntimeError("horloge d'exécution non configurée")
+            plugin_deadline = (
+                time.monotonic()
+                + max(0.0, self.clock.remaining(deadline))
+            )
+        return self.plugin.trigger_prepared(prepared, deadline=plugin_deadline)
 
     def get_battery_level(self):
         if not self.plugin:
