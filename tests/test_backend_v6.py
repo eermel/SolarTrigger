@@ -36,6 +36,31 @@ def test_state_store_gps_timezone_defaults_survive_save_and_reload(tmp_path):
     assert restored_gps['utc_offset_minutes'] is None
 
 
+def test_state_store_persists_focuser_settings(tmp_path):
+    path = tmp_path / 'state.json'
+    store = StateStore(path)
+
+    assert store.snapshot('focuser_settings') == {
+        'mode': 'slow',
+        'slow_step': 20,
+        'fast_step': 150,
+        'updated_at': None,
+    }
+
+    focuser_settings = {
+        'mode': 'fast',
+        'slow_step': 25,
+        'fast_step': 175,
+        'updated_at': '2026-08-22T12:34:56Z',
+    }
+    store.update_section('focuser_settings', focuser_settings)
+    store.save()
+
+    assert StateStore(path).snapshot('focuser_settings') == focuser_settings
+    saved = json.loads(path.read_text(encoding='utf-8'))
+    assert saved['focuser_settings'] == focuser_settings
+
+
 def test_state_store_persists_only_configured_device_fields(tmp_path):
     path = tmp_path / 'state.json'
     store = StateStore(path)

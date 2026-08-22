@@ -19,6 +19,9 @@ DEFAULT_STATE = {
         "mount": {"plugin": "none", "active": False},
         "updated_at": None,
     },
+    "focuser_settings": {
+        "mode": "slow", "slow_step": 20, "fast_step": 150, "updated_at": None,
+    },
     "trigger": {"running": False, "phase": "idle"},
     "gps_sync_running": False,
     "calc_running": False,
@@ -27,7 +30,7 @@ DEFAULT_STATE = {
 class StateStore:
     """Thread-safe runtime state with explicit persistence boundaries."""
     PERSISTED_KEYS = ("gps", "camera", "eclipse", "camera_config_file",
-                      "circumstances", "capture", "devices")
+                      "circumstances", "capture", "devices", "focuser_settings")
     DEVICE_NAMES = ("camera", "gps", "focuser", "mount")
 
     def __init__(self, path: Path, defaults: dict | None = None):
