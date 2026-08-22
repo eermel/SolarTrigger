@@ -260,6 +260,8 @@ def api_status():
         "camera":  camera_info,
         "trigger": trigger,
         "eclipse": _load_eclipse_json(),
+        "circumstances": _state_store.snapshot("circumstances"),
+        "capture": _state_store.snapshot("capture"),
     })
 
 def _get_camera_model_info(camera):
