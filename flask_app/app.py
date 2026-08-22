@@ -803,9 +803,32 @@ def api_trigger_select():
     with _state_lock:
         _state["eclipse"] = data
     _save_state()
+
+    meta = {
+        key: data[key]
+        for key in ("_date", "_date_utc", "title", "_type")
+        if key in data
+    }
+    phases_local = {
+        phase: data[f"{phase}_local"]
+        for phase in ("C1", "C2", "TMAX", "C3", "C4")
+        if f"{phase}_local" in data
+    }
+    if phases_local:
+        meta["phases_local"] = phases_local
+
+    circumstances = _state_store.update_section(
+        "circumstances",
+        {"loaded": True, "active_file": filename, "meta": meta},
+        persist=True,
+    )
     socketio.emit("eclipse_calculated", {"status": "success", "data": data})
+    socketio.emit("status_update", {
+        "circumstances": circumstances,
+        "time": _time_payload(),
+    })
     _append_log(f"📂 Config chargée : {filename}", "info", "trigger")
-    return jsonify({"status": "ok", "data": data})
+    return jsonify({"status": "ok", "data": data, "circumstances": circumstances})
 
 @app.route("/api/trigger/select_camera", methods=["POST"])
 def api_trigger_select_camera():
