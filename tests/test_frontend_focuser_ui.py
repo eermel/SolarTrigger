@@ -98,3 +98,90 @@ def test_existing_top_level_navigation_is_unchanged():
     assert labels == ["DEVICES", "SYNC GPS", "ÉCLIPSE", "CFG PHOTO", "CAMÉRA", "TRIGGER"]
     assert targets == [0, 1, 2, 3, 4, 5]
     assert "FOCUSEUR" not in TABS.upper()
+
+
+def test_slow_fast_switch_is_present_with_constant_labels():
+    assert re.search(
+        r'<label[^>]*class=["\'][^"\']*\bfocuser-mode-switch\b[^"\']*["\'][^>]*>'
+        r'.*?<span>\s*Slow\s*</span>'
+        r'.*?<input[^>]*id=["\']focuser-speed-switch["\'][^>]*role=["\']switch["\'][^>]*>'
+        r'.*?<span[^>]*class=["\'][^"\']*\btoggle\b[^"\']*["\'][^>]*>'
+        r'.*?<span>\s*Fast\s*</span>',
+        FOCUSER_HTML,
+        re.DOTALL,
+    )
+
+
+def test_mode_switch_posts_backend_authoritative_slow_fast_mode():
+    assert FOCUSER_JS.count("/api/focuser/mode") == 1
+    assert re.search(
+        r"post\(\s*['\"]/api/focuser/mode['\"]\s*,\s*"
+        r"\{\s*mode\s*:\s*speedSwitch\.checked\s*\?\s*['\"]fast['\"]"
+        r"\s*:\s*['\"]slow['\"]\s*\}",
+        FOCUSER_JS,
+    )
+    assert re.search(
+        r"data\.mode\s*===\s*['\"]slow['\"]\s*\|\|\s*"
+        r"data\.mode\s*===\s*['\"]fast['\"]",
+        FOCUSER_JS,
+    )
+    assert re.search(
+        r"speedSwitch\.checked\s*=\s*data\.mode\s*===\s*['\"]fast['\"]",
+        FOCUSER_JS,
+    )
+
+
+def test_step_and_jog_requests_are_direction_only():
+    assert FOCUSER_JS.count("/api/focuser/step") == 1
+    assert FOCUSER_JS.count("/api/focuser/jog/start") == 1
+    assert FOCUSER_JS.count("/api/focuser/jog/stop") == 1
+
+    step_call = re.search(
+        r"post\(\s*['\"]/api/focuser/step['\"]\s*,\s*"
+        r"(?P<body>\{.*?\})\s*\)",
+        FOCUSER_JS,
+        re.DOTALL,
+    )
+    assert step_call
+    assert "direction" in step_call.group("body")
+    assert "increase" in step_call.group("body")
+    assert "decrease" in step_call.group("body")
+    assert "delta" not in step_call.group("body")
+    assert "mode" not in step_call.group("body")
+
+    jog_call = re.search(
+        r"post\(\s*['\"]/api/focuser/jog/start['\"]\s*,\s*"
+        r"(?P<body>\{.*?\})\s*\)",
+        FOCUSER_JS,
+        re.DOTALL,
+    )
+    assert jog_call
+    assert "direction" in jog_call.group("body")
+    assert "increase" in jog_call.group("body")
+    assert "decrease" in jog_call.group("body")
+    assert "delta" not in jog_call.group("body")
+    assert "mode" not in jog_call.group("body")
+
+
+def test_go_and_home_are_adjacent_in_target_position_row():
+    assert re.search(
+        r'id=["\']focuser-target["\']'
+        r'.*?'
+        r'<button[^>]*id=["\']btn-focuser-go["\'][^>]*>\s*Go\s*</button>'
+        r'\s*'
+        r'<button[^>]*id=["\']btn-focuser-home["\'][^>]*>\s*Home\s*</button>',
+        FOCUSER_HTML,
+        re.DOTALL,
+    )
+
+def test_socket_updates_refresh_from_backend_status():
+    assert re.search(
+        r"socket\.on\(\s*['\"]focuser_update['\"]\s*,\s*refreshFocuser\s*\)",
+        FOCUSER_JS,
+    )
+    assert re.search(
+        r"socket\.on\(\s*['\"]status_update['\"].*?"
+        r"if\s*\(\s*data\.focuser\s*\)\s*refreshFocuser\(\s*\)",
+        FOCUSER_JS,
+        re.DOTALL,
+    )
