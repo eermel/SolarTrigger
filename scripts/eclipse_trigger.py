@@ -394,17 +394,6 @@ def capture_phase(name):
 def exposure_correction(name, default=None):
     return capture_canonical["exposure_correction"].get(name, default)
 
-def atmospheric_correction_enabled():
-    enabled = bool(exposure_correction("atmospheric_attenuation_enabled", False))
-    if enabled or capture_is_v2:
-        return enabled
-    legacy_capture = build_legacy_capture_canonical({}, cfg)
-    return bool(
-        legacy_capture["exposure_correction"].get(
-            "atmospheric_attenuation_enabled", False
-        )
-    )
-
 def _observer_location():
     return circumstances.get(
         "_circumstances_location", cfg.get("_circumstances_location", {})
@@ -873,7 +862,11 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
     if intent_speeds is None and step_ev is None:
         step_ev = 1.0
     try:
-        use_atmo = atmospheric_correction_enabled()
+        use_atmo = bool(
+            capture_canonical["exposure_correction"].get(
+                "atmospheric_attenuation_enabled", False
+            )
+        )
         slowest_override_seconds = None
 
         if intent_speeds is not None:
@@ -1154,7 +1147,12 @@ def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, 
             )
         slowest_override_seconds = None
         _, slowest, _, regular = _norm_plan([str(speed) for speed in speeds])
-        if atmospheric_correction_enabled() and regular:
+        use_atmo = bool(
+            capture_canonical["exposure_correction"].get(
+                "atmospheric_attenuation_enabled", False
+            )
+        )
+        if use_atmo and regular:
             loc = _observer_location()
             if not loc or loc.get("altitude_m") is None:
                 raise RuntimeError("altitude observateur manquante")

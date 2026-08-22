@@ -128,7 +128,11 @@ def test_atmo_reference_is_always_sea_level():
 
 def test_regular_bracket_extends_only_slowest_bound_with_atmo(monkeypatch):
     # Prepare trigger module globals
-    monkeypatch.setitem(trig.cfg, "atmo_compensation", True)
+    monkeypatch.setitem(
+        trig.capture_canonical["exposure_correction"],
+        "atmospheric_attenuation_enabled",
+        True,
+    )
 
     trig.cfg.update({
         "_circumstances_location": {
@@ -207,8 +211,47 @@ def test_regular_bracket_extends_only_slowest_bound_with_atmo(monkeypatch):
         abs=1e-12,
     )
 
+
+def test_simulated_intent_uses_capture_flag_step_and_inclusive_slow_bound(monkeypatch):
+    monkeypatch.setitem(trig.cfg, "atmo_compensation", False)
+    monkeypatch.setitem(
+        trig.capture_canonical["exposure_correction"],
+        "atmospheric_attenuation_enabled",
+        True,
+    )
+    monkeypatch.setitem(
+        trig.circumstances,
+        "_circumstances_location",
+        {"altitude_m": 0.0},
+    )
+    for name in ("C1", "C2", "TMAX", "C3", "C4"):
+        monkeypatch.setitem(trig.circumstances, f"{name}_alt_deg", 10.0)
+
+    target = datetime(2026, 8, 12, 20, 0, 0)
+    trig._timeline.update({
+        "C1": target - timedelta(hours=1),
+        "C2": target - timedelta(minutes=1),
+        "TMAX": target + timedelta(minutes=30),
+        "C3": target + timedelta(hours=1),
+        "C4": target + timedelta(hours=2),
+    })
+    monkeypatch.setattr(trig, "facteur_atmospherique", lambda h, H: 4.0)
+
+    intent = trig._capture_intent(
+        {"shutter_max": "1/8", "shutter_min": "1/2", "step_ev": 1.0},
+        "totality",
+        target,
+    )
+    prepared = trig._SimulationCameraService().prepare_capture(intent)
+
+    assert prepared.exposures_s == pytest.approx([0.125, 0.25, 0.5, 1.0, 2.0])
+
 def test_irregular_list_is_unchanged_under_atmo(monkeypatch):
-    monkeypatch.setitem(trig.cfg, "atmo_compensation", True)
+    monkeypatch.setitem(
+        trig.capture_canonical["exposure_correction"],
+        "atmospheric_attenuation_enabled",
+        True,
+    )
     class FakePlugin:
         pass
     class FakeService:
@@ -222,8 +265,12 @@ def test_irregular_list_is_unchanged_under_atmo(monkeypatch):
 
 
 def test_disabled_or_absent_flag_keeps_behavior(monkeypatch):
-    # Remove flag
-    trig.cfg.pop("atmo_compensation", None)
+    monkeypatch.delitem(
+        trig.capture_canonical["exposure_correction"],
+        "atmospheric_attenuation_enabled",
+        raising=False,
+    )
+    monkeypatch.setitem(trig.cfg, "atmo_compensation", True)
     class FakeService:
         def __init__(self): self.called = False
         def shoot_speed_list(self, speeds, **kw): self.called = True
@@ -234,7 +281,11 @@ def test_disabled_or_absent_flag_keeps_behavior(monkeypatch):
 
 
 def test_missing_observer_altitude_blocks_capture(monkeypatch):
-    monkeypatch.setitem(trig.cfg, "atmo_compensation", True)
+    monkeypatch.setitem(
+        trig.capture_canonical["exposure_correction"],
+        "atmospheric_attenuation_enabled",
+        True,
+    )
     trig.cfg.pop("_circumstances_location", None)
     class FakeService:
         def __init__(self): self.called = False
