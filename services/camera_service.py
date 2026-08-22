@@ -81,6 +81,7 @@ class CameraService:
         self.camera = None
         self.plugin = None
         self.model = ""
+        self._last_phase_settings = {}
 
     @property
     def connected(self):
@@ -126,6 +127,7 @@ class CameraService:
         self.release()
         self.camera = None
         self.plugin = None
+        self._last_phase_settings = {}
 
     def init_settings(self, aperture=None, iso=None, image_format="RAW",
                       white_balance="Daylight"):
@@ -144,11 +146,16 @@ class CameraService:
         if not self.plugin:
             raise RuntimeError("caméra non connectée")
         settings = {}
-        if aperture is not None:
+        if (aperture is not None
+                and self._last_phase_settings.get("aperture") != aperture):
             settings["aperture"] = aperture
-        if iso is not None:
+        if iso is not None and self._last_phase_settings.get("iso") != iso:
             settings["iso"] = iso
-        return self.plugin.set_exposure_settings(**settings)
+        if not settings:
+            return None
+        result = self.plugin.set_exposure_settings(**settings)
+        self._last_phase_settings.update(settings)
+        return result
 
     def prepare_capture(self, intent):
         if not self.plugin:

@@ -134,6 +134,23 @@ def test_service_owns_phase_settings_and_battery(monkeypatch):
     assert any(c[0]=='exposure' for c in svc.plugin.calls)
 
 
+def test_phase_settings_only_send_changed_values():
+    plugin = FakePlugin(FakeCamera())
+    service = CameraService()
+    service.plugin = plugin
+
+    service.apply_phase_settings(aperture='f/8', iso='100')
+    service.apply_phase_settings(aperture='f/8', iso='100')
+    service.apply_phase_settings(aperture='f/11', iso='100')
+    service.apply_phase_settings(aperture='f/11', iso='200')
+
+    assert plugin.calls == [
+        ('exposure', {'aperture': 'f/8', 'iso': '100'}),
+        ('exposure', {'aperture': 'f/11'}),
+        ('exposure', {'iso': '200'}),
+    ]
+
+
 def test_prepare_then_trigger_converts_deadline_at_service_boundary(monkeypatch):
     deadline = datetime(2026, 8, 12, 17, 47, tzinfo=timezone.utc)
     target_time = datetime(2026, 8, 12, 17, 46, tzinfo=timezone.utc)
