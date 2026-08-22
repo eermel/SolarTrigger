@@ -1474,6 +1474,164 @@ socket.on('play_sound', d => {
   if (d.file) playSound(d.file);
 });
 
+// FOCUSER UI START
+(() => {
+  const section = document.getElementById('focuser-section');
+  const plugin = document.getElementById('focuser-plugin');
+  const status = document.getElementById('focuser-status');
+  const position = document.getElementById('focuser-position');
+  const target = document.getElementById('focuser-target');
+  const slowStep = document.getElementById('focuser-step-slow');
+  const fastStep = document.getElementById('focuser-step-fast');
+  const speedSwitch = document.getElementById('focuser-speed-switch');
+  let active = false;
+  let mode = 'fine';
+  let press = null;
+  let pollTimer = null;
+
+  function displayFocuser(data) {
+    if (!data || !active) return;
+    plugin.textContent = data.plugin || plugin.textContent || '--';
+    status.textContent = data.state || (data.moving ? 'moving' : (data.connected ? 'ready' : 'disconnected'));
+    position.textContent = Number.isFinite(data.position) ? data.position : '--';
+    if (Number.isInteger(data.step_fine) && data.step_fine > 0) slowStep.value = data.step_fine;
+    if (Number.isInteger(data.step_coarse) && data.step_coarse > 0) fastStep.value = data.step_coarse;
+    if (data.mode === 'fine' || data.mode === 'coarse') {
+      mode = data.mode;
+      speedSwitch.checked = mode === 'coarse';
+    }
+    schedulePoll(data.moving === true ? 400 : 1500);
+  }
+
+  async function request(url, options = {}) {
+    const response = await fetch(url, options);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Erreur HTTP ${response.status}`);
+    return data;
+  }
+
+  async function refreshFocuser() {
+    if (!active) return;
+    try {
+      displayFocuser(await request('/api/focuser/status'));
+    } catch (error) {
+      schedulePoll(1500);
+    }
+  }
+
+  function schedulePoll(delay) {
+    clearTimeout(pollTimer);
+    if (active) pollTimer = setTimeout(refreshFocuser, delay);
+  }
+
+  function applyDevices(devices) {
+    const focuser = devices && devices.focuser;
+    active = Boolean(focuser && focuser.active === true);
+    section.style.display = active ? '' : 'none';
+    if (!active) {
+      clearTimeout(pollTimer);
+      stopPress(false);
+      return;
+    }
+    plugin.textContent = focuser.plugin || '--';
+    refreshFocuser();
+  }
+
+  const renderDevicesWithoutFocuser = renderDevices;
+  renderDevices = function(devices) {
+    renderDevicesWithoutFocuser(devices);
+    applyDevices(devices);
+  };
+
+  function post(url, body) {
+    return request(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body || {}),
+    }).then(displayFocuser).catch(error => flash(`Focuseur : ${error.message}`, 'red'));
+  }
+
+  document.getElementById('btn-focuser-home').addEventListener('click', () => {
+    post('/api/focuser/home');
+  });
+  document.getElementById('btn-focuser-go').addEventListener('click', () => {
+    const requestedPosition = Number.parseInt(target.value, 10);
+    if (Number.isInteger(requestedPosition)) post('/api/focuser/move_to', {position: requestedPosition});
+  });
+
+  function saveSteps() {
+    const fine = Number.parseInt(slowStep.value, 10);
+    const coarse = Number.parseInt(fastStep.value, 10);
+    if (fine > 0 && coarse > 0) post('/api/focuser/set_step', {fine, coarse});
+  }
+  slowStep.addEventListener('change', saveSteps);
+  fastStep.addEventListener('change', saveSteps);
+  speedSwitch.addEventListener('change', () => {
+    mode = speedSwitch.checked ? 'coarse' : 'fine';
+  });
+
+  function currentStep() {
+    const field = mode === 'coarse' ? fastStep : slowStep;
+    const value = Number.parseInt(field.value, 10);
+    return Number.isInteger(value) && value > 0 ? value : 1;
+  }
+
+  function beginPress(event, sign) {
+    if (!active || press) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    press = {pointerId: event.pointerId, sign, jogStarted: false, stopSent: false};
+    press.timer = setTimeout(() => {
+      if (!press || press.pointerId !== event.pointerId) return;
+      press.jogStarted = true;
+      post('/api/focuser/jog/start', {
+        direction: sign < 0 ? 'in' : 'out',
+        mode,
+      });
+    }, 400);
+  }
+
+  function stopPress(singleStep) {
+    if (!press) return;
+    const ended = press;
+    press = null;
+    clearTimeout(ended.timer);
+    if (ended.jogStarted) {
+      if (!ended.stopSent) {
+        ended.stopSent = true;
+        fetch('/api/focuser/jog/stop', {method: 'POST'}).catch(() => {});
+      }
+    } else if (singleStep && active) {
+      post('/api/focuser/step', {delta: ended.sign * currentStep(), mode});
+    }
+  }
+
+  [
+    [document.getElementById('btn-focuser-minus'), -1],
+    [document.getElementById('btn-focuser-plus'), 1],
+  ].forEach(([button, sign]) => {
+    button.addEventListener('pointerdown', event => beginPress(event, sign));
+    button.addEventListener('pointerup', () => stopPress(true));
+    button.addEventListener('pointercancel', () => stopPress(false));
+    button.addEventListener('pointerleave', event => {
+      if (press && press.pointerId === event.pointerId) stopPress(false);
+    });
+  });
+
+  window.addEventListener('blur', () => stopPress(false));
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopPress(false);
+  });
+  window.addEventListener('unload', () => stopPress(false));
+
+  socket.on('focuser_update', displayFocuser);
+  socket.on('status_update', data => {
+    if (data.devices) applyDevices(data.devices);
+    if (data.focuser) displayFocuser(data.focuser);
+  });
+})();
+// FOCUSER UI END
+
 // Batterie
 socket.on('battery_update', d => updateBattery(d.percent));
 socket.on('battery_alert', d => {
