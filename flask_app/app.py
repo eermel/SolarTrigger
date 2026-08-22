@@ -841,11 +841,30 @@ def api_trigger_select_camera():
     path = CONFIGS_DIR / filename
     if not path.exists():
         return jsonify({"error": f"Fichier introuvable : {filename}"}), 404
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        return jsonify({"error": f"JSON illisible : {e}"}), 400
+
+    meta = {
+        key: data[key]
+        for key in ("_type", "_comment")
+        if key in data
+    }
     with _state_lock:
         _state["camera_config_file"] = filename
-    _save_state()
+    capture = _state_store.update_section(
+        "capture",
+        {"loaded": True, "active_file": filename, "meta": meta},
+        persist=True,
+    )
+    socketio.emit("status_update", {
+        "capture": capture,
+        "time": _time_payload(),
+    })
     _append_log(f"📷 Config appareil : {filename}", "info", "trigger")
-    return jsonify({"status": "ok", "filename": filename})
+    return jsonify({"status": "ok", "filename": filename, "capture": capture})
 
 @app.route("/api/trigger/totality_only", methods=["POST"])
 def api_trigger_totality_only():
