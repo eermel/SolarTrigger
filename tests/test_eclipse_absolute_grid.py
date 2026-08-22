@@ -354,10 +354,11 @@ def test_totality_sub_bracket_selects_first_accepted_candidate(
     assert deadline == c3
 
 
-def test_totality_sub_bracket_delegates_to_fastest_single_exposure():
+def test_totality_sub_bracket_selects_longest_admissible_single(monkeypatch):
     target = datetime(2026, 8, 12, 20, 29, 59, 900000)
     c3 = target + timedelta(seconds=0.1)
     configured = ["1/4000", "1/1000", "1/250"]
+    monkeypatch.setattr(trigger, "now", lambda: target)
 
     class SingleOnlyCameraService:
         def __init__(self):
@@ -367,10 +368,14 @@ def test_totality_sub_bracket_delegates_to_fastest_single_exposure():
             self.attempted.append(intent.speeds)
             if len(intent.speeds) > 1:
                 raise RuntimeError("bracket refused")
+            exposure_s = trigger.parse_shutterspeed(intent.speeds[0])
+            estimated_total_s = (
+                1.2 if intent.speeds[0] == "1/250" else exposure_s + 0.098
+            )
             return types.SimpleNamespace(
                 token=intent,
-                estimated_total_s=0.2,
-                exposures_s=[0.00025],
+                estimated_total_s=estimated_total_s,
+                exposures_s=[exposure_s],
             )
 
     service = SingleOnlyCameraService()
@@ -379,6 +384,37 @@ def test_totality_sub_bracket_delegates_to_fastest_single_exposure():
         service, configured, target, c3,
     )
 
-    assert [len(candidate) for candidate in service.attempted] == [3, 2, 1]
-    assert prepared.token.speeds == [configured[0]]
-    assert deadline == c3 + timedelta(seconds=trigger.C3_OVERFLOW_GRACE_S)
+    assert service.attempted == [configured, [configured[0], configured[-1]],
+                                 ["1/250"], ["1/1000"]]
+    assert prepared.token.speeds == ["1/1000"]
+    assert deadline == c3
+
+
+def test_totality_sub_bracket_skips_when_no_single_is_admissible(
+    scheduler, monkeypatch
+):
+    start, clock, logs = scheduler
+    target = start + timedelta(seconds=1)
+    c3 = target + timedelta(seconds=0.1)
+    configured = ["1/1000", "1/250"]
+
+    class NoAdmissibleCameraService(FakeCameraService):
+        def prepare_capture(self, intent):
+            self.prepared_at.append((self.clock.now(), intent.target_time))
+            if len(intent.speeds) > 1:
+                raise RuntimeError("bracket refused")
+            return types.SimpleNamespace(
+                token=intent,
+                estimated_total_s=1.2,
+                exposures_s=[trigger.parse_shutterspeed(intent.speeds[0])],
+            )
+
+    service = NoAdmissibleCameraService(clock)
+    monkeypatch.setattr(trigger, "_usb_wait_or_hold", lambda *args, **kwargs: None)
+
+    trigger._run_absolute_grid(
+        service, "phase2", configured, target, c3, 1, deadline=c3,
+    )
+
+    assert service.triggered_at == []
+    assert "reason=no_admissible_subset" in "\n".join(logs)

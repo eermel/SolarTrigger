@@ -1083,27 +1083,33 @@ def _prepare_totality_sub_bracket(camera_service, speeds, target, c3):
              f"candidate_m={candidate_size} accepted=false "
              "reason=duration_or_exposure_policy")
 
-    # Delegate M=1 to the single-exposure path: the fastest configured
-    # exposure is prepared by the plugin and admitted by the same C3 policy.
-    candidate = dict(capture)
-    candidate["speeds"] = [configured[0]]
-    try:
-        intent = _capture_intent(candidate, "phase2", target, c3)
-        prepared = camera_service.prepare_capture(intent)
-    except Exception as exc:
-        _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
-             "candidate_m=1 accepted=false "
-             f"reason=prepare error={type(exc).__name__}: {exc}")
-        return None, None
+    # M=1: consider the original exposures from longest to shortest. Account
+    # for a late slot when applying the same C3 hard-deadline policy used for
+    # every prepared capture.
+    singles = sorted(configured, key=parse_shutterspeed, reverse=True)
+    for speed in singles:
+        candidate = dict(capture)
+        candidate["speeds"] = [speed]
+        try:
+            intent = _capture_intent(candidate, "phase2", target, c3)
+            prepared = camera_service.prepare_capture(intent)
+        except Exception as exc:
+            _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+                 f"candidate_m=1 speed={speed} accepted=false "
+                 f"reason=prepare error={type(exc).__name__}: {exc}")
+            continue
 
-    trigger_deadline = _c3_trigger_deadline(prepared, target, c3)
-    if trigger_deadline is not None:
-        _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
-             "candidate_m=1 accepted=true")
-        return prepared, trigger_deadline
+        effective_start = max(target, now())
+        trigger_deadline = _c3_trigger_deadline(prepared, effective_start, c3)
+        if trigger_deadline is not None:
+            _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+                 f"candidate_m=1 speed={speed} accepted=true")
+            return prepared, trigger_deadline
 
-    _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
-         "candidate_m=1 accepted=false reason=duration_or_exposure_policy")
+        _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+             f"candidate_m=1 speed={speed} accepted=false "
+             "reason=duration_or_exposure_policy")
+
     return None, None
 
 
@@ -1134,7 +1140,7 @@ def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
                 )
                 if prepared is None:
                     _log(f"WARNING scheduler phase={phase} target={target.isoformat()} "
-                         "c3_overflow=refused reason=no_admissible_sub_bracket")
+                         "c3_overflow=refused reason=no_admissible_subset")
                     target += timedelta(seconds=interval_s)
                     continue
             else:
