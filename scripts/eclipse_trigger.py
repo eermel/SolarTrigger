@@ -1013,12 +1013,14 @@ def _c3_trigger_deadline(prepared, target, c3):
         estimated_total_s = float(estimated_total_s)
         exposures_s = [float(exposure) for exposure in exposures_s]
     except (TypeError, ValueError):
+        _log("c3_adaptation=refused reason=invalid_estimate")
         return None
     exposure_total_s = sum(exposures_s)
     if (not math.isfinite(estimated_total_s)
             or any(not math.isfinite(exposure) for exposure in exposures_s)
             or estimated_total_s < exposure_total_s
             or any(exposure < 0.0 for exposure in exposures_s)):
+        _log("c3_adaptation=refused reason=invalid_estimate")
         return None
 
     estimated_end = target + timedelta(seconds=estimated_total_s)
@@ -1057,7 +1059,11 @@ def _prepare_totality_sub_bracket(camera_service, speeds, target, c3):
     if not isinstance(configured, (list, tuple)) or len(configured) < 2:
         intent = _capture_intent(speeds, "phase2", target, c3)
         prepared = camera_service.prepare_capture(intent)
-        return prepared, _c3_trigger_deadline(prepared, target, c3)
+        trigger_deadline = _c3_trigger_deadline(prepared, target, c3)
+        if isinstance(configured, (list, tuple)) and trigger_deadline is not None:
+            _log(f"c3_adaptation=full planned={len(configured)} "
+                 f"selected={len(configured)}")
+        return prepared, trigger_deadline
 
     total_size = len(configured)
     for candidate_size in range(total_size, 1, -1):
@@ -1077,6 +1083,9 @@ def _prepare_totality_sub_bracket(camera_service, speeds, target, c3):
         if trigger_deadline is not None:
             _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
                  f"candidate_m={candidate_size} accepted=true")
+            outcome = "full" if candidate_size == total_size else "reduced"
+            _log(f"c3_adaptation={outcome} planned={total_size} "
+                 f"selected={candidate_size}")
             return prepared, trigger_deadline
 
         _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
@@ -1104,12 +1113,14 @@ def _prepare_totality_sub_bracket(camera_service, speeds, target, c3):
         if trigger_deadline is not None:
             _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
                  f"candidate_m=1 speed={speed} accepted=true")
+            _log(f"c3_adaptation=reduced planned={total_size} selected=1")
             return prepared, trigger_deadline
 
         _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
              f"candidate_m=1 speed={speed} accepted=false "
              "reason=duration_or_exposure_policy")
 
+    _log("c3_adaptation=refused reason=no_admissible_subset")
     return None, None
 
 
