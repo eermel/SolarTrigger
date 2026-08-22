@@ -961,6 +961,50 @@ header {
         </button>
       </div>
 
+      <!-- ── FOCUSEUR ── -->
+      <div id="focuser-section" style="display:none">
+        <div class="card">
+          <div class="card-title">Focuseur</div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
+            <div><span style="color:var(--text-dim)">Plugin : </span><span id="focuser-plugin">--</span></div>
+            <div><span style="color:var(--text-dim)">Statut : </span><span id="focuser-status">--</span></div>
+            <div><span style="color:var(--text-dim)">Position : </span><span id="focuser-position">--</span></div>
+          </div>
+
+          <button class="btn btn-primary btn-full" id="btn-focuser-home" data-focuser-action="home">Home</button>
+
+          <div class="field" style="margin-top:12px">
+            <label for="focuser-target">TARGET</label>
+            <div style="display:flex;gap:6px">
+              <input type="number" id="focuser-target" value="12813" style="flex:1">
+              <button class="btn btn-primary" id="btn-focuser-go" data-focuser-action="go">Go</button>
+            </div>
+          </div>
+
+          <div class="grid2" style="margin-top:12px">
+            <div class="field">
+              <label for="focuser-step-slow">PAS LENT</label>
+              <input type="number" id="focuser-step-slow" min="1" value="80">
+            </div>
+            <div class="field">
+              <label for="focuser-step-fast">PAS RAPIDE</label>
+              <input type="number" id="focuser-step-fast" min="1" value="800">
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:12px">
+            <span style="font-family:var(--mono);font-size:11px">Lent</span>
+            <input type="checkbox" id="focuser-speed-switch" data-focuser-control="speed-switch">
+            <span style="font-family:var(--mono);font-size:11px">Rapide</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+            <button class="btn btn-primary" id="btn-focuser-minus" data-focuser-direction="minus">−</button>
+            <button class="btn btn-primary" id="btn-focuser-plus" data-focuser-direction="plus">+</button>
+          </div>
+        </div>
+      </div>
+      <!-- ── /FOCUSEUR ── -->
+
     </div><!-- /page-3 CAMÉRA -->
 
     <!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->
