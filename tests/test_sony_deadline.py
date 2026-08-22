@@ -1,11 +1,29 @@
 import pytest
 
+from plugins.camera import sony_planner as planner
 from plugins.camera.sony_planner import (
     Bracket,
     SAFETY_MARGIN_S,
     SinglePhoto,
     estimate_duration,
 )
+
+
+def test_estimate_duration_for_bracket_produced_by_plan():
+    _, _, sequence = planner.plan("1/4000", "1/250", 1.0)
+
+    first_item = sequence[0]
+    assert isinstance(first_item, Bracket)
+
+    views_duration = sum(planner.parse_speed(view) for view in first_item.views)
+    expected_duration = (
+        views_duration
+        + len(first_item.views) * planner.OVERHEAD_BRACKET_PER_FRAME_S
+        + planner.OVERHEAD_BRACKET_FIXED_S
+    )
+    assert estimate_duration(first_item) == pytest.approx(
+        expected_duration, abs=0.01
+    )
 
 
 @pytest.mark.parametrize(
