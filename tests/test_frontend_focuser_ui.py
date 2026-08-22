@@ -102,14 +102,30 @@ def test_existing_top_level_navigation_is_unchanged():
 
 def test_slow_fast_switch_is_present_with_constant_labels():
     assert re.search(
-        r'<label[^>]*class=["\'][^"\']*\bfocuser-mode-switch\b[^"\']*["\'][^>]*>'
-        r'.*?<span>\s*Slow\s*</span>'
-        r'.*?<input[^>]*id=["\']focuser-speed-switch["\'][^>]*role=["\']switch["\'][^>]*>'
-        r'.*?<span[^>]*class=["\'][^"\']*\btoggle\b[^"\']*["\'][^>]*>'
-        r'.*?<span>\s*Fast\s*</span>',
+        r'<div[^>]*class=["\'][^"\']*\bfocuser-mode-switch\b[^"\']*["\'][^>]*>'
+        r'<input[^>]*id=["\']focuser-step-fast["\'][^>]*>'
+        r'<label[^>]*>\s*Slow\s*</label>'
+        r'<input(?=[^>]*id=["\']focuser-speed-switch["\'])(?=[^>]*role=["\']switch["\'])[^>]*>'
+        r'<label[^>]*>\s*Fast\s*</label>'
+        r'</div>',
         FOCUSER_HTML,
+    )
+
+
+def test_focuser_cancel_style_uses_red_background_white_text_and_red_border():
+    assert re.search(
+        r"\.focuser-cancel\s*\{"
+        r"(?=[^}]*\bbackground\s*:\s*var\(--red\)\s*;)"
+        r"(?=[^}]*\bcolor\s*:\s*white\s*;)"
+        r"(?=[^}]*\bborder-color\s*:\s*var\(--red\)\s*;)"
+        r"[^}]*\}",
+        INDEX,
         re.DOTALL,
     )
+
+
+def test_focuser_stop_endpoint_is_referenced_once():
+    assert FOCUSER_JS.count("/api/focuser/stop") == 1
 
 
 def test_mode_switch_posts_backend_authoritative_slow_fast_mode():

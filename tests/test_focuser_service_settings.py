@@ -29,6 +29,7 @@ class FakePlugin:
     def __init__(self):
         self.connected = False
         self.position = 100
+        self.moving = False
         self.coarse = None
         self.fine = None
         self.jog_calls = []
@@ -41,7 +42,7 @@ class FakePlugin:
 
     def status(self):
         return {
-            "moving": False,
+            "moving": self.moving,
             "holding": False,
             "step_coarse": self.coarse,
             "step_fine": self.fine,
@@ -55,7 +56,18 @@ class FakePlugin:
         self.fine = fine
 
     def start_continuous(self, direction, mode):
+        self.moving = True
         self.jog_calls.append((direction, mode))
+
+    def stop_continuous(self):
+        self.moving = False
+
+    def move_to(self, position, wait=False):
+        self.position = position
+        self.moving = not wait
+
+    def stop(self):
+        self.moving = False
 
 
 def make_service(settings=None):
@@ -165,3 +177,37 @@ def test_jog_mode_is_backend_authoritative():
     service.start_jog("out", mode="fine")
 
     assert plugin.jog_calls == [(DIR_OUT, "coarse")]
+
+
+def test_transient_motion_state_tracks_go_home_and_jog():
+    service, store, plugin = make_service(recent_settings())
+
+    status = service.move_to(321)
+    assert status["motion_command"] == "go"
+    assert status["target_position"] == 321
+    assert status["moving"] is True
+
+    plugin.moving = False
+    status = service.status()
+    assert status["motion_command"] is None
+    assert status["target_position"] is None
+
+    status = service.home()
+    assert status["motion_command"] == "home"
+    assert status["target_position"] == 0
+    assert status["moving"] is True
+
+    for _ in range(2):
+        status = service.stop()
+        assert status["motion_command"] is None
+        assert status["target_position"] is None
+
+    status = service.start_jog("increase")
+    assert status["motion_command"] == "jog"
+    assert status["target_position"] is None
+    assert status["moving"] is True
+
+    for _ in range(2):
+        status = service.stop_jog()
+        assert status["motion_command"] is None
+        assert status["target_position"] is None

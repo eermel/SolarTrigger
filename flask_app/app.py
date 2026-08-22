@@ -337,6 +337,20 @@ def _focuser_post_guard(movement=False):
     return None
 
 
+def _focuser_motion_conflict():
+    status_method = getattr(_focuser_service, "status", None)
+    if not callable(status_method):
+        return None
+    status = status_method()
+    if (status.get("motion_command") in ("go", "home", "jog")
+            and status.get("moving") is True):
+        return jsonify({
+            "error": "Focuser motion already in progress.",
+            "code": "FOCUSER_BUSY",
+        }), 409
+    return None
+
+
 def _focuser_result(status):
     """Publish and return the latest focuser state after a successful action."""
     socketio.emit("focuser_update", status)
@@ -460,7 +474,18 @@ def api_focuser_home():
     guarded = _focuser_post_guard(movement=True)
     if guarded is not None:
         return guarded
+    conflict = _focuser_motion_conflict()
+    if conflict is not None:
+        return conflict
     return _focuser_result(_focuser_service.home())
+
+
+@app.route("/api/focuser/stop", methods=["POST"])
+def api_focuser_stop():
+    guarded = _focuser_post_guard()
+    if guarded is not None:
+        return guarded
+    return _focuser_result(_focuser_service.stop())
 
 
 @app.route("/api/focuser/move_to", methods=["POST"])
@@ -468,6 +493,9 @@ def api_focuser_move_to():
     guarded = _focuser_post_guard(movement=True)
     if guarded is not None:
         return guarded
+    conflict = _focuser_motion_conflict()
+    if conflict is not None:
+        return conflict
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": "Invalid focuser payload."}), 400
@@ -483,6 +511,9 @@ def api_focuser_step():
     guarded = _focuser_post_guard(movement=True)
     if guarded is not None:
         return guarded
+    conflict = _focuser_motion_conflict()
+    if conflict is not None:
+        return conflict
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": "Invalid focuser payload."}), 400
@@ -526,6 +557,9 @@ def api_focuser_jog_start():
     guarded = _focuser_post_guard(movement=True)
     if guarded is not None:
         return guarded
+    conflict = _focuser_motion_conflict()
+    if conflict is not None:
+        return conflict
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": "Invalid focuser payload."}), 400

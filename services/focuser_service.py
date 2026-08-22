@@ -37,6 +37,8 @@ class FocuserService:
         self._slow_step = 20
         self._fast_step = 150
         self._settings_updated_at: str | None = None
+        self._motion_command: str | None = None
+        self._target_position: int | None = None
         self._load_settings()
 
     @staticmethod
@@ -159,6 +161,9 @@ class FocuserService:
         raw = dict(plugin.status() or {})
         # Position is deliberately read from the device, not from cached status.
         raw["position"] = plugin.get_position()
+        if self._motion_command in ("go", "home") and not raw.get("moving"):
+            self._motion_command = None
+            self._target_position = None
         return {
             "connected": bool(plugin.connected),
             "position": raw.get("position"),
@@ -173,6 +178,8 @@ class FocuserService:
             "active_step": (
                 self._slow_step if self._mode == "slow" else self._fast_step
             ),
+            "motion_command": self._motion_command,
+            "target_position": self._target_position,
         }
 
     def status(self) -> dict:
@@ -196,17 +203,27 @@ class FocuserService:
                     "active_step": (
                         self._slow_step if self._mode == "slow" else self._fast_step
                     ),
+                    "motion_command": self._motion_command,
+                    "target_position": self._target_position,
                 }
             return self._status_locked(self._plugin_for_operation())
 
     def home(self, wait: bool = False) -> dict:
         """Move to the focuser's zero position."""
-        return self.move_to(0, wait=wait)
+        return self.move_to(0, wait=wait, _motion_command="home")
 
-    def move_to(self, position: int, wait: bool = False) -> dict:
+    def move_to(
+        self,
+        position: int,
+        wait: bool = False,
+        _motion_command: str = "go",
+    ) -> dict:
         with self._lock:
             plugin = self._plugin_for_operation()
-            plugin.move_to(int(position), wait=wait)
+            target_position = int(position)
+            plugin.move_to(target_position, wait=wait)
+            self._motion_command = _motion_command
+            self._target_position = target_position
             return self._status_locked(plugin)
 
     def move_relative(self, delta: int, wait: bool = False) -> dict:
@@ -229,11 +246,15 @@ class FocuserService:
                 self._plugin_direction(direction),
                 "coarse" if self._mode == "fast" else "fine",
             )
+            self._motion_command = "jog"
+            self._target_position = None
             return self._status_locked(plugin)
 
     def stop_jog(self) -> dict:
         """Stop continuous motion; repeated calls are harmless."""
         with self._lock:
+            self._motion_command = None
+            self._target_position = None
             active, plugin_id = self._selection()
             if not active or plugin_id == "none":
                 self._close_locked()
@@ -245,6 +266,8 @@ class FocuserService:
     def stop(self) -> dict:
         """Stop all motion; repeated calls are harmless."""
         with self._lock:
+            self._motion_command = None
+            self._target_position = None
             active, plugin_id = self._selection()
             if not active or plugin_id == "none":
                 self._close_locked()

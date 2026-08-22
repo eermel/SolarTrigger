@@ -19,8 +19,12 @@ import flask_app.app as flask_module
 class RecordingPlugin:
     def __init__(self):
         self.connected = False
+        self.position = 100
+        self.moving = False
+        self.absolute_moves = []
         self.relative_moves = []
         self.jog_calls = []
+        self.stop_calls = 0
 
     def connect(self):
         self.connected = True
@@ -29,10 +33,19 @@ class RecordingPlugin:
         self.connected = False
 
     def status(self):
-        return {"moving": False, "holding": False}
+        return {"moving": self.moving, "holding": False}
 
     def get_position(self):
-        return 100
+        return self.position
+
+    def move_to(self, position, wait=False):
+        self.position = position
+        self.moving = True
+        self.absolute_moves.append(position)
+
+    def stop(self):
+        self.stop_calls += 1
+        self.moving = False
 
     def move_relative(self, delta, wait=False):
         self.relative_moves.append(delta)
@@ -157,6 +170,42 @@ def test_mode_endpoint_is_authoritative_for_step_and_jog(focuser_api):
     assert jog.status_code == 200
     assert plugin.relative_moves == [-240]
     assert plugin.jog_calls == [(DIR_OUT, "coarse")]
+
+
+def test_stop_endpoint_is_idempotent_and_reports_live_position(focuser_api):
+    client, service, plugin = focuser_api
+    started = service.home()
+    assert started["motion_command"] == "home"
+    assert plugin.absolute_moves == [0]
+    plugin.position = 73
+
+    first = client.post("/api/focuser/stop")
+    second = client.post("/api/focuser/stop")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.get_json()["position"] == 73
+    assert second.get_json()["position"] == 73
+    assert second.get_json() == first.get_json()
+    assert plugin.stop_calls == 2
+
+
+def test_status_clears_motion_state_after_natural_completion(focuser_api):
+    client, _, plugin = focuser_api
+
+    started = client.post("/api/focuser/move_to", json={"position": 321})
+
+    assert started.status_code == 200
+    assert started.get_json()["motion_command"] == "go"
+    assert started.get_json()["target_position"] == 321
+    assert plugin.absolute_moves == [321]
+
+    plugin.moving = False
+    completed = client.get("/api/focuser/status")
+
+    assert completed.status_code == 200
+    assert completed.get_json()["motion_command"] is None
+    assert completed.get_json()["target_position"] is None
 
 
 @pytest.mark.parametrize(

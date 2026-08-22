@@ -527,19 +527,34 @@ header {
 .toggle.on::after { transform: translateX(20px); background: var(--green); }
 
 .focuser-mode-switch {
-  display: inline-flex; align-items: center; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   font-family: var(--mono); font-size: 11px;
 }
-.focuser-mode-switch .toggle { display: inline-block; }
-.focuser-mode-switch input { position: absolute; opacity: 0; pointer-events: none; }
-.focuser-mode-switch input:focus-visible + .toggle {
+.focuser-mode-switch #focuser-step-fast { flex: 1 1 120px; }
+.focuser-mode-switch input[role="switch"] {
+  appearance: none; width: 46px; height: 26px; margin: 0; border-radius: 13px;
+  background: var(--bg3); border: 1px solid var(--border);
+  position: relative; cursor: pointer; transition: background .2s; flex-shrink: 0;
+}
+.focuser-mode-switch input[role="switch"]::after {
+  content: ''; position: absolute;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--text-dim); top: 2px; left: 2px;
+  transition: transform .2s, background .2s;
+}
+.focuser-mode-switch input[role="switch"]:focus-visible {
   outline: 2px solid var(--blue); outline-offset: 2px;
 }
-.focuser-mode-switch input:checked + .toggle {
+.focuser-mode-switch input[role="switch"]:checked {
   background: rgba(61,220,132,.3); border-color: var(--green);
 }
-.focuser-mode-switch input:checked + .toggle::after {
+.focuser-mode-switch input[role="switch"]:checked::after {
   transform: translateX(20px); background: var(--green);
+}
+.focuser-cancel {
+  background: var(--red);
+  color: white;
+  border-color: var(--red);
 }
 
 /* ── NOTIFICATION FLASH ── */
@@ -1003,17 +1018,8 @@ header {
             </div>
             <div class="field">
               <label for="focuser-step-fast">PAS RAPIDE</label>
-              <input type="number" id="focuser-step-fast" min="1" value="800">
+              <div class="focuser-mode-switch"><input type="number" id="focuser-step-fast" min="1" value="800"><label for="focuser-speed-switch">Slow</label><input type="checkbox" id="focuser-speed-switch" data-focuser-control="speed-switch" role="switch" aria-label="Focuser speed mode"><label for="focuser-speed-switch">Fast</label></div>
             </div>
-          </div>
-
-          <div style="display:flex;justify-content:center;margin-top:12px">
-            <label class="focuser-mode-switch">
-              <span>Slow</span>
-              <input type="checkbox" id="focuser-speed-switch" data-focuser-control="speed-switch" role="switch" aria-label="Focuser speed mode">
-              <span class="toggle" aria-hidden="true"></span>
-              <span>Fast</span>
-            </label>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
             <button class="btn btn-primary" id="btn-focuser-minus" data-focuser-direction="minus">−</button>
@@ -1502,7 +1508,11 @@ socket.on('play_sound', d => {
   const slowStep = document.getElementById('focuser-step-slow');
   const fastStep = document.getElementById('focuser-step-fast');
   const speedSwitch = document.getElementById('focuser-speed-switch');
+  const goButton = document.getElementById('btn-focuser-go');
+  const homeButton = document.getElementById('btn-focuser-home');
+  const directionButtons = document.querySelectorAll('[data-focuser-direction]');
   let active = false;
+  let absoluteMotion = null;
   let press = null;
   let pollTimer = null;
 
@@ -1516,6 +1526,21 @@ socket.on('play_sound', d => {
     if (data.mode === 'slow' || data.mode === 'fast') {
       speedSwitch.checked = data.mode === 'fast';
     }
+    absoluteMotion = data.moving === true && (data.motion_command === 'go' || data.motion_command === 'home')
+      ? data.motion_command
+      : null;
+    const controlsEnabled = active && state.phase === 'idle';
+    [goButton, homeButton].forEach(button => {
+      const isCancel = button.dataset.focuserAction === absoluteMotion;
+      button.textContent = isCancel ? 'Cancel' : (button.dataset.focuserAction === 'go' ? 'Go' : 'Home');
+      button.classList.toggle('focuser-cancel', isCancel);
+      button.disabled = absoluteMotion ? !isCancel : !controlsEnabled;
+    });
+    const disableOtherControls = Boolean(absoluteMotion) || !controlsEnabled;
+    directionButtons.forEach(button => { button.disabled = disableOtherControls; });
+    slowStep.disabled = disableOtherControls;
+    fastStep.disabled = disableOtherControls;
+    speedSwitch.disabled = disableOtherControls;
     schedulePoll(data.moving === true ? 400 : 1500);
   }
 
@@ -1570,10 +1595,19 @@ socket.on('play_sound', d => {
     }).catch(error => flash(`Focuseur : ${error.message}`, 'red'));
   }
 
-  document.getElementById('btn-focuser-home').addEventListener('click', () => {
-    post('/api/focuser/home');
+  function cancelAbsoluteMotion() {
+    post('/api/focuser/stop');
+  }
+
+  homeButton.addEventListener('click', () => {
+    if (absoluteMotion === 'home') cancelAbsoluteMotion();
+    else post('/api/focuser/home');
   });
-  document.getElementById('btn-focuser-go').addEventListener('click', () => {
+  goButton.addEventListener('click', () => {
+    if (absoluteMotion === 'go') {
+      cancelAbsoluteMotion();
+      return;
+    }
     const requestedPosition = Number.parseInt(target.value, 10);
     if (Number.isInteger(requestedPosition)) post('/api/focuser/move_to', {position: requestedPosition});
   });
