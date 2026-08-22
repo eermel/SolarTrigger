@@ -1,0 +1,202 @@
+import json
+import sys
+from types import ModuleType
+
+import pytest
+
+from backend.state_store import StateStore
+
+
+pytest.importorskip("flask")
+pytest.importorskip("flask_socketio")
+sys.modules.setdefault("gphoto2", ModuleType("gphoto2"))
+
+import flask_app.app as flask_module
+
+
+@pytest.fixture
+def save_routes(tmp_path, monkeypatch):
+    configs_dir = tmp_path / "configs"
+    state_store = StateStore(tmp_path / "state.json")
+    emitted = []
+
+    monkeypatch.setattr(flask_module, "CONFIGS_DIR", configs_dir)
+    monkeypatch.setattr(flask_module, "_state_store", state_store)
+    monkeypatch.setattr(flask_module, "_state", state_store.data)
+    monkeypatch.setattr(flask_module, "_state_lock", state_store.lock)
+    monkeypatch.setattr(flask_module, "_append_log", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        flask_module.socketio,
+        "emit",
+        lambda event, payload: emitted.append((event, payload)),
+    )
+
+    return flask_module.app.test_client(), configs_dir, state_store, emitted
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "requested_filename", "saved_filename", "data"),
+    [
+        (
+            "/api/configs/save",
+            "eclipse_2027",
+            "eclipse_2027.json",
+            {"_date": "2027-08-02", "title": "Éclipse totale 2027"},
+        ),
+        (
+            "/api/configs/save_camera",
+            "test",
+            "camera_test.json",
+            {"_type": "capture", "iso": 100},
+        ),
+    ],
+)
+def test_config_save_new_file_returns_summary_without_state_update(
+    save_routes,
+    monkeypatch,
+    endpoint,
+    requested_filename,
+    saved_filename,
+    data,
+):
+    client, configs_dir, state_store, emitted = save_routes
+    initial_state = state_store.snapshot()
+    if endpoint == "/api/configs/save":
+        monkeypatch.setattr(flask_module, "_load_eclipse_json", lambda: data)
+        body = {"filename": requested_filename}
+    else:
+        body = {"filename": requested_filename, "data": data}
+
+    response = client.post(endpoint, json=body)
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "ok",
+        "filename": saved_filename,
+        "saved": {"filename": saved_filename, "data": data},
+    }
+    assert json.loads((configs_dir / saved_filename).read_text(encoding="utf-8")) == data
+    assert state_store.snapshot() == initial_state
+    assert emitted == []
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "filename", "body"),
+    [
+        ("/api/configs/save", "existing.json", {"filename": "existing.json"}),
+        (
+            "/api/configs/save_camera",
+            "camera_existing.json",
+            {"filename": "existing.json", "data": {"iso": 200}},
+        ),
+    ],
+)
+def test_config_save_collision_without_overwrite_returns_409(
+    save_routes, monkeypatch, endpoint, filename, body
+):
+    client, configs_dir, state_store, emitted = save_routes
+    configs_dir.mkdir()
+    original = {"original": True}
+    (configs_dir / filename).write_text(json.dumps(original), encoding="utf-8")
+    if endpoint == "/api/configs/save":
+        monkeypatch.setattr(
+            flask_module, "_load_eclipse_json", lambda: {"replacement": True}
+        )
+    initial_state = state_store.snapshot()
+
+    response = client.post(endpoint, json=body)
+
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "error": "Le fichier existe déjà",
+        "filename": filename,
+    }
+    assert json.loads((configs_dir / filename).read_text(encoding="utf-8")) == original
+    assert state_store.snapshot() == initial_state
+    assert emitted == []
+
+
+def test_config_save_overwrites_active_circumstances_and_emits_status(
+    save_routes, monkeypatch
+):
+    client, configs_dir, state_store, emitted = save_routes
+    filename = "todayeclipse.json"
+    data = {
+        "_date": "2027-08-02",
+        "_date_utc": "2027-08-02",
+        "title": "Éclipse totale 2027",
+        "_type": "total",
+        "C1_local": "10:10:00",
+        "TMAX_local": "11:30:00",
+    }
+    configs_dir.mkdir()
+    (configs_dir / filename).write_text("{}", encoding="utf-8")
+    state_store.update_section(
+        "circumstances",
+        {"loaded": True, "active_file": filename, "meta": {"title": "Ancien"}},
+    )
+    monkeypatch.setattr(flask_module, "_load_eclipse_json", lambda: data)
+
+    response = client.post(
+        "/api/configs/save", json={"filename": filename, "overwrite": True}
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    circumstances = state_store.snapshot("circumstances")
+    assert payload == {
+        "status": "ok",
+        "filename": filename,
+        "circumstances": circumstances,
+    }
+    assert circumstances == {
+        "loaded": True,
+        "active_file": filename,
+        "meta": {
+            "_date": "2027-08-02",
+            "_date_utc": "2027-08-02",
+            "title": "Éclipse totale 2027",
+            "_type": "total",
+            "phases_local": {"C1": "10:10:00", "TMAX": "11:30:00"},
+        },
+    }
+    assert emitted == [
+        (
+            "status_update",
+            {"circumstances": circumstances, "time": emitted[0][1]["time"]},
+        )
+    ]
+    assert set(emitted[0][1]["time"]) == {"epoch_ms", "local", "utc"}
+    assert json.loads((configs_dir / filename).read_text(encoding="utf-8")) == data
+
+
+def test_config_save_camera_overwrites_active_capture_and_emits_status(save_routes):
+    client, configs_dir, state_store, emitted = save_routes
+    filename = "camera_active.json"
+    data = {"_type": "capture", "_comment": "Réglages totalité", "iso": 400}
+    configs_dir.mkdir()
+    (configs_dir / filename).write_text("{}", encoding="utf-8")
+    state_store.update_section(
+        "capture",
+        {"loaded": True, "active_file": filename, "meta": {"_comment": "Ancien"}},
+    )
+
+    response = client.post(
+        "/api/configs/save_camera",
+        json={"filename": filename, "data": data, "overwrite": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    capture = state_store.snapshot("capture")
+    assert payload == {"status": "ok", "filename": filename, "capture": capture}
+    assert capture == {
+        "loaded": True,
+        "active_file": filename,
+        "meta": {"_type": "capture", "_comment": "Réglages totalité"},
+    }
+    assert emitted == [
+        ("status_update", {"capture": capture, "time": emitted[0][1]["time"]})
+    ]
+    assert set(emitted[0][1]["time"]) == {"epoch_ms", "local", "utc"}
+    assert json.loads((configs_dir / filename).read_text(encoding="utf-8")) == data

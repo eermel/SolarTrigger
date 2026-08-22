@@ -689,10 +689,38 @@ def api_configs_save_camera():
     filename = Path(filename).name
     try:
         CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIGS_DIR / filename, "w", encoding="utf-8") as f:
+        destination = CONFIGS_DIR / filename
+        overwriting = destination.exists()
+        if overwriting and body.get("overwrite") is not True:
+            return jsonify({"error": "Le fichier existe déjà", "filename": filename}), 409
+        with open(destination, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         _append_log(f"💾 Config appareil sauvegardée : {filename}", "success", "system")
-        return jsonify({"status": "ok", "filename": filename})
+
+        capture = _state_store.snapshot("capture")
+        if (overwriting and body.get("overwrite") is True
+                and capture.get("active_file") == filename):
+            meta = {
+                key: data[key]
+                for key in ("_type", "_comment")
+                if key in data
+            }
+            capture = _state_store.update_section(
+                "capture",
+                {"loaded": True, "active_file": filename, "meta": meta},
+                persist=True,
+            )
+            socketio.emit("status_update", {
+                "capture": capture,
+                "time": _time_payload(),
+            })
+            return jsonify({"status": "ok", "filename": filename, "capture": capture})
+
+        return jsonify({
+            "status": "ok",
+            "filename": filename,
+            "saved": {"filename": filename, "data": data},
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -712,10 +740,49 @@ def api_configs_save():
         return jsonify({"error": "Aucune configuration active"}), 400
     try:
         CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIGS_DIR / filename, "w", encoding="utf-8") as f:
+        destination = CONFIGS_DIR / filename
+        overwriting = destination.exists()
+        if overwriting and body.get("overwrite") is not True:
+            return jsonify({"error": "Le fichier existe déjà", "filename": filename}), 409
+        with open(destination, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         _append_log(f"💾 Config sauvegardée : {filename}", "success", "system")
-        return jsonify({"status": "ok", "filename": filename})
+
+        circumstances = _state_store.snapshot("circumstances")
+        if (overwriting and body.get("overwrite") is True
+                and circumstances.get("active_file") == filename):
+            meta = {
+                key: data[key]
+                for key in ("_date", "_date_utc", "title", "_type")
+                if key in data
+            }
+            phases_local = {
+                phase: data[f"{phase}_local"]
+                for phase in ("C1", "C2", "TMAX", "C3", "C4")
+                if f"{phase}_local" in data
+            }
+            if phases_local:
+                meta["phases_local"] = phases_local
+            circumstances = _state_store.update_section(
+                "circumstances",
+                {"loaded": True, "active_file": filename, "meta": meta},
+                persist=True,
+            )
+            socketio.emit("status_update", {
+                "circumstances": circumstances,
+                "time": _time_payload(),
+            })
+            return jsonify({
+                "status": "ok",
+                "filename": filename,
+                "circumstances": circumstances,
+            })
+
+        return jsonify({
+            "status": "ok",
+            "filename": filename,
+            "saved": {"filename": filename, "data": data},
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
