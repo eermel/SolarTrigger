@@ -4,6 +4,9 @@ import subprocess
 import sys
 import types
 
+from plugins.camera.base import CameraPlugin
+from services.camera_service import CameraService, CaptureIntent
+
 if "gphoto2" not in sys.modules:
     sys.modules["gphoto2"] = types.SimpleNamespace(
         GP_LOG_ERROR=0,
@@ -43,6 +46,82 @@ def test_build_capture_canonical_from_minimal_v2():
     assert canonical == capture
     assert set(canonical["phases"]) == {"partial", "diamond_ring", "totality"}
     assert canonical["exposure_correction"]["atmospheric_attenuation_enabled"] is True
+
+
+def test_prepare_capture_tokenizes_inclusive_bounds_fastest_to_slowest():
+    class TokenPlugin:
+        name = "token-spy"
+
+        def prepare_capture(self, intent):
+            return CameraPlugin.prepare_capture(self, intent)
+
+    service = CameraService()
+    service.plugin = TokenPlugin()
+    intent = CaptureIntent(
+        shutter_min="1/125",
+        shutter_max="1/1000",
+        step_ev=1.0,
+        speeds=None,
+        phase="totality",
+        target_time=None,
+        deadline=None,
+        overflow_policy="truncate",
+    )
+
+    prepared = service.prepare_capture(intent)
+
+    assert prepared.token == ("speeds", "1/1000", "1/125", 1.0, None)
+    simulation = trigger._SimulationCameraService().prepare_capture(intent)
+    assert simulation.token[1] == ["1/1000", "1/500", "1/250", "1/125"]
+
+
+@pytest.mark.parametrize(
+    ("phase_name", "expected_speeds", "expected_aperture", "expected_iso"),
+    [
+        ("partial", ["1/640"], "f/8", 100),
+        ("diamond_ring", ["1/1250"], "f/11", 200),
+        ("totality", ["1/4", "1/2"], "f/5.6", 400),
+    ],
+)
+def test_each_phase_builds_intent_from_canonical_capture(
+    monkeypatch,
+    phase_name,
+    expected_speeds,
+    expected_aperture,
+    expected_iso,
+):
+    canonical = trigger.build_capture_canonical(_minimal_capture_v2())
+    canonical["exposure_correction"]["atmospheric_attenuation_enabled"] = False
+    monkeypatch.setattr(trigger, "capture_canonical", canonical)
+
+    phase = trigger.capture_phase(phase_name)
+    intent = trigger._capture_intent(phase, phase_name, target_time=None)
+
+    assert phase["aperture"] == expected_aperture
+    assert phase["iso"] == expected_iso
+    assert intent.speeds == expected_speeds
+    assert intent.phase == phase_name
+
+
+def test_legacy_configuration_is_canonicalized_before_capture_engine(monkeypatch):
+    legacy = {
+        "partial": {
+            "speeds": ["1/1000", "1/500"],
+            "aperture": "f/8",
+            "iso": 100,
+        },
+        "diamond_ring": {"speeds": ["1/2000"]},
+        "totality": {"speeds": ["1/8", "1/4"]},
+    }
+    canonical = trigger.build_legacy_capture_canonical({}, legacy)
+    monkeypatch.setattr(trigger, "capture_canonical", canonical)
+
+    phase = trigger.capture_phase("partial")
+    intent = trigger._capture_intent(phase, "partial", target_time=None)
+
+    assert set(canonical) == {"phases", "exposure_correction"}
+    assert phase is canonical["phases"]["partial"]
+    assert intent.speeds == ["1/1000", "1/500"]
 
 
 def test_dry_run_uses_same_canonical_phase_parameters_as_real_run(tmp_path):
