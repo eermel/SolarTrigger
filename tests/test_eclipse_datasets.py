@@ -3,10 +3,15 @@ from pathlib import Path
 
 import pytest
 
-from scripts.eclipse_dataset_builder import build_all
+from scripts.eclipse_dataset_builder import (
+    DEFAULT_INDEX_PATH,
+    build_all,
+    discover_eclipses,
+)
 
 
 DATASETS_DIR = Path(__file__).parents[1] / "data" / "eclipses"
+MIN_PUBLISHED_ECLIPSE_DATE = '2026-08-12'
 MINIMAL_ECLIPSES = [
     ("2026-08-12", 59),
     ("2027-08-02", 61),
@@ -25,6 +30,33 @@ ELEMENT_KEYS = {
 
 def _read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_published_datasets_match_discovered_with_min_date():
+    discovered = discover_eclipses(DEFAULT_INDEX_PATH)
+    expected = [
+        eclipse
+        for eclipse in discovered
+        if eclipse["date"] >= MIN_PUBLISHED_ECLIPSE_DATE
+    ]
+    registry = _read_json(DATASETS_DIR / "registry.json")
+    published_dates = [
+        eclipse["date"]
+        for eclipse in registry["eclipses"]
+        if eclipse["date"] >= MIN_PUBLISHED_ECLIPSE_DATE
+    ]
+
+    assert len(published_dates) == len(expected)
+    assert set(published_dates) == set(eclipse["date"] for eclipse in expected)
+
+    dataset_files = {
+        path.name
+        for path in DATASETS_DIR.glob("*.json")
+        if path.name != "registry.json"
+        and path.stem >= MIN_PUBLISHED_ECLIPSE_DATE
+    }
+    assert len(dataset_files) == len(expected)
+    assert all(f'{eclipse["date"]}.json' in dataset_files for eclipse in expected)
 
 
 @pytest.mark.parametrize(("date_iso", "expected_val"), MINIMAL_ECLIPSES)
