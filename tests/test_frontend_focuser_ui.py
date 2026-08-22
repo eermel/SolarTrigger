@@ -102,13 +102,13 @@ def test_existing_top_level_navigation_is_unchanged():
 
 def test_slow_fast_switch_is_present_with_constant_labels():
     assert re.search(
-        r'<label[^>]*class=["\'][^"\']*\bfocuser-mode-switch\b[^"\']*["\'][^>]*>'
-        r'.*?<span>\s*Slow\s*</span>'
-        r'.*?<input[^>]*id=["\']focuser-speed-switch["\'][^>]*role=["\']switch["\'][^>]*>'
-        r'.*?<span[^>]*class=["\'][^"\']*\btoggle\b[^"\']*["\'][^>]*>'
-        r'.*?<span>\s*Fast\s*</span>',
+        r'<div[^>]*class=["\'][^"\']*\bfocuser-mode-switch\b[^"\']*["\'][^>]*>'
+        r'<input[^>]*id=["\']focuser-step-fast["\'][^>]*>'
+        r'<label[^>]*>\s*Slow\s*</label>'
+        r'<input(?=[^>]*id=["\']focuser-speed-switch["\'])(?=[^>]*role=["\']switch["\'])[^>]*>'
+        r'<label[^>]*>\s*Fast\s*</label>'
+        r'</div>',
         FOCUSER_HTML,
-        re.DOTALL,
     )
 
 
