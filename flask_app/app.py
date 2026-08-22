@@ -441,6 +441,20 @@ def api_focuser_status():
     return jsonify(status)
 
 
+@app.route("/api/focuser/mode", methods=["POST"])
+def api_focuser_mode():
+    guarded = _focuser_post_guard()
+    if guarded is not None:
+        return guarded
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    mode = payload.get("mode")
+    if mode not in ("slow", "fast"):
+        return jsonify({"error": "Field 'mode' must be 'slow' or 'fast'."}), 400
+    return _focuser_result(_focuser_service.set_mode(mode))
+
+
 @app.route("/api/focuser/home", methods=["POST"])
 def api_focuser_home():
     guarded = _focuser_post_guard(movement=True)
