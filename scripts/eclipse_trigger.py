@@ -1380,9 +1380,20 @@ def main():
         if _sim_mode or args.dry_run:
             if _sim_mode:
                 _log(f"{Colors.PINK}⚡ SIM : accès matériel caméra totalement désactivé{Colors.RESET}")
+                camera_service = _SimulationCameraService()
             else:
                 _log(f"{Colors.PINK}🧪 DRY-RUN : chemin matériel caméra identique au mode réel{Colors.RESET}")
-            camera_service = _SimulationCameraService()
+                unmount_camera()
+                camera_service = CameraService(log_fn=_log, clock=_runtime_clock)
+                try:
+                    plugin = camera_service.connect()
+                except Exception as exc:
+                    _log(f"{Colors.RED}Caméra/plugin non initialisé : {exc}{Colors.RESET}")
+                    return
+                _log(f"{Colors.GREEN}### INIT - CAMERA CONFIGURATION ({plugin.name}){Colors.RESET}")
+                camera_service.init_settings(aperture=aperture_partial, iso=iso_partial)
+                time.sleep(1)
+                get_battery_level(camera_service)
         else:
             unmount_camera()
             camera_service = CameraService(log_fn=_log, clock=_runtime_clock)
