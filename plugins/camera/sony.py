@@ -27,7 +27,12 @@ import time
 
 import gphoto2 as gp
 
-from .base import CameraPlugin, CaptureResult, seconds_until_deadline
+from .base import (
+    CameraPlugin,
+    CaptureResult,
+    _normalized_speed_plan,
+    seconds_until_deadline,
+)
 from . import sony_planner as planner
 
 READONLY_RETRY_S = 6.0     # duree max de retry sur 'read only'
@@ -199,12 +204,66 @@ class SonyPlugin(CameraPlugin):
     # ------------------------------------------------------------------ #
     # API moteur
     # ------------------------------------------------------------------ #
-    def shoot_speeds(self, v_max, v_min, step_il, photo_num_start=0,
-                     deadline=None):
-        step, n_frames, seq = planner.plan(v_max, v_min, step_il)
+    @staticmethod
+    def _sequence_exposures(seq):
+        exposures = []
+        for item in seq:
+            if isinstance(item, planner.SinglePhoto):
+                exposures.append(planner.parse_speed(item.speed))
+            else:
+                exposures.extend(planner.parse_speed(view)
+                                 for view in item.views)
+        return exposures
+
+    @staticmethod
+    def _planned_count(seq):
+        return sum(1 if isinstance(item, planner.SinglePhoto) else item.nimg
+                   for item in seq)
+
+    def prepare_capture(self, intent):
+        """Build the Sony shutter sequence and its estimates without firing."""
+        from services.camera_service import PreparedCapture
+
+        if intent.speeds:
+            speeds = [str(speed) for speed in intent.speeds]
+            fastest, slowest, step_il, regular = _normalized_speed_plan(speeds)
+            if regular:
+                step, _, seq = planner.plan(fastest, slowest, step_il)
+                description = f"{fastest}->{slowest} @ {step} IL"
+            else:
+                seq = [planner.SinglePhoto(speed) for speed in speeds]
+                description = "explicit speed list"
+        else:
+            fastest = intent.shutter_max or intent.shutter_min
+            slowest = intent.shutter_min or intent.shutter_max
+            if fastest is None:
+                raise ValueError("capture intent contains no shutter speeds")
+            step_il = float(intent.step_ev) if intent.step_ev is not None else 1.0
+            step, _, seq = planner.plan(str(fastest), str(slowest), step_il)
+            description = f"{fastest}->{slowest} @ {step} IL"
+
+        seq = tuple(seq)
+        return PreparedCapture(
+            token=("sony_sequence", seq, intent.deadline, description),
+            estimated_total_s=sum(planner.estimate_duration(item)
+                                  for item in seq),
+            exposures_s=self._sequence_exposures(seq),
+            planned_count=self._planned_count(seq),
+            plugin_name=self.name,
+        )
+
+    def trigger_prepared(self, prepared, deadline=None):
+        mode, seq, prepared_deadline, description = prepared.token
+        if mode != "sony_sequence":
+            raise ValueError(f"unsupported prepared capture mode: {mode!r}")
+        effective_deadline = (deadline if deadline is not None
+                              else prepared_deadline)
+        return self._execute_sequence(seq, effective_deadline, description)
+
+    def _execute_sequence(self, seq, deadline, description):
         planned = sum(1 if isinstance(x, planner.SinglePhoto) else x.nimg
                       for x in seq)
-        self.log(f"   [sony] plan {v_max}->{v_min} @ {step} IL : "
+        self.log(f"   [sony] plan {description} : "
                  f"{len(seq)} sequence(s), {planned} vues")
 
         total = 0
@@ -268,3 +327,9 @@ class SonyPlugin(CameraPlugin):
         return CaptureResult(frames=total, planned=planned,
                              detail=f"{len(seq)} seq"
                                     f"{' adapt' if adapted else ''}")
+
+    def shoot_speeds(self, v_max, v_min, step_il, photo_num_start=0,
+                     deadline=None):
+        step, _, seq = planner.plan(v_max, v_min, step_il)
+        description = f"{v_max}->{v_min} @ {step} IL"
+        return self._execute_sequence(seq, deadline, description)
