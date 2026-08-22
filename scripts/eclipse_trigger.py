@@ -1047,6 +1047,66 @@ def _c3_trigger_deadline(prepared, target, c3):
     return grace_deadline
 
 
+def _prepare_totality_sub_bracket(camera_service, speeds, target, c3):
+    """Select the largest plugin-accepted sub-bracket admissible near C3."""
+    capture = speeds if isinstance(speeds, dict) else {"speeds": speeds}
+    configured = capture.get("speeds")
+
+    # Ranged plans cannot be subset before the plugin expands them. Preserve
+    # their existing preparation path; explicit plans use DEV-001 selection.
+    if not isinstance(configured, (list, tuple)) or len(configured) < 2:
+        intent = _capture_intent(speeds, "phase2", target, c3)
+        prepared = camera_service.prepare_capture(intent)
+        return prepared, _c3_trigger_deadline(prepared, target, c3)
+
+    total_size = len(configured)
+    for candidate_size in range(total_size, 1, -1):
+        indices = _select_uniform_indices(configured, candidate_size)
+        candidate = dict(capture)
+        candidate["speeds"] = [configured[index] for index in indices]
+        try:
+            intent = _capture_intent(candidate, "phase2", target, c3)
+            prepared = camera_service.prepare_capture(intent)
+        except Exception as exc:
+            _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+                 f"candidate_m={candidate_size} accepted=false "
+                 f"reason=prepare error={type(exc).__name__}: {exc}")
+            continue
+
+        trigger_deadline = _c3_trigger_deadline(prepared, target, c3)
+        if trigger_deadline is not None:
+            _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+                 f"candidate_m={candidate_size} accepted=true")
+            return prepared, trigger_deadline
+
+        _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+             f"candidate_m={candidate_size} accepted=false "
+             "reason=duration_or_exposure_policy")
+
+    # Delegate M=1 to the single-exposure path: the fastest configured
+    # exposure is prepared by the plugin and admitted by the same C3 policy.
+    candidate = dict(capture)
+    candidate["speeds"] = [configured[0]]
+    try:
+        intent = _capture_intent(candidate, "phase2", target, c3)
+        prepared = camera_service.prepare_capture(intent)
+    except Exception as exc:
+        _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+             "candidate_m=1 accepted=false "
+             f"reason=prepare error={type(exc).__name__}: {exc}")
+        return None, None
+
+    trigger_deadline = _c3_trigger_deadline(prepared, target, c3)
+    if trigger_deadline is not None:
+        _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+             "candidate_m=1 accepted=true")
+        return prepared, trigger_deadline
+
+    _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+         "candidate_m=1 accepted=false reason=duration_or_exposure_policy")
+    return None, None
+
+
 def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
                        interval_s, aperture=None, iso=None, deadline=None,
                        photo_num_start=1):
@@ -1068,16 +1128,25 @@ def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
             break
         prep_start = time.perf_counter()
         try:
-            intent = _capture_intent(speeds, phase, target, deadline)
-            prepared = camera_service.prepare_capture(intent)
+            if phase == "phase2" and deadline is not None:
+                prepared, trigger_deadline = _prepare_totality_sub_bracket(
+                    camera_service, speeds, target, deadline,
+                )
+                if prepared is None:
+                    _log(f"WARNING scheduler phase={phase} target={target.isoformat()} "
+                         "c3_overflow=refused reason=no_admissible_sub_bracket")
+                    target += timedelta(seconds=interval_s)
+                    continue
+            else:
+                intent = _capture_intent(speeds, phase, target, deadline)
+                prepared = camera_service.prepare_capture(intent)
+                trigger_deadline = deadline
         except Exception as exc:
             _log(f"ERROR scheduler phase={phase} target={target.isoformat()} "
                  f"stage=prepare error={type(exc).__name__}: {exc}")
             target += timedelta(seconds=interval_s)
             continue
-        trigger_deadline = deadline
         if phase == "phase2" and deadline is not None:
-            trigger_deadline = _c3_trigger_deadline(prepared, target, deadline)
             estimated_total_s = getattr(prepared, "estimated_total_s", None)
             exposures_s = getattr(prepared, "exposures_s", None)
 
