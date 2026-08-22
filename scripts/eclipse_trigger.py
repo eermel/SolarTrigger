@@ -1124,6 +1124,80 @@ def _prepare_totality_sub_bracket(camera_service, speeds, target, c3):
     return None, None
 
 
+def _run_continuous_totality(
+    camera_service,
+    capture,
+    phase_start,
+    phase_end,
+    aperture=None,
+    iso=None,
+    photo_num_start=1,
+):
+    """Capture totality brackets back-to-back using the modern prepared contract."""
+    _log("INFO scheduler phase=phase2 mode=continuous")
+
+    camera_service.apply_phase_settings(aperture=aperture, iso=iso)
+
+    photo_num = photo_num_start
+    bracket = 1
+
+    while now() < phase_end:
+        target = now()
+
+        try:
+            prepared, trigger_deadline = _prepare_totality_sub_bracket(
+                camera_service,
+                capture,
+                target,
+                phase_end,
+            )
+        except Exception as exc:
+            _log(
+                f"ERROR scheduler phase=phase2 mode=continuous "
+                f"stage=prepare error={type(exc).__name__}: {exc}"
+            )
+            break
+
+        if prepared is None:
+            break
+
+        trigger_started = now()
+
+        try:
+            result = camera_service.trigger_prepared(
+                prepared,
+                deadline=trigger_deadline,
+            )
+        except Exception as exc:
+            _log(
+                f"ERROR scheduler phase=phase2 mode=continuous "
+                f"stage=trigger error={type(exc).__name__}: {exc}"
+            )
+            break
+
+        frames = int(getattr(result, "frames", 0) or 0)
+
+        if frames > 0:
+            _log(
+                f"{Colors.YELLOW}Bracket {bracket} "
+                f"[{frames} photos]{Colors.RESET}"
+            )
+            photo_num += frames
+            bracket += 1
+            _watchdog_write("shooting", target)
+
+        trigger_finished = now()
+
+        # Sécurité anti busy-loop uniquement.
+        # En fonctionnement normal la capture matérielle fait progresser le temps,
+        # donc aucun délai artificiel n'est ajouté entre deux brackets.
+        if frames <= 0 or trigger_finished <= trigger_started:
+            if now() < phase_end:
+                sleep_sim(0.05)
+
+    return photo_num
+
+
 def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
                        interval_s, aperture=None, iso=None, deadline=None,
                        photo_num_start=1):
@@ -1596,9 +1670,32 @@ def main():
                  f"jusqu'à +{C3_OVERFLOW_GRACE_S:g}s pour les poses "
                  f"≤ {SHORT_EXPOSURE_MAX_S:g}s ({format_hms_ms(C3)}){Colors.RESET}")
 
-            _run_absolute_grid(camera_service, "phase2", _totality_capture, C2,
-                               C3, float(interval_totality), aperture_totality,
-                               iso_totality, deadline=C3)
+            if interval_totality < 0:
+                _log(
+                    f"{Colors.RED}Intervalle totalité invalide : "
+                    f"{interval_totality}{Colors.RESET}"
+                )
+            elif interval_totality == 0:
+                _run_continuous_totality(
+                    camera_service,
+                    _totality_capture,
+                    C2,
+                    C3,
+                    aperture_totality,
+                    iso_totality,
+                )
+            else:
+                _run_absolute_grid(
+                    camera_service,
+                    "phase2",
+                    _totality_capture,
+                    C2,
+                    C3,
+                    float(interval_totality),
+                    aperture_totality,
+                    iso_totality,
+                    deadline=C3,
+                )
 
             ###
             ### PHASE 3a : DIAMOND RING -- C3 -> C3+duree_diamond_ring
