@@ -116,7 +116,8 @@ logging.basicConfig(
 from pathlib import Path
 from backend.trigger_runtime import RuntimeClock, TriggerWatchdog
 from backend.timeline import build_timeline, rebase_timeline, format_hms_ms
-from services.camera_service import CameraService
+from services.camera_service import CameraService, CaptureIntent, PreparedCapture
+from plugins.camera.base import CaptureResult
 from services.camera_service import _normalized_speed_plan as _norm_plan
 from backend.atmo import facteur_atmospherique, interpolate_altitude
 from backend import audio_service
@@ -549,10 +550,8 @@ def parse_shutterspeed(speed_str):
     return float(s)
 
 def _set_phase_exposure(camera_service, aperture=None, iso=None):
-    """Apply only phase-dependent exposure settings through the plugin."""
-    if _sim_mode or camera_service is None:
-        return
-    camera_service.set_exposure_settings(aperture=aperture, iso=iso)
+    """Apply phase-dependent settings once, through the service contract."""
+    camera_service.apply_phase_settings(aperture=aperture, iso=iso)
 
 def _sim_capture_speed_list(
     speeds,
@@ -649,8 +648,9 @@ def _format_seconds_as_speed(sec: float) -> str:
     frac = 1.0 / sec
     return f"1/{frac:g}"
 
-def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, deadline=None):
-    """Execute a requested speed list through the selected camera plugin."""
+def _capture_intent(speeds, phase, target_time, deadline=None):
+    """Build the brand-neutral intent for one absolute scheduler slot."""
+    intent_speeds = [str(speed) for speed in speeds]
     try:
         use_atmo = bool(cfg.get("atmo_compensation", False))
         slowest_override_seconds = None
@@ -691,13 +691,13 @@ def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, 
                     f"atmo_compensation actif : timestamp {exc.args[0]} manquant"
                 ) from exc
 
-            if next_shot_time is None:
+            if target_time is None:
                 raise RuntimeError(
                     "atmo_compensation actif : timestamp capture manquant"
                 )
 
             h = interpolate_altitude(
-                next_shot_time,
+                target_time,
                 tl,
                 alts,
             )
@@ -709,56 +709,157 @@ def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, 
 
             slowest_seconds = parse_shutterspeed(slowest)
 
-            slowest_override_seconds = (
-                slowest_seconds * float(facteur)
-            )
-
-        if _sim_mode:
-            return _sim_capture_speed_list(
-                speeds,
-                photo_num_start,
-                next_shot_time,
-                deadline,
-                slowest_override_seconds=slowest_override_seconds,
-            )
-
-        if camera_service is None:
-            _log(
-                f"{Colors.RED}Caméra indisponible : capture annulée{Colors.RESET}"
-            )
-            return 0
-
-        result = camera_service.shoot_speed_list(
-            speeds,
-            photo_num_start=photo_num_start,
-            deadline=deadline,
-            slowest_override_seconds=slowest_override_seconds,
-        )
-
-        if result.frames:
-            _watchdog_write("shooting", next_shot_time)
-
-        if result.frames != result.planned:
-            _log(
-                f"{Colors.YELLOW}"
-                f"Capture plugin : {result.frames}/{result.planned} vues "
-                f"({result.detail})"
-                f"{Colors.RESET}"
-            )
-        else:
-            _log(
-                f"{Colors.GREEN}"
-                f"Capture plugin : {result.frames}/{result.planned} vues "
-                f"({result.detail})"
-                f"{Colors.RESET}"
-            )
-
-        return result.frames
+            target_slowest = slowest_seconds * float(facteur)
+            next_exposure = slowest_seconds * (2.0 ** step_il)
+            while next_exposure < target_slowest:
+                intent_speeds.append(_format_seconds_as_speed(next_exposure))
+                next_exposure *= 2.0 ** step_il
+            if target_slowest > slowest_seconds:
+                intent_speeds.append(_format_seconds_as_speed(next_exposure))
 
     except Exception as exc:
-        _log(
-            f"{Colors.RED}Erreur plugin caméra : {exc}{Colors.RESET}"
+        raise RuntimeError(f"construction CaptureIntent impossible: {exc}") from exc
+
+    return CaptureIntent(
+        shutter_min=None, shutter_max=None, step_ev=None,
+        speeds=intent_speeds, phase=phase, target_time=target_time,
+        deadline=deadline, overflow_policy="truncate",
+    )
+
+
+class _SimulationCameraService:
+    """Shutter-free service implementing the same engine contract in simulation."""
+    def apply_phase_settings(self, aperture=None, iso=None):
+        _log(f"INFO scheduler phase_settings aperture={aperture} iso={iso}")
+
+    def prepare_capture(self, intent):
+        return PreparedCapture(
+            token=intent, estimated_total_s=sum(parse_shutterspeed(s) for s in intent.speeds),
+            exposures_s=[parse_shutterspeed(s) for s in intent.speeds],
+            planned_count=len(intent.speeds), plugin_name="simulation",
         )
+
+    def trigger_prepared(self, prepared, deadline=None):
+        intent = prepared.token
+        frames = _sim_capture_speed_list(
+            intent.speeds, 1, intent.target_time, deadline,
+        )
+        return CaptureResult(frames=frames, planned=len(intent.speeds), detail="simulation")
+
+    def close(self):
+        pass
+
+
+def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
+                       interval_s, aperture=None, iso=None, deadline=None,
+                       photo_num_start=1):
+    """Prepare early and trigger slots on an immutable absolute time grid."""
+    camera_service.apply_phase_settings(aperture=aperture, iso=iso)
+    target = first_target
+    bracket = 1
+    photo_num = photo_num_start
+    total = estimatedPhoto(first_target, phase_end, interval_s)
+
+    while target < phase_end:
+        skipped = 0
+        while target + timedelta(seconds=interval_s) <= now() and target < phase_end:
+            target += timedelta(seconds=interval_s)
+            skipped += 1
+        if skipped:
+            _log(f"WARNING scheduler phase={phase} missed_slots={skipped} next_target={target.isoformat()}")
+        if target >= phase_end:
+            break
+        prep_start = time.perf_counter()
+        try:
+            intent = _capture_intent(speeds, phase, target, deadline)
+            prepared = camera_service.prepare_capture(intent)
+        except Exception as exc:
+            _log(f"ERROR scheduler phase={phase} target={target.isoformat()} "
+                 f"stage=prepare error={type(exc).__name__}: {exc}")
+            target += timedelta(seconds=interval_s)
+            continue
+        prep_end = time.perf_counter()
+        wait_start = prep_end
+        _log(f"INFO scheduler phase={phase} target={target.isoformat()} "
+             f"prep_start={prep_start:.6f} prep_end={prep_end:.6f} wait_start={wait_start:.6f}")
+        _usb_wait_or_hold(camera_service, target, deadline=phase_end)
+        if now() >= phase_end:
+            break
+
+        shutter_cmd = time.perf_counter()
+        delay_s = max(0.0, (now() - target).total_seconds())
+        if delay_s > 0:
+            _log(f"WARNING scheduler phase={phase} target_delay_s={delay_s:.6f}")
+        try:
+            result = camera_service.trigger_prepared(prepared, deadline=deadline)
+        except Exception as exc:
+            shutter_return = time.perf_counter()
+            _log(f"ERROR scheduler phase={phase} target={target.isoformat()} "
+                 f"stage=trigger shutter_cmd={shutter_cmd:.6f} "
+                 f"shutter_return={shutter_return:.6f} "
+                 f"trigger_minus_target_s={delay_s:.6f} "
+                 f"error={type(exc).__name__}: {exc}")
+            target += timedelta(seconds=interval_s)
+            continue
+        shutter_return = time.perf_counter()
+        # The plugin owns event retrieval and settling; its return is the closest
+        # engine-observable point for both completions.
+        events_retrieval_complete = settle_complete = shutter_return
+        total_duration = settle_complete - prep_start
+        _log(f"INFO scheduler phase={phase} shutter_cmd={shutter_cmd:.6f} "
+             f"shutter_return={shutter_return:.6f} "
+             f"events_retrieval_complete={events_retrieval_complete:.6f} "
+             f"settle_complete={settle_complete:.6f} total_duration_s={total_duration:.6f} "
+             f"trigger_minus_target_s={delay_s:.6f}")
+
+        if result.frames:
+            _watchdog_write("shooting", target)
+            _log(f"{Colors.YELLOW}Bracket {bracket}/{total} [{result.frames} photos]{Colors.RESET}")
+            bracket += 1
+            photo_num += result.frames
+
+        target += timedelta(seconds=interval_s)
+        skipped = 0
+        while target + timedelta(seconds=interval_s) <= now() and target < phase_end:
+            target += timedelta(seconds=interval_s)
+            skipped += 1
+        if skipped:
+            _log(f"WARNING scheduler phase={phase} missed_slots={skipped} next_target={target.isoformat()}")
+        if target < phase_end:
+            _log(f"{Colors.CYAN}⏱ Prochaine photo : {target.strftime('%H:%M:%S')}{Colors.RESET}")
+    return photo_num
+
+
+def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, deadline=None):
+    """Compatibility adapter for callers outside the refactored runtime loops."""
+    try:
+        if _sim_mode:
+            return _sim_capture_speed_list(
+                speeds, photo_num_start, next_shot_time, deadline,
+            )
+        slowest_override_seconds = None
+        _, slowest, _, regular = _norm_plan([str(speed) for speed in speeds])
+        if cfg.get("atmo_compensation", False) and regular:
+            loc = cfg.get("_circumstances_location")
+            if not loc or loc.get("altitude_m") is None:
+                raise RuntimeError("altitude observateur manquante")
+            alts = {name: cfg.get(name) for name in (
+                "C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg", "C3_alt_deg", "C4_alt_deg"
+            )}
+            if any(value is None for value in alts.values()):
+                raise RuntimeError("altitudes de contact manquantes")
+            altitude = interpolate_altitude(next_shot_time, _timeline, alts)
+            slowest_override_seconds = (
+                parse_shutterspeed(slowest)
+                * facteur_atmospherique(altitude, float(loc["altitude_m"]))
+            )
+        result = camera_service.shoot_speed_list(
+            speeds, photo_num_start=photo_num_start, deadline=deadline,
+            slowest_override_seconds=slowest_override_seconds,
+        )
+        return result.frames if result is not None else 0
+    except Exception as exc:
+        _log(f"{Colors.RED}Erreur plugin caméra : {exc}{Colors.RESET}")
         return 0
 
 def attendre_heure(heure_cible):
@@ -965,6 +1066,7 @@ def main():
         camera_service = None
         if _sim_mode:
             _log(f"{Colors.PINK}⚡ SIM : accès matériel caméra totalement désactivé{Colors.RESET}")
+            camera_service = _SimulationCameraService()
         else:
             unmount_camera()
             camera_service = CameraService(log_fn=_log, clock=_runtime_clock)
@@ -1034,25 +1136,10 @@ def main():
             nbBracket = 1
             nbPhoto   = 1
             fin_phase_1a = C2 - timedelta(seconds=duree_diamond_ring)
-            while now() < fin_phase_1a:
-                try:
-                    if now() >= next_shot_time:
-                        n = capture_speed_list(camera_service, speeds_partial, nbPhoto, next_shot_time, deadline=fin_phase_1a)
-                        if n > 0:
-                            _log(f"{Colors.YELLOW}Bracket {nbBracket}/{nbTotalBracket} [{n} photos]{Colors.RESET}")
-                            nbBracket += 1
-                            nbPhoto   += n
-                            next_shot_time = now() + timedelta(seconds=interval_partial)
-                            if now() < fin_phase_1a:
-                                _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
-                            # Ne pas attendre si la prochaine photo est après fin_phase_1a
-                            # → sortir immédiatement pour enchaîner sur le diamond ring
-                            if next_shot_time >= fin_phase_1a:
-                                break
-                            _usb_wait_or_hold(camera_service, next_shot_time, deadline=fin_phase_1a)
-                except gp.GPhoto2Error as e:
-                    _log(f"{Colors.YELLOW}Erreur USB : {e} — retry au prochain intervalle{Colors.RESET}")
-                time.sleep(0.1)
+            _run_absolute_grid(camera_service, "phase1a", speeds_partial,
+                               next_shot_time, fin_phase_1a, interval_partial,
+                               aperture_partial, iso_partial,
+                               deadline=fin_phase_1a)
 
             ###
             ### PHASE 1b : DIAMOND RING -- C2-duree_diamond_ring -> C2
@@ -1061,55 +1148,30 @@ def main():
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
-            # Reconfigurer uniquement si différent de la phase précédente
-            if aperture_diamond != aperture_partial or iso_diamond_ring != iso_partial:
-                _set_phase_exposure(camera_service, aperture_diamond, iso_diamond_ring)
             next_shot_time = calculer_temps_debut_sequence(C2 - timedelta(seconds=duree_diamond_ring), C2, interval_diamond_ring)
-            # Si on arrive tardivement dans la fenêtre, démarrer immédiatement
-            if next_shot_time < now():
-                next_shot_time = now()
             nbTotalBracket = estimatedPhoto(next_shot_time, C2, interval_diamond_ring)
             _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
             _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
             nbBracket = 1
             nbPhoto   = 1
-            while now() < C2:
-                try:
-                    if now() >= next_shot_time:
-                        n = capture_speed_list(camera_service, speeds_diamond_ring, nbPhoto, next_shot_time, deadline=C2)
-                        if n > 0:
-                            _log(f"{Colors.YELLOW}Bracket {nbBracket}/{nbTotalBracket} [{n} photos]{Colors.RESET}")
-                            nbBracket += 1
-                            nbPhoto   += n
-                        next_shot_time = now() + timedelta(seconds=interval_diamond_ring)
-                except gp.GPhoto2Error as e:
-                    _log(f"{Colors.YELLOW}Erreur USB : {e} — retry au prochain intervalle{Colors.RESET}")
-                time.sleep(0.1)
+            _run_absolute_grid(camera_service, "phase1b", speeds_diamond_ring,
+                               next_shot_time, C2, interval_diamond_ring,
+                               aperture_diamond, iso_diamond_ring, deadline=C2)
 
             ###
             ### PHASE 2 : TOTALITY -- C2 -> C3
             ###
             _log(f"{Colors.GREEN}# PHASE 2 - TOTALITY -- C2 -> C3{Colors.RESET}")
-            if aperture_totality != aperture_diamond or iso_totality != iso_diamond_ring:
-                _set_phase_exposure(camera_service, aperture_totality, iso_totality)
             _log(f"{Colors.YELLOW}Capture{Colors.RESET}")
 
             # La sécurité C3 est désormais appliquée par le plugin via deadline.
             # Le moteur ne règle plus jamais directement shutterspeed/shutterspeed2.
             _log(f"{Colors.BLUE}Sécurité C3 : aucune séquence ne doit déborder sur C3 ({format_hms_ms(C3)}){Colors.RESET}")
 
-            nbPhoto = 1
-            cycle_totality = 1
-            while now() < C3:
-                n = capture_speed_list(camera_service, shutter_speeds, nbPhoto, now(), deadline=C3)
-                if n <= 0:
-                    # Plus assez de temps pour une séquence complète : attendre C3 sans boucle CPU.
-                    if now() < C3:
-                        sleep_sim(0.05) if _sim_mode else time.sleep(0.05)
-                    continue
-                _log(f"{Colors.YELLOW}Cycle totalité {cycle_totality} [{n} photos]{Colors.RESET}")
-                nbPhoto += n
-                cycle_totality += 1
+            totality_interval = max(0.001, sum(parse_shutterspeed(s) for s in shutter_speeds))
+            _run_absolute_grid(camera_service, "phase2", shutter_speeds, C2,
+                               C3, totality_interval, aperture_totality,
+                               iso_totality, deadline=C3)
 
             ###
             ### PHASE 3a : DIAMOND RING -- C3 -> C3+duree_diamond_ring
@@ -1118,35 +1180,22 @@ def main():
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
-            # Reconfigurer uniquement si différent de la totalité
-            if aperture_diamond != aperture_totality or iso_diamond_ring != iso_totality:
-                _set_phase_exposure(camera_service, aperture_diamond, iso_diamond_ring)
-            next_shot_time = now()
+            next_shot_time = C3
             nbTotalBracket = estimatedPhoto(next_shot_time, C3 + timedelta(seconds=duree_diamond_ring), interval_diamond_ring)
             _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
             _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
             nbBracket = 1
             nbPhoto   = 1
-            while now() < C3 + timedelta(seconds=duree_diamond_ring):
-                try:
-                    if now() >= next_shot_time:
-                        n = capture_speed_list(camera_service, speeds_diamond_ring, nbPhoto, next_shot_time, deadline=C3 + timedelta(seconds=duree_diamond_ring))
-                        if n > 0:
-                            _log(f"{Colors.YELLOW}Bracket {nbBracket}/{nbTotalBracket} [{n} photos]{Colors.RESET}")
-                            nbBracket += 1
-                            nbPhoto   += n
-                        next_shot_time = now() + timedelta(seconds=interval_diamond_ring)
-                except gp.GPhoto2Error as e:
-                    _log(f"{Colors.YELLOW}Erreur USB : {e} — retry au prochain intervalle{Colors.RESET}")
-                time.sleep(0.1)
+            fin_phase_3a = C3 + timedelta(seconds=duree_diamond_ring)
+            _run_absolute_grid(camera_service, "phase3a", speeds_diamond_ring,
+                               next_shot_time, fin_phase_3a,
+                               interval_diamond_ring, aperture_diamond,
+                               iso_diamond_ring, deadline=fin_phase_3a)
 
             ###
             ### PHASE 3b : C3+duree_diamond_ring -> C4 -> TEND
             ###
             _log(f"{Colors.GREEN}# Phase 3b - C3+{duree_diamond_ring}s -> C4 -> TEND{Colors.RESET}")
-            # Reconfigurer uniquement si différent du diamond ring
-            if aperture_partial != aperture_diamond or iso_partial != iso_diamond_ring:
-                _set_phase_exposure(camera_service, aperture_partial, iso_partial)
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
 
@@ -1167,23 +1216,9 @@ def main():
 
             nbBracket = 1
             nbPhoto   = 1
-            while now() < TEND:
-                try:
-                    if now() >= next_shot_time:
-                        n = capture_speed_list(camera_service, speeds_partial, nbPhoto, next_shot_time, deadline=TEND)
-                        if n > 0:
-                            _log(f"{Colors.YELLOW}Bracket {nbBracket}/{nbTotalBracket} [{n} photos]{Colors.RESET}")
-                            nbBracket += 1
-                            nbPhoto   += n
-                            next_shot_time = now() + timedelta(seconds=interval_partial)
-                            if next_shot_time >= TEND:
-                                _log(f"{Colors.GREEN}⏱ Prochaine photo après TEND — séquence terminée.{Colors.RESET}")
-                                break
-                            _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
-                            _usb_wait_or_hold(camera_service, next_shot_time)
-                except gp.GPhoto2Error as e:
-                    _log(f"{Colors.YELLOW}Erreur USB : {e} — retry au prochain intervalle{Colors.RESET}")
-                time.sleep(0.1)
+            _run_absolute_grid(camera_service, "phase3b", speeds_partial,
+                               next_shot_time, TEND, interval_partial,
+                               aperture_partial, iso_partial, deadline=TEND)
 
             _watchdog_clear()
             _log(f"{Colors.GREEN}✅ Séquence terminée normalement.{Colors.RESET}")
@@ -1211,23 +1246,9 @@ def main():
             nbBracket = 1
             nbPhoto   = 1
             fin_phase = TEND
-            while now() < fin_phase:
-                try:
-                    if now() >= next_shot_time:
-                        n = capture_speed_list(camera_service, speeds_partial, nbPhoto, next_shot_time, deadline=TEND)
-                        if n > 0:
-                            _log(f"{Colors.YELLOW}Bracket {nbBracket}/{nbTotalBracket} [{n} photos]{Colors.RESET}")
-                            nbBracket += 1
-                            nbPhoto   += n
-                            next_shot_time = now() + timedelta(seconds=interval_partial)
-                            if next_shot_time >= TEND:
-                                _log(f"{Colors.GREEN}⏱ Prochaine photo après TEND — séquence terminée.{Colors.RESET}")
-                                break
-                            _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
-                            _usb_wait_or_hold(camera_service, next_shot_time)
-                except gp.GPhoto2Error as e:
-                    _log(f"{Colors.YELLOW}Erreur USB : {e} — retry au prochain intervalle{Colors.RESET}")
-                time.sleep(0.1)
+            _run_absolute_grid(camera_service, "partial", speeds_partial,
+                               next_shot_time, fin_phase, interval_partial,
+                               aperture_partial, iso_partial, deadline=TEND)
 
     except KeyboardInterrupt:
         _log("INFO Script stopped by user.")
