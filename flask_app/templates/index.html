@@ -309,6 +309,12 @@ header {
 .field input:focus, .field select:focus { border-color: var(--blue); }
 .field select option { background: var(--bg2); }
 
+.device-card { transition: border-color .2s, opacity .2s; }
+.device-card.active { border-color: var(--green); }
+.device-card:not(.active) { opacity: .75; }
+.device-status { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+[data-device-section][hidden] { display: none; }
+
 /* ── CONTACTS TABLE ── */
 .contacts { display: flex; flex-direction: column; gap: 6px; }
 .contact-row {
@@ -568,23 +574,27 @@ header {
 
   <!-- TABS -->
   <div id="tabs">
-    <button class="tab active" onclick="showTab(0)">
+    <button class="tab active" id="devices-tab" onclick="showTab(0)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span>DEVICES</span>
+    </button>
+    <button class="tab" onclick="showTab(1)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><circle cx="12" cy="4" r="2"/><path d="M12 6v6l4 2M4.93 4.93l1.41 1.41M17.66 6.34l1.41-1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 17.66l1.41 1.41M12 20v2"/></svg>
       <span>SYNC GPS</span>
     </button>
-    <button class="tab" onclick="showTab(1)">
+    <button class="tab" onclick="showTab(2)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
       <span>ÉCLIPSE</span>
     </button>
-    <button class="tab" onclick="showTab(2)">
+    <button class="tab" onclick="showTab(3)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
       <span>CFG PHOTO</span>
     </button>
-    <button class="tab" onclick="showTab(3)">
+    <button class="tab" onclick="showTab(4)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="3"/></svg>
       <span>CAMÉRA</span>
     </button>
-    <button class="tab" onclick="showTab(4)">
+    <button class="tab" onclick="showTab(5)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
       <span>TRIGGER</span>
     </button>
@@ -592,8 +602,18 @@ header {
   <!-- PAGES -->
   <div id="pages">
 
+    <div class="page active" id="devices-panel">
+      <div class="card">
+        <div class="card-title">Sélection des périphériques</div>
+        <div id="devices-list" style="display:flex;flex-direction:column;gap:10px"></div>
+      </div>
+      <button class="btn btn-primary btn-full" id="devices-rescan" onclick="rescanDevices()">
+        ↻ Rescan devices
+      </button>
+    </div>
+
     <!-- ═══════════════ PAGE 0 : STATUT ═══════════════ -->
-    <div class="page active" id="page-0">
+    <div class="page" id="page-0">
 
       <!-- Heure + Date -->
       <div class="card">
@@ -620,7 +640,7 @@ header {
       </div>  
 
       <!-- GPS -->
-      <div class="card">
+      <div class="card" data-device-section="gps">
         <div class="card-title">GPS (usb)</div>
         <div class="gps-status-bar">
           <span class="gps-icon" id="gps-icon">⚫</span>
@@ -640,7 +660,7 @@ header {
       </div>
 
 <!-- Journal GPS -->
-  <div class="card" style="flex-shrink:0">
+  <div class="card" style="flex-shrink:0" data-device-section="gps">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
       <span>Journal GPS</span>
       <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('gps_sync')">effacer</span>
@@ -894,7 +914,7 @@ header {
     </div><!-- /page-2 CFG PHOTO -->
 
     <!-- ═══════════════ PAGE 3 : CAMÉRA ═══════════════ -->
-    <div class="page" id="page-3">
+    <div class="page" id="page-3" data-device-section="camera">
 
       <div class="card">
         <div class="card-title">Appareil photo</div>
@@ -1108,6 +1128,107 @@ const state = {
   audioBuffers:  {},
   currentSound:  null,
 };
+
+const DEVICE_CATEGORIES = ['camera', 'gps', 'focuser', 'mount'];
+const DEVICE_LABELS = { camera: 'Caméra', gps: 'GPS', focuser: 'Focuseur', mount: 'Monture' };
+const DEVICE_PLUGIN_OPTIONS = {
+  camera: ['sony', 'nikon-z', 'nikon-dslr'],
+  gps: ['serial_nmea', 'gpsd'],
+  focuser: ['zwo_eaf'],
+  mount: ['onstep'],
+};
+
+function escapeDeviceText(value) {
+  return String(value).replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
+function deviceOptions(category, device) {
+  const values = ['none', ...DEVICE_PLUGIN_OPTIONS[category]];
+  [device.plugin, device.suggested_plugin].forEach(value => {
+    if (value && !values.includes(value)) values.push(value);
+  });
+  return values.map(value => {
+    const escaped = escapeDeviceText(value);
+    return `<option value="${escaped}">${value === 'none' ? 'Aucun' : escaped}</option>`;
+  }).join('');
+}
+
+function renderDevices(devices) {
+  const list = document.getElementById('devices-list');
+  if (!list) return;
+  list.innerHTML = DEVICE_CATEGORIES.map(category => {
+    const device = devices[category] || {plugin: 'none', active: false};
+    const active = device.active === true;
+    const detected = device.detected === true ? 'Détecté' : 'Non détecté';
+    const suggestion = escapeDeviceText(device.suggested_plugin || 'aucune');
+    return `<div class="card device-card ${active ? 'active' : ''}" data-device-category="${category}">
+      <div class="card-title" style="display:flex;justify-content:space-between">
+        <span>${DEVICE_LABELS[category]}</span><span>${active ? 'ACTIF' : 'INACTIF'}</span>
+      </div>
+      <div class="field">
+        <label for="device-${category}-select">Plugin</label>
+        <select id="device-${category}-select" onchange="selectDevice('${category}', this.value)">
+          ${deviceOptions(category, device)}
+        </select>
+      </div>
+      <div class="device-status" style="margin-top:8px">${detected} · suggestion : ${suggestion}</div>
+    </div>`;
+  }).join('');
+  DEVICE_CATEGORIES.forEach(category => {
+    const device = devices[category] || {};
+    const select = document.getElementById(`device-${category}-select`);
+    if (select) select.value = device.plugin || 'none';
+    document.querySelectorAll(`[data-device-section="${category}"]`).forEach(section => {
+      section.hidden = device.active !== true;
+    });
+  });
+}
+
+async function fetchDevices() {
+  try {
+    const response = await fetch('/api/devices');
+    const devices = await response.json();
+    if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
+    renderDevices(devices);
+  } catch (error) {
+    flash(`Périphériques : ${error.message}`, 'red');
+  }
+}
+
+async function selectDevice(category, plugin) {
+  try {
+    const response = await fetch('/api/devices', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({[category]: plugin}),
+    });
+    const devices = await response.json();
+    if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
+    renderDevices(devices);
+    flash(`${DEVICE_LABELS[category]} mis à jour`, 'green');
+  } catch (error) {
+    flash(`Périphériques : ${error.message}`, 'red');
+    fetchDevices();
+  }
+}
+
+async function rescanDevices() {
+  const button = document.getElementById('devices-rescan');
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch('/api/devices/detect', {method: 'POST'});
+    const devices = await response.json();
+    if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
+    renderDevices(devices);
+    flash('Détection des périphériques terminée', 'green');
+  } catch (error) {
+    flash(`Détection : ${error.message}`, 'red');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
 
 // ── AUDIO iOS-compatible ─────────────────────────────────────────────────────
 // iOS Safari exige que l'AudioContext soit créé ET resume() dans un geste direct.
@@ -2219,9 +2340,9 @@ async function startTrigger() {
     flash(d.error, 'red');
     // Erreurs bloquantes : rediriger vers l'onglet concerné
     if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE') {
-      setTimeout(() => showTab(0), 1500);  // → onglet SYNC GPS
+      setTimeout(() => showTab(1), 1500);  // → onglet SYNC GPS
     } else if (d.code === 'JSON_INVALID') {
-      setTimeout(() => showTab(1), 1500);  // → onglet ÉCLIPSE
+      setTimeout(() => showTab(2), 1500);  // → onglet ÉCLIPSE
     }
   } else {
     flash('Trigger démarré ▶', 'green');
@@ -2236,8 +2357,8 @@ async function startDryRun() {
   const d = await r.json();
   if (d.error) {
     flash(d.error, 'red');
-    if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE') setTimeout(() => showTab(0), 1500);
-    else if (d.code === 'JSON_INVALID') setTimeout(() => showTab(1), 1500);
+    if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE') setTimeout(() => showTab(1), 1500);
+    else if (d.code === 'JSON_INVALID') setTimeout(() => showTab(2), 1500);
   } else {
     flash('Dry-run ×1 démarré — TSTART dans 30 s', 'blue');
   }
@@ -2716,7 +2837,8 @@ function showTab(n) {
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===n));
   document.querySelectorAll('.page').forEach((p,i) => p.classList.toggle('active', i===n));
   state.currentPage = n;
-  if (n === 2) {
+  if (n === 0) fetchDevices();
+  if (n === 3) {
     loadCameraConfigList();
     // Forcer ISO 100 par défaut (Chromium ignore selected sur éléments cachés)
     const pi = document.getElementById('cfg-partial-iso');
@@ -2726,7 +2848,7 @@ function showTab(n) {
     if (di && di.value === '') di.value = '100';
     if (ti && ti.value === '') ti.value = '100';
   }
-  if (n === 4) { loadTriggerConfigList(); loadEclipseFileList(); }
+  if (n === 5) { loadTriggerConfigList(); loadEclipseFileList(); }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2793,6 +2915,7 @@ setInterval(() => { if (state.eclipse) updateCountdowns(state.eclipse); }, 1000)
 setInterval(loadCameraStatus, 10000);
 
 // Init
+fetchDevices();
 loadEclipseData();
 loadCameraStatus();
 
