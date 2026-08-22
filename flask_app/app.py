@@ -1091,6 +1091,8 @@ def on_connect():
         "gps":              gps,
         "trigger":          trigger,
         "eclipse":          eclipse,
+        "circumstances":    _state_store.snapshot("circumstances"),
+        "capture":          _state_store.snapshot("capture"),
         "camera_config_file": _state.get("camera_config_file"),
     })
 
