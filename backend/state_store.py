@@ -10,6 +10,8 @@ DEFAULT_STATE = {
             "utc_offset_minutes": None, "gps_sync_running": False},
     "camera": {"connected": False, "brand": None, "model": None, "battery": None},
     "eclipse": None,
+    "circumstances": {"loaded": False, "active_file": None, "meta": {}},
+    "capture": {"loaded": False, "active_file": None, "meta": {}},
     "trigger": {"running": False, "phase": "idle"},
     "gps_sync_running": False,
     "calc_running": False,
@@ -17,7 +19,8 @@ DEFAULT_STATE = {
 
 class StateStore:
     """Thread-safe runtime state with explicit persistence boundaries."""
-    PERSISTED_KEYS = ("gps", "camera", "eclipse", "camera_config_file")
+    PERSISTED_KEYS = ("gps", "camera", "eclipse", "camera_config_file",
+                      "circumstances", "capture")
 
     def __init__(self, path: Path, defaults: dict | None = None):
         self.path = Path(path)
@@ -41,6 +44,8 @@ class StateStore:
         base["gps_sync_running"] = False
         base["calc_running"] = False
         base.setdefault("gps", {})["gps_sync_running"] = False
+        base.setdefault("circumstances", {})["loaded"] = False
+        base.setdefault("capture", {})["loaded"] = False
         return base
 
     @property

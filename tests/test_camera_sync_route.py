@@ -21,12 +21,31 @@ if importlib.util.find_spec("flask") is None:
         def get_json(self):
             return self._json
 
+    class _Request:
+        def __init__(self):
+            self.json = None
+
+        def get_json(self, silent=False):
+            return self.json
+
+    _fake_request = _Request()
+
     class _TestClient:
         def __init__(self, routes):
             self.routes = routes
 
-        def post(self, path):
-            return _Response(self.routes[(path, "POST")]())
+        def _call(self, path, method, json=None):
+            _fake_request.json = json
+            try:
+                return _Response(self.routes[(path, method)]())
+            finally:
+                _fake_request.json = None
+
+        def post(self, path, json=None, **kwargs):
+            return self._call(path, "POST", json=json)
+
+        def get(self, path, **kwargs):
+            return self._call(path, "GET")
 
     class _Flask:
         def __init__(self, *args, **kwargs):
@@ -57,7 +76,7 @@ if importlib.util.find_spec("flask") is None:
     sys.modules["flask"] = types.SimpleNamespace(
         Flask=_Flask,
         jsonify=lambda value: value,
-        request=types.SimpleNamespace(),
+        request=_fake_request,
         send_from_directory=lambda *args, **kwargs: None,
     )
     sys.modules["flask_socketio"] = types.SimpleNamespace(

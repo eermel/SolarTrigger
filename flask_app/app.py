@@ -263,6 +263,8 @@ def api_status():
         "camera":  camera_info,
         "trigger": trigger,
         "eclipse": _load_eclipse_json(),
+        "circumstances": _state_store.snapshot("circumstances"),
+        "capture": _state_store.snapshot("capture"),
     })
 
 def _get_camera_model_info(camera):
@@ -662,13 +664,62 @@ def api_eclipse_override():
         _save_state()
         _append_log(f"⚙ Paramètres mis à jour manuellement.", "info", "override")
         socketio.emit("eclipse_calculated", {"status": "success", "data": data})
-        return jsonify({"status": "ok"})
+        meta = {
+            key: data[key]
+            for key in ("_date", "_date_utc", "title", "_type")
+            if key in data
+        }
+        phases_local = {
+            phase: data[f"{phase}_local"]
+            for phase in ("C1", "C2", "TMAX", "C3", "C4")
+            if f"{phase}_local" in data
+        }
+        if phases_local:
+            meta["phases_local"] = phases_local
+        circumstances = _state_store.update_section(
+            "circumstances",
+            {"loaded": True, "active_file": JSON_FILE.name, "meta": meta},
+            persist=True,
+        )
+        socketio.emit("status_update", {
+            "circumstances": circumstances,
+            "time": _time_payload(),
+        })
+        return jsonify({"status": "ok", "circumstances": circumstances})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 # ── Routes configs JSON ──────────────────────────────────────────────────────
 CONFIGS_DIR = Path(__file__).parent.parent / "configs"
 CONFIGS_DIR.mkdir(parents=True, exist_ok=True)  # créer si absent
+
+def _unique_config_files(*patterns):
+    """Retourne, par nom, les JSON trouvés par les motifs indiqués."""
+    files = {}
+    for pattern in patterns:
+        for path in CONFIGS_DIR.glob(pattern):
+            if path.is_file():
+                files.setdefault(path.name, path)
+    return [files[name] for name in sorted(files)]
+
+def _is_circumstances_config(path):
+    """Écarte les fichiers réservés à la capture, au debug ou aux modèles."""
+    name = path.name.lower()
+    stem = path.stem.lower()
+    return (not name.startswith("camera_")
+            and "debug" not in name
+            and not stem.startswith("template")
+            and not stem.startswith("_"))
+
+def _resolve_config_file(filename, subdirectory):
+    """Résout une config à la racine, puis dans son sous-répertoire dédié."""
+    root_path = CONFIGS_DIR / filename
+    if root_path.is_file():
+        return root_path
+    subdirectory_path = CONFIGS_DIR / subdirectory / filename
+    if subdirectory_path.is_file():
+        return subdirectory_path
+    return root_path
 
 @app.route("/api/configs/list", methods=["GET"])
 def api_configs_list():
@@ -681,10 +732,10 @@ def api_configs_list():
 
 @app.route("/api/configs/list_eclipse", methods=["GET"])
 def api_configs_list_eclipse():
-    """Retourne les fichiers de circonstances éclipse (sans camera_*)."""
+    """Retourne uniquement les fichiers de circonstances éclipse."""
     try:
-        files = sorted([f.name for f in CONFIGS_DIR.glob("*.json")
-                        if not f.name.startswith("camera_") and not f.name.startswith("debug")])
+        candidates = _unique_config_files("*.json", "circumstances/*.json")
+        files = [f.name for f in candidates if _is_circumstances_config(f)]
         return jsonify({"files": files})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -693,7 +744,7 @@ def api_configs_list_eclipse():
 def api_configs_list_camera():
     """Retourne les fichiers de configuration appareil photo (camera_*)."""
     try:
-        files = sorted([f.name for f in CONFIGS_DIR.glob("camera_*.json")])
+        files = [f.name for f in _unique_config_files("camera_*.json", "capture/*.json")]
         return jsonify({"files": files})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -715,7 +766,8 @@ def api_configs_load(filename):
 def api_configs_load_camera(filename):
     """Charge un fichier de configuration appareil photo."""
     try:
-        path = CONFIGS_DIR / filename
+        filename = Path(filename).name
+        path = _resolve_config_file(filename, "capture")
         if not path.exists() or path.suffix != ".json":
             return jsonify({"error": "Fichier introuvable"}), 404
         with open(path, encoding="utf-8") as f:
@@ -739,10 +791,38 @@ def api_configs_save_camera():
     filename = Path(filename).name
     try:
         CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIGS_DIR / filename, "w", encoding="utf-8") as f:
+        destination = CONFIGS_DIR / filename
+        overwriting = destination.exists()
+        if overwriting and body.get("overwrite") is not True:
+            return jsonify({"error": "Le fichier existe déjà", "filename": filename}), 409
+        with open(destination, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         _append_log(f"💾 Config appareil sauvegardée : {filename}", "success", "system")
-        return jsonify({"status": "ok", "filename": filename})
+
+        capture = _state_store.snapshot("capture")
+        if (overwriting and body.get("overwrite") is True
+                and capture.get("active_file") == filename):
+            meta = {
+                key: data[key]
+                for key in ("_type", "_comment")
+                if key in data
+            }
+            capture = _state_store.update_section(
+                "capture",
+                {"loaded": True, "active_file": filename, "meta": meta},
+                persist=True,
+            )
+            socketio.emit("status_update", {
+                "capture": capture,
+                "time": _time_payload(),
+            })
+            return jsonify({"status": "ok", "filename": filename, "capture": capture})
+
+        return jsonify({
+            "status": "ok",
+            "filename": filename,
+            "saved": {"filename": filename, "data": data},
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -762,10 +842,49 @@ def api_configs_save():
         return jsonify({"error": "Aucune configuration active"}), 400
     try:
         CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIGS_DIR / filename, "w", encoding="utf-8") as f:
+        destination = CONFIGS_DIR / filename
+        overwriting = destination.exists()
+        if overwriting and body.get("overwrite") is not True:
+            return jsonify({"error": "Le fichier existe déjà", "filename": filename}), 409
+        with open(destination, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         _append_log(f"💾 Config sauvegardée : {filename}", "success", "system")
-        return jsonify({"status": "ok", "filename": filename})
+
+        circumstances = _state_store.snapshot("circumstances")
+        if (overwriting and body.get("overwrite") is True
+                and circumstances.get("active_file") == filename):
+            meta = {
+                key: data[key]
+                for key in ("_date", "_date_utc", "title", "_type")
+                if key in data
+            }
+            phases_local = {
+                phase: data[f"{phase}_local"]
+                for phase in ("C1", "C2", "TMAX", "C3", "C4")
+                if f"{phase}_local" in data
+            }
+            if phases_local:
+                meta["phases_local"] = phases_local
+            circumstances = _state_store.update_section(
+                "circumstances",
+                {"loaded": True, "active_file": filename, "meta": meta},
+                persist=True,
+            )
+            socketio.emit("status_update", {
+                "circumstances": circumstances,
+                "time": _time_payload(),
+            })
+            return jsonify({
+                "status": "ok",
+                "filename": filename,
+                "circumstances": circumstances,
+            })
+
+        return jsonify({
+            "status": "ok",
+            "filename": filename,
+            "saved": {"filename": filename, "data": data},
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -776,9 +895,17 @@ def api_eclipse_reset():
             JSON_FILE.unlink()
         with _state_lock:
             _state["eclipse"] = None
-        _save_state()
+        circumstances = _state_store.update_section(
+            "circumstances",
+            {"loaded": False, "active_file": None, "meta": {}},
+            persist=True,
+        )
         _append_log("🗑 todayeclipse.json supprimé.", "warning", "debug")
-        return jsonify({"status": "ok"})
+        socketio.emit("status_update", {
+            "circumstances": circumstances,
+            "time": _time_payload(),
+        })
+        return jsonify({"status": "ok", "circumstances": circumstances})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -810,12 +937,11 @@ def api_configs_list_trigger():
         files.append({"name": "todayeclipse.json", "active": True, "dir": "trigger"})
     # Fichiers configs circonstances uniquement
     try:
-        for f in sorted(CONFIGS_DIR.glob("*.json")):
-            if f.stem.startswith("_") or f.stem.startswith("template"):
+        for f in _unique_config_files("*.json", "circumstances/*.json"):
+            if not _is_circumstances_config(f) or f.name in {item["name"] for item in files}:
                 continue
-            if f.name.startswith("camera_") or "debug" in f.name.lower():
-                continue
-            files.append({"name": f.name, "active": False, "dir": "configs"})
+            source_dir = "circumstances" if f.parent == CONFIGS_DIR / "circumstances" else "configs"
+            files.append({"name": f.name, "active": False, "dir": source_dir})
     except Exception:
         pass
     return jsonify({"files": files})
@@ -833,8 +959,10 @@ def api_trigger_select():
 
     if source_dir == "trigger":
         src = JSON_FILE
+    elif source_dir == "circumstances":
+        src = CONFIGS_DIR / "circumstances" / filename
     else:
-        src = CONFIGS_DIR / filename
+        src = _resolve_config_file(filename, "circumstances")
 
     if not src.exists():
         return jsonify({"error": f"Fichier introuvable : {filename}"}), 404
@@ -853,9 +981,32 @@ def api_trigger_select():
     with _state_lock:
         _state["eclipse"] = data
     _save_state()
+
+    meta = {
+        key: data[key]
+        for key in ("_date", "_date_utc", "title", "_type")
+        if key in data
+    }
+    phases_local = {
+        phase: data[f"{phase}_local"]
+        for phase in ("C1", "C2", "TMAX", "C3", "C4")
+        if f"{phase}_local" in data
+    }
+    if phases_local:
+        meta["phases_local"] = phases_local
+
+    circumstances = _state_store.update_section(
+        "circumstances",
+        {"loaded": True, "active_file": filename, "meta": meta},
+        persist=True,
+    )
     socketio.emit("eclipse_calculated", {"status": "success", "data": data})
+    socketio.emit("status_update", {
+        "circumstances": circumstances,
+        "time": _time_payload(),
+    })
     _append_log(f"📂 Config chargée : {filename}", "info", "trigger")
-    return jsonify({"status": "ok", "data": data})
+    return jsonify({"status": "ok", "data": data, "circumstances": circumstances})
 
 @app.route("/api/trigger/select_camera", methods=["POST"])
 def api_trigger_select_camera():
@@ -865,14 +1016,33 @@ def api_trigger_select_camera():
     if not filename or not filename.endswith(".json"):
         return jsonify({"error": "Nom de fichier invalide"}), 400
     filename = Path(filename).name
-    path = CONFIGS_DIR / filename
+    path = _resolve_config_file(filename, "capture")
     if not path.exists():
         return jsonify({"error": f"Fichier introuvable : {filename}"}), 404
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        return jsonify({"error": f"JSON illisible : {e}"}), 400
+
+    meta = {
+        key: data[key]
+        for key in ("_type", "_comment")
+        if key in data
+    }
     with _state_lock:
         _state["camera_config_file"] = filename
-    _save_state()
+    capture = _state_store.update_section(
+        "capture",
+        {"loaded": True, "active_file": filename, "meta": meta},
+        persist=True,
+    )
+    socketio.emit("status_update", {
+        "capture": capture,
+        "time": _time_payload(),
+    })
     _append_log(f"📷 Config appareil : {filename}", "info", "trigger")
-    return jsonify({"status": "ok", "filename": filename})
+    return jsonify({"status": "ok", "filename": filename, "capture": capture})
 
 @app.route("/api/trigger/totality_only", methods=["POST"])
 def api_trigger_totality_only():
@@ -915,9 +1085,33 @@ def api_debug_generate():
         # Charger comme config active
         with _state_lock:
             _state["eclipse"] = data
+        meta = {
+            key: data[key]
+            for key in ("_date", "_date_utc", "title", "_type")
+            if key in data
+        }
+        phases_local = {
+            phase: data[f"{phase}_local"]
+            for phase in ("C1", "C2", "TMAX", "C3", "C4")
+            if f"{phase}_local" in data
+        }
+        if phases_local:
+            meta["phases_local"] = phases_local
+        circumstances = _state_store.update_section(
+            "circumstances",
+            {"loaded": True, "active_file": debug_filename, "meta": meta},
+            persist=True,
+        )
         socketio.emit("eclipse_calculated", {"status": "success", "data": data})
+        socketio.emit("status_update", {
+            "circumstances": circumstances,
+            "time": _time_payload(),
+        })
         _append_log(f"🛠 DEBUG : {debug_filename} généré — éclipse totale dans ~4 min", "warning", "trigger")
-        return jsonify({"status": "ok", "filename": debug_filename, "data": data})
+        return jsonify({
+            "status": "ok", "filename": debug_filename, "data": data,
+            "circumstances": circumstances,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -950,9 +1144,33 @@ def api_debug_generate_realistic():
 
         with _state_lock:
             _state["eclipse"] = data
+        meta = {
+            key: data[key]
+            for key in ("_date", "_date_utc", "title", "_type")
+            if key in data
+        }
+        phases_local = {
+            phase: data[f"{phase}_local"]
+            for phase in ("C1", "C2", "TMAX", "C3", "C4")
+            if f"{phase}_local" in data
+        }
+        if phases_local:
+            meta["phases_local"] = phases_local
+        circumstances = _state_store.update_section(
+            "circumstances",
+            {"loaded": True, "active_file": debug_filename, "meta": meta},
+            persist=True,
+        )
         socketio.emit("eclipse_calculated", {"status": "success", "data": data})
+        socketio.emit("status_update", {
+            "circumstances": circumstances,
+            "time": _time_payload(),
+        })
         _append_log(f"🌍 DEBUG RÉALISTE : {debug_filename} généré — séquence ~3h44m", "warning", "trigger")
-        return jsonify({"status": "ok", "filename": debug_filename, "data": data})
+        return jsonify({
+            "status": "ok", "filename": debug_filename, "data": data,
+            "circumstances": circumstances,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -972,6 +1190,8 @@ def api_trigger_start():
             return jsonify({"error": "Trigger déjà en cours."}), 409
         return jsonify({"status": "started", "mode": "real"})
     except TriggerValidationError as exc:
+        if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
+            return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
 
 @app.route("/api/trigger/simulate", methods=["POST"])
@@ -984,6 +1204,8 @@ def api_trigger_simulate():
             return jsonify({"error": "Trigger déjà en cours."}), 409
         return jsonify({"status": "started", "mode": "simulation", "speed": float(speed)})
     except TriggerValidationError as exc:
+        if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
+            return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
 
 @app.route("/api/trigger/dryrun", methods=["POST"])
@@ -996,6 +1218,8 @@ def api_trigger_dryrun():
             return jsonify({"error": "Trigger déjà en cours."}), 409
         return jsonify({"status": "started", "mode": "dryrun", "speed": 1.0, "delay_s": float(delay)})
     except TriggerValidationError as exc:
+        if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
+            return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
 
 @app.route("/api/trigger/stop", methods=["POST"])
@@ -1032,6 +1256,8 @@ def on_connect():
         "gps":              gps,
         "trigger":          trigger,
         "eclipse":          eclipse,
+        "circumstances":    _state_store.snapshot("circumstances"),
+        "capture":          _state_store.snapshot("capture"),
         "camera_config_file": _state.get("camera_config_file"),
     })
 

@@ -79,6 +79,40 @@ def test_camera_status_preserves_existing_camera_subkeys(monkeypatch):
     assert status['connected'] is False
 
 
+def test_state_store_has_circumstances_and_capture_defaults(tmp_path):
+    store = StateStore(tmp_path / 'state.json')
+
+    expected = {'loaded': False, 'active_file': None, 'meta': {}}
+    assert store.snapshot('circumstances') == expected
+    assert store.snapshot('capture') == expected
+
+
+def test_state_store_restores_circumstances_and_capture_files(tmp_path):
+    path = tmp_path / 'state.json'
+    store = StateStore(path)
+    store.update_section(
+        'circumstances',
+        {'loaded': True, 'active_file': 'circumstances.json', 'meta': {'site': 'test'}},
+    )
+    store.update_section(
+        'capture',
+        {'loaded': True, 'active_file': 'capture.json', 'meta': {'camera': 'test'}},
+    )
+    store.save()
+
+    restored = StateStore(path)
+    assert restored.snapshot('circumstances') == {
+        'loaded': False,
+        'active_file': 'circumstances.json',
+        'meta': {'site': 'test'},
+    }
+    assert restored.snapshot('capture') == {
+        'loaded': False,
+        'active_file': 'capture.json',
+        'meta': {'camera': 'test'},
+    }
+
+
 def test_boot_reset_invalidates_gps_and_eclipse(tmp_path):
     store=StateStore(tmp_path/'state.json')
     store.update_section('gps', {'synced': True, 'lat': 42.0})
@@ -146,10 +180,15 @@ def test_trigger_service_simulation_does_not_require_gps(tmp_path, monkeypatch):
     from backend.trigger_service import TriggerService
     store=StateStore(tmp_path/'state.json')
     store.update_section('gps', {'synced': False, 'sync_time': None})
+    store.update_section('circumstances', {'loaded': True, 'active_file': 'todayeclipse.json'})
+    store.update_section('capture', {'loaded': True, 'active_file': 'camera.json'})
+    store.set('camera_config_file', 'camera.json')
     eclipse=tmp_path/'todayeclipse.json'
     eclipse.write_text(json.dumps({
+        '_date':datetime.now().astimezone().date().isoformat(),
         'TSTART':'10:00:00','C1':'10:10:00','C2':'10:20:00','C3':'10:21:00','C4':'10:30:00','TEND':'10:40:00'
     }))
+    (tmp_path/'camera.json').write_text('{}')
     script=tmp_path/'eclipse_trigger.py'; script.write_text('')
     svc=TriggerService(store,script,eclipse,tmp_path/'events',tmp_path,lambda *a:None,lambda *a:None)
     # Evite de lancer un vrai thread : le but est de valider les préconditions.
