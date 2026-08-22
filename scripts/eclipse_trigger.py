@@ -350,6 +350,13 @@ def build_legacy_capture_canonical(camera_profile, circumstances):
     diamond_ring["interval_s"] = diamond_interval
     diamond_ring["duration_s"] = diamond_duration
 
+    totality_interval = totality.get("interval_s")
+    if totality_interval is None:
+        phase2 = circumstances.get("phase2", {})
+        if isinstance(phase2, dict):
+            totality_interval = phase2.get("interval_s")
+    totality["interval_s"] = totality_interval
+
     for phase in (partial, diamond_ring, totality):
         speeds = phase.get("speeds")
         if isinstance(speeds, list) and len(speeds) == 1:
@@ -501,11 +508,24 @@ wake_up_time             = float(cfg.get("wake_up_time", 2.5))  # secondes
 _partial_capture = capture_phase("partial")
 _diamond_capture = capture_phase("diamond_ring")
 _totality_capture = capture_phase("totality")
+
+def _capture_speed_summary(capture, default):
+    speeds = capture.get("speeds")
+    if isinstance(speeds, dict):
+        values = [speeds.get("fastest"), speeds.get("slowest")]
+        return list(dict.fromkeys(str(value) for value in values if value is not None))
+    if speeds:
+        return list(speeds)
+    values = [capture.get("shutter_max"), capture.get("shutter_min")]
+    summary = list(dict.fromkeys(str(value) for value in values if value is not None))
+    return summary or list(default)
+
 interval_partial         = int(_partial_capture["interval_s"])
 interval_diamond_ring    = int(_diamond_capture["interval_s"])
 duree_diamond_ring       = int(_diamond_capture["duration_s"])
-speeds_partial           = _partial_capture.get("speeds", ["1/500"])
-speeds_diamond_ring      = _diamond_capture.get("speeds", ["1/500"])
+interval_totality        = _totality_capture.get("interval_s")
+speeds_partial           = _capture_speed_summary(_partial_capture, ["1/500"])
+speeds_diamond_ring      = _capture_speed_summary(_diamond_capture, ["1/500"])
 shutterspeed_partial     = speeds_partial[0]
 shutterspeed_diamondring = speeds_diamond_ring[0]
 aperture_partial         = _partial_capture.get("aperture", "f/8")
@@ -701,7 +721,7 @@ _DEFAULT_SPEEDS = ["1/4000", "1/2000", "1/1000", "1/500", "1/250",
                    "1/125",  "1/60",   "1/30",   "1/15",  "1/8",
                    "1/4",    "1/2",    "1",      "2",     "4"]
 
-_configured_totality_speeds = _totality_capture.get("speeds")
+_configured_totality_speeds = _capture_speed_summary(_totality_capture, [])
 if _configured_totality_speeds:
     shutter_speeds = _configured_totality_speeds
     _log(f"{Colors.CYAN}Vitesses totalité depuis JSON ({len(shutter_speeds)} vitesses){Colors.RESET}")
@@ -718,6 +738,11 @@ def parse_shutterspeed(speed_str):
         num, den = s.split('/')
         return float(num) / float(den)
     return float(s)
+
+if interval_totality is None:
+    interval_totality = max(
+        0.001, sum(parse_shutterspeed(s) for s in shutter_speeds)
+    )
 
 def _set_phase_exposure(camera_service, aperture=None, iso=None):
     """Apply phase-dependent settings once, through the service contract."""
@@ -820,14 +845,38 @@ def _format_seconds_as_speed(sec: float) -> str:
 
 def _capture_intent(speeds, phase, target_time, deadline=None):
     """Build the brand-neutral intent for one absolute scheduler slot."""
-    intent_speeds = [str(speed) for speed in speeds]
+    capture = speeds if isinstance(speeds, dict) else {"speeds": speeds}
+    configured_speeds = capture.get("speeds")
+    if isinstance(configured_speeds, dict):
+        shutter_max = configured_speeds.get("fastest")
+        shutter_min = configured_speeds.get("slowest")
+        step_ev = configured_speeds.get("step_il")
+        intent_speeds = None
+    elif configured_speeds:
+        shutter_min = shutter_max = step_ev = None
+        intent_speeds = [str(speed) for speed in configured_speeds]
+    else:
+        shutter_min = capture.get("shutter_min")
+        shutter_max = capture.get("shutter_max")
+        step_ev = capture.get("step_ev", capture.get("step_il"))
+        intent_speeds = None
+
+    if intent_speeds is None and (shutter_min is None or shutter_max is None):
+        raise RuntimeError(
+            "construction CaptureIntent impossible: bornes shutter_min/shutter_max manquantes"
+        )
+    if intent_speeds is None and step_ev is None:
+        step_ev = 1.0
     try:
         use_atmo = atmospheric_correction_enabled()
         slowest_override_seconds = None
 
-        fastest, slowest, step_il, regular = _norm_plan(
-            [str(s) for s in speeds]
-        )
+        if intent_speeds is not None:
+            fastest, slowest, step_il, regular = _norm_plan(intent_speeds)
+        else:
+            fastest, slowest, step_il, regular = (
+                str(shutter_max), str(shutter_min), float(step_ev), True
+            )
 
         if use_atmo and regular:
             loc = _observer_location()
@@ -882,16 +931,20 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
             target_slowest = slowest_seconds * float(facteur)
             next_exposure = slowest_seconds * (2.0 ** step_il)
             while next_exposure < target_slowest:
-                intent_speeds.append(_format_seconds_as_speed(next_exposure))
+                if intent_speeds is not None:
+                    intent_speeds.append(_format_seconds_as_speed(next_exposure))
                 next_exposure *= 2.0 ** step_il
             if target_slowest > slowest_seconds:
-                intent_speeds.append(_format_seconds_as_speed(next_exposure))
+                if intent_speeds is not None:
+                    intent_speeds.append(_format_seconds_as_speed(next_exposure))
+                else:
+                    shutter_min = _format_seconds_as_speed(next_exposure)
 
     except Exception as exc:
         raise RuntimeError(f"construction CaptureIntent impossible: {exc}") from exc
 
     return CaptureIntent(
-        shutter_min=None, shutter_max=None, step_ev=None,
+        shutter_min=shutter_min, shutter_max=shutter_max, step_ev=step_ev,
         speeds=intent_speeds, phase=phase, target_time=target_time,
         deadline=deadline, overflow_policy="truncate",
     )
@@ -903,18 +956,30 @@ class _SimulationCameraService:
         _log(f"INFO scheduler phase_settings aperture={aperture} iso={iso}")
 
     def prepare_capture(self, intent):
+        speeds = intent.speeds
+        if speeds is None:
+            fastest_s = parse_shutterspeed(intent.shutter_max)
+            slowest_s = parse_shutterspeed(intent.shutter_min)
+            step_ev = float(intent.step_ev if intent.step_ev is not None else 1.0)
+            exposures = []
+            current = fastest_s
+            while current < slowest_s:
+                exposures.append(current)
+                current *= 2.0 ** step_ev
+            exposures.append(slowest_s)
+            speeds = [_format_seconds_as_speed(value) for value in exposures]
         return PreparedCapture(
-            token=intent, estimated_total_s=sum(parse_shutterspeed(s) for s in intent.speeds),
-            exposures_s=[parse_shutterspeed(s) for s in intent.speeds],
-            planned_count=len(intent.speeds), plugin_name="simulation",
+            token=(intent, speeds), estimated_total_s=sum(parse_shutterspeed(s) for s in speeds),
+            exposures_s=[parse_shutterspeed(s) for s in speeds],
+            planned_count=len(speeds), plugin_name="simulation",
         )
 
     def trigger_prepared(self, prepared, deadline=None):
-        intent = prepared.token
+        intent, speeds = prepared.token
         frames = _sim_capture_speed_list(
-            intent.speeds, 1, intent.target_time, deadline,
+            speeds, 1, intent.target_time, deadline,
         )
-        return CaptureResult(frames=frames, planned=len(intent.speeds), detail="simulation")
+        return CaptureResult(frames=frames, planned=len(speeds), detail="simulation")
 
     def close(self):
         pass
@@ -1384,7 +1449,7 @@ def main():
             nbBracket = 1
             nbPhoto   = 1
             fin_phase_1a = C2 - timedelta(seconds=duree_diamond_ring)
-            _run_absolute_grid(camera_service, "phase1a", speeds_partial,
+            _run_absolute_grid(camera_service, "phase1a", _partial_capture,
                                next_shot_time, fin_phase_1a, interval_partial,
                                aperture_partial, iso_partial,
                                deadline=fin_phase_1a)
@@ -1402,7 +1467,7 @@ def main():
             _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
             nbBracket = 1
             nbPhoto   = 1
-            _run_absolute_grid(camera_service, "phase1b", speeds_diamond_ring,
+            _run_absolute_grid(camera_service, "phase1b", _diamond_capture,
                                next_shot_time, C2, interval_diamond_ring,
                                aperture_diamond, iso_diamond_ring, deadline=C2)
 
@@ -1416,9 +1481,8 @@ def main():
                  f"jusqu'à +{C3_OVERFLOW_GRACE_S:g}s pour les poses "
                  f"≤ {SHORT_EXPOSURE_MAX_S:g}s ({format_hms_ms(C3)}){Colors.RESET}")
 
-            totality_interval = max(0.001, sum(parse_shutterspeed(s) for s in shutter_speeds))
-            _run_absolute_grid(camera_service, "phase2", shutter_speeds, C2,
-                               C3, totality_interval, aperture_totality,
+            _run_absolute_grid(camera_service, "phase2", _totality_capture, C2,
+                               C3, float(interval_totality), aperture_totality,
                                iso_totality, deadline=C3)
 
             ###
@@ -1435,7 +1499,7 @@ def main():
             nbBracket = 1
             nbPhoto   = 1
             fin_phase_3a = C3 + timedelta(seconds=duree_diamond_ring)
-            _run_absolute_grid(camera_service, "phase3a", speeds_diamond_ring,
+            _run_absolute_grid(camera_service, "phase3a", _diamond_capture,
                                next_shot_time, fin_phase_3a,
                                interval_diamond_ring, aperture_diamond,
                                iso_diamond_ring, deadline=fin_phase_3a)
@@ -1464,7 +1528,7 @@ def main():
 
             nbBracket = 1
             nbPhoto   = 1
-            _run_absolute_grid(camera_service, "phase3b", speeds_partial,
+            _run_absolute_grid(camera_service, "phase3b", _partial_capture,
                                next_shot_time, TEND, interval_partial,
                                aperture_partial, iso_partial, deadline=TEND)
 
@@ -1494,7 +1558,7 @@ def main():
             nbBracket = 1
             nbPhoto   = 1
             fin_phase = TEND
-            _run_absolute_grid(camera_service, "partial", speeds_partial,
+            _run_absolute_grid(camera_service, "partial", _partial_capture,
                                next_shot_time, fin_phase, interval_partial,
                                aperture_partial, iso_partial, deadline=TEND)
 
