@@ -201,7 +201,7 @@ def parse_arguments():
     parser.add_argument("--debug",     action="store_true",  help="Enable debug mode (contacts dans 15s)")
     parser.add_argument("--simulate",  action="store_true",  help="Mode simulation accélérée sans déclenchement matériel")
     parser.add_argument("--speed",     type=float, default=60.0, help="Facteur d'accélération simulation (défaut: 60)")
-    parser.add_argument("--dry-run",   action="store_true",  help="Dry-run sans appareil : même moteur, timeline translatée sur maintenant")
+    parser.add_argument("--dry-run",   action="store_true",  help="Dry-run : même moteur et même caméra, timeline translatée sur maintenant")
     parser.add_argument("--dry-run-delay", type=float, default=30.0, help="Délai avant TSTART du dry-run, en secondes (défaut: 30)")
     # Arguments optionnels — surchargent le fichier JSON si fournis
     parser.add_argument("--title",                   type=str, default=None)
@@ -554,7 +554,7 @@ _timeline_cfg.update({
 _timeline = build_timeline(_timeline_cfg, fallback_date=now().date())
 if args.dry_run:
     _timeline = rebase_timeline(_timeline, now() + timedelta(seconds=float(args.dry_run_delay)))
-    _log(f"🧪 DRY-RUN ×1 — timeline translatée, appareil simulé, TSTART dans {args.dry_run_delay:g}s")
+    _log(f"🧪 DRY-RUN ×1 — même moteur et même caméra, timeline translatée, TSTART dans {args.dry_run_delay:g}s")
 
 TSTART = _timeline["TSTART"]
 C1 = _timeline["C1"]
@@ -1381,7 +1381,7 @@ def main():
             if _sim_mode:
                 _log(f"{Colors.PINK}⚡ SIM : accès matériel caméra totalement désactivé{Colors.RESET}")
             else:
-                _log(f"{Colors.PINK}🧪 DRY-RUN : accès matériel caméra totalement désactivé{Colors.RESET}")
+                _log(f"{Colors.PINK}🧪 DRY-RUN : chemin matériel caméra identique au mode réel{Colors.RESET}")
             camera_service = _SimulationCameraService()
         else:
             unmount_camera()
