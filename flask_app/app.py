@@ -612,7 +612,28 @@ def api_eclipse_override():
         _save_state()
         _append_log(f"⚙ Paramètres mis à jour manuellement.", "info", "override")
         socketio.emit("eclipse_calculated", {"status": "success", "data": data})
-        return jsonify({"status": "ok"})
+        meta = {
+            key: data[key]
+            for key in ("_date", "_date_utc", "title", "_type")
+            if key in data
+        }
+        phases_local = {
+            phase: data[f"{phase}_local"]
+            for phase in ("C1", "C2", "TMAX", "C3", "C4")
+            if f"{phase}_local" in data
+        }
+        if phases_local:
+            meta["phases_local"] = phases_local
+        circumstances = _state_store.update_section(
+            "circumstances",
+            {"loaded": True, "active_file": JSON_FILE.name, "meta": meta},
+            persist=True,
+        )
+        socketio.emit("status_update", {
+            "circumstances": circumstances,
+            "time": _time_payload(),
+        })
+        return jsonify({"status": "ok", "circumstances": circumstances})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -822,9 +843,17 @@ def api_eclipse_reset():
             JSON_FILE.unlink()
         with _state_lock:
             _state["eclipse"] = None
-        _save_state()
+        circumstances = _state_store.update_section(
+            "circumstances",
+            {"loaded": False, "active_file": None, "meta": {}},
+            persist=True,
+        )
         _append_log("🗑 todayeclipse.json supprimé.", "warning", "debug")
-        return jsonify({"status": "ok"})
+        socketio.emit("status_update", {
+            "circumstances": circumstances,
+            "time": _time_payload(),
+        })
+        return jsonify({"status": "ok", "circumstances": circumstances})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1004,9 +1033,33 @@ def api_debug_generate():
         # Charger comme config active
         with _state_lock:
             _state["eclipse"] = data
+        meta = {
+            key: data[key]
+            for key in ("_date", "_date_utc", "title", "_type")
+            if key in data
+        }
+        phases_local = {
+            phase: data[f"{phase}_local"]
+            for phase in ("C1", "C2", "TMAX", "C3", "C4")
+            if f"{phase}_local" in data
+        }
+        if phases_local:
+            meta["phases_local"] = phases_local
+        circumstances = _state_store.update_section(
+            "circumstances",
+            {"loaded": True, "active_file": debug_filename, "meta": meta},
+            persist=True,
+        )
         socketio.emit("eclipse_calculated", {"status": "success", "data": data})
+        socketio.emit("status_update", {
+            "circumstances": circumstances,
+            "time": _time_payload(),
+        })
         _append_log(f"🛠 DEBUG : {debug_filename} généré — éclipse totale dans ~4 min", "warning", "trigger")
-        return jsonify({"status": "ok", "filename": debug_filename, "data": data})
+        return jsonify({
+            "status": "ok", "filename": debug_filename, "data": data,
+            "circumstances": circumstances,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1039,9 +1092,33 @@ def api_debug_generate_realistic():
 
         with _state_lock:
             _state["eclipse"] = data
+        meta = {
+            key: data[key]
+            for key in ("_date", "_date_utc", "title", "_type")
+            if key in data
+        }
+        phases_local = {
+            phase: data[f"{phase}_local"]
+            for phase in ("C1", "C2", "TMAX", "C3", "C4")
+            if f"{phase}_local" in data
+        }
+        if phases_local:
+            meta["phases_local"] = phases_local
+        circumstances = _state_store.update_section(
+            "circumstances",
+            {"loaded": True, "active_file": debug_filename, "meta": meta},
+            persist=True,
+        )
         socketio.emit("eclipse_calculated", {"status": "success", "data": data})
+        socketio.emit("status_update", {
+            "circumstances": circumstances,
+            "time": _time_payload(),
+        })
         _append_log(f"🌍 DEBUG RÉALISTE : {debug_filename} généré — séquence ~3h44m", "warning", "trigger")
-        return jsonify({"status": "ok", "filename": debug_filename, "data": data})
+        return jsonify({
+            "status": "ok", "filename": debug_filename, "data": data,
+            "circumstances": circumstances,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
