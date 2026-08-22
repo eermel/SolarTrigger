@@ -522,7 +522,6 @@ def _capture_speed_summary(capture, default):
 
 interval_partial         = int(_partial_capture["interval_s"])
 interval_diamond_ring    = int(_diamond_capture["interval_s"])
-duree_diamond_ring       = int(_diamond_capture["duration_s"])
 interval_totality        = _totality_capture.get("interval_s")
 speeds_partial           = _capture_speed_summary(_partial_capture, ["1/500"])
 speeds_diamond_ring      = _capture_speed_summary(_diamond_capture, ["1/500"])
@@ -545,9 +544,15 @@ if interact:
     TEND_str                 = input("TEND (H:M:S) ? ")
     interval_partial         = int(input("Interval Partiality in s ? [180] ") or "180")
     interval_diamond_ring    = int(input("Interval Diamond Ring in s ? [4] ") or "4")
-    duree_diamond_ring       = int(input("Duration of Diamond Ring in s ? [40] ") or "40")
+    _diamond_capture["duration_s"] = int(
+        input("Duration of Diamond Ring in s ? [40] ") or "40"
+    )
     shutterspeed_partial     = input("Shutter speed for Partiality phase ? [1/500] ") or "1/500"
     shutterspeed_diamondring = input("Shutter speed for Diamond ring phase ? [1/500] ") or "1/500"
+
+diamond_ring_duration_s = int(
+    capture_canonical["phases"]["diamond_ring"]["duration_s"]
+)
 
 # Conversion des heures / timeline -------------------------------------------------
 # v7.1 : les circonstances restent `_date` + heures UTC indépendantes.
@@ -650,7 +655,7 @@ def _build_alertes():
         add(C2 - timedelta(minutes=5),              "5minutes.wav",   t_min=C1, t_max=C2)
         add(C2 - timedelta(minutes=2),              "2minutes.wav",   t_min=C1, t_max=C2)
         add(C2 - timedelta(seconds=60),             "60seconds.wav",  t_min=C1, t_max=C2)
-        add(C2 - timedelta(seconds=duree_diamond_ring), "filters_off.wav", t_min=C1, t_max=C2)
+        add(C2 - timedelta(seconds=diamond_ring_duration_s), "filters_off.wav", t_min=C1, t_max=C2)
         add(C2 - timedelta(seconds=30),             "30seconds.wav",  t_min=C1, t_max=C2)
         add(C2 - timedelta(seconds=10),             "10seconds.wav",  t_min=C1, t_max=C2)
         add(C2 - timedelta(seconds=5), "5.wav", t_min=C1)
@@ -672,7 +677,7 @@ def _build_alertes():
         add(C3,                                     "contact.wav",    t_min=C2)
 
         # ── Après C3 (diamond ring retour) ───────────────────────────────────
-        add(C3 + timedelta(seconds=duree_diamond_ring), "filters_on.wav",
+        add(C3 + timedelta(seconds=diamond_ring_duration_s), "filters_on.wav",
             t_min=C3, t_max=C4)
 
         _log(f"INFO {Colors.CYAN}Totalité : {totalite_s:.0f}s — alertes filtrées selon fenêtres de phase{Colors.RESET}")
@@ -1430,7 +1435,7 @@ def main():
             ###
             ### PHASE 1a : START -> C1 -> C2-duree_diamond_ring
             ###
-            _log(f"{Colors.GREEN}# PHASE 1a : Start to C1 to C2-{duree_diamond_ring}s{Colors.RESET}")
+            _log(f"{Colors.GREEN}# PHASE 1a : Start to C1 to C2-{diamond_ring_duration_s}s{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_partial}{Colors.RESET}")
@@ -1442,13 +1447,13 @@ def main():
                     next_shot_time += timedelta(seconds=interval_partial)
                 _log(f"{Colors.ORANGE}⚠ REPRISE 1a : première photo à {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
 
-            nbTotalBracket = estimatedPhoto(next_shot_time, (C2 - timedelta(seconds=duree_diamond_ring)), interval_partial)
+            nbTotalBracket = estimatedPhoto(next_shot_time, (C2 - timedelta(seconds=diamond_ring_duration_s)), interval_partial)
             _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
             _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
 
             nbBracket = 1
             nbPhoto   = 1
-            fin_phase_1a = C2 - timedelta(seconds=duree_diamond_ring)
+            fin_phase_1a = C2 - timedelta(seconds=diamond_ring_duration_s)
             _run_absolute_grid(camera_service, "phase1a", _partial_capture,
                                next_shot_time, fin_phase_1a, interval_partial,
                                aperture_partial, iso_partial,
@@ -1457,11 +1462,11 @@ def main():
             ###
             ### PHASE 1b : DIAMOND RING -- C2-duree_diamond_ring -> C2
             ###
-            _log(f"{Colors.GREEN}# PHASE 1b : DIAMOND RING -- C2-{duree_diamond_ring}s -> C2{Colors.RESET}")
+            _log(f"{Colors.GREEN}# PHASE 1b : DIAMOND RING -- C2-{diamond_ring_duration_s}s -> C2{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
-            next_shot_time = calculer_temps_debut_sequence(C2 - timedelta(seconds=duree_diamond_ring), C2, interval_diamond_ring)
+            next_shot_time = calculer_temps_debut_sequence(C2 - timedelta(seconds=diamond_ring_duration_s), C2, interval_diamond_ring)
             nbTotalBracket = estimatedPhoto(next_shot_time, C2, interval_diamond_ring)
             _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
             _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
@@ -1488,17 +1493,17 @@ def main():
             ###
             ### PHASE 3a : DIAMOND RING -- C3 -> C3+duree_diamond_ring
             ###
-            _log(f"{Colors.GREEN}# PHASE 3a : DIAMOND RING -- C3 -> C3+{duree_diamond_ring}s{Colors.RESET}")
+            _log(f"{Colors.GREEN}# PHASE 3a : DIAMOND RING -- C3 -> C3+{diamond_ring_duration_s}s{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
             next_shot_time = C3
-            nbTotalBracket = estimatedPhoto(next_shot_time, C3 + timedelta(seconds=duree_diamond_ring), interval_diamond_ring)
+            nbTotalBracket = estimatedPhoto(next_shot_time, C3 + timedelta(seconds=diamond_ring_duration_s), interval_diamond_ring)
             _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
             _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
             nbBracket = 1
             nbPhoto   = 1
-            fin_phase_3a = C3 + timedelta(seconds=duree_diamond_ring)
+            fin_phase_3a = C3 + timedelta(seconds=diamond_ring_duration_s)
             _run_absolute_grid(camera_service, "phase3a", _diamond_capture,
                                next_shot_time, fin_phase_3a,
                                interval_diamond_ring, aperture_diamond,
@@ -1507,12 +1512,12 @@ def main():
             ###
             ### PHASE 3b : C3+duree_diamond_ring -> C4 -> TEND
             ###
-            _log(f"{Colors.GREEN}# Phase 3b - C3+{duree_diamond_ring}s -> C4 -> TEND{Colors.RESET}")
+            _log(f"{Colors.GREEN}# Phase 3b - C3+{diamond_ring_duration_s}s -> C4 -> TEND{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
             _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
 
             next_shot_time = TMAX + timedelta(seconds=interval_partial)
-            debut_3b = C3 + timedelta(seconds=duree_diamond_ring)
+            debut_3b = C3 + timedelta(seconds=diamond_ring_duration_s)
             while next_shot_time < debut_3b:
                 next_shot_time += timedelta(seconds=interval_partial)
 

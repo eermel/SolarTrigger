@@ -107,6 +107,70 @@ print("CAPTURE_SELECTION=" + json.dumps({
     }
 
 
+def test_diamond_ring_duration_is_shared_by_audio_and_photo_windows(tmp_path):
+    circumstances = {
+        "_date": "2026-08-12",
+        "TSTART": "18:00:00",
+        "C1": "19:00:00",
+        "C2": "20:00:00",
+        "TMAX": "20:01:00",
+        "C3": "20:02:00",
+        "C4": "21:00:00",
+        "TEND": "22:00:00",
+        "duree_diamond_ring": 41,
+    }
+    capture = _minimal_capture_v2()
+    capture["phases"]["partial"]["interval_s"] = 180
+    capture["phases"]["diamond_ring"].update({
+        "interval_s": 4,
+        "duration_s": 17,
+    })
+    capture["phases"]["totality"]["interval_s"] = 1
+    circumstances_path = tmp_path / "circumstances.json"
+    capture_path = tmp_path / "capture.json"
+    circumstances_path.write_text(json.dumps(circumstances), encoding="utf-8")
+    capture_path.write_text(json.dumps(capture), encoding="utf-8")
+
+    probe = """
+import json
+import sys
+import types
+
+sys.modules["gphoto2"] = types.SimpleNamespace(
+    GP_LOG_ERROR=0,
+    GP_LOG_VERBOSE=1,
+    GP_LOG_DEBUG=2,
+    GP_LOG_DATA=3,
+    use_python_logging=lambda mapping=None: None,
+    check_result=lambda *args, **kwargs: None,
+)
+sys.argv = ["eclipse_trigger.py", "--file", sys.argv[1], "--camera", sys.argv[2]]
+from scripts import eclipse_trigger as trigger
+alerts = {sound: when for when, sound in trigger.alertes_sons}
+print("DIAMOND_RING=" + json.dumps({
+    "photo_duration_s": trigger.diamond_ring_duration_s,
+    "before_c2_s": (trigger.C2 - alerts["filters_off.wav"]).total_seconds(),
+    "after_c3_s": (alerts["filters_on.wav"] - trigger.C3).total_seconds(),
+}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe, str(circumstances_path), str(capture_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    selected_line = next(
+        line for line in result.stdout.splitlines()
+        if line.startswith("DIAMOND_RING=")
+    )
+    assert json.loads(selected_line.removeprefix("DIAMOND_RING=")) == {
+        "photo_duration_s": 17,
+        "before_c2_s": 17.0,
+        "after_c3_s": 17.0,
+    }
+
+
 def _probe_legacy_capture_selection(tmp_path, circumstances):
     circumstances = {
         "_date": "2026-08-12",
