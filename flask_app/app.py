@@ -441,6 +441,20 @@ def api_focuser_status():
     return jsonify(status)
 
 
+@app.route("/api/focuser/mode", methods=["POST"])
+def api_focuser_mode():
+    guarded = _focuser_post_guard()
+    if guarded is not None:
+        return guarded
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    mode = payload.get("mode")
+    if mode not in ("slow", "fast"):
+        return jsonify({"error": "Field 'mode' must be 'slow' or 'fast'."}), 400
+    return _focuser_result(_focuser_service.set_mode(mode))
+
+
 @app.route("/api/focuser/home", methods=["POST"])
 def api_focuser_home():
     guarded = _focuser_post_guard(movement=True)
@@ -472,13 +486,38 @@ def api_focuser_step():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": "Invalid focuser payload."}), 400
-    mode = payload.get("mode")
-    if mode is not None and mode not in ("coarse", "fine"):
-        return jsonify({"error": "Field 'mode' must be 'coarse' or 'fine'."}), 400
-    try:
-        delta = _json_int(payload, "delta")
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    direction = payload.get("direction")
+    legacy_delta = None
+    if "delta" in payload:
+        try:
+            legacy_delta = _json_int(payload, "delta")
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    if direction is None:
+        if legacy_delta is None:
+            return jsonify({"error": "Field 'direction' is required."}), 400
+        if legacy_delta == 0:
+            return jsonify({"error": "Field 'delta' must be non-zero."}), 400
+        direction = "increase" if legacy_delta > 0 else "decrease"
+    elif direction not in ("increase", "decrease"):
+        return jsonify({
+            "error": "Field 'direction' must be 'increase' or 'decrease'.",
+            "code": "INVALID_DIRECTION",
+        }), 400
+    elif legacy_delta is not None:
+        delta_matches_direction = (
+            (direction == "increase" and legacy_delta > 0)
+            or (direction == "decrease" and legacy_delta < 0)
+        )
+        if not delta_matches_direction:
+            return jsonify({
+                "error": "Fields 'direction' and 'delta' contradict each other.",
+                "code": "INVALID_DIRECTION",
+            }), 400
+
+    sign = 1 if direction == "increase" else -1
+    delta = sign * _focuser_service.active_step()
     return _focuser_result(_focuser_service.move_relative(delta))
 
 
@@ -491,12 +530,14 @@ def api_focuser_jog_start():
     if not isinstance(payload, dict):
         return jsonify({"error": "Invalid focuser payload."}), 400
     direction = payload.get("direction")
-    mode = payload.get("mode")
-    if direction not in ("in", "out"):
-        return jsonify({"error": "Field 'direction' must be 'in' or 'out'."}), 400
-    if mode not in ("coarse", "fine"):
-        return jsonify({"error": "Field 'mode' must be 'coarse' or 'fine'."}), 400
-    return _focuser_result(_focuser_service.start_jog(direction, mode))
+    if direction not in ("increase", "decrease", "in", "out"):
+        return jsonify({
+            "error": (
+                "Field 'direction' must be 'increase', 'decrease', 'in' or 'out'."
+            ),
+            "code": "INVALID_DIRECTION",
+        }), 400
+    return _focuser_result(_focuser_service.start_jog(direction))
 
 
 @app.route("/api/focuser/jog/stop", methods=["POST"])

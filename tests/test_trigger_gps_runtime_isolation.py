@@ -30,6 +30,7 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
         json.dumps(
             {
                 "_generated_utc": datetime.now(timezone.utc).isoformat(),
+                "_date": datetime.now().astimezone().date().isoformat(),
                 "TSTART": "10:00:00",
                 "C1": "10:10:00",
                 "C2": "10:20:00",

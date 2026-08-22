@@ -526,6 +526,22 @@ header {
 }
 .toggle.on::after { transform: translateX(20px); background: var(--green); }
 
+.focuser-mode-switch {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-family: var(--mono); font-size: 11px;
+}
+.focuser-mode-switch .toggle { display: inline-block; }
+.focuser-mode-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.focuser-mode-switch input:focus-visible + .toggle {
+  outline: 2px solid var(--blue); outline-offset: 2px;
+}
+.focuser-mode-switch input:checked + .toggle {
+  background: rgba(61,220,132,.3); border-color: var(--green);
+}
+.focuser-mode-switch input:checked + .toggle::after {
+  transform: translateX(20px); background: var(--green);
+}
+
 /* ── NOTIFICATION FLASH ── */
 .flash {
   position: fixed; top: 80px; left: 50%; transform: translateX(-50%) translateY(-20px);
@@ -971,13 +987,12 @@ header {
             <div><span style="color:var(--text-dim)">Position : </span><span id="focuser-position">--</span></div>
           </div>
 
-          <button class="btn btn-primary btn-full" id="btn-focuser-home" data-focuser-action="home">Home</button>
-
           <div class="field" style="margin-top:12px">
-            <label for="focuser-target">TARGET</label>
+            <label for="focuser-target">Target position</label>
             <div style="display:flex;gap:6px">
               <input type="number" id="focuser-target" value="12813" style="flex:1">
               <button class="btn btn-primary" id="btn-focuser-go" data-focuser-action="go">Go</button>
+              <button class="btn btn-primary" id="btn-focuser-home" data-focuser-action="home">Home</button>
             </div>
           </div>
 
@@ -992,10 +1007,13 @@ header {
             </div>
           </div>
 
-          <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:12px">
-            <span style="font-family:var(--mono);font-size:11px">Lent</span>
-            <input type="checkbox" id="focuser-speed-switch" data-focuser-control="speed-switch">
-            <span style="font-family:var(--mono);font-size:11px">Rapide</span>
+          <div style="display:flex;justify-content:center;margin-top:12px">
+            <label class="focuser-mode-switch">
+              <span>Slow</span>
+              <input type="checkbox" id="focuser-speed-switch" data-focuser-control="speed-switch" role="switch" aria-label="Focuser speed mode">
+              <span class="toggle" aria-hidden="true"></span>
+              <span>Fast</span>
+            </label>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
             <button class="btn btn-primary" id="btn-focuser-minus" data-focuser-direction="minus">−</button>
@@ -1485,7 +1503,6 @@ socket.on('play_sound', d => {
   const fastStep = document.getElementById('focuser-step-fast');
   const speedSwitch = document.getElementById('focuser-speed-switch');
   let active = false;
-  let mode = 'fine';
   let press = null;
   let pollTimer = null;
 
@@ -1496,9 +1513,8 @@ socket.on('play_sound', d => {
     position.textContent = Number.isFinite(data.position) ? data.position : '--';
     if (Number.isInteger(data.step_fine) && data.step_fine > 0) slowStep.value = data.step_fine;
     if (Number.isInteger(data.step_coarse) && data.step_coarse > 0) fastStep.value = data.step_coarse;
-    if (data.mode === 'fine' || data.mode === 'coarse') {
-      mode = data.mode;
-      speedSwitch.checked = mode === 'coarse';
+    if (data.mode === 'slow' || data.mode === 'fast') {
+      speedSwitch.checked = data.mode === 'fast';
     }
     schedulePoll(data.moving === true ? 400 : 1500);
   }
@@ -1543,12 +1559,15 @@ socket.on('play_sound', d => {
     applyDevices(devices);
   };
 
-  function post(url, body) {
+  function post(url, body, renderResponse = true) {
     return request(url, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body || {}),
-    }).then(displayFocuser).catch(error => flash(`Focuseur : ${error.message}`, 'red'));
+    }).then(data => {
+      if (renderResponse) displayFocuser(data);
+      return data;
+    }).catch(error => flash(`Focuseur : ${error.message}`, 'red'));
   }
 
   document.getElementById('btn-focuser-home').addEventListener('click', () => {
@@ -1567,14 +1586,11 @@ socket.on('play_sound', d => {
   slowStep.addEventListener('change', saveSteps);
   fastStep.addEventListener('change', saveSteps);
   speedSwitch.addEventListener('change', () => {
-    mode = speedSwitch.checked ? 'coarse' : 'fine';
+    post('/api/focuser/mode', {mode: speedSwitch.checked ? 'fast' : 'slow'}, false)
+      .then(data => {
+        if (data) displayFocuser(data);
+      });
   });
-
-  function currentStep() {
-    const field = mode === 'coarse' ? fastStep : slowStep;
-    const value = Number.parseInt(field.value, 10);
-    return Number.isInteger(value) && value > 0 ? value : 1;
-  }
 
   function beginPress(event, sign) {
     if (!active || press) return;
@@ -1585,8 +1601,7 @@ socket.on('play_sound', d => {
       if (!press || press.pointerId !== event.pointerId) return;
       press.jogStarted = true;
       post('/api/focuser/jog/start', {
-        direction: sign < 0 ? 'in' : 'out',
-        mode,
+        direction: sign < 0 ? 'decrease' : 'increase',
       });
     }, 400);
   }
@@ -1602,7 +1617,7 @@ socket.on('play_sound', d => {
         fetch('/api/focuser/jog/stop', {method: 'POST'}).catch(() => {});
       }
     } else if (singleStep && active) {
-      post('/api/focuser/step', {delta: ended.sign * currentStep(), mode});
+      post('/api/focuser/step', {direction: ended.sign < 0 ? 'decrease' : 'increase'});
     }
   }
 
@@ -1624,10 +1639,10 @@ socket.on('play_sound', d => {
   });
   window.addEventListener('unload', () => stopPress(false));
 
-  socket.on('focuser_update', displayFocuser);
+  socket.on('focuser_update', refreshFocuser);
   socket.on('status_update', data => {
     if (data.devices) applyDevices(data.devices);
-    if (data.focuser) displayFocuser(data.focuser);
+    if (data.focuser) refreshFocuser();
   });
 })();
 // FOCUSER UI END
