@@ -310,6 +310,51 @@ def require_device_active(category):
     return None
 
 
+def _selected_device_plugin(category):
+    """Return the configured plugin id for a device category."""
+    devices = _state_store.snapshot("devices") or {}
+    selection = devices.get(category) or {}
+    return str(selection.get("plugin") or "none")
+
+
+def _trigger_running_response():
+    """Return a conflict response while hardware motion is unsafe."""
+    trigger_state = _state_store.snapshot("trigger") or {}
+    if trigger_state.get("running"):
+        return jsonify({
+            "error": "Mouvement du focuser interdit pendant un trigger actif.",
+            "code": "TRIGGER_RUNNING",
+        }), 409
+    return None
+
+
+def _focuser_post_guard(movement=False):
+    inactive = require_device_active("focuser")
+    if inactive is not None:
+        return inactive
+    if movement:
+        return _trigger_running_response()
+    return None
+
+
+def _focuser_result(status):
+    """Publish and return the latest focuser state after a successful action."""
+    socketio.emit("focuser_update", status)
+    return jsonify(status)
+
+
+def _json_int(payload, name, required=True):
+    """Read a JSON integer without accepting booleans as integers."""
+    if name not in payload:
+        if required:
+            raise ValueError(f"Missing integer field '{name}'.")
+        return None
+    value = payload[name]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"Field '{name}' must be an integer.")
+    return value
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # API — DEVICES
 # ══════════════════════════════════════════════════════════════════════════════
@@ -340,6 +385,17 @@ def api_devices_set():
     if not selections:
         return jsonify({"error": "No device category provided."}), 400
 
+    previous_devices = _state_store.snapshot("devices") or {}
+    previous_focuser = previous_devices.get("focuser") or {}
+    new_focuser = selections.get("focuser")
+    if (new_focuser is not None
+            and new_focuser.get("plugin") == "none"
+            and previous_focuser.get("active") is True):
+        try:
+            _focuser_service.stop_jog()
+        except Exception as exc:
+            log.warning("Impossible d'arrêter le jog du focuser : %s", exc)
+
     selections["updated_at"] = datetime.now(timezone.utc).isoformat()
     _state_store.update_section("devices", selections, persist=True)
     return jsonify(_devices_snapshot())
@@ -369,6 +425,104 @@ def api_status():
         "capture": _state_store.snapshot("capture"),
         "devices": _devices_snapshot(),
     })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# API — FOCUSER
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/focuser/status")
+def api_focuser_status():
+    inactive = require_device_active("focuser")
+    if inactive is not None:
+        return inactive
+    status = dict(_focuser_service.status())
+    status["plugin"] = _selected_device_plugin("focuser")
+    return jsonify(status)
+
+
+@app.route("/api/focuser/home", methods=["POST"])
+def api_focuser_home():
+    guarded = _focuser_post_guard(movement=True)
+    if guarded is not None:
+        return guarded
+    return _focuser_result(_focuser_service.home())
+
+
+@app.route("/api/focuser/move_to", methods=["POST"])
+def api_focuser_move_to():
+    guarded = _focuser_post_guard(movement=True)
+    if guarded is not None:
+        return guarded
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    try:
+        position = _json_int(payload, "position")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return _focuser_result(_focuser_service.move_to(position))
+
+
+@app.route("/api/focuser/step", methods=["POST"])
+def api_focuser_step():
+    guarded = _focuser_post_guard(movement=True)
+    if guarded is not None:
+        return guarded
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    mode = payload.get("mode")
+    if mode is not None and mode not in ("coarse", "fine"):
+        return jsonify({"error": "Field 'mode' must be 'coarse' or 'fine'."}), 400
+    try:
+        delta = _json_int(payload, "delta")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return _focuser_result(_focuser_service.move_relative(delta))
+
+
+@app.route("/api/focuser/jog/start", methods=["POST"])
+def api_focuser_jog_start():
+    guarded = _focuser_post_guard(movement=True)
+    if guarded is not None:
+        return guarded
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    direction = payload.get("direction")
+    mode = payload.get("mode")
+    if direction not in ("in", "out"):
+        return jsonify({"error": "Field 'direction' must be 'in' or 'out'."}), 400
+    if mode not in ("coarse", "fine"):
+        return jsonify({"error": "Field 'mode' must be 'coarse' or 'fine'."}), 400
+    return _focuser_result(_focuser_service.start_jog(direction, mode))
+
+
+@app.route("/api/focuser/jog/stop", methods=["POST"])
+def api_focuser_jog_stop():
+    guarded = _focuser_post_guard()
+    if guarded is not None:
+        return guarded
+    return _focuser_result(_focuser_service.stop_jog())
+
+
+@app.route("/api/focuser/set_step", methods=["POST"])
+def api_focuser_set_step():
+    guarded = _focuser_post_guard()
+    if guarded is not None:
+        return guarded
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    try:
+        coarse = _json_int(payload, "coarse", required=False)
+        fine = _json_int(payload, "fine", required=False)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if coarse is None and fine is None:
+        return jsonify({"error": "At least one step value is required."}), 400
+    return _focuser_result(_focuser_service.set_step(coarse=coarse, fine=fine))
 
 def _get_camera_model_info(camera):
     """Lit marque, modèle et batterie depuis la config gphoto2."""
