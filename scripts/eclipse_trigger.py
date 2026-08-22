@@ -125,6 +125,9 @@ from backend import audio_service
 _runtime_clock = RuntimeClock()
 _watchdog = TriggerWatchdog(Path.home() / "python_solareclipsetrigger" / "trigger_state.json", _runtime_clock)
 
+C3_OVERFLOW_GRACE_S = 1.0
+SHORT_EXPOSURE_MAX_S = 0.5
+
 def now(): return _runtime_clock.now()
 def sleep_sim(seconds): return _runtime_clock.sleep(seconds)
 def _watchdog_write(phase, next_shot_time=None): return _watchdog.write(phase, next_shot_time)
@@ -750,6 +753,55 @@ class _SimulationCameraService:
         pass
 
 
+def _c3_trigger_deadline(prepared, target, c3):
+    """Return the hard deadline for an admissible sequence, else ``None``."""
+    estimated_total_s = getattr(prepared, "estimated_total_s", None)
+    exposures_s = getattr(prepared, "exposures_s", None)
+
+    # Plugins legacy/non instrumentés : conserver le comportement historique.
+    # Aucune grâce après C3 n'est accordée sans estimations fiables, mais la
+    # séquence reste autorisée avec une deadline stricte à C3.
+    if estimated_total_s is None or exposures_s is None:
+        return c3
+
+    try:
+        estimated_total_s = float(estimated_total_s)
+        exposures_s = [float(exposure) for exposure in exposures_s]
+    except (TypeError, ValueError):
+        return None
+    exposure_total_s = sum(exposures_s)
+    if (not math.isfinite(estimated_total_s)
+            or any(not math.isfinite(exposure) for exposure in exposures_s)
+            or estimated_total_s < exposure_total_s
+            or any(exposure < 0.0 for exposure in exposures_s)):
+        return None
+
+    estimated_end = target + timedelta(seconds=estimated_total_s)
+    if estimated_end <= c3:
+        return c3
+
+    grace_deadline = c3 + timedelta(seconds=C3_OVERFLOW_GRACE_S)
+    if estimated_end > grace_deadline:
+        return None
+
+    # Treat non-exposure time in the estimate as preceding the exposures. This
+    # conservatively identifies every exposure that may still be active at C3.
+    elapsed_s = estimated_total_s - exposure_total_s
+    crossing_exposures = []
+    seconds_to_c3 = (c3 - target).total_seconds()
+    for exposure_s in exposures_s:
+        exposure_end_s = elapsed_s + exposure_s
+        if exposure_end_s > seconds_to_c3:
+            crossing_exposures.append(exposure_s)
+        elapsed_s = exposure_end_s
+
+    if (not crossing_exposures
+            or any(exposure > SHORT_EXPOSURE_MAX_S
+                   for exposure in crossing_exposures)):
+        return None
+    return grace_deadline
+
+
 def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
                        interval_s, aperture=None, iso=None, deadline=None,
                        photo_num_start=1):
@@ -778,6 +830,30 @@ def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
                  f"stage=prepare error={type(exc).__name__}: {exc}")
             target += timedelta(seconds=interval_s)
             continue
+        trigger_deadline = deadline
+        if phase == "phase2" and deadline is not None:
+            trigger_deadline = _c3_trigger_deadline(prepared, target, deadline)
+            estimated_total_s = getattr(prepared, "estimated_total_s", None)
+            exposures_s = getattr(prepared, "exposures_s", None)
+
+            if trigger_deadline is None:
+                _log(f"WARNING scheduler phase={phase} target={target.isoformat()} "
+                     "c3_overflow=refused reason=duration_or_exposure_policy")
+                target += timedelta(seconds=interval_s)
+                continue
+
+            if estimated_total_s is None or exposures_s is None:
+                _log(f"INFO scheduler phase={phase} target={target.isoformat()} "
+                     "c3_overflow=legacy_strict "
+                     f"hard_deadline={trigger_deadline.isoformat()}")
+            else:
+                estimated_end = target + timedelta(
+                    seconds=float(estimated_total_s)
+                )
+                if estimated_end > deadline:
+                    _log(f"INFO scheduler phase={phase} target={target.isoformat()} "
+                         f"c3_overflow=accepted estimated_end={estimated_end.isoformat()} "
+                         f"hard_deadline={trigger_deadline.isoformat()}")
         prep_end = time.perf_counter()
         wait_start = prep_end
         _log(f"INFO scheduler phase={phase} target={target.isoformat()} "
@@ -791,7 +867,9 @@ def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
         if delay_s > 0:
             _log(f"WARNING scheduler phase={phase} target_delay_s={delay_s:.6f}")
         try:
-            result = camera_service.trigger_prepared(prepared, deadline=deadline)
+            result = camera_service.trigger_prepared(
+                prepared, deadline=trigger_deadline,
+            )
         except Exception as exc:
             shutter_return = time.perf_counter()
             _log(f"ERROR scheduler phase={phase} target={target.isoformat()} "
@@ -1164,9 +1242,9 @@ def main():
             _log(f"{Colors.GREEN}# PHASE 2 - TOTALITY -- C2 -> C3{Colors.RESET}")
             _log(f"{Colors.YELLOW}Capture{Colors.RESET}")
 
-            # La sécurité C3 est désormais appliquée par le plugin via deadline.
-            # Le moteur ne règle plus jamais directement shutterspeed/shutterspeed2.
-            _log(f"{Colors.BLUE}Sécurité C3 : aucune séquence ne doit déborder sur C3 ({format_hms_ms(C3)}){Colors.RESET}")
+            _log(f"{Colors.BLUE}Sécurité C3 : débordement court autorisé "
+                 f"jusqu'à +{C3_OVERFLOW_GRACE_S:g}s pour les poses "
+                 f"≤ {SHORT_EXPOSURE_MAX_S:g}s ({format_hms_ms(C3)}){Colors.RESET}")
 
             totality_interval = max(0.001, sum(parse_shutterspeed(s) for s in shutter_speeds))
             _run_absolute_grid(camera_service, "phase2", shutter_speeds, C2,

@@ -149,3 +149,169 @@ def test_camera_error_logs_and_continues_on_next_absolute_slot(scheduler, stage,
     assert any(f"stage={stage}" in line for line in logs)
     successful_targets = [target for _, target in service.triggered_at]
     assert start + timedelta(seconds=20) in successful_targets
+
+
+def _prepared(estimated_total_s, exposures_s):
+    return types.SimpleNamespace(
+        estimated_total_s=estimated_total_s,
+        exposures_s=exposures_s,
+    )
+
+
+def test_c3_overflow_accepts_short_exposure_ending_plus_0_4s():
+    c3 = datetime(2026, 8, 12, 20, 30, 0)
+    target = c3 - timedelta(seconds=0.4)
+    prepared = _prepared(
+        estimated_total_s=0.8,
+        exposures_s=[0.4],
+    )
+
+    deadline = trigger._c3_trigger_deadline(prepared, target, c3)
+
+    assert deadline == c3 + timedelta(seconds=trigger.C3_OVERFLOW_GRACE_S)
+
+
+def test_c3_overflow_accepts_plus_0_9s_when_crossing_exposures_are_short():
+    c3 = datetime(2026, 8, 12, 20, 30, 0)
+    target = c3 - timedelta(seconds=0.1)
+    prepared = _prepared(
+        estimated_total_s=1.0,
+        exposures_s=[0.4, 0.4],
+    )
+
+    deadline = trigger._c3_trigger_deadline(prepared, target, c3)
+
+    assert deadline == c3 + timedelta(seconds=trigger.C3_OVERFLOW_GRACE_S)
+
+
+def test_c3_overflow_refuses_sequence_ending_plus_1_1s():
+    c3 = datetime(2026, 8, 12, 20, 30, 0)
+    target = c3 - timedelta(seconds=0.1)
+    prepared = _prepared(
+        estimated_total_s=1.2,
+        exposures_s=[0.4, 0.4],
+    )
+
+    deadline = trigger._c3_trigger_deadline(prepared, target, c3)
+
+    assert deadline is None
+
+
+def test_c3_overflow_refuses_one_second_exposure_crossing_c3():
+    c3 = datetime(2026, 8, 12, 20, 30, 0)
+    target = c3 - timedelta(seconds=0.2)
+    prepared = _prepared(
+        estimated_total_s=1.0,
+        exposures_s=[1.0],
+    )
+
+    deadline = trigger._c3_trigger_deadline(prepared, target, c3)
+
+    assert deadline is None
+
+
+def test_c3_overflow_without_estimates_falls_back_to_strict_c3():
+    c3 = datetime(2026, 8, 12, 20, 30, 0)
+    target = c3 - timedelta(seconds=0.2)
+    prepared = types.SimpleNamespace(
+        estimated_total_s=None,
+        exposures_s=None,
+    )
+
+    deadline = trigger._c3_trigger_deadline(prepared, target, c3)
+
+    assert deadline == c3
+
+
+def test_absolute_grid_logs_c3_overflow_accepted(scheduler):
+    start, clock, logs = scheduler
+
+    class EstimatedCameraService(FakeCameraService):
+        def prepare_capture(self, intent):
+            self.prepared_at.append((self.clock.now(), intent.target_time))
+            return types.SimpleNamespace(
+                token=intent,
+                estimated_total_s=0.8,
+                exposures_s=[0.4],
+            )
+
+    service = EstimatedCameraService(clock, durations=[0])
+
+    c3 = start + timedelta(seconds=10)
+    target = c3 - timedelta(seconds=0.4)
+
+    trigger._run_absolute_grid(
+        service,
+        "phase2",
+        ["1/500"],
+        target,
+        c3,
+        10,
+        deadline=c3,
+    )
+
+    joined = "\n".join(logs)
+    assert "c3_overflow=accepted" in joined
+    assert "hard_deadline=" in joined
+
+
+def test_absolute_grid_logs_c3_overflow_refused(scheduler):
+    start, clock, logs = scheduler
+
+    class EstimatedCameraService(FakeCameraService):
+        def prepare_capture(self, intent):
+            self.prepared_at.append((self.clock.now(), intent.target_time))
+            return types.SimpleNamespace(
+                token=intent,
+                estimated_total_s=1.2,
+                exposures_s=[0.4, 0.4],
+            )
+
+    service = EstimatedCameraService(clock, durations=[0])
+
+    c3 = start + timedelta(seconds=10)
+    target = c3 - timedelta(seconds=0.1)
+
+    trigger._run_absolute_grid(
+        service,
+        "phase2",
+        ["1/500"],
+        target,
+        c3,
+        10,
+        deadline=c3,
+    )
+
+    joined = "\n".join(logs)
+    assert "c3_overflow=refused" in joined
+
+
+def test_absolute_grid_logs_legacy_strict_when_estimates_missing(scheduler):
+    start, clock, logs = scheduler
+
+    class LegacyCameraService(FakeCameraService):
+        def prepare_capture(self, intent):
+            self.prepared_at.append((self.clock.now(), intent.target_time))
+            return types.SimpleNamespace(
+                token=intent,
+                estimated_total_s=None,
+                exposures_s=None,
+            )
+
+    service = LegacyCameraService(clock, durations=[0])
+
+    c3 = start + timedelta(seconds=10)
+    target = c3 - timedelta(seconds=0.2)
+
+    trigger._run_absolute_grid(
+        service,
+        "phase2",
+        ["1/500"],
+        target,
+        c3,
+        10,
+        deadline=c3,
+    )
+
+    joined = "\n".join(logs)
+    assert "c3_overflow=legacy_strict" in joined
