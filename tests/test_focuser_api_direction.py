@@ -19,8 +19,10 @@ import flask_app.app as flask_module
 class RecordingPlugin:
     def __init__(self):
         self.connected = False
+        self.position = 100
         self.relative_moves = []
         self.jog_calls = []
+        self.stop_calls = 0
 
     def connect(self):
         self.connected = True
@@ -32,7 +34,13 @@ class RecordingPlugin:
         return {"moving": False, "holding": False}
 
     def get_position(self):
-        return 100
+        return self.position
+
+    def move_to(self, position, wait=False):
+        self.position = position
+
+    def stop(self):
+        self.stop_calls += 1
 
     def move_relative(self, delta, wait=False):
         self.relative_moves.append(delta)
@@ -157,6 +165,22 @@ def test_mode_endpoint_is_authoritative_for_step_and_jog(focuser_api):
     assert jog.status_code == 200
     assert plugin.relative_moves == [-240]
     assert plugin.jog_calls == [(DIR_OUT, "coarse")]
+
+
+def test_stop_endpoint_is_idempotent_and_reports_live_position(focuser_api):
+    client, service, plugin = focuser_api
+    service.home()
+    plugin.position = 73
+
+    first = client.post("/api/focuser/stop")
+    second = client.post("/api/focuser/stop")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.get_json()["position"] == 73
+    assert second.get_json()["position"] == 73
+    assert second.get_json() == first.get_json()
+    assert plugin.stop_calls == 2
 
 
 @pytest.mark.parametrize(

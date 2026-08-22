@@ -463,6 +463,14 @@ def api_focuser_home():
     return _focuser_result(_focuser_service.home())
 
 
+@app.route("/api/focuser/stop", methods=["POST"])
+def api_focuser_stop():
+    guarded = _focuser_post_guard()
+    if guarded is not None:
+        return guarded
+    return _focuser_result(_focuser_service.stop())
+
+
 @app.route("/api/focuser/move_to", methods=["POST"])
 def api_focuser_move_to():
     guarded = _focuser_post_guard(movement=True)
