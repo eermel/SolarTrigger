@@ -1,10 +1,11 @@
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import ModuleType
 
 import pytest
 
+from backend import devices as device_helpers
 from backend.state_store import StateStore
 
 
@@ -16,6 +17,17 @@ import flask_app.app as flask_module
 
 
 CATEGORIES = ("camera", "gps", "focuser", "mount")
+T0 = datetime(2026, 8, 19, 10, 0, tzinfo=timezone.utc)
+
+
+class _ControlledDatetime(datetime):
+    current = T0
+
+    @classmethod
+    def now(cls, tz=None):
+        if tz is None:
+            return cls.current.replace(tzinfo=None)
+        return cls.current.astimezone(tz)
 
 
 def _selections(updated_at="2026-08-22T10:00:00+00:00"):
@@ -99,10 +111,35 @@ def test_devices_get_detects_missing_selection_without_renewing_ttl(
     assert state_file.read_text(encoding="utf-8") == disk_before
 
 
-def test_devices_post_updates_only_provided_categories(devices_api):
+def test_devices_get_detects_expired_selection_without_renewing_ttl(
+    devices_api, monkeypatch
+):
+    client, state_store, state_file = devices_api
+    persisted = _selections(T0.isoformat())
+    state_store.update_section("devices", persisted, persist=True)
+    disk_before = state_file.read_text(encoding="utf-8")
+    monkeypatch.setattr(
+        flask_module,
+        "ttl_expired",
+        lambda updated_at: device_helpers.ttl_expired(
+            updated_at, T0 + timedelta(hours=72, seconds=1)
+        ),
+    )
+    monkeypatch.setattr(flask_module, "detect_all", lambda _timeouts: _detection())
+
+    response = client.get("/api/devices")
+
+    assert response.status_code == 200
+    assert state_store.snapshot("devices")["updated_at"] == T0.isoformat()
+    assert state_file.read_text(encoding="utf-8") == disk_before
+
+
+def test_devices_post_updates_only_provided_categories(devices_api, monkeypatch):
     client, state_store, state_file = devices_api
     persisted = _selections("2026-08-20T10:00:00+00:00")
     state_store.update_section("devices", persisted, persist=True)
+    _ControlledDatetime.current = datetime(2026, 8, 22, 15, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr(flask_module, "datetime", _ControlledDatetime)
 
     response = client.post(
         "/api/devices",
@@ -115,8 +152,7 @@ def test_devices_post_updates_only_provided_categories(devices_api):
     assert saved["gps"] == {"plugin": "gpsd", "active": True}
     assert saved["focuser"] == persisted["focuser"]
     assert saved["mount"] == persisted["mount"]
-    assert saved["updated_at"] != persisted["updated_at"]
-    assert datetime.fromisoformat(saved["updated_at"]).tzinfo == timezone.utc
+    assert saved["updated_at"] == _ControlledDatetime.current.isoformat()
     assert json.loads(state_file.read_text(encoding="utf-8"))["devices"] == saved
 
 
