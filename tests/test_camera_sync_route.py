@@ -90,9 +90,38 @@ from flask_app import app as flask_module
 @pytest.fixture
 def camera_sync_client(tmp_path, monkeypatch):
     state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices", {"camera": {"plugin": "test", "active": True}}
+    )
     monkeypatch.setattr(flask_module, "_state_store", state_store)
     flask_module.app.config.update(TESTING=True)
     return flask_module.app.test_client(), state_store
+
+
+def test_camera_sync_inactive_does_not_init_service_or_acquire_lock(
+    camera_sync_client, monkeypatch
+):
+    client, state_store = camera_sync_client
+    state_store.update_section(
+        "devices", {"camera": {"plugin": "none", "active": False}}
+    )
+
+    class UnexpectedCameraService:
+        def __init__(self, **kwargs):
+            pytest.fail("CameraService must not be initialized")
+
+    class UnexpectedLock:
+        def acquire(self, **kwargs):
+            pytest.fail("camera sync lock must not be acquired")
+
+    monkeypatch.setattr(flask_module, "CameraService", UnexpectedCameraService)
+    monkeypatch.setattr(flask_module, "_camera_sync_lock", UnexpectedLock())
+
+    response = client.post("/api/camera/sync_time")
+
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "DEVICE_INACTIVE"
+    assert response.get_json()["category"] == "camera"
 
 
 def test_camera_sync_requires_gps_offset_without_changing_state(
