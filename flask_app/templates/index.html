@@ -541,6 +541,11 @@ header {
 .focuser-mode-switch input:checked + .toggle::after {
   transform: translateX(20px); background: var(--green);
 }
+.focuser-cancel {
+  background: var(--red);
+  color: white;
+  border-color: var(--red);
+}
 
 /* ── NOTIFICATION FLASH ── */
 .flash {
@@ -1502,7 +1507,11 @@ socket.on('play_sound', d => {
   const slowStep = document.getElementById('focuser-step-slow');
   const fastStep = document.getElementById('focuser-step-fast');
   const speedSwitch = document.getElementById('focuser-speed-switch');
+  const goButton = document.getElementById('btn-focuser-go');
+  const homeButton = document.getElementById('btn-focuser-home');
+  const directionButtons = document.querySelectorAll('[data-focuser-direction]');
   let active = false;
+  let absoluteMotion = null;
   let press = null;
   let pollTimer = null;
 
@@ -1516,6 +1525,21 @@ socket.on('play_sound', d => {
     if (data.mode === 'slow' || data.mode === 'fast') {
       speedSwitch.checked = data.mode === 'fast';
     }
+    absoluteMotion = data.moving === true && (data.motion_command === 'go' || data.motion_command === 'home')
+      ? data.motion_command
+      : null;
+    const controlsEnabled = active && state.phase === 'idle';
+    [goButton, homeButton].forEach(button => {
+      const isCancel = button.dataset.focuserAction === absoluteMotion;
+      button.textContent = isCancel ? 'Cancel' : (button.dataset.focuserAction === 'go' ? 'Go' : 'Home');
+      button.classList.toggle('focuser-cancel', isCancel);
+      button.disabled = absoluteMotion ? !isCancel : !controlsEnabled;
+    });
+    const disableOtherControls = Boolean(absoluteMotion) || !controlsEnabled;
+    directionButtons.forEach(button => { button.disabled = disableOtherControls; });
+    slowStep.disabled = disableOtherControls;
+    fastStep.disabled = disableOtherControls;
+    speedSwitch.disabled = disableOtherControls;
     schedulePoll(data.moving === true ? 400 : 1500);
   }
 
@@ -1570,10 +1594,19 @@ socket.on('play_sound', d => {
     }).catch(error => flash(`Focuseur : ${error.message}`, 'red'));
   }
 
-  document.getElementById('btn-focuser-home').addEventListener('click', () => {
-    post('/api/focuser/home');
+  function cancelAbsoluteMotion() {
+    post('/api/focuser/stop');
+  }
+
+  homeButton.addEventListener('click', () => {
+    if (absoluteMotion === 'home') cancelAbsoluteMotion();
+    else post('/api/focuser/home');
   });
-  document.getElementById('btn-focuser-go').addEventListener('click', () => {
+  goButton.addEventListener('click', () => {
+    if (absoluteMotion === 'go') {
+      cancelAbsoluteMotion();
+      return;
+    }
     const requestedPosition = Number.parseInt(target.value, 10);
     if (Number.isInteger(requestedPosition)) post('/api/focuser/move_to', {position: requestedPosition});
   });
