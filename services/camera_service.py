@@ -8,10 +8,38 @@ from __future__ import annotations
 
 import math
 import time
+from dataclasses import dataclass
+from datetime import datetime
 from statistics import median
+from typing import Any, List, Optional
 
 from plugins.camera import load_plugin, get_camera_model
 from plugins.camera.base import CaptureResult
+
+
+@dataclass
+class CaptureIntent:
+    """Brand-agnostic description of a requested capture sequence."""
+
+    shutter_min: Optional[str]
+    shutter_max: Optional[str]
+    step_ev: Optional[float]
+    speeds: Optional[List[str]]
+    phase: str
+    target_time: datetime
+    deadline: Optional[datetime]
+    overflow_policy: Optional[str]
+
+
+@dataclass
+class PreparedCapture:
+    """Opaque prepared capture and its brand-independent estimates."""
+
+    token: Any
+    estimated_total_s: Optional[float]
+    exposures_s: Optional[List[float]]
+    planned_count: Optional[int]
+    plugin_name: str
 
 
 def _parse_speed(value):
@@ -219,4 +247,9 @@ class CameraService:
         )
 
 
-__all__ = ["CameraService", "_normalized_speed_plan"]
+__all__ = [
+    "CameraService",
+    "CaptureIntent",
+    "PreparedCapture",
+    "_normalized_speed_plan",
+]

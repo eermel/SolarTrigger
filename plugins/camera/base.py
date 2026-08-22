@@ -19,6 +19,10 @@ Chaque plugin traduit cela comme il peut :
 
 from abc import ABC, abstractmethod
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from services.camera_service import CaptureIntent, PreparedCapture
 
 
 def seconds_until_deadline(deadline):
