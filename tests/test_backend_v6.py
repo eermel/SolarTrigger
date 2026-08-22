@@ -19,6 +19,40 @@ def test_state_store_persists_only_runtime_configuration(tmp_path):
     assert restored.get('gps_sync_running') is False
 
 
+def test_state_store_has_circumstances_and_capture_defaults(tmp_path):
+    store = StateStore(tmp_path / 'state.json')
+
+    expected = {'loaded': False, 'active_file': None, 'meta': {}}
+    assert store.snapshot('circumstances') == expected
+    assert store.snapshot('capture') == expected
+
+
+def test_state_store_restores_circumstances_and_capture_files(tmp_path):
+    path = tmp_path / 'state.json'
+    store = StateStore(path)
+    store.update_section(
+        'circumstances',
+        {'loaded': True, 'active_file': 'circumstances.json', 'meta': {'site': 'test'}},
+    )
+    store.update_section(
+        'capture',
+        {'loaded': True, 'active_file': 'capture.json', 'meta': {'camera': 'test'}},
+    )
+    store.save()
+
+    restored = StateStore(path)
+    assert restored.snapshot('circumstances') == {
+        'loaded': False,
+        'active_file': 'circumstances.json',
+        'meta': {'site': 'test'},
+    }
+    assert restored.snapshot('capture') == {
+        'loaded': False,
+        'active_file': 'capture.json',
+        'meta': {'camera': 'test'},
+    }
+
+
 def test_boot_reset_invalidates_gps_and_eclipse(tmp_path):
     store=StateStore(tmp_path/'state.json')
     store.update_section('gps', {'synced': True, 'lat': 42.0})
