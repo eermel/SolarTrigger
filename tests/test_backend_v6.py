@@ -1,4 +1,7 @@
 import json
+import sys
+import threading
+import types
 from datetime import datetime
 from pathlib import Path
 import pytest
@@ -17,6 +20,63 @@ def test_state_store_persists_only_runtime_configuration(tmp_path):
     assert restored.snapshot('gps')['lat'] == 1.2
     assert restored.snapshot('gps')['hdop'] == 0.7
     assert restored.get('gps_sync_running') is False
+
+
+def test_state_store_gps_timezone_defaults_survive_save_and_reload(tmp_path):
+    path = tmp_path / 'state.json'
+    store = StateStore(path)
+
+    gps = store.snapshot('gps')
+    assert gps['timezone_name'] is None
+    assert gps['utc_offset_minutes'] is None
+
+    store.save()
+    restored_gps = StateStore(path).snapshot('gps')
+    assert restored_gps['timezone_name'] is None
+    assert restored_gps['utc_offset_minutes'] is None
+
+
+def test_camera_status_preserves_existing_camera_subkeys(monkeypatch):
+    class FakeApp:
+        def __init__(self, *args, **kwargs):
+            self.config = {}
+
+        def route(self, *args, **kwargs):
+            return lambda function: function
+
+    class FakeSocketIO:
+        def __init__(self, *args, **kwargs): pass
+        def emit(self, *args, **kwargs): pass
+        def on(self, *args, **kwargs): return lambda function: function
+
+    fake_gp = types.SimpleNamespace(
+        Camera=lambda: (_ for _ in ()).throw(RuntimeError())
+    )
+    fake_flask = types.SimpleNamespace(
+        Flask=FakeApp,
+        jsonify=lambda value: value,
+        request=types.SimpleNamespace(),
+        send_from_directory=lambda *args, **kwargs: None,
+    )
+    fake_socketio = types.SimpleNamespace(
+        SocketIO=FakeSocketIO,
+        emit=lambda *args, **kwargs: None,
+    )
+    monkeypatch.setitem(sys.modules, 'gphoto2', fake_gp)
+    monkeypatch.setitem(sys.modules, 'flask', fake_flask)
+    monkeypatch.setitem(sys.modules, 'flask_socketio', fake_socketio)
+    import flask_app.app as flask_module
+
+    camera_state = {'camera': {'time_sync': '2026-08-22T12:34:56Z'}}
+    monkeypatch.setattr(flask_module, '_state', camera_state)
+    monkeypatch.setattr(flask_module, '_state_lock', threading.RLock())
+    monkeypatch.setattr(flask_module, '_save_state', lambda: None)
+
+    status = flask_module._get_camera_status()
+
+    assert status['time_sync'] == '2026-08-22T12:34:56Z'
+    assert camera_state['camera']['time_sync'] == '2026-08-22T12:34:56Z'
+    assert status['connected'] is False
 
 
 def test_boot_reset_invalidates_gps_and_eclipse(tmp_path):

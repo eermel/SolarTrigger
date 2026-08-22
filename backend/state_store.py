@@ -6,7 +6,8 @@ from typing import Any
 DEFAULT_STATE = {
     "gps": {"connected": False, "synced": False, "lat": None, "lon": None,
             "alt": None, "date": None, "satellites": 0, "hdop": None,
-            "sync_time": None, "timezone": None, "gps_sync_running": False},
+            "sync_time": None, "timezone": None, "timezone_name": None,
+            "utc_offset_minutes": None, "gps_sync_running": False},
     "camera": {"connected": False, "brand": None, "model": None, "battery": None},
     "eclipse": None,
     "trigger": {"running": False, "phase": "idle"},

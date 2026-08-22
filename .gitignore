@@ -16,3 +16,4 @@ venv/
 # macOS metadata
 .DS_Store
 ._*
+flask_app/logs_buffer.jsonl

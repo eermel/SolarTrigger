@@ -293,7 +293,8 @@ def _get_camera_status():
     except Exception:
         info = {"connected": False, "brand": None, "model": None, "battery": None}
     with _state_lock:
-        _state["camera"] = info
+        _state.setdefault("camera", {}).update(info)
+        info = dict(_state["camera"])
     _save_state()
     return info
 
