@@ -128,6 +128,21 @@ _watchdog = TriggerWatchdog(Path.home() / "python_solareclipsetrigger" / "trigge
 C3_OVERFLOW_GRACE_S = 1.0
 SHORT_EXPOSURE_MAX_S = 0.5
 
+
+def _select_uniform_indices(exposures, target_size):
+    """Return evenly distributed indices including both bracket endpoints."""
+    total_size = len(exposures)
+    if target_size < 2 or target_size > total_size:
+        raise ValueError("target_size must satisfy 2 <= target_size <= len(exposures)")
+
+    intervals = target_size - 1
+    span = total_size - 1
+    return [
+        (2 * position * span + intervals) // (2 * intervals)
+        for position in range(target_size)
+    ]
+
+
 def now(): return _runtime_clock.now()
 def sleep_sim(seconds): return _runtime_clock.sleep(seconds)
 def _watchdog_write(phase, next_shot_time=None): return _watchdog.write(phase, next_shot_time)
@@ -998,12 +1013,14 @@ def _c3_trigger_deadline(prepared, target, c3):
         estimated_total_s = float(estimated_total_s)
         exposures_s = [float(exposure) for exposure in exposures_s]
     except (TypeError, ValueError):
+        _log("c3_adaptation=refused reason=invalid_estimate")
         return None
     exposure_total_s = sum(exposures_s)
     if (not math.isfinite(estimated_total_s)
             or any(not math.isfinite(exposure) for exposure in exposures_s)
             or estimated_total_s < exposure_total_s
             or any(exposure < 0.0 for exposure in exposures_s)):
+        _log("c3_adaptation=refused reason=invalid_estimate")
         return None
 
     estimated_end = target + timedelta(seconds=estimated_total_s)
@@ -1032,6 +1049,81 @@ def _c3_trigger_deadline(prepared, target, c3):
     return grace_deadline
 
 
+def _prepare_totality_sub_bracket(camera_service, speeds, target, c3):
+    """Select the largest plugin-accepted sub-bracket admissible near C3."""
+    capture = speeds if isinstance(speeds, dict) else {"speeds": speeds}
+    configured = capture.get("speeds")
+
+    # Ranged plans cannot be subset before the plugin expands them. Preserve
+    # their existing preparation path; explicit plans use DEV-001 selection.
+    if not isinstance(configured, (list, tuple)) or len(configured) < 2:
+        intent = _capture_intent(speeds, "phase2", target, c3)
+        prepared = camera_service.prepare_capture(intent)
+        trigger_deadline = _c3_trigger_deadline(prepared, target, c3)
+        if isinstance(configured, (list, tuple)) and trigger_deadline is not None:
+            _log(f"c3_adaptation=full planned={len(configured)} "
+                 f"selected={len(configured)}")
+        return prepared, trigger_deadline
+
+    total_size = len(configured)
+    for candidate_size in range(total_size, 1, -1):
+        indices = _select_uniform_indices(configured, candidate_size)
+        candidate = dict(capture)
+        candidate["speeds"] = [configured[index] for index in indices]
+        try:
+            intent = _capture_intent(candidate, "phase2", target, c3)
+            prepared = camera_service.prepare_capture(intent)
+        except Exception as exc:
+            _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+                 f"candidate_m={candidate_size} accepted=false "
+                 f"reason=prepare error={type(exc).__name__}: {exc}")
+            continue
+
+        trigger_deadline = _c3_trigger_deadline(prepared, target, c3)
+        if trigger_deadline is not None:
+            _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+                 f"candidate_m={candidate_size} accepted=true")
+            outcome = "full" if candidate_size == total_size else "reduced"
+            _log(f"c3_adaptation={outcome} planned={total_size} "
+                 f"selected={candidate_size}")
+            return prepared, trigger_deadline
+
+        _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+             f"candidate_m={candidate_size} accepted=false "
+             "reason=duration_or_exposure_policy")
+
+    # M=1: consider the original exposures from longest to shortest. Account
+    # for a late slot when applying the same C3 hard-deadline policy used for
+    # every prepared capture.
+    singles = sorted(configured, key=parse_shutterspeed, reverse=True)
+    for speed in singles:
+        candidate = dict(capture)
+        candidate["speeds"] = [speed]
+        try:
+            intent = _capture_intent(candidate, "phase2", target, c3)
+            prepared = camera_service.prepare_capture(intent)
+        except Exception as exc:
+            _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+                 f"candidate_m=1 speed={speed} accepted=false "
+                 f"reason=prepare error={type(exc).__name__}: {exc}")
+            continue
+
+        effective_start = max(target, now())
+        trigger_deadline = _c3_trigger_deadline(prepared, effective_start, c3)
+        if trigger_deadline is not None:
+            _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+                 f"candidate_m=1 speed={speed} accepted=true")
+            _log(f"c3_adaptation=reduced planned={total_size} selected=1")
+            return prepared, trigger_deadline
+
+        _log(f"INFO scheduler phase=phase2 target={target.isoformat()} "
+             f"candidate_m=1 speed={speed} accepted=false "
+             "reason=duration_or_exposure_policy")
+
+    _log("c3_adaptation=refused reason=no_admissible_subset")
+    return None, None
+
+
 def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
                        interval_s, aperture=None, iso=None, deadline=None,
                        photo_num_start=1):
@@ -1053,16 +1145,25 @@ def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
             break
         prep_start = time.perf_counter()
         try:
-            intent = _capture_intent(speeds, phase, target, deadline)
-            prepared = camera_service.prepare_capture(intent)
+            if phase == "phase2" and deadline is not None:
+                prepared, trigger_deadline = _prepare_totality_sub_bracket(
+                    camera_service, speeds, target, deadline,
+                )
+                if prepared is None:
+                    _log(f"WARNING scheduler phase={phase} target={target.isoformat()} "
+                         "c3_overflow=refused reason=no_admissible_subset")
+                    target += timedelta(seconds=interval_s)
+                    continue
+            else:
+                intent = _capture_intent(speeds, phase, target, deadline)
+                prepared = camera_service.prepare_capture(intent)
+                trigger_deadline = deadline
         except Exception as exc:
             _log(f"ERROR scheduler phase={phase} target={target.isoformat()} "
                  f"stage=prepare error={type(exc).__name__}: {exc}")
             target += timedelta(seconds=interval_s)
             continue
-        trigger_deadline = deadline
         if phase == "phase2" and deadline is not None:
-            trigger_deadline = _c3_trigger_deadline(prepared, target, deadline)
             estimated_total_s = getattr(prepared, "estimated_total_s", None)
             exposures_s = getattr(prepared, "exposures_s", None)
 

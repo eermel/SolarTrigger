@@ -315,3 +315,106 @@ def test_absolute_grid_logs_legacy_strict_when_estimates_missing(scheduler):
 
     joined = "\n".join(logs)
     assert "c3_overflow=legacy_strict" in joined
+
+
+@pytest.mark.parametrize("execution_path", ["real", "dry-run"])
+def test_totality_sub_bracket_selects_first_accepted_candidate(
+    execution_path, monkeypatch
+):
+    target = datetime(2026, 8, 12, 20, 29, 59)
+    c3 = target + timedelta(seconds=1)
+    configured = [f"1/{4000 // (index + 1)}" for index in range(9)]
+
+    class SelectiveCameraService:
+        def __init__(self):
+            self.attempted = []
+
+        def prepare_capture(self, intent):
+            self.attempted.append(intent.speeds)
+            if len(intent.speeds) != 8:
+                raise RuntimeError("candidate refused")
+            return types.SimpleNamespace(
+                token=intent,
+                estimated_total_s=0.5,
+                exposures_s=[0.01] * len(intent.speeds),
+            )
+
+    monkeypatch.setattr(trigger, "_sim_mode", execution_path == "dry-run")
+    service = SelectiveCameraService()
+
+    prepared, deadline = trigger._prepare_totality_sub_bracket(
+        service, configured, target, c3,
+    )
+
+    expected_indices = trigger._select_uniform_indices(configured, 8)
+    expected = [configured[index] for index in expected_indices]
+    assert [len(candidate) for candidate in service.attempted] == [9, 8]
+    assert prepared.token.speeds == expected
+    assert len(prepared.token.speeds) == 8
+    assert deadline == c3
+
+
+def test_totality_sub_bracket_selects_longest_admissible_single(monkeypatch):
+    target = datetime(2026, 8, 12, 20, 29, 59, 900000)
+    c3 = target + timedelta(seconds=0.1)
+    configured = ["1/4000", "1/1000", "1/250"]
+    monkeypatch.setattr(trigger, "now", lambda: target)
+
+    class SingleOnlyCameraService:
+        def __init__(self):
+            self.attempted = []
+
+        def prepare_capture(self, intent):
+            self.attempted.append(intent.speeds)
+            if len(intent.speeds) > 1:
+                raise RuntimeError("bracket refused")
+            exposure_s = trigger.parse_shutterspeed(intent.speeds[0])
+            estimated_total_s = (
+                1.2 if intent.speeds[0] == "1/250" else exposure_s + 0.098
+            )
+            return types.SimpleNamespace(
+                token=intent,
+                estimated_total_s=estimated_total_s,
+                exposures_s=[exposure_s],
+            )
+
+    service = SingleOnlyCameraService()
+
+    prepared, deadline = trigger._prepare_totality_sub_bracket(
+        service, configured, target, c3,
+    )
+
+    assert service.attempted == [configured, [configured[0], configured[-1]],
+                                 ["1/250"], ["1/1000"]]
+    assert prepared.token.speeds == ["1/1000"]
+    assert deadline == c3
+
+
+def test_totality_sub_bracket_skips_when_no_single_is_admissible(
+    scheduler, monkeypatch
+):
+    start, clock, logs = scheduler
+    target = start + timedelta(seconds=1)
+    c3 = target + timedelta(seconds=0.1)
+    configured = ["1/1000", "1/250"]
+
+    class NoAdmissibleCameraService(FakeCameraService):
+        def prepare_capture(self, intent):
+            self.prepared_at.append((self.clock.now(), intent.target_time))
+            if len(intent.speeds) > 1:
+                raise RuntimeError("bracket refused")
+            return types.SimpleNamespace(
+                token=intent,
+                estimated_total_s=1.2,
+                exposures_s=[trigger.parse_shutterspeed(intent.speeds[0])],
+            )
+
+    service = NoAdmissibleCameraService(clock)
+    monkeypatch.setattr(trigger, "_usb_wait_or_hold", lambda *args, **kwargs: None)
+
+    trigger._run_absolute_grid(
+        service, "phase2", configured, target, c3, 1, deadline=c3,
+    )
+
+    assert service.triggered_at == []
+    assert "reason=no_admissible_subset" in "\n".join(logs)
