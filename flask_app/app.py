@@ -389,7 +389,7 @@ def api_devices_set():
     previous_focuser = previous_devices.get("focuser") or {}
     new_focuser = selections.get("focuser")
     if (new_focuser is not None
-            and new_focuser.get("plugin") == "none"
+            and new_focuser.get("active") is not True
             and previous_focuser.get("active") is True):
         try:
             _focuser_service.stop_jog()
