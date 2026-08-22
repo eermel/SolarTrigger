@@ -207,19 +207,12 @@ class SonyPlugin(CameraPlugin):
         self.log(f"   [sony] plan {v_max}->{v_min} @ {step} IL : "
                  f"{len(seq)} sequence(s), {planned} vues")
 
-        # estimation de duree par element pour la barriere de deadline
-        import datetime
-
-        def est_seconds(item):
-            if isinstance(item, planner.SinglePhoto):
-                return planner.parse_speed(item.speed) + 1.0
-            return sum(planner.parse_speed(v) for v in item.views) + 2.0
-
         total = 0
         for item in seq:
             if deadline is not None:
                 remaining = seconds_until_deadline(deadline)
-                if remaining < est_seconds(item):
+                if (remaining < planner.estimate_duration(item)
+                        + planner.SAFETY_MARGIN_S):
                     self.log("   [sony] deadline : sequence tronquee (ok)")
                     break
             if isinstance(item, planner.SinglePhoto):

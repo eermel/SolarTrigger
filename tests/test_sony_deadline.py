@@ -61,3 +61,29 @@ def test_estimate_duration_and_req005_budget(
     assert estimate_duration(item) + SAFETY_MARGIN_S == pytest.approx(
         expected_budget, abs=0.001
     )
+
+
+def test_fast_nine_frame_bracket_is_not_admitted_with_3_5_seconds_remaining():
+    item = Bracket(
+        "1/250",
+        1.0,
+        9,
+        [
+            "1/4000",
+            "1/2000",
+            "1/1000",
+            "1/500",
+            "1/250",
+            "1/125",
+            "1/60",
+            "1/30",
+            "1/15",
+        ],
+    )
+
+    remaining_s = 3.5
+    admission_budget_s = estimate_duration(item) + SAFETY_MARGIN_S
+    admitted = remaining_s >= admission_budget_s
+
+    assert admission_budget_s == pytest.approx(7.382, abs=0.001)
+    assert not admitted
