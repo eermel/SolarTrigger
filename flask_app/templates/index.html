@@ -928,6 +928,19 @@ header {
         </button>
       </div>
 
+      <div class="card">
+        <div class="card-title">Synchronisation horaire</div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
+          <div><span style="color:var(--text-dim)">Fuseau : </span><span id="cam-time-sync-timezone">UTC</span></div>
+          <div><span style="color:var(--text-dim)">Dernier statut : </span><span id="cam-time-sync-status">--</span></div>
+          <div><span style="color:var(--text-dim)">Dernière tentative : </span><span id="cam-time-sync-attempted">--</span></div>
+          <div id="cam-time-sync-message" style="color:var(--text-dim)">Aucune synchronisation demandée.</div>
+        </div>
+        <button class="btn btn-primary btn-full" id="btn-cam-time-sync" onclick="syncCameraTime()">
+          🕒 Synchroniser l'heure de la caméra
+        </button>
+      </div>
+
     </div><!-- /page-3 CAMÉRA -->
 
     <!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->
@@ -1199,6 +1212,7 @@ socket.on('clock_reset', d => {
 socket.on('status_update', d => {
   if (d.time)    updateTime(d.time);
   if (d.gps)     updateGPS(d.gps);
+  if (d.camera) updateCameraTimeSync(d.camera, d.gps || state.gps || {});
   if (d.trigger) updatePhase(d.trigger.phase);
   // Restaurer le fichier config caméra sélectionné
   if (d.camera_config_file) {
@@ -2021,6 +2035,60 @@ async function probeCamera() {
   btn.textContent = '🔌 Tester la connexion USB';
 }
 
+function _formatUtcOffset(minutes) {
+  if (!Number.isFinite(Number(minutes))) return null;
+  const value = Number(minutes);
+  const sign = value >= 0 ? '+' : '-';
+  const absolute = Math.abs(value);
+  const hours = Math.floor(absolute / 60);
+  const mins = absolute % 60;
+  return `UTC${sign}${hours}${mins ? ':' + String(mins).padStart(2, '0') : ''}`;
+}
+
+function updateCameraTimeSync(camera, gps, responseAttemptedAt) {
+  const sync = camera.time_sync || camera || {};
+  const timezoneName = sync.timezone_name || gps.timezone_name;
+  const offset = _formatUtcOffset(sync.utc_offset_minutes ?? gps.utc_offset_minutes)
+    || gps.timezone || 'UTC';
+  const timezone = document.getElementById('cam-time-sync-timezone');
+  const status = document.getElementById('cam-time-sync-status');
+  const attempted = document.getElementById('cam-time-sync-attempted');
+  const message = document.getElementById('cam-time-sync-message');
+  if (timezone) timezone.textContent = timezoneName ? `${timezoneName} — ${offset}` : offset;
+  if (status) {
+    status.textContent = sync.status || '--';
+    status.style.color = sync.status === 'success' ? 'var(--green)'
+      : sync.status ? 'var(--yellow)' : 'var(--text)';
+  }
+  if (attempted) attempted.textContent = sync.attempted_at || responseAttemptedAt || '--';
+  if (message) message.textContent = sync.message || 'Aucune synchronisation demandée.';
+}
+
+async function syncCameraTime() {
+  const btn = document.getElementById('btn-cam-time-sync');
+  const requestedAt = new Date().toISOString();
+  btn.disabled = true;
+  btn.textContent = '⏳ Synchronisation en cours…';
+  try {
+    const r = await fetch('/api/camera/sync_time', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok || d.error) {
+      updateCameraTimeSync({status: 'error', message: d.error || `Erreur HTTP ${r.status}`}, state.gps || {}, requestedAt);
+      flash(d.error || 'Synchronisation caméra échouée', 'red');
+    } else {
+      updateCameraTimeSync(d, state.gps || {}, requestedAt);
+      flash(d.message || 'Synchronisation caméra terminée', d.status === 'success' ? 'green' : 'yellow');
+      await loadCameraStatus();
+    }
+  } catch(e) {
+    updateCameraTimeSync({status: 'error', message: 'Erreur réseau'}, state.gps || {}, requestedAt);
+    flash('Erreur réseau', 'red');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🕒 Synchroniser l'heure de la caméra";
+  }
+}
+
 async function loadTriggerConfigList() {
   try {
     const r = await fetch('/api/configs/list_trigger');
@@ -2702,9 +2770,14 @@ async function loadCameraStatus() {
     if (r.ok) {
       const d = await r.json();
       const cam = d.camera || {};
-      document.getElementById('cam-status').textContent  = cam.connected ? '✅ Connectée' : '❌ Non détectée';
-      document.getElementById('cam-status').className    = `stat-value ${cam.connected ? 'green' : 'red'}`;
-      document.getElementById('cam-battery').textContent = cam.battery || '--';
+      const camStatus = document.getElementById('cam-status');
+      const camBattery = document.getElementById('cam-battery');
+      if (camStatus) {
+        camStatus.textContent = cam.connected ? '✅ Connectée' : '❌ Non détectée';
+        camStatus.className = `stat-value ${cam.connected ? 'green' : 'red'}`;
+      }
+      if (camBattery) camBattery.textContent = cam.battery || '--';
+      updateCameraTimeSync(cam, d.gps || {});
       // Mettre à jour la barre batterie dans l'onglet trigger
       if (cam.battery) {
         const pct = parseInt(cam.battery);
