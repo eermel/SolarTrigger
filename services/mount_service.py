@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 import threading
 from numbers import Real
@@ -226,9 +227,21 @@ class MountService:
             generation = self._home_generation
             self._homing = True
 
+            def is_cancelled() -> bool:
+                with self._lock:
+                    return (
+                        generation != self._home_generation
+                        or not self._homing
+                    )
+
             def worker() -> None:
                 try:
-                    plugin.go_home()
+                    if "is_cancelled" in inspect.signature(
+                        plugin.go_home
+                    ).parameters:
+                        plugin.go_home(is_cancelled=is_cancelled)
+                    else:
+                        plugin.go_home()
                 except Exception as exc:
                     self._log(f"mount home failed: {exc}")
                 finally:

@@ -45,6 +45,27 @@ class BlockingHomePlugin:
         return None
 
 
+class CancellableHomePlugin(BlockingHomePlugin):
+    def __init__(self, home_releases):
+        super().__init__(home_releases)
+        self.callback_used = threading.Event()
+
+    def go_home(self, is_cancelled=None):
+        self.calls.append(("go_home", 0))
+        self.home_started[0].set()
+        while not is_cancelled():
+            self._home_releases[0].wait(timeout=0.01)
+        self.callback_used.set()
+        self.home_finished[0].set()
+
+
+class TypeErrorHomePlugin(BlockingHomePlugin):
+    def go_home(self, is_cancelled=None):
+        self.calls.append(("go_home", 0))
+        self.home_started[0].set()
+        raise TypeError("internal home failure")
+
+
 def make_service(tmp_path, home_count=1):
     state_store = StateStore(tmp_path / "state.json")
     state_store.update_section(
@@ -121,4 +142,50 @@ def test_obsolete_home_worker_cannot_clear_new_homing_state_or_stop(tmp_path):
     finally:
         releases[0].set()
         releases[1].set()
+        service.close()
+
+
+def test_home_uses_plugin_cancellation_callback(tmp_path):
+    service, _plugin, releases = make_service(tmp_path)
+    plugin = CancellableHomePlugin(releases)
+    service._plugin_loader = lambda *_args, **_kwargs: plugin
+    try:
+        service.home_start()
+        assert plugin.home_started[0].wait(timeout=1)
+
+        service.stop()
+
+        assert plugin.callback_used.wait(timeout=1)
+        assert plugin.home_finished[0].wait(timeout=1)
+    finally:
+        releases[0].set()
+        service.close()
+
+
+def test_internal_home_type_error_is_logged_without_retry(tmp_path):
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices", {"mount": {"plugin": "fake", "active": True}}
+    )
+    plugin = TypeErrorHomePlugin([threading.Event()])
+    messages = []
+    logged = threading.Event()
+
+    def log(message):
+        messages.append(message)
+        logged.set()
+
+    service = MountService(
+        state_store,
+        log_fn=log,
+        plugin_loader=lambda *_args, **_kwargs: plugin,
+    )
+    try:
+        service.home_start()
+        assert plugin.home_started[0].wait(timeout=1)
+        assert logged.wait(timeout=1)
+
+        assert plugin.calls.count(("go_home", 0)) == 1
+        assert messages == ["mount home failed: internal home failure"]
+    finally:
         service.close()
