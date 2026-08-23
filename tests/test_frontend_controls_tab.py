@@ -110,6 +110,18 @@ def _controls_visibility_source():
     return match.group("body")
 
 
+def _function_source(name, *, asynchronous=False):
+    prefix = r"async\s+" if asynchronous else ""
+    match = re.search(
+        rf"{prefix}function\s+{re.escape(name)}\([^)]*\)\s*"
+        r"\{(?P<body>.*?)(?=\n\}\n(?:\n|//))",
+        INDEX,
+        re.DOTALL,
+    )
+    assert match, f"{name}() is missing"
+    return match.group("body")
+
+
 @pytest.mark.parametrize(
     ("devices", "controls_hidden", "focuser_hidden", "mount_hidden"),
     (
@@ -147,3 +159,45 @@ def test_active_controls_falls_back_to_devices_when_controls_become_hidden():
 
     assert re.search(r"controlsWasSelected\s*=\s*controlsTab\.classList\.contains\(['\"]active['\"]\)", source)
     assert re.search(r"if\s*\(controlsWasSelected\s*&&\s*!controlsActive\)\s*showTab\(0\)", source)
+
+
+def test_backend_refresh_restores_device_rendering_and_controls_visibility():
+    source = _function_source("fetchDevices", asynchronous=True)
+
+    assert re.search(r"fetch\(\s*['\"]/api/devices['\"]\s*\)", source)
+    assert re.search(
+        r"const\s+devices\s*=\s*await\s+response\.json\(\).*?"
+        r"renderDevices\(devices\).*?updateControlsVisibility\(devices\)",
+        source,
+        re.DOTALL,
+    )
+    assert re.search(r"if\s*\(n\s*===\s*0\)\s*fetchDevices\(\)", INDEX)
+    assert re.search(r"// Init\s*fetchDevices\(\);", INDEX)
+
+
+@pytest.mark.parametrize("function_name", ("selectDevice", "rescanDevices"))
+def test_device_updates_recalculate_controls_visibility(function_name):
+    source = _function_source(function_name, asynchronous=True)
+
+    assert re.search(
+        r"const\s+devices\s*=\s*await\s+response\.json\(\).*?"
+        r"renderDevices\(devices\).*?updateControlsVisibility\(devices\)",
+        source,
+        re.DOTALL,
+    )
+
+
+def test_socket_device_updates_recalculate_controls_visibility():
+    assert re.search(
+        r"socket\.on\(\s*['\"]state_update['\"].*?"
+        r"if\s*\(d\.devices\)\s*updateControlsVisibility\(d\.devices\)",
+        INDEX,
+        re.DOTALL,
+    )
+    assert re.search(
+        r"socket\.on\(\s*['\"]status_update['\"].*?"
+        r"if\s*\(data\.devices\)\s*\{.*?"
+        r"updateControlsVisibility\(devices\).*?applyDevices\(devices\)",
+        INDEX,
+        re.DOTALL,
+    )

@@ -138,8 +138,19 @@ def test_focuser_cancel_style_uses_red_background_white_text_and_red_border():
     )
 
 
-def test_focuser_stop_endpoint_is_referenced_once():
-    assert FOCUSER_JS.count("/api/focuser/stop") == 1
+def test_each_focuser_endpoint_is_referenced_once():
+    for endpoint in (
+        "/api/focuser/status",
+        "/api/focuser/stop",
+        "/api/focuser/home",
+        "/api/focuser/move_to",
+        "/api/focuser/set_step",
+        "/api/focuser/mode",
+        "/api/focuser/step",
+        "/api/focuser/jog/start",
+        "/api/focuser/jog/stop",
+    ):
+        assert FOCUSER_JS.count(endpoint) == 1
 
 
 def test_mode_switch_posts_backend_authoritative_slow_fast_mode():
