@@ -187,6 +187,46 @@ def test_tracking_switch_reflects_status_and_preserves_tracking_commands():
         assert MOUNT_JS.count(endpoint) == 1
 
 
+def test_tracking_switch_posts_start_when_on_and_stop_when_off():
+    handler = _between(
+        MOUNT_JS,
+        "trackingSwitch.addEventListener('change', () => {",
+        "socket.on('connect'",
+    )
+    assert re.search(
+        r"postMount\(\s*trackingSwitch\.checked\s*"
+        r"\?\s*['\"]/api/mount/tracking/start['\"]\s*"
+        r":\s*['\"]/api/mount/tracking/stop['\"]\s*\)",
+        handler,
+    )
+
+
+def test_tracking_mode_change_only_posts_the_selected_mode():
+    handler = _between(
+        MOUNT_JS,
+        "trackingMode.addEventListener('change', () => {",
+        "trackingSwitch.addEventListener",
+    )
+    assert re.search(
+        r"postMount\(\s*['\"]/api/mount/tracking/mode['\"].*?"
+        r"body:\s*JSON\.stringify\(\s*\{\s*mode:\s*trackingMode\.value\s*\}\s*\)",
+        handler,
+        re.DOTALL,
+    )
+    assert not re.search(r"/api/mount/tracking/(?:start|stop)", handler)
+
+
+def test_tracking_controls_are_disabled_during_trigger():
+    assert re.search(
+        r"trackingMode\.disabled\s*=\s*triggerRunning\s*\|\|\s*modes\.length\s*===\s*0",
+        MOUNT_JS,
+    )
+    assert re.search(
+        r"trackingSwitch\.disabled\s*=\s*triggerRunning\s*\|\|",
+        MOUNT_JS,
+    )
+
+
 def test_tracking_switch_on_state_uses_the_shared_green_style():
     checked = re.search(
         r'\.focuser-mode-switch\s+input\[role="switch"\]:checked\s*\{(?P<body>.*?)\}',
@@ -211,6 +251,20 @@ def test_refresh_and_socket_resync_cannot_issue_a_slew_command():
     )
     assert not re.search(r"/api/mount/slew/(?:start|stop)", refresh)
     assert not re.search(r"\b(?:startSlew|stopSlewBestEffort)\s*\(", refresh)
+    for event in ("connect", "status_update"):
+        assert re.search(
+            rf"socket\.on\(\s*['\"]{event}['\"]\s*,\s*refreshMount\s*\)",
+            MOUNT_JS,
+        )
+    assert re.search(r"\n\s*refreshMount\(\);\s*\n\}\)\(\);", MOUNT_JS)
+
+
+def test_reload_and_socket_resync_cannot_issue_a_tracking_command():
+    refresh = _between(
+        MOUNT_JS, "async function refreshMount()", "function scheduleMountRefresh(delay)"
+    )
+    assert not re.search(r"/api/mount/tracking/(?:start|stop)", refresh)
+    assert not re.search(r"\bpostMount\s*\(", refresh)
     for event in ("connect", "status_update"):
         assert re.search(
             rf"socket\.on\(\s*['\"]{event}['\"]\s*,\s*refreshMount\s*\)",

@@ -152,6 +152,30 @@ def test_mount_cancel_reuses_existing_focuser_danger_style():
     assert re.search(r"homeButton\.textContent\s*=\s*homing\s*\?\s*['\"]STOP['\"]\s*:\s*['\"]HOME['\"]", MOUNT_JS)
 
 
+def test_mount_home_display_follows_backend_homing_through_natural_end():
+    display = _between(MOUNT_JS, "function displayMount(data)", "async function refreshMount()")
+    assert re.search(r"homing\s*=\s*data\s*&&\s*data\.homing\s*===\s*true", display)
+    assert re.search(
+        r"homeButton\.textContent\s*=\s*homing\s*\?\s*['\"]STOP['\"]\s*:\s*['\"]HOME['\"]",
+        display,
+    )
+    assert re.search(
+        r"homeButton\.classList\.toggle\(\s*['\"]focuser-cancel['\"]\s*,\s*homing\s*\)",
+        display,
+    )
+
+
+def test_mount_reload_and_socket_resync_preserve_backend_homing_display():
+    refresh = _between(MOUNT_JS, "async function refreshMount()", "function scheduleMountRefresh(delay)")
+    assert re.search(r"displayMount\(\s*data\s*\)", refresh)
+    for event in ("connect", "status_update"):
+        assert re.search(
+            rf"socket\.on\(\s*['\"]{event}['\"]\s*,\s*refreshMount\s*\)",
+            MOUNT_JS,
+        )
+    assert re.search(r"\n\s*refreshMount\(\);\s*\n\}\)\(\);", MOUNT_JS)
+
+
 def test_each_mount_endpoint_is_referenced_once():
     for endpoint in (
         "/api/mount/status",
