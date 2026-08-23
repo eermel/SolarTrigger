@@ -183,6 +183,7 @@ from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
 from services.camera_service import CameraService
 from services.focuser_service import FocuserService
+from services.mount_service import MountService
 
 # ── Flask ──────────────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder=str(STATIC_DIR),
@@ -200,6 +201,9 @@ _state_store = StateStore(STATE_FILE)
 _state = _state_store.data
 _state_lock = _state_store.lock
 _focuser_service = FocuserService(
+    _state_store, log_fn=lambda message: log.info(message)
+)
+_mount_service = MountService(
     _state_store, log_fn=lambda message: log.info(message)
 )
 _event_log = EventLog(LOGS_BUFFER_FILE, LOG_BUFFER_SIZE,
@@ -366,6 +370,18 @@ def _json_int(payload, name, required=True):
     value = payload[name]
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"Field '{name}' must be an integer.")
+    return value
+
+
+def _json_number(payload, name, required=True):
+    """Read a JSON number without accepting booleans as numbers."""
+    if name not in payload:
+        if required:
+            raise ValueError(f"Missing numeric field '{name}'.")
+        return None
+    value = payload[name]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"Field '{name}' must be numeric.")
     return value
 
 
@@ -598,6 +614,63 @@ def api_focuser_set_step():
     if coarse is None and fine is None:
         return jsonify({"error": "At least one step value is required."}), 400
     return _focuser_result(_focuser_service.set_step(coarse=coarse, fine=fine))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# API — MOUNT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/mount/status")
+def api_mount_status():
+    inactive = require_device_active("mount")
+    if inactive is not None:
+        return inactive
+    status = dict(_mount_service.status())
+    status["plugin"] = _selected_device_plugin("mount")
+    return jsonify(status)
+
+
+@app.route("/api/mount/speed", methods=["POST"])
+def api_mount_speed():
+    inactive = require_device_active("mount")
+    if inactive is not None:
+        return inactive
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid mount payload."}), 400
+    try:
+        speed = _json_number(payload, "speed")
+        result = _mount_service.set_speed(speed)
+    except (ValueError, RuntimeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
+
+
+@app.route("/api/mount/slew/start", methods=["POST"])
+def api_mount_slew_start():
+    inactive = require_device_active("mount")
+    if inactive is not None:
+        return inactive
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid mount payload."}), 400
+    direction = payload.get("direction")
+    if direction not in ("north", "south", "east", "west"):
+        return jsonify({
+            "error": (
+                "Field 'direction' must be 'north', 'south', 'east' or 'west'."
+            )
+        }), 400
+    return jsonify(_mount_service.start_slew(direction))
+
+
+@app.route("/api/mount/slew/stop", methods=["POST"])
+def api_mount_slew_stop():
+    inactive = require_device_active("mount")
+    if inactive is not None:
+        return inactive
+    return jsonify(_mount_service.stop())
+
 
 def _get_camera_model_info(camera):
     """Lit marque, modèle et batterie depuis la config gphoto2."""
