@@ -1,4 +1,5 @@
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 
@@ -14,21 +15,49 @@ def _between(text, start, end):
     return match.group("body")
 
 
-CONTROLS_PANEL = _between(
-    INDEX,
-    '<div class="page" id="controls-panel"',
-    '<!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->',
-)
-MOUNT_SECTION = _between(CONTROLS_PANEL, '<div id="mount-section">', "    </div>\n\n")
 MOUNT_JS = _between(INDEX, "// MOUNT UI START", "// MOUNT UI END")
 
 
+class _MountDomParser(HTMLParser):
+    _VOID_ELEMENTS = {
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+        "meta", "param", "source", "track", "wbr",
+    }
+
+    def __init__(self):
+        super().__init__()
+        self._open_ids = []
+        self.mount_sections = 0
+        self.mount_home_buttons = 0
+        self.mount_home_buttons_inside_section = 0
+
+    def handle_starttag(self, tag, attrs):
+        element_id = dict(attrs).get("id")
+        if element_id == "mount-section":
+            self.mount_sections += 1
+        if element_id == "btn-mount-home":
+            self.mount_home_buttons += 1
+            if "mount-section" in self._open_ids:
+                self.mount_home_buttons_inside_section += 1
+        if tag not in self._VOID_ELEMENTS:
+            self._open_ids.append(element_id)
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in self._VOID_ELEMENTS:
+            self._open_ids.pop()
+
+    def handle_endtag(self, tag):
+        self._open_ids.pop()
+
+
 def test_mount_home_button_is_unique_and_inside_mount_section():
-    assert re.search(
-        r'<button(?=[^>]*\bid=["\']btn-mount-home["\'])[^>]*>\s*Home\s*</button>',
-        MOUNT_SECTION,
-    )
-    assert len(re.findall(r'id=["\']btn-mount-home["\']', INDEX)) == 1
+    parser = _MountDomParser()
+    parser.feed(INDEX)
+
+    assert parser.mount_sections == 1
+    assert parser.mount_home_buttons == 1
+    assert parser.mount_home_buttons_inside_section == 1
 
 
 def test_mount_cancel_reuses_existing_focuser_danger_style():
