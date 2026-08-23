@@ -135,6 +135,30 @@ class FakeMountPlugin:
         }
 
 
+class RecoveringMountPlugin(FakeMountPlugin):
+    def __init__(self):
+        super().__init__()
+        self.status_fails = True
+        self.connect_calls = 0
+        self.disconnect_calls = 0
+
+    def connect(self):
+        self.connect_calls += 1
+        super().connect()
+
+    def disconnect(self):
+        self.disconnect_calls += 1
+        super().disconnect()
+
+    def status(self):
+        if self.status_fails:
+            raise Exception("boom")
+        return super().status()
+
+    def get_tracking_capabilities(self):
+        return {"toggle": True, "modes": ["solar", "sidereal"]}
+
+
 @pytest.fixture
 def mount_api(tmp_path, monkeypatch):
     state_store = StateStore(tmp_path / "state.json")
@@ -154,6 +178,81 @@ def mount_api(tmp_path, monkeypatch):
     flask_module.app.config.update(TESTING=True)
     yield flask_module.app.test_client(), state_store, plugin
     service.close()
+
+
+@pytest.fixture
+def recovering_mount_api(tmp_path, monkeypatch):
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices", {"mount": {"plugin": "fake", "active": True}}
+    )
+    plugin = RecoveringMountPlugin()
+    service = MountService(
+        state_store,
+        log_fn=lambda _message: None,
+        plugin_loader=lambda *_args, **_kwargs: plugin,
+    )
+    monkeypatch.setattr(flask_module, "_state_store", state_store)
+    monkeypatch.setattr(flask_module, "_mount_service", service)
+    flask_module.app.config.update(TESTING=True)
+    yield flask_module.app.test_client(), plugin
+    service.close()
+
+
+def test_mount_status_error_contract_clears_after_recovery(
+    recovering_mount_api,
+):
+    client, plugin = recovering_mount_api
+
+    failed = client.get("/api/mount/status")
+
+    assert failed.status_code == 200
+    assert failed.get_json() == {
+        "active": True,
+        "connected": False,
+        "moving": False,
+        "direction": None,
+        "homing": False,
+        "slew_speed": None,
+        "slew_speed_caps": None,
+        "tracking_mode": "solar",
+        "tracking_enabled": False,
+        "tracking_caps": None,
+        "plugin": "fake",
+        "error": {"code": "SERIAL_ERROR", "message": "boom"},
+    }
+
+    plugin.status_fails = False
+    recovered = client.get("/api/mount/status")
+    recovered_json = recovered.get_json()
+
+    assert recovered.status_code == 200
+    assert "error" not in recovered_json
+    assert recovered_json["connected"] is True
+    assert recovered_json["slew_speed_caps"] == plugin.get_slew_speed_capabilities()
+    assert recovered_json["tracking_caps"] == plugin.get_tracking_capabilities()
+
+
+def test_mount_status_error_invalidates_connection_before_reconnect(
+    recovering_mount_api,
+):
+    client, plugin = recovering_mount_api
+
+    failed = client.get("/api/mount/status")
+
+    assert failed.status_code == 200
+    assert plugin.connected is False
+    assert plugin.connect_calls == 1
+    assert plugin.disconnect_calls == 1
+
+    plugin.status_fails = False
+    recovered = client.get("/api/mount/status")
+
+    assert recovered.status_code == 200
+    assert recovered.get_json()["connected"] is True
+    assert plugin.connected is True
+    assert plugin.connect_calls == 2
+    assert plugin.disconnect_calls == 1
 
 
 def test_mount_status_reports_plugin_state_and_speed_capabilities(mount_api):
