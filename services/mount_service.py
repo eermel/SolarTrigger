@@ -105,6 +105,22 @@ class MountService:
             "plugin": self._plugin_id,
         }
 
+    def _homing_status_locked(self, plugin_id: str) -> dict:
+        """Return a backend-only snapshot while Home owns mount I/O."""
+        return {
+            "active": True,
+            "connected": self._plugin is not None,
+            "moving": bool(self._moving),
+            "direction": self._direction,
+            "homing": True,
+            "slew_speed": None,
+            "slew_speed_caps": None,
+            "tracking_mode": self._tracking_mode,
+            "tracking_enabled": bool(self._tracking_enabled),
+            "tracking_caps": None,
+            "plugin": self._plugin_id or plugin_id,
+        }
+
     def status(self) -> dict:
         """Return connection, speed, and internally tracked slew state."""
         with self._lock:
@@ -124,6 +140,8 @@ class MountService:
                     "tracking_caps": None,
                     "plugin": plugin_id,
                 }
+            if self._homing:
+                return self._homing_status_locked(plugin_id)
             return self._status_locked(self._plugin_for_operation())
 
     def set_tracking_mode(self, mode: str) -> dict:
@@ -254,7 +272,7 @@ class MountService:
                             self._homing = False
 
             threading.Thread(target=worker, daemon=True).start()
-            return self._status_locked(plugin)
+            return self._homing_status_locked(self._plugin_id or "none")
 
     def stop(self) -> dict:
         """Cancel homing and stop manual motion; leave tracking unchanged."""
