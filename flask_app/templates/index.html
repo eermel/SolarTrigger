@@ -1039,6 +1039,11 @@ header {
       <div id="mount-section">
         <div class="card">
           <div class="card-title">Mount</div>
+          <div class="field" style="margin-bottom:12px">
+            <label for="mount-tracking-mode">TRACKING MODE</label>
+            <select id="mount-tracking-mode" disabled></select>
+          </div>
+          <button class="btn btn-primary btn-full" id="btn-mount-tracking" disabled>START</button>
           <button class="btn btn-primary btn-full" id="btn-mount-home">Home</button>
         </div>
       </div>
@@ -1721,13 +1726,37 @@ socket.on('play_sound', d => {
 // MOUNT UI START
 (() => {
   const homeButton = document.getElementById('btn-mount-home');
+  const trackingMode = document.getElementById('mount-tracking-mode');
+  const trackingButton = document.getElementById('btn-mount-tracking');
   let homing = false;
+  let trackingEnabled = false;
+  let triggerRunning = state.phase !== 'idle';
   let pollTimer = null;
 
   function displayMount(data) {
     homing = data && data.homing === true;
     homeButton.textContent = homing ? 'Cancel' : 'Home';
     homeButton.classList.toggle('focuser-cancel', homing);
+
+    const capabilities = data && data.tracking_caps;
+    const modes = capabilities && Array.isArray(capabilities.modes)
+      ? capabilities.modes
+      : [];
+    trackingMode.replaceChildren(...modes.map(mode => {
+      const option = document.createElement('option');
+      option.value = mode;
+      option.textContent = mode;
+      return option;
+    }));
+    trackingMode.value = data && data.tracking_mode;
+    trackingEnabled = data && data.tracking_enabled === true;
+    trackingButton.textContent = trackingEnabled ? 'STOP' : 'START';
+
+    if (data && typeof data.trigger_running === 'boolean') {
+      triggerRunning = data.trigger_running;
+    }
+    trackingMode.disabled = triggerRunning || modes.length === 0;
+    trackingButton.disabled = triggerRunning || !capabilities || capabilities.toggle !== true;
     scheduleMountRefresh(homing ? 400 : 1500);
   }
 
@@ -1747,9 +1776,9 @@ socket.on('play_sound', d => {
     pollTimer = setTimeout(refreshMount, delay);
   }
 
-  async function postMount(url) {
+  async function postMount(url, options = {method: 'POST'}) {
     try {
-      const response = await fetch(url, {method: 'POST'});
+      const response = await fetch(url, options);
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || `Erreur HTTP ${response.status}`);
@@ -1764,8 +1793,26 @@ socket.on('play_sound', d => {
     postMount(homing ? '/api/mount/slew/stop' : '/api/mount/home');
   });
 
+  trackingMode.addEventListener('change', () => {
+    postMount('/api/mount/tracking/mode', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode: trackingMode.value}),
+    });
+  });
+
+  trackingButton.addEventListener('click', () => {
+    postMount(trackingEnabled
+      ? '/api/mount/tracking/stop'
+      : '/api/mount/tracking/start');
+  });
+
   socket.on('connect', refreshMount);
   socket.on('status_update', refreshMount);
+  socket.on('trigger_phase', data => {
+    triggerRunning = data.phase !== 'idle';
+    refreshMount();
+  });
   refreshMount();
 })();
 // MOUNT UI END

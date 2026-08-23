@@ -103,6 +103,14 @@ class OnStepMount(MountPlugin):
     def tracking(self):
         return self.mount.is_tracking()
 
+    def get_tracking_capabilities(self):
+        return {"modes": [RATE_SOLAR, RATE_SIDEREAL], "toggle": True}
+
+    def set_tracking_mode(self, mode):
+        if mode not in (RATE_SOLAR, RATE_SIDEREAL):
+            raise ValueError(f"Mode de suivi inconnu : {mode}")
+        self.mount.select_tracking_rate(_RATE_MAP[mode])
+
     # -- mouvements -------------------------------------------------------- #
     def move(self, direction):
         if direction not in _DIRECTION_MAP:

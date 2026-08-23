@@ -626,8 +626,67 @@ def api_mount_status():
     if inactive is not None:
         return inactive
     status = dict(_mount_service.status())
+    status.setdefault("tracking_mode", "solar")
+    status.setdefault("tracking_enabled", False)
+    status.setdefault("tracking_caps", None)
     status["plugin"] = _selected_device_plugin("mount")
     return jsonify(status)
+
+
+def _mount_tracking_guard():
+    inactive = require_device_active("mount")
+    if inactive is not None:
+        return inactive
+    trigger_state = _state_store.snapshot("trigger") or {}
+    if trigger_state.get("running"):
+        return jsonify({
+            "error": "Mount tracking changes are forbidden during an active trigger.",
+            "code": "TRIGGER_RUNNING",
+        }), 409
+    return None
+
+
+@app.route("/api/mount/tracking/mode", methods=["POST"])
+def api_mount_tracking_mode():
+    guarded = _mount_tracking_guard()
+    if guarded is not None:
+        return guarded
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or payload.get("mode") not in {
+        "solar", "sidereal"
+    }:
+        return jsonify({
+            "error": "Field 'mode' must be 'solar' or 'sidereal'."
+        }), 400
+    try:
+        result = _mount_service.set_tracking_mode(payload["mode"])
+    except (ValueError, RuntimeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
+
+
+@app.route("/api/mount/tracking/start", methods=["POST"])
+def api_mount_tracking_start():
+    guarded = _mount_tracking_guard()
+    if guarded is not None:
+        return guarded
+    try:
+        result = _mount_service.start_tracking()
+    except (ValueError, RuntimeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
+
+
+@app.route("/api/mount/tracking/stop", methods=["POST"])
+def api_mount_tracking_stop():
+    guarded = _mount_tracking_guard()
+    if guarded is not None:
+        return guarded
+    try:
+        result = _mount_service.stop_tracking()
+    except (ValueError, RuntimeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
 
 
 @app.route("/api/mount/speed", methods=["POST"])

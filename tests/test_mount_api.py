@@ -177,6 +177,9 @@ def test_mount_status_reports_plugin_state_and_speed_capabilities(mount_api):
                 {"value": 2.0, "label": "2.0"},
             ],
         },
+        "tracking_mode": "solar",
+        "tracking_enabled": False,
+        "tracking_caps": None,
         "plugin": "fake",
     }
 

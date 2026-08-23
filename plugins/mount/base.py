@@ -110,6 +110,10 @@ class MountPlugin(ABC):
     def stop_tracking(self):
         ...
 
+    def set_tracking_mode(self, mode):
+        """Optionnel : configure le mode de suivi si le plugin le supporte."""
+        raise NotImplementedError("set_tracking_mode non supporte par ce plugin")
+
     @property
     @abstractmethod
     def tracking(self):

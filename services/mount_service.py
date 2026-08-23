@@ -33,6 +33,8 @@ class MountService:
         self._direction: str | None = None
         self._homing = False
         self._home_generation = 0
+        self._tracking_mode = "solar"
+        self._tracking_enabled = False
 
     def _selection(self) -> tuple[bool, str]:
         devices = self._state_store.snapshot("devices") or {}
@@ -79,6 +81,14 @@ class MountService:
             else:
                 self._clear_motion_locked()
         capabilities = plugin.get_slew_speed_capabilities()
+        get_tracking_capabilities = getattr(
+            plugin, "get_tracking_capabilities", None
+        )
+        tracking_capabilities = (
+            get_tracking_capabilities()
+            if callable(get_tracking_capabilities)
+            else None
+        )
         return {
             "active": True,
             "connected": bool(plugin.connected),
@@ -87,6 +97,9 @@ class MountService:
             "homing": bool(self._homing),
             "slew_speed": raw.get("move_rate") or None,
             "slew_speed_caps": capabilities or None,
+            "tracking_mode": self._tracking_mode,
+            "tracking_enabled": bool(self._tracking_enabled),
+            "tracking_caps": tracking_capabilities,
             "plugin": self._plugin_id,
         }
 
@@ -104,9 +117,46 @@ class MountService:
                     "homing": bool(self._homing),
                     "slew_speed": None,
                     "slew_speed_caps": None,
+                    "tracking_mode": self._tracking_mode,
+                    "tracking_enabled": bool(self._tracking_enabled),
+                    "tracking_caps": None,
                     "plugin": plugin_id,
                 }
             return self._status_locked(self._plugin_for_operation())
+
+    def set_tracking_mode(self, mode: str) -> dict:
+        if mode not in {"solar", "sidereal"}:
+            raise ValueError("tracking mode must be 'solar' or 'sidereal'")
+        with self._lock:
+            plugin = self._plugin_for_operation()
+            setter = getattr(plugin, "set_tracking_mode", None)
+            if callable(setter):
+                setter(mode)
+                self._tracking_mode = mode
+            return self._status_locked(plugin)
+
+    @staticmethod
+    def _require_tracking_toggle(plugin) -> None:
+        get_capabilities = getattr(plugin, "get_tracking_capabilities", None)
+        capabilities = get_capabilities() if callable(get_capabilities) else None
+        if not isinstance(capabilities, dict) or capabilities.get("toggle") is not True:
+            raise RuntimeError("tracking toggle is unsupported by this mount")
+
+    def start_tracking(self) -> dict:
+        with self._lock:
+            plugin = self._plugin_for_operation()
+            self._require_tracking_toggle(plugin)
+            plugin.start_tracking(self._tracking_mode)
+            self._tracking_enabled = True
+            return self._status_locked(plugin)
+
+    def stop_tracking(self) -> dict:
+        with self._lock:
+            plugin = self._plugin_for_operation()
+            self._require_tracking_toggle(plugin)
+            plugin.stop_tracking()
+            self._tracking_enabled = False
+            return self._status_locked(plugin)
 
     @staticmethod
     def _validate_speed(value, capabilities: dict) -> None:
