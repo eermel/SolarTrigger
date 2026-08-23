@@ -30,6 +30,10 @@ class _MountDomParser(HTMLParser):
         self.mount_sections = 0
         self.mount_home_buttons = 0
         self.mount_home_buttons_inside_section = 0
+        self.mount_slew_speed_sliders_inside_section = 0
+        self.mount_slew_speed_labels_inside_section = 0
+        self.mount_slew_pads_inside_section = 0
+        self.mount_slew_directions_inside_pad = []
 
     def handle_starttag(self, tag, attrs):
         element_id = dict(attrs).get("id")
@@ -39,6 +43,29 @@ class _MountDomParser(HTMLParser):
             self.mount_home_buttons += 1
             if "mount-section" in self._open_ids:
                 self.mount_home_buttons_inside_section += 1
+        if element_id == "mount-slew-pad" and "mount-section" in self._open_ids:
+            self.mount_slew_pads_inside_section += 1
+        if (
+            tag == "button"
+            and "mount-slew-pad" in self._open_ids
+            and "mount-slew-button" in dict(attrs).get("class", "").split()
+        ):
+            self.mount_slew_directions_inside_pad.append(
+                dict(attrs).get("data-direction")
+            )
+        if (
+            tag == "input"
+            and element_id == "mount-slew-speed"
+            and dict(attrs).get("type") == "range"
+            and "mount-section" in self._open_ids
+        ):
+            self.mount_slew_speed_sliders_inside_section += 1
+        if (
+            tag == "label"
+            and dict(attrs).get("for") == "mount-slew-speed"
+            and "mount-section" in self._open_ids
+        ):
+            self.mount_slew_speed_labels_inside_section += 1
         if tag not in self._VOID_ELEMENTS:
             self._open_ids.append(element_id)
 
@@ -60,6 +87,61 @@ def test_mount_home_button_is_unique_and_inside_mount_section():
     assert parser.mount_home_buttons_inside_section == 1
 
 
+def test_mount_slew_speed_slider_and_label_are_inside_mount_section():
+    parser = _MountDomParser()
+    parser.feed(INDEX)
+
+    assert parser.mount_slew_speed_sliders_inside_section == 1
+    assert parser.mount_slew_speed_labels_inside_section == 1
+    assert re.search(r"<label\b[^>]*>\s*Slew speed:", INDEX)
+
+
+def test_mount_slew_buttons_form_one_directional_cross_inside_mount_section():
+    parser = _MountDomParser()
+    parser.feed(INDEX)
+
+    assert parser.mount_slew_pads_inside_section == 1
+    assert parser.mount_slew_directions_inside_pad == [
+        "north", "west", "east", "south",
+    ]
+    for direction, column, row in (
+        ("north", 2, 1),
+        ("west", 1, 2),
+        ("east", 3, 2),
+        ("south", 2, 3),
+    ):
+        assert re.search(
+            rf'\.mount-slew-button\[data-direction=["\']{direction}["\']\]\s*\{{'
+            rf'(?=[^}}]*grid-column:\s*{column}\s*;)'
+            rf'(?=[^}}]*grid-row:\s*{row}\s*;)',
+            INDEX,
+        )
+
+
+def test_mount_slew_speed_uses_status_capabilities_and_current_value():
+    assert re.search(r"slewSpeedCaps\s*=\s*data\s*&&\s*data\.slew_speed_caps", MOUNT_JS)
+    assert re.search(r"slewSpeed\.value\s*=\s*data\.slew_speed", MOUNT_JS)
+    assert re.search(
+        r"findIndex\(\s*item\s*=>\s*item\.value\s*===\s*data\.slew_speed\s*\)",
+        MOUNT_JS,
+    )
+
+
+def test_mount_slew_speed_change_posts_selected_speed_and_refreshes():
+    assert re.search(
+        r"slewSpeed\.addEventListener\(\s*['\"]change['\"].*?"
+        r"postMount\(\s*['\"]/api/mount/speed['\"].*?"
+        r"JSON\.stringify\(\s*\{\s*speed:\s*selectedSlewSpeed\(\s*\)\s*\}\s*\)",
+        MOUNT_JS,
+        re.DOTALL,
+    )
+    assert re.search(
+        r"async\s+function\s+postMount\([^)]*\).*?refreshMount\(\s*\)",
+        MOUNT_JS,
+        re.DOTALL,
+    )
+
+
 def test_mount_cancel_reuses_existing_focuser_danger_style():
     assert re.search(r"\.focuser-cancel\s*\{", INDEX)
     assert re.search(
@@ -79,6 +161,55 @@ def test_each_mount_endpoint_is_referenced_once():
         assert MOUNT_JS.count(endpoint) == 1
 
 
+def test_mount_slew_pointer_events_post_one_start_and_one_best_effort_stop():
+    for event in (
+        "pointerdown", "pointerup", "pointercancel", "lostpointercapture",
+    ):
+        assert len(re.findall(
+            rf"addEventListener\(\s*['\"]{event}['\"]", MOUNT_JS
+        )) == 1
+
+    assert len(re.findall(
+        r"fetch\(\s*['\"]/api/mount/slew/start['\"]\s*,\s*\{"
+        r"(?=[^}]*method:\s*['\"]POST['\"])"
+        r".*?body:\s*JSON\.stringify\(\s*\{\s*direction:\s*"
+        r"button\.dataset\.direction\s*\}\s*\)",
+        MOUNT_JS,
+        re.DOTALL,
+    )) == 1
+    assert len(re.findall(
+        r"fetch\(\s*homeButton\.dataset\.slewStopUrl\s*,\s*"
+        r"\{\s*method:\s*['\"]POST['\"]\s*\}",
+        MOUNT_JS,
+    )) == 1
+    assert re.search(
+        r"window\.addEventListener\(\s*['\"]blur['\"]\s*,\s*"
+        r"stopSlewBestEffort\s*\)",
+        MOUNT_JS,
+    )
+    assert re.search(
+        r"window\.addEventListener\(\s*['\"]pagehide['\"]\s*,\s*"
+        r"stopSlewBestEffort\s*\)",
+        MOUNT_JS,
+    )
+
+
+def test_mount_slew_buttons_are_disabled_while_homing():
+    assert re.search(
+        r"homing\s*=\s*data\s*&&\s*data\.homing\s*===\s*true\s*;"
+        r".*?slewButtons\.forEach\(\s*button\s*=>\s*"
+        r"\{\s*button\.disabled\s*=\s*homing\s*;\s*\}\s*\)",
+        MOUNT_JS,
+        re.DOTALL,
+    )
+
+
+def test_mount_slew_motion_has_no_timer_based_maintenance():
+    slew_handlers = _between(MOUNT_JS, "function stopSlewBestEffort()", "homeButton.addEventListener")
+    assert "setInterval" not in slew_handlers
+    assert "setTimeout" not in slew_handlers
+
+
 def test_mount_uses_timeout_refresh_and_socket_resynchronization():
     assert "setInterval" not in MOUNT_JS
     assert re.search(r"setTimeout\(\s*refreshMount\s*,\s*delay\s*\)", MOUNT_JS)
@@ -90,6 +221,25 @@ def test_mount_uses_timeout_refresh_and_socket_resynchronization():
         MOUNT_JS,
     )
     assert re.search(r"\brefreshMount\(\s*\)\s*;", MOUNT_JS)
+
+
+def test_mount_refresh_and_socket_resynchronization_do_not_start_or_stop_slew():
+    refresh_source = _between(
+        MOUNT_JS,
+        "async function refreshMount()",
+        "function scheduleMountRefresh(delay)",
+    )
+    assert not re.search(r"/api/mount/slew/(?:start|stop)", refresh_source)
+    assert not re.search(r"\bpostMount\s*\(", refresh_source)
+
+    for event in ("connect", "status_update"):
+        listener = re.search(
+            rf"socket\.on\(\s*['\"]{event}['\"]\s*,\s*"
+            r"(?P<handler>\w+)\s*\)",
+            MOUNT_JS,
+        )
+        assert listener
+        assert listener.group("handler") == "refreshMount"
 
 
 def test_mount_click_uses_last_server_status_and_refreshes_after_post():
