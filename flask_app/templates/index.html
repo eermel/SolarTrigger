@@ -1039,7 +1039,7 @@ header {
       <div id="mount-section">
         <div class="card">
           <div class="card-title">Mount</div>
-          <div></div>
+          <button class="btn btn-primary btn-full" id="btn-mount-home">Home</button>
         </div>
       </div>
     </div>
@@ -1717,6 +1717,58 @@ socket.on('play_sound', d => {
   });
 })();
 // FOCUSER UI END
+
+// MOUNT UI START
+(() => {
+  const homeButton = document.getElementById('btn-mount-home');
+  let homing = false;
+  let pollTimer = null;
+
+  function displayMount(data) {
+    homing = data && data.homing === true;
+    homeButton.textContent = homing ? 'Cancel' : 'Home';
+    homeButton.classList.toggle('focuser-cancel', homing);
+    scheduleMountRefresh(homing ? 400 : 1500);
+  }
+
+  async function refreshMount() {
+    try {
+      const response = await fetch('/api/mount/status');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Erreur HTTP ${response.status}`);
+      displayMount(data);
+    } catch (error) {
+      scheduleMountRefresh(1500);
+    }
+  }
+
+  function scheduleMountRefresh(delay) {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(refreshMount, delay);
+  }
+
+  async function postMount(url) {
+    try {
+      const response = await fetch(url, {method: 'POST'});
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || `Erreur HTTP ${response.status}`);
+      }
+    } catch (error) {
+      flash(`Mount : ${error.message}`, 'red');
+    }
+    refreshMount();
+  }
+
+  homeButton.addEventListener('click', () => {
+    postMount(homing ? '/api/mount/slew/stop' : '/api/mount/home');
+  });
+
+  socket.on('connect', refreshMount);
+  socket.on('status_update', refreshMount);
+  refreshMount();
+})();
+// MOUNT UI END
 
 // Batterie
 socket.on('battery_update', d => updateBattery(d.percent));
