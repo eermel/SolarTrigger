@@ -72,7 +72,38 @@ class MountService:
                 raise RuntimeError(f"unable to load mount plugin '{plugin_id}'")
             self._plugin_id = plugin_id
         if not self._plugin.connected:
-            self._plugin.connect()
+            plugin = self._plugin
+            try:
+                plugin.connect()
+                get_tracking_capabilities = getattr(
+                    plugin, "get_tracking_capabilities", None
+                )
+                tracking_capabilities = (
+                    get_tracking_capabilities()
+                    if callable(get_tracking_capabilities)
+                    else None
+                )
+                if (
+                    isinstance(tracking_capabilities, dict)
+                    and tracking_capabilities.get("toggle") is True
+                ):
+                    plugin.stop_tracking()
+                    raw_status = dict(plugin.status() or {})
+                    if "tracking" in raw_status:
+                        self._tracking_enabled = bool(raw_status["tracking"])
+                    else:
+                        tracking = getattr(plugin, "tracking", None)
+                        if isinstance(tracking, bool):
+                            self._tracking_enabled = tracking
+            except Exception:
+                self._plugin = None
+                self._plugin_id = None
+                self._clear_motion_locked()
+                try:
+                    plugin.disconnect()
+                except Exception:
+                    pass
+                raise
         return self._plugin
 
     def _status_locked(self, plugin) -> dict:

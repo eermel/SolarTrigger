@@ -66,9 +66,14 @@ def test_default_tracking_state_and_missing_capabilities(tmp_path):
 
 def test_tracking_capabilities_are_passed_through_unmodified(tmp_path):
     capabilities = {"toggle": True, "modes": ["solar", "sidereal"]}
-    service = make_service(tmp_path, TrackingMountPlugin(capabilities))
+    plugin = TrackingMountPlugin(capabilities)
+    service = make_service(tmp_path, plugin)
     try:
-        assert service.status()["tracking_caps"] is capabilities
+        status = service.status()
+        service.status()
+
+        assert status["tracking_caps"] is capabilities
+        assert plugin.calls == [("stop_tracking",)]
     finally:
         service.close()
 
@@ -81,7 +86,10 @@ def test_set_tracking_mode_changes_mode_without_enabling(tmp_path):
 
         assert status["tracking_mode"] == "sidereal"
         assert status["tracking_enabled"] is False
-        assert plugin.calls == [("set_tracking_mode", "sidereal")]
+        assert plugin.calls == [
+            ("stop_tracking",),
+            ("set_tracking_mode", "sidereal"),
+        ]
     finally:
         service.close()
 
@@ -105,11 +113,15 @@ def test_start_and_stop_tracking_call_plugin_and_update_state(tmp_path):
 
         started = service.start_tracking()
         assert started["tracking_enabled"] is True
-        assert plugin.calls[-1] == ("start_tracking", "sidereal")
 
         stopped = service.stop_tracking()
         assert stopped["tracking_enabled"] is False
-        assert plugin.calls[-1] == ("stop_tracking",)
+        assert plugin.calls == [
+            ("stop_tracking",),
+            ("set_tracking_mode", "sidereal"),
+            ("start_tracking", "sidereal"),
+            ("stop_tracking",),
+        ]
     finally:
         service.close()
 
