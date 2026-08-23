@@ -158,6 +158,9 @@ class RecoveringMountPlugin(FakeMountPlugin):
     def get_tracking_capabilities(self):
         return {"toggle": True, "modes": ["solar", "sidereal"]}
 
+    def stop_tracking(self):
+        pass
+
 
 @pytest.fixture
 def mount_api(tmp_path, monkeypatch):
