@@ -91,12 +91,12 @@ def test_focuser_control_block_is_brand_neutral():
     assert not re.search(r"\bzwo\b", FOCUSER_JS, re.IGNORECASE)
 
 
-def test_existing_top_level_navigation_is_unchanged():
+def test_top_level_navigation_includes_controls_without_a_focuser_tab():
     labels = re.findall(r"<span>\s*([^<]+?)\s*</span>", TABS)
     targets = [int(value) for value in re.findall(r"onclick=[\"']showTab\((\d+)\)[\"']", TABS)]
 
-    assert labels == ["DEVICES", "SYNC GPS", "ÉCLIPSE", "CFG PHOTO", "CAMÉRA", "TRIGGER"]
-    assert targets == [0, 1, 2, 3, 4, 5]
+    assert labels == ["DEVICES", "SYNC GPS", "ÉCLIPSE", "CFG PHOTO", "CAMÉRA", "CONTROLS", "TRIGGER"]
+    assert targets == [0, 1, 2, 3, 4, 5, 6]
     assert "FOCUSEUR" not in TABS.upper()
 
 
