@@ -31,6 +31,8 @@ class MountService:
         self._plugin_id: str | None = None
         self._moving = False
         self._direction: str | None = None
+        self._homing = False
+        self._home_generation = 0
 
     def _selection(self) -> tuple[bool, str]:
         devices = self._state_store.snapshot("devices") or {}
@@ -82,6 +84,7 @@ class MountService:
             "connected": bool(plugin.connected),
             "moving": bool(self._moving),
             "direction": self._direction,
+            "homing": bool(self._homing),
             "slew_speed": raw.get("move_rate") or None,
             "slew_speed_caps": capabilities or None,
             "plugin": self._plugin_id,
@@ -98,6 +101,7 @@ class MountService:
                     "connected": False,
                     "moving": False,
                     "direction": None,
+                    "homing": bool(self._homing),
                     "slew_speed": None,
                     "slew_speed_caps": None,
                     "plugin": plugin_id,
@@ -150,6 +154,8 @@ class MountService:
         if direction not in self._DIRECTIONS:
             raise ValueError("direction must be 'north', 'south', 'east' or 'west'")
         with self._lock:
+            if self._homing:
+                raise RuntimeError("mount is homing")
             plugin = self._plugin_for_operation()
             if not plugin.connected:
                 raise RuntimeError("mount is not connected")
@@ -158,15 +164,48 @@ class MountService:
             self._direction = direction
             return self._status_locked(plugin)
 
-    def stop(self) -> dict:
-        """Stop manual motion only; tracking is left unchanged."""
+    def home_start(self) -> dict:
+        """Start an asynchronous home operation."""
         with self._lock:
+            plugin = self._plugin_for_operation()
+            if self._moving:
+                plugin.stop()
+                self._clear_motion_locked()
+
+            self._home_generation += 1
+            generation = self._home_generation
+            self._homing = True
+
+            def worker() -> None:
+                try:
+                    plugin.go_home()
+                except Exception as exc:
+                    self._log(f"mount home failed: {exc}")
+                finally:
+                    with self._lock:
+                        if (
+                            generation == self._home_generation
+                            and self._homing
+                        ):
+                            self._homing = False
+
+            threading.Thread(target=worker, daemon=True).start()
+            return self._status_locked(plugin)
+
+    def stop(self) -> dict:
+        """Cancel homing and stop manual motion; leave tracking unchanged."""
+        with self._lock:
+            self._home_generation += 1
+            self._homing = False
             active, plugin_id = self._selection()
             if not active or plugin_id == "none":
                 self._close_locked()
                 return self.status()
             plugin = self._plugin_for_operation()
-            plugin.stop()
+            try:
+                plugin.stop()
+            except Exception as exc:
+                self._log(f"mount stop failed: {exc}")
             self._clear_motion_locked()
             return self._status_locked(plugin)
 

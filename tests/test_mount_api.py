@@ -167,6 +167,7 @@ def test_mount_status_reports_plugin_state_and_speed_capabilities(mount_api):
         "connected": True,
         "moving": False,
         "direction": None,
+        "homing": False,
         "slew_speed": None,
         "slew_speed_caps": {
             "kind": "discrete",
