@@ -159,13 +159,24 @@ def test_homing_disables_every_direction_and_preserves_home_cancel():
     )
 
 
-def test_tracking_controls_and_commands_are_preserved():
-    assert 'id="mount-tracking-mode"' in MOUNT_HTML
-    assert 'id="btn-mount-tracking"' in MOUNT_HTML
+def test_tracking_mode_and_off_on_switch_share_the_focuser_switch_layout():
+    assert re.search(
+        r'<div[^>]*class=["\'][^"\']*\bfocuser-mode-switch\b[^"\']*["\'][^>]*>'
+        r'<select[^>]*id=["\']mount-tracking-mode["\'][^>]*></select>'
+        r'<label[^>]*>\s*OFF\s*</label>'
+        r'<input(?=[^>]*id=["\']mount-tracking-switch["\'])'
+        r'(?=[^>]*role=["\']switch["\'])[^>]*>'
+        r'<label[^>]*>\s*ON\s*</label>'
+        r'</div>',
+        MOUNT_HTML,
+    )
+    assert 'id="btn-mount-tracking"' not in MOUNT_HTML
+
+
+def test_tracking_switch_reflects_status_and_preserves_tracking_commands():
     assert re.search(r"trackingMode\.value\s*=\s*data\s*&&\s*data\.tracking_mode", MOUNT_JS)
     assert re.search(
-        r"trackingButton\.textContent\s*=\s*trackingEnabled\s*\?\s*['\"]STOP['\"]\s*"
-        r":\s*['\"]START['\"]",
+        r"trackingSwitch\.checked\s*=\s*trackingEnabled",
         MOUNT_JS,
     )
     for endpoint in (
@@ -174,6 +185,24 @@ def test_tracking_controls_and_commands_are_preserved():
         "/api/mount/tracking/stop",
     ):
         assert MOUNT_JS.count(endpoint) == 1
+
+
+def test_tracking_switch_on_state_uses_the_shared_green_style():
+    checked = re.search(
+        r'\.focuser-mode-switch\s+input\[role="switch"\]:checked\s*\{(?P<body>.*?)\}',
+        INDEX,
+        re.DOTALL,
+    )
+    checked_thumb = re.search(
+        r'\.focuser-mode-switch\s+input\[role="switch"\]:checked::after\s*'
+        r'\{(?P<body>.*?)\}',
+        INDEX,
+        re.DOTALL,
+    )
+    assert checked and re.search(r"border-color:\s*var\(--green\)", checked.group("body"))
+    assert checked_thumb and re.search(
+        r"background:\s*var\(--green\)", checked_thumb.group("body")
+    )
 
 
 def test_refresh_and_socket_resync_cannot_issue_a_slew_command():
