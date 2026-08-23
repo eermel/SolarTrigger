@@ -144,6 +144,7 @@ class OnStepMount(MountPlugin):
         lat_deg=None,
         lon_deg=None,
         utc_offset=None,
+        is_cancelled=None,
     ):
         """Retourne a la position Home connue du controleur (sans parker).
 
@@ -159,6 +160,7 @@ class OnStepMount(MountPlugin):
             lat_deg=lat_deg,
             lon_deg=lon_deg,
             utc_offset=utc_offset,
+            is_cancelled=is_cancelled,
         )
 
     def recenter(self, utc_offset=1, gps_port=None, timeout=120):

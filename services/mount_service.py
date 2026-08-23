@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 import threading
 from numbers import Real
@@ -27,6 +28,7 @@ class MountService:
         self._config = config
         self._plugin_loader = plugin_loader
         self._lock = threading.RLock()
+        self._plugin_access_lock = threading.RLock()
         self._plugin = None
         self._plugin_id: str | None = None
         self._moving = False
@@ -103,6 +105,22 @@ class MountService:
             "plugin": self._plugin_id,
         }
 
+    def _homing_status_locked(self, plugin_id: str) -> dict:
+        """Return a backend-only snapshot while Home owns mount I/O."""
+        return {
+            "active": True,
+            "connected": self._plugin is not None,
+            "moving": bool(self._moving),
+            "direction": self._direction,
+            "homing": True,
+            "slew_speed": None,
+            "slew_speed_caps": None,
+            "tracking_mode": self._tracking_mode,
+            "tracking_enabled": bool(self._tracking_enabled),
+            "tracking_caps": None,
+            "plugin": self._plugin_id or plugin_id,
+        }
+
     def status(self) -> dict:
         """Return connection, speed, and internally tracked slew state."""
         with self._lock:
@@ -122,6 +140,8 @@ class MountService:
                     "tracking_caps": None,
                     "plugin": plugin_id,
                 }
+            if self._homing:
+                return self._homing_status_locked(plugin_id)
             return self._status_locked(self._plugin_for_operation())
 
     def set_tracking_mode(self, mode: str) -> dict:
@@ -226,9 +246,21 @@ class MountService:
             generation = self._home_generation
             self._homing = True
 
+            def is_cancelled() -> bool:
+                with self._lock:
+                    return (
+                        generation != self._home_generation
+                        or not self._homing
+                    )
+
             def worker() -> None:
                 try:
-                    plugin.go_home()
+                    if "is_cancelled" in inspect.signature(
+                        plugin.go_home
+                    ).parameters:
+                        plugin.go_home(is_cancelled=is_cancelled)
+                    else:
+                        plugin.go_home()
                 except Exception as exc:
                     self._log(f"mount home failed: {exc}")
                 finally:
@@ -240,24 +272,50 @@ class MountService:
                             self._homing = False
 
             threading.Thread(target=worker, daemon=True).start()
-            return self._status_locked(plugin)
+            return self._homing_status_locked(self._plugin_id or "none")
 
     def stop(self) -> dict:
         """Cancel homing and stop manual motion; leave tracking unchanged."""
         with self._lock:
             self._home_generation += 1
             self._homing = False
+            self._clear_motion_locked()
             active, plugin_id = self._selection()
             if not active or plugin_id == "none":
                 self._close_locked()
                 return self.status()
-            plugin = self._plugin_for_operation()
+
+            plugin = self._plugin
+            status = {
+                "active": True,
+                "connected": bool(
+                    plugin is not None and getattr(plugin, "connected", False)
+                ),
+                "moving": False,
+                "direction": None,
+                "homing": False,
+                "slew_speed": None,
+                "slew_speed_caps": None,
+                "tracking_mode": self._tracking_mode,
+                "tracking_enabled": bool(self._tracking_enabled),
+                "tracking_caps": None,
+                "plugin": self._plugin_id or plugin_id,
+            }
+
+        if self._plugin_access_lock.acquire(timeout=0.5):
             try:
-                plugin.stop()
+                if plugin is not None:
+                    plugin.stop()
             except Exception as exc:
                 self._log(f"mount stop failed: {exc}")
-            self._clear_motion_locked()
-            return self._status_locked(plugin)
+            finally:
+                self._plugin_access_lock.release()
+        else:
+            self._log(
+                "mount stop could not acquire hardware lock within 0.5 s; "
+                "STOP not sent"
+            )
+        return status
 
     def close(self) -> None:
         with self._lock:
