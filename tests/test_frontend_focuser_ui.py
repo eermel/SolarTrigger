@@ -14,27 +14,41 @@ def _between(text, start, end):
 
 
 CAMERA_PANEL = _between(INDEX, '<div class="page" id="page-3"', '<!-- /page-3 CAMÉRA -->')
-FOCUSER_HTML = _between(CAMERA_PANEL, '<!-- ── FOCUSEUR ── -->', '<!-- ── /FOCUSEUR ── -->')
+CONTROLS_PANEL = _between(INDEX, '<div class="page" id="controls-panel"', '<!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->')
+FOCUSER_HTML = _between(CONTROLS_PANEL, '<!-- ── FOCUSEUR ── -->', '<!-- ── /FOCUSEUR ── -->')
 FOCUSER_JS = _between(INDEX, "// FOCUSER UI START", "// FOCUSER UI END")
 TABS = _between(INDEX, '<div id="tabs">', "<!-- PAGES -->")
 
 
-def test_focuser_section_is_hidden_inside_camera_panel():
-    camera_marker = CAMERA_PANEL.index('id="btn-cam-probe"')
-    focuser_marker = CAMERA_PANEL.index('id="focuser-section"')
+def test_focuser_section_is_inside_controls_panel():
+    assert 'id="focuser-section"' in CONTROLS_PANEL
 
-    assert focuser_marker > camera_marker
-    assert re.search(
-        r'<div\s+id=["\']focuser-section["\'][^>]*\bstyle=["\'][^"\']*display\s*:\s*none',
-        FOCUSER_HTML,
-        re.IGNORECASE,
-    )
+
+def test_camera_panel_contains_no_focuser_ids():
+    assert not re.search(r'id=["\'][^"\']*focuser[^"\']*["\']', CAMERA_PANEL, re.IGNORECASE)
+
+
+def test_principal_focuser_ids_are_not_duplicated():
+    for element_id in (
+        "focuser-section",
+        "focuser-plugin",
+        "focuser-status",
+        "focuser-position",
+        "focuser-target",
+        "focuser-step-slow",
+        "focuser-step-fast",
+        "focuser-speed-switch",
+        "btn-focuser-go",
+        "btn-focuser-home",
+        "btn-focuser-minus",
+        "btn-focuser-plus",
+    ):
+        assert len(re.findall(rf'id=["\']{re.escape(element_id)}["\']', INDEX)) == 1
 
 
 def test_visibility_is_driven_by_active_focuser_device():
-    assert re.search(r"devices\s*&&\s*devices\.focuser", FOCUSER_JS)
-    assert re.search(r"focuser\s*&&\s*focuser\.active\s*===\s*true", FOCUSER_JS)
-    assert re.search(r"section\.style\.display\s*=\s*active\s*\?\s*['\"]['\"]\s*:\s*['\"]none['\"]", FOCUSER_JS)
+    assert "updateControlsVisibility(devices)" in FOCUSER_JS
+    assert not re.search(r"section\.style\.display\s*=", FOCUSER_JS)
 
 
 def test_target_and_step_defaults_are_wired_to_backend_status():
@@ -91,12 +105,12 @@ def test_focuser_control_block_is_brand_neutral():
     assert not re.search(r"\bzwo\b", FOCUSER_JS, re.IGNORECASE)
 
 
-def test_existing_top_level_navigation_is_unchanged():
+def test_top_level_navigation_includes_controls_without_a_focuser_tab():
     labels = re.findall(r"<span>\s*([^<]+?)\s*</span>", TABS)
     targets = [int(value) for value in re.findall(r"onclick=[\"']showTab\((\d+)\)[\"']", TABS)]
 
-    assert labels == ["DEVICES", "SYNC GPS", "ÉCLIPSE", "CFG PHOTO", "CAMÉRA", "TRIGGER"]
-    assert targets == [0, 1, 2, 3, 4, 5]
+    assert labels == ["DEVICES", "SYNC GPS", "ÉCLIPSE", "CFG PHOTO", "CAMÉRA", "CONTROLS", "TRIGGER"]
+    assert targets == [0, 1, 2, 3, 4, 5, 6]
     assert "FOCUSEUR" not in TABS.upper()
 
 
@@ -124,8 +138,19 @@ def test_focuser_cancel_style_uses_red_background_white_text_and_red_border():
     )
 
 
-def test_focuser_stop_endpoint_is_referenced_once():
-    assert FOCUSER_JS.count("/api/focuser/stop") == 1
+def test_each_focuser_endpoint_is_referenced_once():
+    for endpoint in (
+        "/api/focuser/status",
+        "/api/focuser/stop",
+        "/api/focuser/home",
+        "/api/focuser/move_to",
+        "/api/focuser/set_step",
+        "/api/focuser/mode",
+        "/api/focuser/step",
+        "/api/focuser/jog/start",
+        "/api/focuser/jog/stop",
+    ):
+        assert FOCUSER_JS.count(endpoint) == 1
 
 
 def test_mode_switch_posts_backend_authoritative_slow_fast_mode():

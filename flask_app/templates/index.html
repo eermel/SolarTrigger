@@ -625,7 +625,11 @@ header {
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="3"/></svg>
       <span>CAMÉRA</span>
     </button>
-    <button class="tab" onclick="showTab(5)">
+    <button class="tab" id="controls-tab" onclick="showTab(5)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      <span>CONTROLS</span>
+    </button>
+    <button class="tab" onclick="showTab(6)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
       <span>TRIGGER</span>
     </button>
@@ -992,6 +996,9 @@ header {
         </button>
       </div>
 
+    </div><!-- /page-3 CAMÉRA -->
+
+    <div class="page" id="controls-panel">
       <!-- ── FOCUSEUR ── -->
       <div id="focuser-section" style="display:none">
         <div class="card">
@@ -1029,7 +1036,13 @@ header {
       </div>
       <!-- ── /FOCUSEUR ── -->
 
-    </div><!-- /page-3 CAMÉRA -->
+      <div id="mount-section">
+        <div class="card">
+          <div class="card-title">Mount</div>
+          <div></div>
+        </div>
+      </div>
+    </div>
 
     <!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->
     <div class="page" id="page-4">
@@ -1254,12 +1267,29 @@ function renderDevices(devices) {
   });
 }
 
+function updateControlsVisibility(devices) {
+  const focuserActive = Boolean(devices && devices.focuser && devices.focuser.active === true);
+  const mountActive = Boolean(devices && devices.mount && devices.mount.active === true);
+  const controlsActive = focuserActive || mountActive;
+  const controlsTab = document.getElementById('controls-tab');
+  const controlsPanel = document.getElementById('controls-panel');
+
+  const controlsWasSelected = controlsTab.classList.contains('active');
+  controlsTab.hidden = !controlsActive;
+  controlsPanel.hidden = !controlsActive;
+  document.getElementById('focuser-section').hidden = !focuserActive;
+  document.getElementById('mount-section').hidden = !mountActive;
+
+  if (controlsWasSelected && !controlsActive) showTab(0);
+}
+
 async function fetchDevices() {
   try {
     const response = await fetch('/api/devices');
     const devices = await response.json();
     if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
     renderDevices(devices);
+    updateControlsVisibility(devices);
   } catch (error) {
     flash(`Périphériques : ${error.message}`, 'red');
   }
@@ -1275,6 +1305,7 @@ async function selectDevice(category, plugin) {
     const devices = await response.json();
     if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
     renderDevices(devices);
+    updateControlsVisibility(devices);
     flash(`${DEVICE_LABELS[category]} mis à jour`, 'green');
   } catch (error) {
     flash(`Périphériques : ${error.message}`, 'red');
@@ -1290,6 +1321,7 @@ async function rescanDevices() {
     const devices = await response.json();
     if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
     renderDevices(devices);
+    updateControlsVisibility(devices);
     flash('Détection des périphériques terminée', 'green');
   } catch (error) {
     flash(`Détection : ${error.message}`, 'red');
@@ -1446,6 +1478,7 @@ socket.on('eclipse_calculated', d => {
 });
 
 socket.on('state_update', d => {
+  if (d.devices) updateControlsVisibility(d.devices);
   // Mise à jour timezone DST calculé côté serveur
   if (d.timezone_override) {
     _gpsTimezone = d.timezone_override;
@@ -1501,6 +1534,7 @@ socket.on('play_sound', d => {
 // FOCUSER UI START
 (() => {
   const section = document.getElementById('focuser-section');
+  section.style.removeProperty('display');
   const plugin = document.getElementById('focuser-plugin');
   const status = document.getElementById('focuser-status');
   const position = document.getElementById('focuser-position');
@@ -1568,7 +1602,6 @@ socket.on('play_sound', d => {
   function applyDevices(devices) {
     const focuser = devices && devices.focuser;
     active = Boolean(focuser && focuser.active === true);
-    section.style.display = active ? '' : 'none';
     if (!active) {
       clearTimeout(pollTimer);
       stopPress(false);
@@ -1675,7 +1708,11 @@ socket.on('play_sound', d => {
 
   socket.on('focuser_update', refreshFocuser);
   socket.on('status_update', data => {
-    if (data.devices) applyDevices(data.devices);
+    if (data.devices) {
+      const devices = data.devices;
+      updateControlsVisibility(devices);
+      applyDevices(devices);
+    }
     if (data.focuser) refreshFocuser();
   });
 })();
@@ -3099,7 +3136,7 @@ function showTab(n) {
     if (di && di.value === '') di.value = '100';
     if (ti && ti.value === '') ti.value = '100';
   }
-  if (n === 5) { loadTriggerConfigList(); loadEclipseFileList(); }
+  if (n === 6) { loadTriggerConfigList(); loadEclipseFileList(); }
 }
 
 // ════════════════════════════════════════════════════════════════
