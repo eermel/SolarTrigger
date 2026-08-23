@@ -1267,6 +1267,22 @@ function renderDevices(devices) {
   });
 }
 
+function updateControlsVisibility(devices) {
+  const focuserActive = Boolean(devices && devices.focuser && devices.focuser.active === true);
+  const mountActive = Boolean(devices && devices.mount && devices.mount.active === true);
+  const controlsActive = focuserActive || mountActive;
+  const controlsTab = document.getElementById('controls-tab');
+  const controlsPanel = document.getElementById('controls-panel');
+
+  const controlsWasSelected = controlsTab.classList.contains('active');
+  controlsTab.hidden = !controlsActive;
+  controlsPanel.hidden = !controlsActive;
+  document.getElementById('focuser-section').hidden = !focuserActive;
+  document.getElementById('mount-section').hidden = !mountActive;
+
+  if (controlsWasSelected && !controlsActive) showTab(0);
+}
+
 async function fetchDevices() {
   try {
     const response = await fetch('/api/devices');
@@ -1514,6 +1530,7 @@ socket.on('play_sound', d => {
 // FOCUSER UI START
 (() => {
   const section = document.getElementById('focuser-section');
+  section.style.removeProperty('display');
   const plugin = document.getElementById('focuser-plugin');
   const status = document.getElementById('focuser-status');
   const position = document.getElementById('focuser-position');
@@ -1581,7 +1598,6 @@ socket.on('play_sound', d => {
   function applyDevices(devices) {
     const focuser = devices && devices.focuser;
     active = Boolean(focuser && focuser.active === true);
-    section.style.display = active ? '' : 'none';
     if (!active) {
       clearTimeout(pollTimer);
       stopPress(false);
@@ -1594,6 +1610,7 @@ socket.on('play_sound', d => {
   const renderDevicesWithoutFocuser = renderDevices;
   renderDevices = function(devices) {
     renderDevicesWithoutFocuser(devices);
+    updateControlsVisibility(devices);
     applyDevices(devices);
   };
 

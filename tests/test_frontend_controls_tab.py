@@ -2,6 +2,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 import re
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = (ROOT / "flask_app" / "templates" / "index.html").read_text(encoding="utf-8")
@@ -96,3 +98,52 @@ def test_mount_section_is_unique_and_inside_controls_panel():
 
     assert 'id="mount-section"' in controls_panel
     assert len(re.findall(r'id=["\']mount-section["\']', INDEX)) == 1
+
+
+def _controls_visibility_source():
+    match = re.search(
+        r"function\s+updateControlsVisibility\(devices\)\s*\{(?P<body>.*?)\n\}",
+        INDEX,
+        re.DOTALL,
+    )
+    assert match, "updateControlsVisibility(devices) is missing"
+    return match.group("body")
+
+
+@pytest.mark.parametrize(
+    ("devices", "controls_hidden", "focuser_hidden", "mount_hidden"),
+    (
+        ({"focuser": {"active": False}, "mount": {"active": False}}, True, True, True),
+        ({"focuser": {"active": True}, "mount": {"active": False}}, False, False, True),
+        ({"focuser": {"active": False}, "mount": {"active": True}}, False, True, False),
+        ({"focuser": {"active": True}, "mount": {"active": True}}, False, False, False),
+    ),
+)
+def test_controls_visibility_for_all_device_states(
+    devices, controls_hidden, focuser_hidden, mount_hidden
+):
+    source = _controls_visibility_source()
+    focuser_active = devices.get("focuser", {}).get("active") is True
+    mount_active = devices.get("mount", {}).get("active") is True
+
+    assert (not (focuser_active or mount_active)) is controls_hidden
+    assert (not focuser_active) is focuser_hidden
+    assert (not mount_active) is mount_hidden
+    assert re.search(r"controlsTab\.hidden\s*=\s*!controlsActive", source)
+    assert re.search(r"controlsPanel\.hidden\s*=\s*!controlsActive", source)
+    assert re.search(r"getElementById\(['\"]focuser-section['\"]\)\.hidden\s*=\s*!focuserActive", source)
+    assert re.search(r"getElementById\(['\"]mount-section['\"]\)\.hidden\s*=\s*!mountActive", source)
+
+
+def test_missing_devices_are_inactive_and_hidden():
+    source = _controls_visibility_source()
+
+    assert re.search(r"devices\s*&&\s*devices\.focuser\s*&&\s*devices\.focuser\.active\s*===\s*true", source)
+    assert re.search(r"devices\s*&&\s*devices\.mount\s*&&\s*devices\.mount\.active\s*===\s*true", source)
+
+
+def test_active_controls_falls_back_to_devices_when_controls_become_hidden():
+    source = _controls_visibility_source()
+
+    assert re.search(r"controlsWasSelected\s*=\s*controlsTab\.classList\.contains\(['\"]active['\"]\)", source)
+    assert re.search(r"if\s*\(controlsWasSelected\s*&&\s*!controlsActive\)\s*showTab\(0\)", source)
