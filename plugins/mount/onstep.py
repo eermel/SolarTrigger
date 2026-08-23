@@ -9,6 +9,7 @@ mouvements manuels, estop, recentrage HOME (avec setup date/heure/position
 
 from __future__ import annotations
 
+import threading
 import time
 from enum import Enum
 
@@ -118,6 +119,7 @@ class OnStep:
         self.timeout = timeout
 
         self.serial = None
+        self._serial_lock = threading.RLock()
 
         # Etat local
         self._move_rate = 4.0
@@ -129,43 +131,45 @@ class OnStep:
 
     def connect(self):
 
-        if self.connected:
-            return
+        with self._serial_lock:
+            if self.connected:
+                return
 
-        try:
+            try:
 
-            self.serial = serial.Serial(
-                port=self.port,
-                baudrate=self.baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=self.timeout,
-                write_timeout=self.timeout,
-            )
+                self.serial = serial.Serial(
+                    port=self.port,
+                    baudrate=self.baudrate,
+                    bytesize=serial.EIGHTBITS,
+                    parity=serial.PARITY_NONE,
+                    stopbits=serial.STOPBITS_ONE,
+                    timeout=self.timeout,
+                    write_timeout=self.timeout,
+                )
 
-            # Nettoyage des buffers
-            self.serial.reset_input_buffer()
-            self.serial.reset_output_buffer()
+                # Nettoyage des buffers
+                self.serial.reset_input_buffer()
+                self.serial.reset_output_buffer()
 
-        except serial.SerialException as exc:
+            except serial.SerialException as exc:
 
-            self.serial = None
+                self.serial = None
 
-            raise OnStepError(
-                f"Impossible de se connecter à "
-                f"{self.port}: {exc}"
-            ) from exc
+                raise OnStepError(
+                    f"Impossible de se connecter à "
+                    f"{self.port}: {exc}"
+                ) from exc
 
     def disconnect(self):
 
-        if self.serial is not None:
+        with self._serial_lock:
+            if self.serial is not None:
 
-            try:
-                self.serial.close()
+                try:
+                    self.serial.close()
 
-            finally:
-                self.serial = None
+                finally:
+                    self.serial = None
 
     @property
     def connected(self):
@@ -177,11 +181,12 @@ class OnStep:
 
     def reconnect(self):
 
-        self.disconnect()
+        with self._serial_lock:
+            self.disconnect()
 
-        time.sleep(0.2)
+            time.sleep(0.2)
 
-        self.connect()
+            self.connect()
 
     # ========================================================
     # COMMUNICATION BAS NIVEAU
@@ -199,18 +204,19 @@ class OnStep:
 
     def _send(self, command):
 
-        ser = self._serial()
+        with self._serial_lock:
+            ser = self._serial()
 
-        try:
+            try:
 
-            ser.write(command)
-            ser.flush()
+                ser.write(command)
+                ser.flush()
 
-        except serial.SerialException as exc:
+            except serial.SerialException as exc:
 
-            raise OnStepError(
-                f"Erreur d'envoi {command!r}: {exc}"
-            ) from exc
+                raise OnStepError(
+                    f"Erreur d'envoi {command!r}: {exc}"
+                ) from exc
 
     def _query(
         self,
@@ -218,33 +224,34 @@ class OnStep:
         timeout=None,
     ):
 
-        ser = self._serial()
+        with self._serial_lock:
+            ser = self._serial()
 
-        old_timeout = ser.timeout
+            old_timeout = ser.timeout
 
-        try:
+            try:
 
-            if timeout is not None:
-                ser.timeout = timeout
+                if timeout is not None:
+                    ser.timeout = timeout
 
-            ser.reset_input_buffer()
+                ser.reset_input_buffer()
 
-            ser.write(command)
-            ser.flush()
+                ser.write(command)
+                ser.flush()
 
-            response = ser.read_until(b"#")
+                response = ser.read_until(b"#")
 
-            return response.rstrip(b"#")
+                return response.rstrip(b"#")
 
-        except serial.SerialException as exc:
+            except serial.SerialException as exc:
 
-            raise OnStepError(
-                f"Erreur de communication : {exc}"
-            ) from exc
+                raise OnStepError(
+                    f"Erreur de communication : {exc}"
+                ) from exc
 
-        finally:
+            finally:
 
-            ser.timeout = old_timeout
+                ser.timeout = old_timeout
 
     def _query_text(
         self,
@@ -284,28 +291,29 @@ class OnStep:
         Utilise pour les commandes de setup (:St :Sg :SG :SL :SC) et
         de park/unpark (:hR :hP ...). Retourne True si '1', False sinon."""
 
-        ser = self._serial()
-        old_timeout = ser.timeout
+        with self._serial_lock:
+            ser = self._serial()
+            old_timeout = ser.timeout
 
-        try:
+            try:
 
-            ser.timeout = timeout
-            ser.reset_input_buffer()
-            ser.write(command)
-            ser.flush()
+                ser.timeout = timeout
+                ser.reset_input_buffer()
+                ser.write(command)
+                ser.flush()
 
-            resp = ser.read(1)
-            return resp == b"1"
+                resp = ser.read(1)
+                return resp == b"1"
 
-        except serial.SerialException as exc:
+            except serial.SerialException as exc:
 
-            raise OnStepError(
-                f"Erreur de communication : {exc}"
-            ) from exc
+                raise OnStepError(
+                    f"Erreur de communication : {exc}"
+                ) from exc
 
-        finally:
+            finally:
 
-            ser.timeout = old_timeout
+                ser.timeout = old_timeout
 
     # ========================================================
     # INFORMATIONS
