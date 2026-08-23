@@ -71,7 +71,13 @@ def test_home_can_be_cancelled_immediately_and_slew_can_restart(tmp_path):
 
         assert service.stop()["homing"] is False
         assert service.start_slew("east")["direction"] == "east"
-        assert plugin.home_started[0].is_set()
+
+        releases[0].set()
+        assert plugin.home_finished[0].wait(timeout=1)
+        status = service.status()
+        assert status["homing"] is False
+        assert status["moving"] is True
+        assert status["direction"] == "east"
     finally:
         releases[0].set()
         service.close()
