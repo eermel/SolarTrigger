@@ -223,6 +223,25 @@ def test_mount_uses_timeout_refresh_and_socket_resynchronization():
     assert re.search(r"\brefreshMount\(\s*\)\s*;", MOUNT_JS)
 
 
+def test_mount_refresh_and_socket_resynchronization_do_not_start_or_stop_slew():
+    refresh_source = _between(
+        MOUNT_JS,
+        "async function refreshMount()",
+        "function scheduleMountRefresh(delay)",
+    )
+    assert not re.search(r"/api/mount/slew/(?:start|stop)", refresh_source)
+    assert not re.search(r"\bpostMount\s*\(", refresh_source)
+
+    for event in ("connect", "status_update"):
+        listener = re.search(
+            rf"socket\.on\(\s*['\"]{event}['\"]\s*,\s*"
+            r"(?P<handler>\w+)\s*\)",
+            MOUNT_JS,
+        )
+        assert listener
+        assert listener.group("handler") == "refreshMount"
+
+
 def test_mount_click_uses_last_server_status_and_refreshes_after_post():
     assert re.search(
         r"postMount\(\s*homing\s*\?\s*['\"]/api/mount/slew/stop['\"]\s*"
