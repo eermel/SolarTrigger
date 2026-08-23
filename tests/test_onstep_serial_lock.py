@@ -178,6 +178,75 @@ def test_disconnect_waits_for_send_and_leaves_consistent_state(monkeypatch):
     assert not serial_stub.is_open
 
 
+class ReconnectSerialStub:
+    def __init__(self, *args, **kwargs):
+        self.is_open = True
+        self.timeout = kwargs["timeout"]
+        self.query_completed = threading.Event()
+
+    def reset_input_buffer(self):
+        pass
+
+    def reset_output_buffer(self):
+        pass
+
+    def write(self, _command):
+        pass
+
+    def flush(self):
+        pass
+
+    def read_until(self, _terminator):
+        self.query_completed.set()
+        return b"OnStep#"
+
+    def close(self):
+        self.is_open = False
+
+
+def test_reconnect_is_safe_while_query_text_is_polling(monkeypatch):
+    serial_stubs = []
+
+    def create_serial(*args, **kwargs):
+        serial_stub = ReconnectSerialStub(*args, **kwargs)
+        serial_stubs.append(serial_stub)
+        return serial_stub
+
+    monkeypatch.setattr(
+        "plugins.mount.onstep.serial.Serial",
+        create_serial,
+        raising=False,
+    )
+    monkeypatch.setattr("plugins.mount.onstep.time.sleep", lambda _delay: None)
+    mount = OnStep(timeout=1.0)
+    mount.connect()
+    stop_polling = threading.Event()
+    errors = []
+
+    def poll_version():
+        while not stop_polling.is_set():
+            try:
+                mount._query_text(b":GVN#")
+            except Exception as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+                return
+
+    poller = threading.Thread(target=poll_version)
+    poller.start()
+    assert serial_stubs[0].query_completed.wait(timeout=1)
+
+    mount.reconnect()
+    stop_polling.set()
+    poller.join(timeout=1)
+
+    assert not poller.is_alive()
+    assert errors == []
+    assert len(serial_stubs) == 2
+    assert not serial_stubs[0].is_open
+    assert mount.serial is serial_stubs[1]
+    assert mount.connected is True
+
+
 class GoHomeSerialStub:
     def __init__(self, statuses):
         self.is_open = True
