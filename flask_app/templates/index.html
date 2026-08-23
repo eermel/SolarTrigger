@@ -1075,7 +1075,7 @@ header {
             <button class="btn btn-primary mount-slew-button" data-direction="east" draggable="false" aria-label="Slew east">E</button>
             <button class="btn btn-primary mount-slew-button" data-direction="south" draggable="false" aria-label="Slew south">S</button>
           </div>
-          <button class="btn btn-primary btn-full" id="btn-mount-home" data-slew-stop-url="/api/mount/slew/stop">Home</button>
+          <button class="btn btn-primary btn-full" id="btn-mount-home" data-slew-stop-url="/api/mount/slew/stop">HOME</button>
         </div>
       </div>
     </div>
@@ -1788,7 +1788,7 @@ socket.on('play_sound', d => {
 
   function displayMount(data) {
     homing = data && data.homing === true;
-    homeButton.textContent = homing ? 'Cancel' : 'Home';
+    homeButton.textContent = homing ? 'STOP' : 'HOME';
     homeButton.classList.toggle('focuser-cancel', homing);
     slewButtons.forEach(button => { button.disabled = homing; });
     if (data && typeof data.trigger_running === 'boolean') {
@@ -1896,7 +1896,7 @@ socket.on('play_sound', d => {
   window.addEventListener('pagehide', stopSlewBestEffort);
 
   homeButton.addEventListener('click', () => {
-    postMount(homing ? '/api/mount/slew/stop' : '/api/mount/home');
+    postMount(homing ? homeButton.dataset.slewStopUrl : '/api/mount/home');
   });
 
   slewSpeed.addEventListener('input', displaySlewSpeedValue);

@@ -149,11 +149,11 @@ def test_homing_disables_every_direction_and_preserves_home_cancel():
         re.DOTALL,
     )
     assert re.search(
-        r"homeButton\.textContent\s*=\s*homing\s*\?\s*['\"]Cancel['\"]\s*:\s*['\"]Home['\"]",
+        r"homeButton\.textContent\s*=\s*homing\s*\?\s*['\"]STOP['\"]\s*:\s*['\"]HOME['\"]",
         MOUNT_JS,
     )
     assert re.search(
-        r"postMount\(\s*homing\s*\?\s*['\"]/api/mount/slew/stop['\"]\s*"
+        r"postMount\(\s*homing\s*\?\s*homeButton\.dataset\.slewStopUrl\s*"
         r":\s*['\"]/api/mount/home['\"]\s*\)",
         MOUNT_JS,
     )

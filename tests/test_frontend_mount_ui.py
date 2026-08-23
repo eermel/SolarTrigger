@@ -149,16 +149,16 @@ def test_mount_cancel_reuses_existing_focuser_danger_style():
         MOUNT_JS,
     )
     assert re.search(r"homing\s*=\s*data\s*&&\s*data\.homing\s*===\s*true", MOUNT_JS)
-    assert re.search(r"homeButton\.textContent\s*=\s*homing\s*\?\s*['\"]Cancel['\"]\s*:\s*['\"]Home['\"]", MOUNT_JS)
+    assert re.search(r"homeButton\.textContent\s*=\s*homing\s*\?\s*['\"]STOP['\"]\s*:\s*['\"]HOME['\"]", MOUNT_JS)
 
 
 def test_each_mount_endpoint_is_referenced_once():
     for endpoint in (
         "/api/mount/status",
         "/api/mount/home",
-        "/api/mount/slew/stop",
     ):
         assert MOUNT_JS.count(endpoint) == 1
+    assert INDEX.count('data-slew-stop-url="/api/mount/slew/stop"') == 1
 
 
 def test_mount_slew_pointer_events_post_one_start_and_one_best_effort_stop():
@@ -244,7 +244,7 @@ def test_mount_refresh_and_socket_resynchronization_do_not_start_or_stop_slew():
 
 def test_mount_click_uses_last_server_status_and_refreshes_after_post():
     assert re.search(
-        r"postMount\(\s*homing\s*\?\s*['\"]/api/mount/slew/stop['\"]\s*"
+        r"postMount\(\s*homing\s*\?\s*homeButton\.dataset\.slewStopUrl\s*"
         r":\s*['\"]/api/mount/home['\"]\s*\)",
         MOUNT_JS,
     )
