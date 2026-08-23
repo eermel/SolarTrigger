@@ -176,3 +176,58 @@ def test_disconnect_waits_for_send_and_leaves_consistent_state(monkeypatch):
     assert errors == []
     assert mount.serial is None
     assert not serial_stub.is_open
+
+
+class GoHomeSerialStub:
+    def __init__(self, statuses):
+        self.is_open = True
+        self.timeout = 1.0
+        self.statuses = iter(statuses)
+        self.writes = []
+        self.status_query_count = 0
+
+    def reset_input_buffer(self):
+        pass
+
+    def write(self, command):
+        self.writes.append(command)
+        if command == b":GU#":
+            self.status_query_count += 1
+
+    def flush(self):
+        pass
+
+    def read_until(self, _terminator):
+        return next(self.statuses).encode("ascii") + b"#"
+
+
+def test_go_home_cancellation_after_first_poll_skips_final_stop(monkeypatch):
+    mount = OnStep(timeout=1.0)
+    serial_stub = GoHomeSerialStub(["nN", "nN", "nN"])
+    mount.serial = serial_stub
+    monkeypatch.setattr("plugins.mount.onstep.time.sleep", lambda _delay: None)
+
+    result = mount.go_home(
+        timeout=1.0,
+        is_cancelled=lambda: serial_stub.status_query_count >= 3,
+    )
+
+    assert result is False
+    assert serial_stub.writes.count(b":hC#") == 1
+    find_home_index = serial_stub.writes.index(b":hC#")
+    assert b":Q#" not in serial_stub.writes[find_home_index + 1 :]
+
+
+def test_go_home_normal_completion_sends_final_stop():
+    mount = OnStep(timeout=1.0)
+    serial_stub = GoHomeSerialStub(["nN", "nN", "nnnH"])
+    mount.serial = serial_stub
+
+    result = mount.go_home(
+        timeout=1.0,
+        is_cancelled=lambda: False,
+    )
+
+    assert result is True
+    assert serial_stub.writes.count(b":hC#") == 1
+    assert serial_stub.writes[-1] == b":Q#"

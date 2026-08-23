@@ -741,6 +741,7 @@ class OnStep:
         self,
         timeout=120.0,
         poll_interval=0.5,
+        is_cancelled=None,
     ):
 
         deadline = (
@@ -750,13 +751,25 @@ class OnStep:
 
         while time.monotonic() < deadline:
 
+            if callable(is_cancelled) and is_cancelled():
+
+                return False
+
             if self.is_at_home():
+
+                if callable(is_cancelled) and is_cancelled():
+
+                    return False
 
                 return True
 
             time.sleep(
                 poll_interval
             )
+
+            if callable(is_cancelled) and is_cancelled():
+
+                return False
 
         raise OnStepError(
             "Timeout : HOME non atteint."
@@ -769,6 +782,7 @@ class OnStep:
         lat_deg=None,
         lon_deg=None,
         utc_offset=None,
+        is_cancelled=None,
     ):
         """Retourne a la position Home connue du controleur OnStep,
         SANS verrouiller la monture (ce n'est pas un park).
@@ -821,7 +835,16 @@ class OnStep:
         self.find_home()
 
         # 5. Attente de l'arrivée (flag H)
-        self.wait_for_home(timeout=timeout)
+        reached_home = self.wait_for_home(
+            timeout=timeout,
+            is_cancelled=is_cancelled,
+        )
+
+        if not reached_home:
+            return False
+
+        if callable(is_cancelled) and is_cancelled():
+            return False
 
         # 6. Arrêt final de sécurité
         self.stop()
