@@ -1159,6 +1159,11 @@ def _run_continuous_totality(
             break
 
         if prepared is None:
+            _usb_wait_or_hold(
+                camera_service,
+                phase_end,
+                deadline=phase_end,
+            )
             break
 
         trigger_started = now()
