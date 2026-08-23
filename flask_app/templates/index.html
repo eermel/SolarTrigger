@@ -556,6 +556,27 @@ header {
   color: white;
   border-color: var(--red);
 }
+.mount-slew-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 48px);
+  grid-template-rows: repeat(3, 48px);
+  gap: 5px;
+  justify-content: center;
+  margin: 12px 0;
+}
+.mount-slew-button {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  -webkit-user-drag: none;
+}
+.mount-slew-button[data-direction="north"] { grid-column: 2; grid-row: 1; }
+.mount-slew-button[data-direction="west"]  { grid-column: 1; grid-row: 2; }
+.mount-slew-button[data-direction="east"]  { grid-column: 3; grid-row: 2; }
+.mount-slew-button[data-direction="south"] { grid-column: 2; grid-row: 3; }
 
 /* ── NOTIFICATION FLASH ── */
 .flash {
@@ -1047,8 +1068,14 @@ header {
             <label for="mount-slew-speed">Slew speed: <span id="mount-slew-speed-value"></span></label>
             <input id="mount-slew-speed" type="range" disabled>
           </div>
+          <div class="mount-slew-pad" id="mount-slew-pad" aria-label="Mount slew controls">
+            <button class="btn btn-primary mount-slew-button" data-direction="north" draggable="false" aria-label="Slew north">N</button>
+            <button class="btn btn-primary mount-slew-button" data-direction="west" draggable="false" aria-label="Slew west">W</button>
+            <button class="btn btn-primary mount-slew-button" data-direction="east" draggable="false" aria-label="Slew east">E</button>
+            <button class="btn btn-primary mount-slew-button" data-direction="south" draggable="false" aria-label="Slew south">S</button>
+          </div>
           <button class="btn btn-primary btn-full" id="btn-mount-tracking" disabled>START</button>
-          <button class="btn btn-primary btn-full" id="btn-mount-home">Home</button>
+          <button class="btn btn-primary btn-full" id="btn-mount-home" data-slew-stop-url="/api/mount/slew/stop">Home</button>
         </div>
       </div>
     </div>
@@ -1734,11 +1761,13 @@ socket.on('play_sound', d => {
   const slewSpeedValue = document.getElementById('mount-slew-speed-value');
   const trackingMode = document.getElementById('mount-tracking-mode');
   const trackingButton = document.getElementById('btn-mount-tracking');
+  const slewButtons = Array.from(document.querySelectorAll('.mount-slew-button'));
   let homing = false;
   let trackingEnabled = false;
   let triggerRunning = state.phase !== 'idle';
   let pollTimer = null;
   let slewSpeedValues = null;
+  let activeSlew = null;
 
   function selectedSlewSpeed() {
     return slewSpeedValues
@@ -1761,6 +1790,7 @@ socket.on('play_sound', d => {
     homing = data && data.homing === true;
     homeButton.textContent = homing ? 'Cancel' : 'Home';
     homeButton.classList.toggle('focuser-cancel', homing);
+    slewButtons.forEach(button => { button.disabled = homing; });
     if (data && typeof data.trigger_running === 'boolean') {
       triggerRunning = data.trigger_running;
     }
@@ -1835,6 +1865,35 @@ socket.on('play_sound', d => {
     }
     refreshMount();
   }
+
+  function stopSlewBestEffort() {
+    if (!activeSlew) return;
+    activeSlew = null;
+    fetch(homeButton.dataset.slewStopUrl, {method: 'POST'}).catch(() => {});
+  }
+
+  function startSlew(event) {
+    if (homing || activeSlew) return;
+    event.preventDefault();
+    const button = event.currentTarget;
+    activeSlew = {button, pointerId: event.pointerId};
+    button.setPointerCapture(event.pointerId);
+    fetch('/api/mount/slew/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({direction: button.dataset.direction}),
+    }).catch(() => stopSlewBestEffort());
+  }
+
+  slewButtons.forEach(button => {
+    button.addEventListener('pointerdown', startSlew);
+    button.addEventListener('pointerup', stopSlewBestEffort);
+    button.addEventListener('pointercancel', stopSlewBestEffort);
+    button.addEventListener('lostpointercapture', stopSlewBestEffort);
+    button.addEventListener('dragstart', event => event.preventDefault());
+  });
+  window.addEventListener('blur', stopSlewBestEffort);
+  window.addEventListener('pagehide', stopSlewBestEffort);
 
   homeButton.addEventListener('click', () => {
     postMount(homing ? '/api/mount/slew/stop' : '/api/mount/home');
