@@ -1289,6 +1289,7 @@ async function fetchDevices() {
     const devices = await response.json();
     if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
     renderDevices(devices);
+    updateControlsVisibility(devices);
   } catch (error) {
     flash(`Périphériques : ${error.message}`, 'red');
   }
@@ -1304,6 +1305,7 @@ async function selectDevice(category, plugin) {
     const devices = await response.json();
     if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
     renderDevices(devices);
+    updateControlsVisibility(devices);
     flash(`${DEVICE_LABELS[category]} mis à jour`, 'green');
   } catch (error) {
     flash(`Périphériques : ${error.message}`, 'red');
@@ -1319,6 +1321,7 @@ async function rescanDevices() {
     const devices = await response.json();
     if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
     renderDevices(devices);
+    updateControlsVisibility(devices);
     flash('Détection des périphériques terminée', 'green');
   } catch (error) {
     flash(`Détection : ${error.message}`, 'red');
@@ -1475,6 +1478,7 @@ socket.on('eclipse_calculated', d => {
 });
 
 socket.on('state_update', d => {
+  if (d.devices) updateControlsVisibility(d.devices);
   // Mise à jour timezone DST calculé côté serveur
   if (d.timezone_override) {
     _gpsTimezone = d.timezone_override;
@@ -1610,7 +1614,6 @@ socket.on('play_sound', d => {
   const renderDevicesWithoutFocuser = renderDevices;
   renderDevices = function(devices) {
     renderDevicesWithoutFocuser(devices);
-    updateControlsVisibility(devices);
     applyDevices(devices);
   };
 
@@ -1705,7 +1708,11 @@ socket.on('play_sound', d => {
 
   socket.on('focuser_update', refreshFocuser);
   socket.on('status_update', data => {
-    if (data.devices) applyDevices(data.devices);
+    if (data.devices) {
+      const devices = data.devices;
+      updateControlsVisibility(devices);
+      applyDevices(devices);
+    }
     if (data.focuser) refreshFocuser();
   });
 })();
