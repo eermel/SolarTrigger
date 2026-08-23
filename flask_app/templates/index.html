@@ -530,7 +530,8 @@ header {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   font-family: var(--mono); font-size: 11px;
 }
-.focuser-mode-switch #focuser-step-fast { flex: 1 1 120px; }
+.focuser-mode-switch #focuser-step-fast,
+.focuser-mode-switch #mount-tracking-mode { flex: 1 1 120px; min-width: 0; }
 .focuser-mode-switch input[role="switch"] {
   appearance: none; width: 46px; height: 26px; margin: 0; border-radius: 13px;
   background: var(--bg3); border: 1px solid var(--border);
@@ -1062,7 +1063,7 @@ header {
           <div class="card-title">Mount</div>
           <div class="field" style="margin-bottom:12px">
             <label for="mount-tracking-mode">TRACKING MODE</label>
-            <select id="mount-tracking-mode" disabled></select>
+            <div class="focuser-mode-switch"><select id="mount-tracking-mode" disabled></select><label for="mount-tracking-switch">OFF</label><input type="checkbox" id="mount-tracking-switch" role="switch" aria-label="Mount tracking" disabled><label for="mount-tracking-switch">ON</label></div>
           </div>
           <div class="field" style="margin-bottom:12px">
             <label for="mount-slew-speed">Slew speed: <span id="mount-slew-speed-value"></span></label>
@@ -1074,8 +1075,7 @@ header {
             <button class="btn btn-primary mount-slew-button" data-direction="east" draggable="false" aria-label="Slew east">E</button>
             <button class="btn btn-primary mount-slew-button" data-direction="south" draggable="false" aria-label="Slew south">S</button>
           </div>
-          <button class="btn btn-primary btn-full" id="btn-mount-tracking" disabled>START</button>
-          <button class="btn btn-primary btn-full" id="btn-mount-home" data-slew-stop-url="/api/mount/slew/stop">Home</button>
+          <button class="btn btn-primary btn-full" id="btn-mount-home" data-slew-stop-url="/api/mount/slew/stop">HOME</button>
         </div>
       </div>
     </div>
@@ -1760,7 +1760,7 @@ socket.on('play_sound', d => {
   const slewSpeed = document.getElementById('mount-slew-speed');
   const slewSpeedValue = document.getElementById('mount-slew-speed-value');
   const trackingMode = document.getElementById('mount-tracking-mode');
-  const trackingButton = document.getElementById('btn-mount-tracking');
+  const trackingSwitch = document.getElementById('mount-tracking-switch');
   const slewButtons = Array.from(document.querySelectorAll('.mount-slew-button'));
   let homing = false;
   let trackingEnabled = false;
@@ -1788,7 +1788,7 @@ socket.on('play_sound', d => {
 
   function displayMount(data) {
     homing = data && data.homing === true;
-    homeButton.textContent = homing ? 'Cancel' : 'Home';
+    homeButton.textContent = homing ? 'STOP' : 'HOME';
     homeButton.classList.toggle('focuser-cancel', homing);
     slewButtons.forEach(button => { button.disabled = homing; });
     if (data && typeof data.trigger_running === 'boolean') {
@@ -1830,10 +1830,10 @@ socket.on('play_sound', d => {
     }));
     trackingMode.value = data && data.tracking_mode;
     trackingEnabled = data && data.tracking_enabled === true;
-    trackingButton.textContent = trackingEnabled ? 'STOP' : 'START';
+    trackingSwitch.checked = trackingEnabled;
 
     trackingMode.disabled = triggerRunning || modes.length === 0;
-    trackingButton.disabled = triggerRunning || !capabilities || capabilities.toggle !== true;
+    trackingSwitch.disabled = triggerRunning || !capabilities || capabilities.toggle !== true;
     scheduleMountRefresh(homing ? 400 : 1500);
   }
 
@@ -1896,7 +1896,7 @@ socket.on('play_sound', d => {
   window.addEventListener('pagehide', stopSlewBestEffort);
 
   homeButton.addEventListener('click', () => {
-    postMount(homing ? '/api/mount/slew/stop' : '/api/mount/home');
+    postMount(homing ? homeButton.dataset.slewStopUrl : '/api/mount/home');
   });
 
   slewSpeed.addEventListener('input', displaySlewSpeedValue);
@@ -1916,10 +1916,10 @@ socket.on('play_sound', d => {
     });
   });
 
-  trackingButton.addEventListener('click', () => {
-    postMount(trackingEnabled
-      ? '/api/mount/tracking/stop'
-      : '/api/mount/tracking/start');
+  trackingSwitch.addEventListener('change', () => {
+    postMount(trackingSwitch.checked
+      ? '/api/mount/tracking/start'
+      : '/api/mount/tracking/stop');
   });
 
   socket.on('connect', refreshMount);
