@@ -1,4 +1,5 @@
 import threading
+import time
 
 import pytest
 
@@ -157,6 +158,58 @@ def test_home_uses_plugin_cancellation_callback(tmp_path):
 
         assert plugin.callback_used.wait(timeout=1)
         assert plugin.home_finished[0].wait(timeout=1)
+    finally:
+        releases[0].set()
+        service.close()
+
+
+def test_stop_times_out_when_hardware_lock_is_held(tmp_path):
+    service, plugin, releases = make_service(tmp_path)
+    messages = []
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_hardware_lock():
+        with service._plugin_access_lock:
+            lock_held.set()
+            release_lock.wait(timeout=2)
+
+    service._log = messages.append
+    holder = threading.Thread(target=hold_hardware_lock)
+    holder.start()
+    try:
+        service.home_start()
+        assert plugin.home_started[0].wait(timeout=1)
+        assert lock_held.wait(timeout=1)
+
+        started = time.monotonic()
+        status = service.stop()
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 0.6
+        assert status["homing"] is False
+        assert plugin.calls.count(("stop", None)) == 0
+        assert messages == [
+            "mount stop could not acquire hardware lock within 0.5 s; "
+            "STOP not sent"
+        ]
+    finally:
+        release_lock.set()
+        releases[0].set()
+        holder.join(timeout=1)
+        service.close()
+
+
+def test_stop_calls_plugin_once_when_hardware_lock_is_available(tmp_path):
+    service, plugin, releases = make_service(tmp_path)
+    try:
+        service.status()
+
+        status = service.stop()
+
+        assert plugin.calls.count(("stop", None)) == 1
+        assert status["homing"] is False
+        assert status["moving"] is False
     finally:
         releases[0].set()
         service.close()

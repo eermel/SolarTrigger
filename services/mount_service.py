@@ -28,6 +28,7 @@ class MountService:
         self._config = config
         self._plugin_loader = plugin_loader
         self._lock = threading.RLock()
+        self._plugin_access_lock = threading.RLock()
         self._plugin = None
         self._plugin_id: str | None = None
         self._moving = False
@@ -260,17 +261,43 @@ class MountService:
         with self._lock:
             self._home_generation += 1
             self._homing = False
+            self._clear_motion_locked()
             active, plugin_id = self._selection()
             if not active or plugin_id == "none":
                 self._close_locked()
                 return self.status()
-            plugin = self._plugin_for_operation()
+
+            plugin = self._plugin
+            status = {
+                "active": True,
+                "connected": bool(
+                    plugin is not None and getattr(plugin, "connected", False)
+                ),
+                "moving": False,
+                "direction": None,
+                "homing": False,
+                "slew_speed": None,
+                "slew_speed_caps": None,
+                "tracking_mode": self._tracking_mode,
+                "tracking_enabled": bool(self._tracking_enabled),
+                "tracking_caps": None,
+                "plugin": self._plugin_id or plugin_id,
+            }
+
+        if self._plugin_access_lock.acquire(timeout=0.5):
             try:
-                plugin.stop()
+                if plugin is not None:
+                    plugin.stop()
             except Exception as exc:
                 self._log(f"mount stop failed: {exc}")
-            self._clear_motion_locked()
-            return self._status_locked(plugin)
+            finally:
+                self._plugin_access_lock.release()
+        else:
+            self._log(
+                "mount stop could not acquire hardware lock within 0.5 s; "
+                "STOP not sent"
+            )
+        return status
 
     def close(self) -> None:
         with self._lock:
