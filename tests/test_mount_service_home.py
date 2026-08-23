@@ -52,6 +52,7 @@ class CancellableHomePlugin(BlockingHomePlugin):
         self.callback_used = threading.Event()
 
     def go_home(self, is_cancelled=None):
+        assert callable(is_cancelled)
         self.calls.append(("go_home", 0))
         self.home_started[0].set()
         while not is_cancelled():
@@ -265,6 +266,18 @@ def test_home_uses_plugin_cancellation_callback(tmp_path):
 
         assert plugin.callback_used.wait(timeout=1)
         assert plugin.home_finished[0].wait(timeout=1)
+    finally:
+        releases[0].set()
+        service.close()
+
+
+def test_home_calls_legacy_plugin_without_cancellation_callback(tmp_path):
+    service, plugin, releases = make_service(tmp_path)
+    try:
+        service.home_start()
+
+        assert plugin.home_started[0].wait(timeout=1)
+        assert plugin.calls.count(("go_home", 0)) == 1
     finally:
         releases[0].set()
         service.close()
