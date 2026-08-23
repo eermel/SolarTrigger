@@ -87,3 +87,12 @@ def test_trigger_initialization_uses_trigger_tab_index():
     )
 
     assert trigger_initialization.search(INDEX)
+
+
+def test_mount_section_is_unique_and_inside_controls_panel():
+    controls_start = INDEX.index('<div class="page" id="controls-panel"')
+    trigger_start = INDEX.index('<!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->')
+    controls_panel = INDEX[controls_start:trigger_start]
+
+    assert 'id="mount-section"' in controls_panel
+    assert len(re.findall(r'id=["\']mount-section["\']', INDEX)) == 1
