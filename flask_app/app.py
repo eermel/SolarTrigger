@@ -661,7 +661,28 @@ def api_mount_slew_start():
                 "Field 'direction' must be 'north', 'south', 'east' or 'west'."
             )
         }), 400
-    return jsonify(_mount_service.start_slew(direction))
+    try:
+        result = _mount_service.start_slew(direction)
+    except (ValueError, RuntimeError) as exc:
+        if "homing" in str(exc).lower():
+            return jsonify({
+                "error": str(exc),
+                "code": "MOUNT_HOMING",
+            }), 409
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
+
+
+@app.route("/api/mount/home", methods=["POST"])
+def api_mount_home():
+    inactive = require_device_active("mount")
+    if inactive is not None:
+        return inactive
+    try:
+        result = _mount_service.home_start()
+    except (ValueError, RuntimeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(result)
 
 
 @app.route("/api/mount/slew/stop", methods=["POST"])
