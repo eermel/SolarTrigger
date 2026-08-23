@@ -1043,6 +1043,10 @@ header {
             <label for="mount-tracking-mode">TRACKING MODE</label>
             <select id="mount-tracking-mode" disabled></select>
           </div>
+          <div class="field" style="margin-bottom:12px">
+            <label for="mount-slew-speed">Slew speed: <span id="mount-slew-speed-value"></span></label>
+            <input id="mount-slew-speed" type="range" disabled>
+          </div>
           <button class="btn btn-primary btn-full" id="btn-mount-tracking" disabled>START</button>
           <button class="btn btn-primary btn-full" id="btn-mount-home">Home</button>
         </div>
@@ -1726,17 +1730,63 @@ socket.on('play_sound', d => {
 // MOUNT UI START
 (() => {
   const homeButton = document.getElementById('btn-mount-home');
+  const slewSpeed = document.getElementById('mount-slew-speed');
+  const slewSpeedValue = document.getElementById('mount-slew-speed-value');
   const trackingMode = document.getElementById('mount-tracking-mode');
   const trackingButton = document.getElementById('btn-mount-tracking');
   let homing = false;
   let trackingEnabled = false;
   let triggerRunning = state.phase !== 'idle';
   let pollTimer = null;
+  let slewSpeedValues = null;
+
+  function selectedSlewSpeed() {
+    return slewSpeedValues
+      ? slewSpeedValues[Number(slewSpeed.value)].value
+      : Number(slewSpeed.value);
+  }
+
+  function displaySlewSpeedValue() {
+    if (slewSpeedValues) {
+      const selected = slewSpeedValues[Number(slewSpeed.value)];
+      slewSpeedValue.textContent = selected
+        ? `${selected.label ?? selected.value}${slewSpeed.dataset.unit || ''}`
+        : '';
+      return;
+    }
+    slewSpeedValue.textContent = `${slewSpeed.value}${slewSpeed.dataset.unit || ''}`;
+  }
 
   function displayMount(data) {
     homing = data && data.homing === true;
     homeButton.textContent = homing ? 'Cancel' : 'Home';
     homeButton.classList.toggle('focuser-cancel', homing);
+    if (data && typeof data.trigger_running === 'boolean') {
+      triggerRunning = data.trigger_running;
+    }
+
+    const slewSpeedCaps = data && data.slew_speed_caps;
+    slewSpeedValues = slewSpeedCaps && slewSpeedCaps.kind === 'discrete'
+      && Array.isArray(slewSpeedCaps.values)
+      ? slewSpeedCaps.values
+      : null;
+    if (slewSpeedValues && slewSpeedValues.length > 0) {
+      slewSpeed.min = 0;
+      slewSpeed.max = slewSpeedValues.length - 1;
+      slewSpeed.step = 1;
+      const selectedIndex = slewSpeedValues.findIndex(item => item.value === data.slew_speed);
+      if (selectedIndex >= 0) slewSpeed.value = selectedIndex;
+      slewSpeed.dataset.unit = slewSpeedCaps.unit || '';
+    } else if (slewSpeedCaps && slewSpeedCaps.kind === 'range') {
+      slewSpeed.min = slewSpeedCaps.min;
+      slewSpeed.max = slewSpeedCaps.max;
+      slewSpeed.step = slewSpeedCaps.step;
+      slewSpeed.value = data.slew_speed;
+      slewSpeed.dataset.unit = slewSpeedCaps.unit || '';
+    }
+    slewSpeed.disabled = triggerRunning || !slewSpeedCaps
+      || (slewSpeedValues && slewSpeedValues.length === 0);
+    displaySlewSpeedValue();
 
     const capabilities = data && data.tracking_caps;
     const modes = capabilities && Array.isArray(capabilities.modes)
@@ -1752,9 +1802,6 @@ socket.on('play_sound', d => {
     trackingEnabled = data && data.tracking_enabled === true;
     trackingButton.textContent = trackingEnabled ? 'STOP' : 'START';
 
-    if (data && typeof data.trigger_running === 'boolean') {
-      triggerRunning = data.trigger_running;
-    }
     trackingMode.disabled = triggerRunning || modes.length === 0;
     trackingButton.disabled = triggerRunning || !capabilities || capabilities.toggle !== true;
     scheduleMountRefresh(homing ? 400 : 1500);
@@ -1791,6 +1838,15 @@ socket.on('play_sound', d => {
 
   homeButton.addEventListener('click', () => {
     postMount(homing ? '/api/mount/slew/stop' : '/api/mount/home');
+  });
+
+  slewSpeed.addEventListener('input', displaySlewSpeedValue);
+  slewSpeed.addEventListener('change', () => {
+    postMount('/api/mount/speed', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({speed: selectedSlewSpeed()}),
+    });
   });
 
   trackingMode.addEventListener('change', () => {
