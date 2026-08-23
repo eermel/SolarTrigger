@@ -8,7 +8,7 @@ import pytest
 if importlib.util.find_spec("serial") is None:
     sys.modules.setdefault("serial", ModuleType("serial"))
 
-from plugins.mount import onstep_plugin
+from plugins.mount import onstep, onstep_plugin
 
 
 class OnStepStub:
@@ -58,3 +58,19 @@ def test_set_tracking_mode_rejects_unknown_mode(mount):
 
     assert mount.mount.selected_rates == []
     assert mount.mount.start_tracking_calls == []
+
+
+def test_go_home_passes_optional_is_cancelled_to_onstep(monkeypatch):
+    received = []
+
+    def capture_go_home(_self, **kwargs):
+        received.append(kwargs["is_cancelled"])
+
+    monkeypatch.setattr(onstep.OnStep, "go_home", capture_go_home)
+    mount = onstep_plugin.OnStepMount(log_fn=lambda _message: None)
+    callback = lambda: False
+
+    mount.go_home()
+    mount.go_home(is_cancelled=callback)
+
+    assert received == [None, callback]
