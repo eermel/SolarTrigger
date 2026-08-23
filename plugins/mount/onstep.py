@@ -724,7 +724,7 @@ class OnStep:
 
     def find_home(self):
 
-        # :hC# = retour HOME/CWD
+        # :hC# = retour a la position Home connue du controleur
         #
         # OnStep ne renvoie aucune réponse.
         self._send(b":hC#")
@@ -762,8 +762,13 @@ class OnStep:
         lon_deg=None,
         utc_offset=None,
     ):
-        """Recentre la monture a la position HOME mecanique (comme un ASIAIR),
-        SANS la verrouiller (ce n'est pas un park).
+        """Retourne a la position Home connue du controleur OnStep,
+        SANS verrouiller la monture (ce n'est pas un park).
+
+        Sans capteurs Home physiques, apres une perte d'alimentation arbitraire,
+        l'orientation absolue des axes peut ne pas etre recuperable
+        automatiquement. Cette fonction n'ajoute ni Set Home ni recherche
+        d'index.
 
         Sequence complete validee sur OnStep 4.24s :
           1. (optionnel) setup date/heure/position -- requis si la monture

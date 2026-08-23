@@ -145,7 +145,12 @@ class OnStepMount(MountPlugin):
         lon_deg=None,
         utc_offset=None,
     ):
-        """Recentre a la position HOME mecanique (sans parker).
+        """Retourne a la position Home connue du controleur (sans parker).
+
+        Sans capteurs Home physiques, une perte d'alimentation arbitraire peut
+        empecher la recuperation automatique de l'orientation absolue des axes.
+        Cette fonction n'ajoute ni Set Home ni recherche d'index.
+
         Si dt_utc/lat/lon/utc_offset sont fournis, envoie le setup
         date/heure/position avant (requis pour l'unpark si parkee)."""
         return self.mount.go_home(
@@ -159,7 +164,11 @@ class OnStepMount(MountPlugin):
     def recenter(self, utc_offset=1, gps_port=None, timeout=120):
         """Recentrage 'cle en main' facon ASIAIR : lit la position GPS
         (BU-353N5), envoie date/heure/position a la monture, dé-parke si
-        besoin, puis retourne au HOME mecanique.
+        besoin, puis retourne a la position Home connue du controleur.
+
+        Sans capteurs Home physiques, une perte d'alimentation arbitraire peut
+        empecher la recuperation automatique de l'orientation absolue des axes.
+        Cette fonction n'ajoute ni Set Home ni recherche d'index.
 
         utc_offset : decalage local vs UTC (France ete=2, hiver=1).
         gps_port   : port du GPS (auto-detecte si None).
