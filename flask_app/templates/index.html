@@ -1917,9 +1917,9 @@ socket.on('play_sound', d => {
   });
 
   trackingSwitch.addEventListener('change', () => {
-    postMount(trackingEnabled
-      ? '/api/mount/tracking/stop'
-      : '/api/mount/tracking/start');
+    postMount(trackingSwitch.checked
+      ? '/api/mount/tracking/start'
+      : '/api/mount/tracking/stop');
   });
 
   socket.on('connect', refreshMount);
