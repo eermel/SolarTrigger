@@ -76,7 +76,12 @@ def test_status_exposes_plugin_tracking_capabilities(mount_tracking_api):
 
     assert response.status_code == 200
     assert response.get_json()["tracking_caps"] == capabilities
-    assert plugin.tracking_calls == []
+    assert plugin.tracking_calls == [("stop_tracking",)]
+
+    second_response = client.get("/api/mount/status")
+
+    assert second_response.status_code == 200
+    assert plugin.tracking_calls == [("stop_tracking",)]
 
 
 @pytest.mark.parametrize(
@@ -103,7 +108,10 @@ def test_tracking_mode_change_does_not_enable_tracking(mount_tracking_api):
     assert response.status_code == 200
     assert response.get_json()["tracking_mode"] == "sidereal"
     assert response.get_json()["tracking_enabled"] is False
-    assert plugin.tracking_calls == [("set_tracking_mode", "sidereal")]
+    assert plugin.tracking_calls == [
+        ("stop_tracking",),
+        ("set_tracking_mode", "sidereal"),
+    ]
 
 
 def test_tracking_start_and_stop_with_toggle_capability(mount_tracking_api):
@@ -118,6 +126,7 @@ def test_tracking_start_and_stop_with_toggle_capability(mount_tracking_api):
     assert stopped.status_code == 200
     assert stopped.get_json()["tracking_enabled"] is False
     assert plugin.tracking_calls == [
+        ("stop_tracking",),
         ("start_tracking", "solar"),
         ("stop_tracking",),
     ]
