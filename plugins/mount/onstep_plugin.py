@@ -14,8 +14,7 @@ rattache au contrat commun pour que le moteur puisse traiter OnStep, ZWO,
 SynScan... de facon uniforme.
 """
 
-from .base import (MountPlugin, DIR_DEC_LEFT, DIR_DEC_RIGHT, DIR_AD_LEFT,
-                   DIR_AD_RIGHT, RATE_SIDEREAL, RATE_SOLAR, RATE_LUNAR)
+from .base import MountPlugin, RATE_SIDEREAL, RATE_SOLAR, RATE_LUNAR
 
 # onstep.py est fourni tel quel a cote (module non modifie).
 from .onstep import OnStep, Direction, TrackingRate
@@ -23,10 +22,10 @@ from .onstep import OnStep, Direction, TrackingRate
 
 # Correspondances contrat -> enums onstep.py
 _DIRECTION_MAP = {
-    DIR_DEC_LEFT: Direction.DEC_LEFT,
-    DIR_DEC_RIGHT: Direction.DEC_RIGHT,
-    DIR_AD_LEFT: Direction.AD_LEFT,
-    DIR_AD_RIGHT: Direction.AD_RIGHT,
+    "north": Direction.DEC_LEFT,
+    "south": Direction.DEC_RIGHT,
+    "east": Direction.AD_RIGHT,
+    "west": Direction.AD_LEFT,
 }
 
 _RATE_MAP = {
@@ -115,6 +114,19 @@ class OnStepMount(MountPlugin):
 
     def set_speed(self, speed):
         self.mount.set_move_rate(speed)
+
+    def get_slew_speed_capabilities(self):
+        return {
+            "kind": "discrete",
+            "unit": None,
+            "min": None,
+            "max": None,
+            "step": None,
+            "values": [
+                {"value": rate, "label": f"{rate:g}x"}
+                for rate in sorted(OnStep.MOVE_RATES.keys())
+            ],
+        }
 
     # -- home / recentrage / securite -------------------------------------- #
     def go_home(
