@@ -14,21 +14,41 @@ def _between(text, start, end):
 
 
 CAMERA_PANEL = _between(INDEX, '<div class="page" id="page-3"', '<!-- /page-3 CAMÉRA -->')
-FOCUSER_HTML = _between(CAMERA_PANEL, '<!-- ── FOCUSEUR ── -->', '<!-- ── /FOCUSEUR ── -->')
+CONTROLS_PANEL = _between(INDEX, '<div class="page" id="controls-panel"', '<!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->')
+FOCUSER_HTML = _between(CONTROLS_PANEL, '<!-- ── FOCUSEUR ── -->', '<!-- ── /FOCUSEUR ── -->')
 FOCUSER_JS = _between(INDEX, "// FOCUSER UI START", "// FOCUSER UI END")
 TABS = _between(INDEX, '<div id="tabs">', "<!-- PAGES -->")
 
 
-def test_focuser_section_is_hidden_inside_camera_panel():
-    camera_marker = CAMERA_PANEL.index('id="btn-cam-probe"')
-    focuser_marker = CAMERA_PANEL.index('id="focuser-section"')
-
-    assert focuser_marker > camera_marker
+def test_focuser_section_is_hidden_inside_controls_panel():
+    assert 'id="focuser-section"' in CONTROLS_PANEL
     assert re.search(
         r'<div\s+id=["\']focuser-section["\'][^>]*\bstyle=["\'][^"\']*display\s*:\s*none',
         FOCUSER_HTML,
         re.IGNORECASE,
     )
+
+
+def test_camera_panel_contains_no_focuser_ids():
+    assert not re.search(r'id=["\'][^"\']*focuser[^"\']*["\']', CAMERA_PANEL, re.IGNORECASE)
+
+
+def test_principal_focuser_ids_are_not_duplicated():
+    for element_id in (
+        "focuser-section",
+        "focuser-plugin",
+        "focuser-status",
+        "focuser-position",
+        "focuser-target",
+        "focuser-step-slow",
+        "focuser-step-fast",
+        "focuser-speed-switch",
+        "btn-focuser-go",
+        "btn-focuser-home",
+        "btn-focuser-minus",
+        "btn-focuser-plus",
+    ):
+        assert len(re.findall(rf'id=["\']{re.escape(element_id)}["\']', INDEX)) == 1
 
 
 def test_visibility_is_driven_by_active_focuser_device():
