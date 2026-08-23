@@ -24,8 +24,9 @@ SynScan, INDI...) sans que le moteur en sache rien.
 from abc import ABC, abstractmethod
 
 
-# Directions manuelles, independantes du protocole. Chaque plugin fait la
-# correspondance vers ses commandes physiques (calibrees par monture).
+# Directions manuelles de l'interface : north, south, east, west. Chaque
+# plugin fait la correspondance vers ses commandes physiques (calibrees par
+# monture), sans exposer les constantes propres au protocole.
 DIR_DEC_LEFT = "dec_left"
 DIR_DEC_RIGHT = "dec_right"
 DIR_AD_LEFT = "ad_left"
@@ -41,6 +42,8 @@ TRACKING_RATES = (RATE_SIDEREAL, RATE_SOLAR, RATE_LUNAR)
 
 class MountPlugin(ABC):
     """Interface que chaque plugin de monture doit implementer.
+
+    La direction de move() doit etre north|south|east|west.
 
     log_fn : fonction de log (meme flux que le moteur).
     config : dict optionnel de parametres du plugin (port serie, baudrate,
@@ -117,7 +120,7 @@ class MountPlugin(ABC):
     # ------------------------------------------------------------------ #
     @abstractmethod
     def move(self, direction):
-        """direction dans DIRECTIONS."""
+        """direction doit etre north|south|east|west."""
         ...
 
     @abstractmethod
@@ -129,6 +132,10 @@ class MountPlugin(ABC):
     def set_speed(self, speed):
         """Vitesse de deplacement manuel (unite propre au plugin)."""
         ...
+
+    def get_slew_speed_capabilities(self) -> dict | None:
+        """Retourne les capacites de vitesse, ou None si non renseignees."""
+        return None
 
     # ------------------------------------------------------------------ #
     # Home / securite
