@@ -142,7 +142,27 @@ class MountService:
                 }
             if self._homing:
                 return self._homing_status_locked(plugin_id)
-            return self._status_locked(self._plugin_for_operation())
+            try:
+                return self._status_locked(self._plugin_for_operation())
+            except Exception as exc:
+                self._close_locked()
+                return {
+                    "active": True,
+                    "connected": False,
+                    "moving": False,
+                    "direction": None,
+                    "homing": bool(self._homing),
+                    "slew_speed": None,
+                    "slew_speed_caps": None,
+                    "tracking_mode": self._tracking_mode,
+                    "tracking_enabled": bool(self._tracking_enabled),
+                    "tracking_caps": None,
+                    "plugin": plugin_id,
+                    "error": {
+                        "code": "SERIAL_ERROR",
+                        "message": str(exc),
+                    },
+                }
 
     def set_tracking_mode(self, mode: str) -> dict:
         if mode not in {"solar", "sidereal"}:
