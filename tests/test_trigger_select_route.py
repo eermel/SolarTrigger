@@ -187,6 +187,53 @@ def test_trigger_select_updates_persists_and_emits_circumstances(tmp_path, monke
     }
 
 
+def test_trigger_select_remains_coherent_with_eclipse_list_after_reload(
+    tmp_path, monkeypatch
+):
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+    filenames = ("eclipse_2026.json", "eclipse_2027.json")
+    for filename in filenames:
+        year = filename.removeprefix("eclipse_").removesuffix(".json")
+        (configs_dir / filename).write_text(
+            json.dumps({"_date": f"{year}-08-02"}),
+            encoding="utf-8",
+        )
+
+    state_store = StateStore(tmp_path / "state.json")
+    monkeypatch.setattr(flask_module, "CONFIGS_DIR", configs_dir)
+    monkeypatch.setattr(flask_module, "TRIGGER_DIR", tmp_path)
+    monkeypatch.setattr(flask_module, "JSON_FILE", tmp_path / "todayeclipse.json")
+    monkeypatch.setattr(flask_module, "_state_store", state_store)
+    monkeypatch.setattr(flask_module, "_state", state_store.data)
+    monkeypatch.setattr(flask_module, "_state_lock", state_store.lock)
+    monkeypatch.setattr(flask_module.socketio, "emit", lambda *args: None)
+    monkeypatch.setattr(flask_module, "_append_log", lambda *args, **kwargs: None)
+
+    client = flask_module.app.test_client()
+    response = client.post(
+        "/api/trigger/select",
+        json={"filename": filenames[1], "dir": "configs"},
+    )
+
+    assert response.status_code == 200
+    expected_configs = [
+        {"name": filenames[0], "dir": "configs", "active": False},
+        {"name": filenames[1], "dir": "configs", "active": True},
+    ]
+    listed = client.get("/api/configs/list_eclipse")
+    assert listed.status_code == 200
+    assert [
+        item for item in listed.get_json()["files"] if item["dir"] == "configs"
+    ] == expected_configs
+
+    reloaded = flask_module.app.test_client().get("/api/configs/list_eclipse")
+    assert reloaded.status_code == 200
+    assert [
+        item for item in reloaded.get_json()["files"] if item["dir"] == "configs"
+    ] == expected_configs
+
+
 def test_trigger_select_camera_updates_persists_and_emits_capture(tmp_path, monkeypatch):
     configs_dir = tmp_path / "configs"
     configs_dir.mkdir()
