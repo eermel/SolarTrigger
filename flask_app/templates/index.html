@@ -1086,28 +1086,14 @@ header {
 
         <!-- Boutons START / STOP -->
         <div style="display:flex;flex-direction:column;gap:8px;min-width:110px">
-          <div style="display:flex;gap:6px">
-            <button class="btn" id="btn-debug-gen" onclick="generateDebug()"
-                    style="flex:1;background:rgba(120,80,200,.25);border:1px solid rgba(120,80,200,.5);
-                           color:#b09de0;font-size:11px">🛠 DEBUG</button>
-            <button class="btn" id="btn-debug-clear" onclick="clearDebugFiles()"
-                    style="flex:1;background:rgba(180,60,60,.2);border:1px solid rgba(180,60,60,.4);
-                           color:#e09090;font-size:11px" title="Supprimer tous les fichiers debug_*.json">🗑</button>
-          </div>
-          <button class="btn" id="btn-debug-realistic" onclick="generateDebugRealistic()"
-                  style="background:rgba(0,140,80,.25);border:1px solid rgba(0,140,80,.5);
-                         color:#60d090;font-size:10px" title="Debug proportions vraie éclipse — 180s/photo, ~3h44m">🌍 DEBUG RÉEL</button>
-          <button class="btn btn-success" id="btn-start" onclick="startTrigger()" style="flex:1">▶ START</button>
           <button class="btn" id="btn-dryrun" onclick="startDryRun()"
                   style="flex:1;background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
                   title="Même moteur et même caméra que le jour J, timeline translatée sur maintenant, vitesse ×1">🧪 DRY-RUN ×1</button>
+          <button class="btn btn-success" id="btn-start" onclick="startTrigger()" style="flex:1">▶ START</button>
           <button class="btn" id="btn-totality-only" onclick="startTotalityOnly()"
                   style="flex:1;background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);
                          color:var(--accent);font-size:11px"
                   title="Arrête le trigger en cours et déclenche la séquence totalité en boucle jusqu'au STOP">🌑 Totalité uniquement</button>
-          <button class="btn" id="btn-usb" onclick="toggleUsb()"
-                  style="flex:1;background:rgba(0,180,180,.2);border:1px solid rgba(0,180,180,.4);color:#00d0d0;font-size:12px"
-                  title="Libère l'USB pour voir les photos sur l'appareil photo">📷 Libérer USB</button>
           <button class="btn btn-danger"  id="btn-stop"  onclick="stopTrigger()" style="flex:1">■ STOP</button>
         </div>
 
