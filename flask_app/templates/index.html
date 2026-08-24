@@ -308,6 +308,23 @@ header {
 }
 .field input:focus, .field select:focus { border-color: var(--blue); }
 .field select option { background: var(--bg2); }
+.select-chev { position: relative; display: block; }
+.select-chev::after {
+  content: '';
+  position: absolute;
+  top: 50%; right: 12px;
+  width: 0; height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid var(--text-dim);
+  pointer-events: none;
+  transform: translateY(-25%);
+}
+.select-chev select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+}
 
 .device-card { transition: border-color .2s, opacity .2s; }
 .device-card.active { border-color: var(--green); }
@@ -1213,9 +1230,11 @@ function renderDevices(devices) {
       </div>
       <div class="field">
         <label for="device-${category}-select">Plugin</label>
-        <select id="device-${category}-select" onchange="selectDevice('${category}', this.value)">
-          ${deviceOptions(category, device)}
-        </select>
+        <div class="select-chev">
+          <select id="device-${category}-select" onchange="selectDevice('${category}', this.value)">
+            ${deviceOptions(category, device)}
+          </select>
+        </div>
       </div>
       <div class="device-status" style="margin-top:8px">${detected} · suggestion : ${suggestion}</div>
     </div>`;
