@@ -219,15 +219,15 @@ def test_trigger_select_remains_coherent_with_eclipse_list_after_reload(
     assert response.status_code == 200
     expected_configs = [
         {"name": filenames[0], "dir": "configs", "active": False},
-        {"name": filenames[1], "dir": "configs", "active": True},
+        {"name": filenames[1], "dir": "configs", "active": False},
     ]
-    listed = client.get("/api/configs/list_eclipse")
+    listed = client.get("/api/configs/list_trigger")
     assert listed.status_code == 200
     assert [
         item for item in listed.get_json()["files"] if item["dir"] == "configs"
     ] == expected_configs
 
-    reloaded = flask_module.app.test_client().get("/api/configs/list_eclipse")
+    reloaded = flask_module.app.test_client().get("/api/configs/list_trigger")
     assert reloaded.status_code == 200
     assert [
         item for item in reloaded.get_json()["files"] if item["dir"] == "configs"

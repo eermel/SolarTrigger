@@ -1189,10 +1189,7 @@ def api_configs_list_eclipse():
     """Retourne uniquement les fichiers de circonstances éclipse."""
     try:
         active_file = _state_store.snapshot("circumstances").get("active_file")
-        allowed_roots = {
-            "configs": CONFIGS_DIR.resolve(),
-            "circumstances": (CONFIGS_DIR / "circumstances").resolve(),
-        }
+        circumstances_root = (CONFIGS_DIR / "circumstances").resolve()
         files_by_name = {}
 
         def add_file(path, source_dir, allowed_root):
@@ -1214,14 +1211,10 @@ def api_configs_list_eclipse():
         if JSON_FILE.is_file():
             add_file(JSON_FILE, "trigger", TRIGGER_DIR.resolve())
 
-        for path in _unique_config_files("*.json", "circumstances/*.json"):
+        for path in _unique_config_files("circumstances/*.json"):
             if not _is_circumstances_config(path):
                 continue
-            resolved_parent = path.resolve().parent
-            if resolved_parent == allowed_roots["configs"]:
-                add_file(path, "configs", allowed_roots["configs"])
-            elif resolved_parent == allowed_roots["circumstances"]:
-                add_file(path, "circumstances", allowed_roots["circumstances"])
+            add_file(path, "circumstances", circumstances_root)
 
         return jsonify({"files": [files_by_name[name]
                                   for name in sorted(files_by_name)]})
