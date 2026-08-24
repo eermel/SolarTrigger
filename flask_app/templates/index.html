@@ -750,6 +750,13 @@ header {
               🌑 Calculer les contacts
             </button>
           </div>
+          <div class="field">
+            <label for="eclipse-save-filename">File name</label>
+            <div style="display:flex;gap:8px">
+              <input type="text" id="eclipse-save-filename" value="todayeclipse.json" style="flex:1">
+              <button class="btn btn-primary" type="button" onclick="saveEclipseConfig()">💾 Save</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -3353,6 +3360,38 @@ async function promptSaveConfig() {
     if (d.status === 'ok') { flash('Sauvegardé : ' + d.filename, 'green'); loadConfigFileList(); }
     else flash(d.error || 'Erreur', 'red');
   } catch(e) { flash('Erreur réseau', 'red'); }
+}
+
+async function saveEclipseConfig() {
+  const input = document.getElementById('eclipse-save-filename');
+  const filename = input ? input.value.trim() : '';
+  if (!filename) {
+    flash('File name is required.', 'red');
+    return;
+  }
+
+  const save = overwrite => fetch('/api/configs/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(overwrite ? {filename, overwrite: true} : {filename})
+  });
+
+  try {
+    let response = await save(false);
+    if (response.status === 409) {
+      if (!confirm('File exists. Overwrite?')) return;
+      response = await save(true);
+    }
+    const data = await response.json();
+    if (response.ok && data.status === 'ok') {
+      flash('Saved as ' + data.filename, 'green');
+      loadEclipseFileList();
+    } else {
+      flash(data.error || 'Save failed.', 'red');
+    }
+  } catch(e) {
+    flash('Network error.', 'red');
+  }
 }
 
 // Charger les listes au démarrage — isolé pour ne pas bloquer en cas d'erreur
