@@ -185,8 +185,9 @@ def test_eclipse_calculate_invokes_python_calculator_and_updates_state(
     ) in emitted
 
 
+@pytest.mark.parametrize("dst", [True, False])
 def test_eclipse_calculate_legacy_dst_field_does_not_change_utc_result(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, dst
 ):
     commands = []
     client, emitted = _prepare_calculation(monkeypatch, tmp_path, commands)
@@ -206,7 +207,7 @@ def test_eclipse_calculate_legacy_dst_field_does_not_change_utc_result(
     result_without_dst = emitted[-1][1]["data"]
 
     assert client.post(
-        "/api/eclipse/calculate", json={**request_data, "dst": True}
+        "/api/eclipse/calculate", json={**request_data, "dst": dst}
     ).status_code == 200
     result_with_dst = emitted[-1][1]["data"]
 
