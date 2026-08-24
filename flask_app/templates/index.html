@@ -708,6 +708,17 @@ header {
     <!-- ═══════════════ PAGE 1 : ÉCLIPSE ═══════════════ -->
     <div class="page" id="page-1">
 
+      <div class="card">
+        <div class="card-title">Save circumstances</div>
+        <div class="field">
+          <label for="eclipse-save-filename">File name</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="eclipse-save-filename" value="todayeclipse.json" style="flex:1">
+            <button class="btn btn-primary" type="button" onclick="saveEclipseConfig()">💾 Save</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Formulaire coordonnées -->
       <div class="card">
         <div class="card-title">Observation location</div>
@@ -748,13 +759,6 @@ header {
             <button class="btn btn-accent btn-full" id="btn-calc" onclick="calculateEclipse()">
               🌑 Calculer les contacts
             </button>
-          </div>
-          <div class="field">
-            <label for="eclipse-save-filename">File name</label>
-            <div style="display:flex;gap:8px">
-              <input type="text" id="eclipse-save-filename" value="todayeclipse.json" style="flex:1">
-              <button class="btn btn-primary" type="button" onclick="saveEclipseConfig()">💾 Save</button>
-            </div>
           </div>
         </div>
       </div>
