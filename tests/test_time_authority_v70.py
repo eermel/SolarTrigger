@@ -1,5 +1,6 @@
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +82,17 @@ def test_frontend_time_authority_does_not_use_browser_wall_clock_offset():
     assert html.index('_clockAnchorEpochMs = piMs;') < html.index('setInterval(_tickClock, 1000)')
     assert 'Date.now() + _clockOffset' not in html
     assert 'offset = -now.getTimezoneOffset() / 60' not in html
+
+
+def test_frontend_connect_fetches_status_and_reanchors_time():
+    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    assert re.search(
+        r"socket\.on\(\s*['\"]connect['\"]\s*,\s*async\s*\(\)\s*=>\s*\{.*?"
+        r"fetch\(\s*['\"]/api/status['\"]\s*\).*?"
+        r"updateTime\(\s*status\.time\s*\)",
+        html,
+        re.DOTALL,
+    )
 
 
 def test_gps_sync_is_blocked_while_trigger_runs():

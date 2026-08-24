@@ -1447,7 +1447,18 @@ async function playSound(filename) {
 // ════════════════════════════════════════════════════════════════
 const socket = io({ transports: ['websocket'] });
 
-socket.on('connect', () => flash('Connecté au Pi ✓', 'green'));
+socket.on('connect', async () => {
+  flash('Connecté au Pi ✓', 'green');
+  try {
+    const response = await fetch('/api/status');
+    if (response.ok) {
+      const status = await response.json();
+      updateTime(status.time);
+    }
+  } catch (e) {
+    console.warn('Impossible de recaler l\'heure après connexion:', e);
+  }
+});
 socket.on('disconnect', () => flash('Déconnecté', 'red'));
 
 socket.on('gps_sync_done', d => {
