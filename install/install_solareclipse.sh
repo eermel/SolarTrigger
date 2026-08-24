@@ -49,6 +49,7 @@ CURRENT_USER=${SUDO_USER:-$USER}
 USER_HOME=$(eval echo "~$CURRENT_USER")
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(dirname "$SCRIPT_DIR")"   # dossier parent = solareclipse_package/
+source "$SCRIPT_DIR/datasets_sync.sh"
 
 # ── Répertoires cibles ────────────────────────────────────────────────────────
 TRIGGER_DIR="$USER_HOME/python_solareclipsetrigger"   # scripts Python + jubier + sons
@@ -489,6 +490,8 @@ if [ -d "$PACKAGE_DIR/backend" ]; then
 else
     warning "Dossier backend/ introuvable dans $PACKAGE_DIR"
 fi
+
+sync_eclipse_datasets "$PACKAGE_DIR" "$TRIGGER_DIR"
 
 # Dossier tests/ (harnais de diagnostic caméra/monture/focuseur)
 if [ -d "$PACKAGE_DIR/tests" ]; then
