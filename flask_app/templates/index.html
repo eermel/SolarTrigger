@@ -715,6 +715,7 @@ header {
           <div style="display:flex;gap:8px">
             <input type="text" id="eclipse-save-filename" value="" style="flex:1">
             <button class="btn btn-primary" type="button" onclick="saveEclipseConfig()">💾 Save</button>
+            <button class="btn btn-secondary" type="button" onclick="cleanCircumstances()">🧹 Clean</button>
           </div>
         </div>
       </div>
@@ -3215,6 +3216,50 @@ async function saveEclipseConfig() {
     }
   } catch(e) {
     flash('Network error.', 'red');
+  }
+}
+
+async function cleanCircumstances() {
+  try {
+    const cleanResponse = await fetch('/api/configs/circumstances/clean', { method: 'POST' });
+    if (!cleanResponse.ok) {
+      alert('Clean failed.');
+      return;
+    }
+
+    const listResponse = await fetch('/api/configs/list_eclipse');
+    if (!listResponse.ok) {
+      alert('Refresh failed.');
+      return;
+    }
+    const data = await listResponse.json();
+    const files = data.files || [];
+
+    const triggerSelect = document.getElementById('trigger-config-select');
+    if (triggerSelect) {
+      triggerSelect.innerHTML = '';
+      files.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file.name;
+        option.dataset.dir = file.dir;
+        option.textContent = file.name;
+        triggerSelect.appendChild(option);
+      });
+      triggerSelect.selectedIndex = -1;
+    }
+
+    const eclipseSelect = document.getElementById('eclipse-file-select');
+    if (eclipseSelect) {
+      eclipseSelect.innerHTML = '<option value="">— Fichier circonstances —</option>';
+      files.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file.name;
+        option.textContent = file.name;
+        eclipseSelect.appendChild(option);
+      });
+    }
+  } catch(e) {
+    alert('Clean failed.');
   }
 }
 
