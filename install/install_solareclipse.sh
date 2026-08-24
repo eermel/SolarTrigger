@@ -13,7 +13,7 @@
 #     0. Mise à jour système
 #     1. Renommage machine + mDNS (accès http://solareclipse.local)
 #     2. Hotspot WiFi Pi (optionnel — désactivé si vous utilisez iPhone hotspot)
-#     3. Dépendances système (Python, gphoto2, pygame, chromium, gpsd...)
+#     3. Dépendances système (Python, gphoto2, pygame, gpsd...)
 #     3b. libgphoto2 2.5.34 compilée (support Sony A7V / ILCE-7M5)
 #     3c. SDK ZWO EAF pour focuseur (optionnel, depuis vendor/eaf_sdk/)
 #     4. Scripts SolarEclipse + backend/services/plugins
@@ -242,7 +242,6 @@ apt install -y \
     python3-gphoto2 python3-pygame \
     gphoto2 libgphoto2-dev \
     screen curl wget \
-    chromium chromium-driver \
     gpsd gpsd-clients chrony socat \
     nginx \
     usbutils \
@@ -573,7 +572,6 @@ sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install \
     eventlet \
     gphoto2 \
     pygame \
-    playwright \
     pyserial \
     gunicorn \
     requests \
@@ -581,13 +579,6 @@ sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install \
     timezonefinder \
     "python-socketio[client]"
 success "Environnement virtuel → $VENV_DIR"
-
-# Playwright + Chromium système
-info "Configuration Playwright (Chromium système)..."
-PLAYWRIGHT_BROWSERS_PATH=0 sudo -u "$CURRENT_USER" HOME="$USER_HOME" \
-    "$VENV_DIR/bin/playwright" install chromium 2>/dev/null \
-    && success "Playwright + Chromium OK." \
-    || warning "playwright install échoué — /usr/bin/chromium sera utilisé."
 
 # Fichier wsgi.py
 cat > "$FLASK_DIR/wsgi.py" <<EOL
@@ -802,7 +793,7 @@ cat > "$BIN_DIR/calcul_eclipse.sh" <<EOL
 # Usage : calcul_eclipse.sh --lat XX.XXX --lon YY.YYY --alt ZZZ --tz 2 --eclipse 2026-08-12
 cd "$TRIGGER_DIR" || exit 1
 source "$VENV_DIR/bin/activate"
-python3 eclipse_calculator_jubier.py "\$@"
+python3 eclipse_calculator_py.py "\$@"
 EOL
 
 cat > "$BIN_DIR/trigger_eclipse.sh" <<EOL

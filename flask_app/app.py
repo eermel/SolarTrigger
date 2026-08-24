@@ -12,7 +12,7 @@ Changelog :
 Persistance :
   state.json        → GPS, éclipse calculée, statuts — survit au reboot Pi
   logs_buffer.jsonl → ring buffer 500 dernières lignes de log
-  todayeclipse.json → généré par eclipse_calculator_jubier.py
+  todayeclipse.json → généré par eclipse_calculator_py.py
 
 À la reconnexion d'un client :
   - État GPS complet restauré
@@ -156,7 +156,7 @@ BASE_DIR       = Path(__file__).parent
 TRIGGER_DIR    = Path.home() / "python_solareclipsetrigger"
 TRIGGER_SCRIPT = TRIGGER_DIR / "eclipse_trigger.py"
 TOTALITY_ONLY_SCRIPT = TRIGGER_DIR / "totality_only.py"
-CALC_SCRIPT    = TRIGGER_DIR / "eclipse_calculator_jubier.py"
+CALC_SCRIPT    = TRIGGER_DIR / "eclipse_calculator_py.py"
 GPS_SCRIPT     = TRIGGER_DIR / "gps_sync.py"
 GPS_CONFIG_FILE = TRIGGER_DIR / "configs" / "gps_default.json"
 JSON_FILE      = TRIGGER_DIR / "todayeclipse.json"
@@ -179,6 +179,7 @@ from backend.event_log import EventLog
 from backend.gps_controller import GpsController
 from backend.devices import CATEGORIES as DEVICE_CATEGORIES
 from backend.devices import detect_all, normalize_selection, ttl_expired
+from backend.eclipse_engine import loader as eclipse_loader
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
 from services.camera_service import CameraService
@@ -1025,18 +1026,30 @@ def api_eclipse_calculate():
     if lat is None or lon is None:
         return jsonify({"error": "lat et lon requis"}), 400
 
+    if eclipse == "auto" or not eclipse:
+        try:
+            today = datetime.now(timezone.utc).date()
+            supported = eclipse_loader.list_supported_eclipses()
+            eclipse_dates = sorted(
+                datetime.strptime(date_iso, "%Y-%m-%d").date()
+                for date_iso in supported
+            )
+            future = [date_value for date_value in eclipse_dates if date_value >= today]
+            eclipse_date = (future[0] if future else eclipse_dates[-1]).isoformat()
+        except (IndexError, TypeError, ValueError) as e:
+            _append_log(
+                f"calculateur Python : sélection auto impossible : {e}",
+                "error", "calculator"
+            )
+            return jsonify({"error": "Aucune date d'éclipse supportée"}), 500
+    else:
+        eclipse_date = eclipse
+
     # Si DST activé : calculer la vraie timezone à la date de l'éclipse
     tz_used = tz
     tz_str_dst = None
     if dst:
         try:
-            # Résoudre la date réelle de l'éclipse
-            if eclipse == "auto" or not eclipse:
-                sys.path.insert(0, str(TRIGGER_DIR))
-                from eclipse_calculator_jubier import auto_eclipse
-                eclipse_date = auto_eclipse()  # retourne "2026-08-12"
-            else:
-                eclipse_date = eclipse
             tz_info = calculate_timezone_from_coords(lat, lon, eclipse_date=eclipse_date)
             if tz_info is not None:
                 tz_used = tz_info
@@ -1055,7 +1068,7 @@ def api_eclipse_calculate():
 
     def _run():
         global _calc_proc
-        _append_log(f"▶ Calcul éclipse : lat={lat} lon={lon} alt={alt} tz=+{tz_used}{' (DST auto)' if dst else ''}", "info", "calculator")
+        _append_log(f"▶ calculateur Python : lat={lat} lon={lon} alt={alt} tz=+{tz_used} date={eclipse_date}{' (DST auto)' if dst else ''}", "info", "calculator")
         with _state_lock:
             _state["calc_running"] = True
 
@@ -1066,9 +1079,8 @@ def api_eclipse_calculate():
         cmd = [sys.executable, str(CALC_SCRIPT),
                "--lat", str(lat), "--lon", str(lon),
                "--alt", str(alt), "--tz",  str(tz_used),
+               "--date", eclipse_date,
                "--output", str(JSON_FILE)]
-        if eclipse != "auto":
-            cmd += ["--eclipse", eclipse]
 
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True,
