@@ -2,7 +2,7 @@
 <!-- SolarEclipse Portal — index.html
      Version : 5.1.02
      Date    : 2026-03-18 -->
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -591,7 +591,7 @@ header {
 </div>
     <div id="header-status">
       <div class="dot" id="dot-gps"    title="GPS"></div>
-      <div class="dot" id="dot-camera" title="Caméra"></div>
+      <div class="dot" id="dot-camera" title="Camera"></div>
       <div class="dot" id="dot-trigger" title="Trigger"></div>
     </div>
   </header>
@@ -608,15 +608,15 @@ header {
     </button>
     <button class="tab" onclick="showTab(2)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-      <span>ÉCLIPSE</span>
+      <span>ECLIPSE</span>
     </button>
     <button class="tab" onclick="showTab(3)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-      <span>CFG PHOTO</span>
+      <span>PHOTO CFG</span>
     </button>
     <button class="tab" onclick="showTab(4)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="3"/></svg>
-      <span>CAMÉRA</span>
+      <span>CAMERA</span>
     </button>
     <button class="tab" id="controls-tab" onclick="showTab(5)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
@@ -632,7 +632,7 @@ header {
 
     <div class="page active" id="devices-panel">
       <div class="card">
-        <div class="card-title">Sélection des périphériques</div>
+        <div class="card-title">Device selection</div>
         <div id="devices-list" style="display:flex;flex-direction:column;gap:10px"></div>
       </div>
       <button class="btn btn-primary btn-full" id="devices-rescan" onclick="rescanDevices()">
@@ -645,7 +645,7 @@ header {
 
       <!-- Heure + Date -->
       <div class="card">
-        <div class="card-title">Horloge système</div>
+        <div class="card-title">System clock</div>
          <div class="stat">
             <div style="display:flex;align-items:center;gap:12px;font-family:var(--mono);font-size:16px">
             <span class="stat-value blue" style="color:var(--text-dim);font-size:14px">Date:</span>
@@ -657,7 +657,7 @@ header {
             <span class="stat-value blue" id="sys-time-utc">--:--:--</span>
             <span style="color:var(--text-dim);font-size:14px">Timezone:</span>
             <span class="stat-value blue" id="sys-timezone" style="font-size:14px">UTC+1</span>
-            <span style="color:var(--text-dim);font-size:14px">Heure Locale:</span>
+            <span style="color:var(--text-dim);font-size:14px">Local time:</span>
             <span class="stat-value orange" id="sys-time-local">--:--:--</span>
           </div>
          </div>
@@ -702,7 +702,7 @@ header {
 
       <!-- Formulaire coordonnées -->
       <div class="card">
-        <div class="card-title">Position d'observation</div>
+        <div class="card-title">Observation location</div>
         <div style="display:flex;flex-direction:column;gap:10px">
           <div class="grid2">
             <div class="field">
@@ -720,16 +720,16 @@ header {
               <input type="number" id="inp-alt" placeholder="80" step="1">
             </div>
             <div class="field">
-              <label>Fuseau UTC+</label>
+              <label>Time zone UTC+</label>
               <input type="number" id="inp-tz" placeholder="0" step="1" value="0">
             </div>
           </div>
           <div class="field">
-            <label>Éclipse</label>
+            <label>Eclipse</label>
             <select id="inp-eclipse">
-              <option value="auto">Auto (prochaine)</option>
-              <option value="2026-08-12">2026-08-12 — Espagne</option>
-              <option value="2027-08-02">2027-08-02 — Égypte / Louxor</option>
+              <option value="auto">Auto (next)</option>
+              <option value="2026-08-12">2026-08-12 — Spain</option>
+              <option value="2027-08-02">2027-08-02 — Egypt / Luxor</option>
               <option value="2028-07-22">2028-07-22</option>
               <option value="2030-11-25">2030-11-25</option>
               <option value="2034-03-20">2034-03-20</option>
@@ -739,9 +739,9 @@ header {
           <div style="display:flex;align-items:center;gap:8px;padding:6px 2px">
             <input type="checkbox" id="inp-dst" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
             <label for="inp-dst" style="font-size:12px;color:var(--text-dim);cursor:pointer;user-select:none">
-              Appliquer heure d'été / hiver automatiquement (DST)
+              Apply daylight saving time automatically (DST)
               <span style="font-size:10px;color:var(--text-dim);font-family:var(--mono);display:block;margin-top:1px">
-                Calcul DST basé sur les coordonnées et la date de l'éclipse — ignore le fuseau saisi.
+                DST is calculated from the coordinates and eclipse date, ignoring the entered time zone.
               </span>
             </label>
           </div>
@@ -755,20 +755,20 @@ header {
 
       <!-- Circonstances — résultats Jubier -->
       <div class="card" id="contacts-card" style="display:none">
-        <div class="card-title">Circonstances</div>
+        <div class="card-title">Circumstances</div>
         <div class="contacts" id="contacts-list"></div>
         <div class="sep" style="margin:10px 0"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
           <div class="stat">
-            <div class="stat-label">Durée totalité</div>
+            <div class="stat-label">Totality duration</div>
             <div class="stat-value green" id="eclipse-duration">--</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Type éclipse</div>
+            <div class="stat-label">Eclipse type</div>
             <div class="stat-value" id="eclipse-type2" style="color:var(--blue)">--</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Type pos. GPS</div>
+            <div class="stat-label">GPS position type</div>
             <div class="stat-value" id="eclipse-type-gps" style="color:var(--orange)">--</div>
           </div>
         </div>
@@ -785,11 +785,11 @@ header {
           <!-- Ligne 1 : C1 + C2 -->
           <div class="grid2">
             <div class="field">
-              <label>C1 — 1er contact</label>
+              <label>C1 — First contact</label>
               <input type="text" id="man-C1" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
             </div>
             <div class="field">
-              <label>C2 — Début totalité</label>
+              <label>C2 — Start of totality</label>
               <input type="text" id="man-C2" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
             </div>
           </div>
@@ -799,7 +799,7 @@ header {
             <div class="field" style="width:50%;min-width:160px">
               <label style="display:flex;align-items:center;gap:6px">
                 TMAX — Maximum
-                <span style="font-size:9px;color:var(--text-dim);font-family:var(--mono)">(calculé)</span>
+                <span style="font-size:9px;color:var(--text-dim);font-family:var(--mono)">(calculated)</span>
               </label>
               <input type="text" id="man-TMAX" placeholder="--:--:--.---"
                      readonly style="background:var(--bg2);color:var(--accent);cursor:default;
@@ -810,11 +810,11 @@ header {
           <!-- Ligne 3 : C3 + C4 -->
           <div class="grid2">
             <div class="field">
-              <label>C3 — Fin totalité</label>
+              <label>C3 — End of totality</label>
               <input type="text" id="man-C3" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
             </div>
             <div class="field">
-              <label>C4 — 4e contact</label>
+              <label>C4 — Fourth contact</label>
               <input type="text" id="man-C4" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
             </div>
           </div>
@@ -845,7 +845,7 @@ header {
 
       <!-- ── CARD 1 : Charger / Sauvegarder ── -->
       <div class="card">
-        <div class="card-title">Configuration appareil photo</div>
+        <div class="card-title">Camera configuration</div>
         <div style="display:flex;gap:6px">
           <select id="camera-config-select" style="flex:1;background:var(--bg3);border:1px solid var(--border);
             border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
@@ -859,9 +859,9 @@ header {
 
       <!-- ── CARD 2 : Phase Partielle ── -->
       <div class="card">
-        <div class="card-title" style="color:var(--purple)">☀ PARTIELLE</div>
+        <div class="card-title" style="color:var(--purple)">☀ PARTIAL PHASE</div>
         <div class="grid2" style="margin-bottom:8px">
-          <div class="field"><label>INTERVALLE (S)</label>
+          <div class="field"><label>INTERVAL (S)</label>
             <input type="number" id="cfg-partial-interval" value="180" step="1" min="1">
           </div>
         </div>
@@ -891,12 +891,12 @@ header {
 
       <!-- ── CARD 3 : Phase Diamond Ring ── -->
       <div class="card">
-        <div class="card-title" style="color:var(--accent)">💎 DIAMOND RING <small style="font-size:10px;opacity:.7">(avant C2 / après C3)</small></div>
+        <div class="card-title" style="color:var(--accent)">💎 DIAMOND RING <small style="font-size:10px;opacity:.7">(before C2 / after C3)</small></div>
         <div class="grid2" style="margin-bottom:8px">
-          <div class="field"><label>DURÉE TOTALE (S)</label>
+          <div class="field"><label>TOTAL DURATION (S)</label>
             <input type="number" id="cfg-dr-duration" value="40" step="1" min="1">
           </div>
-          <div class="field"><label>INTERVALLE (S)</label>
+          <div class="field"><label>INTERVAL (S)</label>
             <input type="number" id="cfg-dr-interval" value="4" step="1" min="1">
           </div>
         </div>
@@ -926,7 +926,7 @@ header {
 
       <!-- ── CARD 4 : Phase Totalité ── -->
       <div class="card">
-        <div class="card-title" style="color:var(--green)">🌑 TOTALITÉ</div>
+        <div class="card-title" style="color:var(--green)">🌑 TOTALITY</div>
         <div class="grid2" style="margin-bottom:8px">
           <div class="field"><label>ISO</label>
             <select id="cfg-tot-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
@@ -1025,11 +1025,11 @@ header {
 
           <div class="grid2" style="margin-top:12px">
             <div class="field">
-              <label for="focuser-step-slow">PAS LENT</label>
+              <label for="focuser-step-slow">SLOW STEP</label>
               <input type="number" id="focuser-step-slow" min="1" value="80">
             </div>
             <div class="field">
-              <label for="focuser-step-fast">PAS RAPIDE</label>
+              <label for="focuser-step-fast">FAST STEP</label>
               <div class="focuser-mode-switch"><input type="number" id="focuser-step-fast" min="1" value="800"><label for="focuser-speed-switch">Slow</label><input type="checkbox" id="focuser-speed-switch" data-focuser-control="speed-switch" role="switch" aria-label="Focuser speed mode"><label for="focuser-speed-switch">Fast</label></div>
             </div>
           </div>
