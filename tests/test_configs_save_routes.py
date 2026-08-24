@@ -14,6 +14,18 @@ sys.modules.setdefault("gphoto2", ModuleType("gphoto2"))
 import flask_app.app as flask_module
 
 
+def camera_data(**overrides):
+    data = {
+        "_type": "capture",
+        "phases": {
+            phase: {"shutter_min": "1/2", "shutter_max": "1/1000"}
+            for phase in ("partial", "diamond_ring", "totality")
+        },
+    }
+    data.update(overrides)
+    return data
+
+
 @pytest.fixture
 def save_routes(tmp_path, monkeypatch):
     configs_dir = tmp_path / "configs"
@@ -47,7 +59,7 @@ def save_routes(tmp_path, monkeypatch):
             "/api/configs/save_camera",
             "test",
             "camera_test.json",
-            {"_type": "capture", "iso": 100},
+            camera_data(iso=100),
         ),
     ],
 )
@@ -87,7 +99,7 @@ def test_config_save_new_file_returns_summary_without_state_update(
         (
             "/api/configs/save_camera",
             "camera_existing.json",
-            {"filename": "existing.json", "data": {"iso": 200}},
+            {"filename": "existing.json", "data": camera_data(iso=200)},
         ),
     ],
 )
@@ -179,7 +191,7 @@ def test_config_save_overwrites_active_circumstances_and_emits_status(
 def test_config_save_camera_overwrites_active_capture_and_emits_status(save_routes):
     client, configs_dir, state_store, emitted = save_routes
     filename = "camera_active.json"
-    data = {"_type": "capture", "_comment": "Réglages totalité", "iso": 400}
+    data = camera_data(_comment="Réglages totalité", iso=400)
     configs_dir.mkdir()
     (configs_dir / filename).write_text("{}", encoding="utf-8")
     state_store.update_section(
@@ -212,3 +224,50 @@ def test_config_save_camera_overwrites_active_capture_and_emits_status(save_rout
         "utc",
     }
     assert json.loads((configs_dir / filename).read_text(encoding="utf-8")) == data
+
+
+@pytest.mark.parametrize(
+    ("phase_name", "field", "value"),
+    [
+        ("partial", "shutter_min", "1/3"),
+        ("diamond_ring", "shutter_max", "1/6400"),
+        ("totality", "shutter_min", None),
+        ("partial", "shutter_min", "1/2000"),
+        ("diamond_ring", "step_ev", 0.5),
+        ("totality", "step_ev", "1.0"),
+    ],
+)
+def test_config_save_camera_rejects_invalid_phase_values_without_writing(
+    save_routes, phase_name, field, value
+):
+    client, configs_dir, _state_store, _emitted = save_routes
+    data = camera_data()
+    if value is None:
+        del data["phases"][phase_name][field]
+    else:
+        data["phases"][phase_name][field] = value
+
+    response = client.post(
+        "/api/configs/save_camera",
+        json={"filename": "invalid", "data": data},
+    )
+
+    assert response.status_code == 400
+    assert "error" in response.get_json()
+    assert not (configs_dir / "camera_invalid.json").exists()
+
+
+def test_config_save_camera_persists_default_step_ev_for_every_phase(save_routes):
+    client, configs_dir, _state_store, _emitted = save_routes
+    data = camera_data()
+
+    response = client.post(
+        "/api/configs/save_camera",
+        json={"filename": "defaults", "data": data},
+    )
+
+    assert response.status_code == 200
+    saved = json.loads(
+        (configs_dir / "camera_defaults.json").read_text(encoding="utf-8")
+    )
+    assert all(phase["step_ev"] == 1.0 for phase in saved["phases"].values())

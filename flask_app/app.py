@@ -1308,6 +1308,29 @@ def api_configs_save_camera():
     if not filename.startswith("camera_"):
         filename = "camera_" + filename
     filename = Path(filename).name
+
+    shutter_speeds = [
+        "8", "4", "2", "1", "1/2", "1/4", "1/8", "1/15", "1/30",
+        "1/60", "1/125", "1/250", "1/500", "1/1000", "1/2000",
+        "1/4000", "1/8000",
+    ]
+    shutter_indices = {speed: index for index, speed in enumerate(shutter_speeds)}
+    phases = data.get("phases") if isinstance(data, dict) else None
+    for phase_name in ("partial", "diamond_ring", "totality"):
+        phase = phases.get(phase_name) if isinstance(phases, dict) else None
+        if not isinstance(phase, dict):
+            return jsonify({"error": f"Phase invalide ou manquante : {phase_name}"}), 400
+        shutter_min = phase.get("shutter_min")
+        shutter_max = phase.get("shutter_max")
+        if shutter_min not in shutter_indices or shutter_max not in shutter_indices:
+            return jsonify({"error": f"Vitesse d'obturation invalide : {phase_name}"}), 400
+        # The canonical list is slowest to fastest, so min must precede max.
+        if shutter_indices[shutter_min] > shutter_indices[shutter_max]:
+            return jsonify({"error": f"Plage d'obturation inversée : {phase_name}"}), 400
+        if "step_ev" in phase and phase["step_ev"] != 1.0:
+            return jsonify({"error": f"step_ev invalide : {phase_name}"}), 400
+        phase.setdefault("step_ev", 1.0)
+
     try:
         CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
         destination = CONFIGS_DIR / filename
