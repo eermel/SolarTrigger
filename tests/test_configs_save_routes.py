@@ -90,7 +90,7 @@ def test_config_save_new_file_returns_summary_without_state_update(
     saved_path = (
         configs_dir / "circumstances" / saved_filename
         if endpoint == "/api/configs/save"
-        else configs_dir / saved_filename
+        else configs_dir / "camera_cfg" / saved_filename
     )
     assert json.loads(saved_path.read_text(encoding="utf-8")) == data
     assert state_store.snapshot() == initial_state
@@ -194,7 +194,7 @@ def test_config_save_collision_without_overwrite_returns_409(
     destination_dir = (
         configs_dir / "circumstances"
         if endpoint == "/api/configs/save"
-        else configs_dir
+        else configs_dir / "camera_cfg"
     )
     destination_dir.mkdir(parents=True)
     original = {"original": True}
@@ -284,8 +284,9 @@ def test_config_save_camera_overwrites_active_capture_and_emits_status(save_rout
     client, configs_dir, state_store, emitted = save_routes
     filename = "camera_active.json"
     data = camera_data(_comment="Réglages totalité", iso=400)
-    configs_dir.mkdir()
-    (configs_dir / filename).write_text("{}", encoding="utf-8")
+    camera_configs_dir = configs_dir / "camera_cfg"
+    camera_configs_dir.mkdir(parents=True)
+    (camera_configs_dir / filename).write_text("{}", encoding="utf-8")
     state_store.update_section(
         "capture",
         {"loaded": True, "active_file": filename, "meta": {"_comment": "Ancien"}},
@@ -315,7 +316,26 @@ def test_config_save_camera_overwrites_active_capture_and_emits_status(save_rout
         "local",
         "utc",
     }
-    assert json.loads((configs_dir / filename).read_text(encoding="utf-8")) == data
+    assert json.loads(
+        (camera_configs_dir / filename).read_text(encoding="utf-8")
+    ) == data
+
+
+def test_config_save_camera_writes_only_to_camera_cfg(save_routes):
+    client, configs_dir, _state_store, _emitted = save_routes
+    filename = "camera_scoped.json"
+    data = camera_data(iso=200)
+
+    response = client.post(
+        "/api/configs/save_camera",
+        json={"filename": filename, "data": data},
+    )
+
+    assert response.status_code == 200
+    assert json.loads(
+        (configs_dir / "camera_cfg" / filename).read_text(encoding="utf-8")
+    ) == data
+    assert not (configs_dir / filename).exists()
 
 
 @pytest.mark.parametrize(
@@ -346,7 +366,7 @@ def test_config_save_camera_rejects_invalid_phase_values_without_writing(
 
     assert response.status_code == 400
     assert "error" in response.get_json()
-    assert not (configs_dir / "camera_invalid.json").exists()
+    assert not (configs_dir / "camera_cfg" / "camera_invalid.json").exists()
 
 
 def test_config_save_camera_persists_default_step_ev_for_every_phase(save_routes):
@@ -360,6 +380,8 @@ def test_config_save_camera_persists_default_step_ev_for_every_phase(save_routes
 
     assert response.status_code == 200
     saved = json.loads(
-        (configs_dir / "camera_defaults.json").read_text(encoding="utf-8")
+        (configs_dir / "camera_cfg" / "camera_defaults.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert all(phase["step_ev"] == 1.0 for phase in saved["phases"].values())

@@ -1319,8 +1319,9 @@ def api_configs_save_camera():
         phase.setdefault("step_ev", 1.0)
 
     try:
-        CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
-        destination = CONFIGS_DIR / filename
+        destination_dir = CONFIGS_DIR / "camera_cfg"
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / filename
         overwriting = destination.exists()
         if overwriting and body.get("overwrite") is not True:
             return jsonify({"error": "Le fichier existe déjà", "filename": filename}), 409
