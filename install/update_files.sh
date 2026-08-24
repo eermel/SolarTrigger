@@ -76,7 +76,7 @@ sync_app_dir() {
 info "Copie des scripts Python..."
 SCRIPTS=(
     eclipse_trigger.py
-    eclipse_calculator_jubier.py
+    eclipse_calculator_py.py
     gps_sync.py
     totality_only.py
     generate_debug_realistic.py
@@ -182,7 +182,8 @@ PYTHON_BIN="$FLASK_DIR/venv/bin/python3"
     "$TRIGGER_DIR/plugins/camera/base.py" \
     "$TRIGGER_DIR/plugins/camera/sony.py" \
     "$TRIGGER_DIR/plugins/camera/nikon.py" \
-    "$TRIGGER_DIR/eclipse_trigger.py"
+    "$TRIGGER_DIR/eclipse_trigger.py" \
+    "$TRIGGER_DIR/eclipse_calculator_py.py"
 ok "Compilation Python minimale OK."
 
 # ── 9. Redémarrage Flask et contrôle de santé systemd
