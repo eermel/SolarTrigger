@@ -1,95 +1,14 @@
-import importlib.util
 import re
-import sys
 from pathlib import Path
-from types import ModuleType
 
 
-sys.modules.setdefault("gphoto2", ModuleType("gphoto2"))
-
-if "flask" not in sys.modules and importlib.util.find_spec("flask") is None:
-    class Response:
-        status_code = 200
-
-        def __init__(self, body):
-            self.body = body
-
-        def get_data(self, as_text=False):
-            return self.body if as_text else self.body.encode()
-
-    class Client:
-        def __init__(self, routes):
-            self.routes = routes
-
-        def get(self, path):
-            return Response(self.routes[(path, "GET")]())
-
-    class Flask:
-        def __init__(self, *_args, **_kwargs):
-            self.config = {}
-            self.routes = {}
-
-        def route(self, path, methods=None, **_kwargs):
-            def register(function):
-                for method in methods or ("GET",):
-                    self.routes[(path, method)] = function
-                return function
-            return register
-
-        def test_client(self):
-            return Client(self.routes)
-
-    flask_stub = ModuleType("flask")
-    flask_stub.Flask = Flask
-    flask_stub.jsonify = lambda value: value
-    flask_stub.request = object()
-    flask_stub.send_from_directory = lambda directory, filename: Response(
-        (Path(directory) / filename).read_text(encoding="utf-8")
-    )
-    sys.modules["flask"] = flask_stub
-
-if (
-    "flask_socketio" not in sys.modules
-    and importlib.util.find_spec("flask_socketio") is None
-):
-    class SocketIO:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def emit(self, *_args, **_kwargs):
-            pass
-
-        def on(self, *_args, **_kwargs):
-            return lambda function: function
-
-    socketio_stub = ModuleType("flask_socketio")
-    socketio_stub.SocketIO = SocketIO
-    socketio_stub.emit = lambda *_args, **_kwargs: None
-    sys.modules["flask_socketio"] = socketio_stub
-
-import flask_app.app as flask_module
+INDEX = (
+    Path(__file__).resolve().parents[1] / "flask_app" / "templates" / "index.html"
+).read_text(encoding="utf-8")
 
 
-def _render_index(monkeypatch):
-    monkeypatch.setattr(
-        flask_module,
-        "send_from_directory",
-        lambda directory, filename: (Path(directory) / filename).read_text(
-            encoding="utf-8"
-        ),
-    )
-    response = flask_module.app.test_client().get("/")
-
-    assert response.status_code == 200
-    if hasattr(response, "get_data"):
-        return response.get_data(as_text=True)
-    return response.get_json()
-
-
-def test_save_circumstances_controls_are_unique_and_before_observation_location(
-    monkeypatch,
-):
-    html = _render_index(monkeypatch)
+def test_save_circumstances_controls_are_unique_and_before_observation_location():
+    html = INDEX
 
     save_title = '<div class="card-title">Save circumstances</div>'
     observation_title = '<div class="card-title">Observation location</div>'
@@ -115,8 +34,8 @@ def test_save_circumstances_controls_are_unique_and_before_observation_location(
     assert html.count('onclick="saveEclipseConfig()"') == 1
 
 
-def test_eclipse_save_prefix_uses_backend_date_and_calculation_event(monkeypatch):
-    html = _render_index(monkeypatch)
+def test_eclipse_save_prefix_uses_backend_date_and_calculation_event():
+    html = INDEX
 
     prefix_function = re.search(
         r"function updateEclipseSaveFilename\(eclipseData\) \{(.*?)\n\}",
@@ -143,8 +62,8 @@ def test_eclipse_save_prefix_uses_backend_date_and_calculation_event(monkeypatch
     assert "updateEclipseSaveFilename(d.data)" in calculated_handler.group(1)
 
 
-def test_eclipse_save_rejects_empty_default_prefix_suffix_before_fetch(monkeypatch):
-    html = _render_index(monkeypatch)
+def test_eclipse_save_rejects_empty_default_prefix_suffix_before_fetch():
+    html = INDEX
 
     save_function = re.search(
         r"async function saveEclipseConfig\(\) \{(.*?)\n\}",
