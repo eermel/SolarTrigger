@@ -1372,19 +1372,28 @@ def api_configs_save_camera():
 def api_configs_save():
     """Sauvegarde le contenu courant de todayeclipse.json dans configs/ sous un nouveau nom."""
     body = request.json or {}
-    filename = body.get("filename", "").strip()
-    if not filename:
+    requested = body.get("filename", "").strip()
+    if not requested:
         return jsonify({"error": "Nom de fichier manquant"}), 400
+    requested_path = Path(requested)
+    if (requested_path.is_absolute()
+            or "/" in requested
+            or os.sep in requested
+            or (os.altsep and os.altsep in requested)
+            or ".." in requested_path.parts):
+        return jsonify({"error": "Nom de fichier invalide"}), 400
+    filename = requested
     if not filename.endswith(".json"):
         filename += ".json"
-    # Sécurité : pas de chemin traversal
-    filename = Path(filename).name
     data = _load_eclipse_json()
     if not data:
         return jsonify({"error": "Aucune configuration active"}), 400
     try:
         CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
         destination = CONFIGS_DIR / filename
+        if destination.resolve().parent != CONFIGS_DIR.resolve():
+            return jsonify({"error": "Nom de fichier invalide"}), 400
+        filename = destination.resolve().name
         overwriting = destination.exists()
         if overwriting and body.get("overwrite") is not True:
             return jsonify({"error": "Le fichier existe déjà", "filename": filename}), 409
