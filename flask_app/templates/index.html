@@ -2325,16 +2325,25 @@ function renderContacts(data) {
     const tzLabel = data._timezone
       || (state.gps && state.gps.timezone) || _gpsTimezone
       || (_tzOffset !== null ? `UTC${_tzOffset >= 0 ? '+' : ''}${_tzOffset}` : 'UTC');
-    // Si C2 == C3 (éclipse partielle), ne pas afficher C2 et C3 (ils valent TMAX)
-    const c2utc = data.C2 || data.c2;
-    const c3utc = data.C3 || data.c3;
-    const isPartialContacts = c2utc && c3utc && c2utc === c3utc;
-    list.innerHTML = contacts.filter(c => {
+    const circumstancesType = (data._type || data._type_global || '').toLowerCase();
+    const isPartialContacts = circumstancesType.includes('partielle') || circumstancesType.includes('partial');
+    const circumstancesContacts = isPartialContacts
+      ? [
+          contacts.find(c => c.key === 'C1'),
+          {
+            key: 'TMAX',
+            utc: data.TMAX,
+            local: data.TMAX ? _utcToLocal(data.TMAX) : null,
+            label: 'TMAX'
+          },
+          contacts.find(c => c.key === 'C4')
+        ]
+      : contacts.filter(c => {
       if (c.key === 'TMILIEU') return false;
       if (c.key === 'TSTART' || c.key === 'TEND') return false;
-      if (isPartialContacts && (c.key === 'C2' || c.key === 'C3')) return false;
       return true;
-    }).map(c => `
+    });
+    list.innerHTML = circumstancesContacts.map(c => `
       <div class="contact-row" id="cr-${c.key}" style="flex-direction:column;align-items:stretch;gap:4px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span class="contact-label" style="width:auto;font-size:13px;color:var(--accent2)">${c.label}</span>
