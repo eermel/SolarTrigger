@@ -141,3 +141,24 @@ def test_eclipse_save_prefix_uses_backend_date_and_calculation_event(monkeypatch
     assert calculated_handler is not None
     assert "d.status === 'success' && d.data" in calculated_handler.group(1)
     assert "updateEclipseSaveFilename(d.data)" in calculated_handler.group(1)
+
+
+def test_eclipse_save_rejects_empty_default_prefix_suffix_before_fetch(monkeypatch):
+    html = _render_index(monkeypatch)
+
+    save_function = re.search(
+        r"async function saveEclipseConfig\(\) \{(.*?)\n\}",
+        html,
+        re.DOTALL,
+    )
+
+    assert save_function is not None
+    save_logic = save_function.group(1)
+    message = "Please complete the file name after the default prefix."
+    assert message in save_logic
+    assert "File name is required." not in save_logic
+    assert r"/^\d{8}_Circonstances_$/" in save_logic
+    assert "filename === activePrefix" in save_logic
+    assert "filename.startsWith(activePrefix)" in save_logic
+    assert "filename.slice(filename.lastIndexOf('_') + 1) === ''" in save_logic
+    assert save_logic.index(message) < save_logic.index("fetch('/api/configs/save'")

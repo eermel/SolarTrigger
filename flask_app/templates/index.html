@@ -3182,8 +3182,15 @@ async function promptSaveConfig() {
 async function saveEclipseConfig() {
   const input = document.getElementById('eclipse-save-filename');
   const filename = input ? input.value.trim() : '';
-  if (!filename) {
-    flash('File name is required.', 'red');
+  const activePrefix = typeof _eclipseSavePrefix === 'string'
+    && /^\d{8}_Circonstances_$/.test(_eclipseSavePrefix)
+    ? _eclipseSavePrefix
+    : null;
+  const hasEmptySuffix = activePrefix
+    && filename.startsWith(activePrefix)
+    && filename.slice(filename.lastIndexOf('_') + 1) === '';
+  if (!filename || filename === activePrefix || hasEmptySuffix) {
+    flash('Please complete the file name after the default prefix.', 'red');
     return;
   }
 
