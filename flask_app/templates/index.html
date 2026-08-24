@@ -908,10 +908,15 @@ header {
             <div class="aperture-cell selected" onclick="selectAperture('cfg-partial-aperture','f/8')">f/8</div>
           </div>
         </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-dim)">VITESSES BRACKET (PLUSIEURS POSSIBLES)</label>
-          <div id="cfg-partial-speeds" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px"></div>
+        <div class="grid2">
+          <div class="field"><label>Minimum shutter speed (slowest)</label>
+            <select id="cfg-partial-shutter-min"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+          <div class="field"><label>Maximum shutter speed (fastest)</label>
+            <select id="cfg-partial-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
         </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
       </div>
 
       <!-- ── CARD 3 : Phase Diamond Ring ── -->
@@ -939,10 +944,15 @@ header {
             <div class="aperture-cell selected" onclick="selectAperture('cfg-dr-aperture','f/8')">f/8</div>
           </div>
         </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-dim)">VITESSES BRACKET (PLUSIEURS POSSIBLES)</label>
-          <div id="cfg-dr-speeds" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px"></div>
+        <div class="grid2">
+          <div class="field"><label>Minimum shutter speed (slowest)</label>
+            <select id="cfg-dr-shutter-min"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+          <div class="field"><label>Maximum shutter speed (fastest)</label>
+            <select id="cfg-dr-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000" selected>1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
         </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
       </div>
 
       <!-- ── CARD 4 : Phase Totalité ── -->
@@ -962,10 +972,15 @@ header {
             <div class="aperture-cell selected" onclick="selectAperture('cfg-tot-aperture','f/8')">f/8</div>
           </div>
         </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-dim)">VITESSES BRACKET — ORDRE RAPIDE → LENT → RAPIDE</label>
-          <div id="totality-speeds-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px;margin-bottom:8px"></div>
+        <div class="grid2">
+          <div class="field"><label>Minimum shutter speed (slowest)</label>
+            <select id="cfg-tot-shutter-min"><option value="8">8s</option><option value="4" selected>4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+          <div class="field"><label>Maximum shutter speed (fastest)</label>
+            <select id="cfg-tot-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000" selected>1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
         </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
       </div>
 
     </div><!-- /page-2 CFG PHOTO -->
@@ -2316,9 +2331,6 @@ function _calcTmax(c1, c2, c3, c4) {
 function computeTmilieu() {}
 
 document.addEventListener('DOMContentLoaded', () => {
-  initSpeedsGrid();
-  initPhaseSpeedsGrid('cfg-partial-speeds', ['1/500']);
-  initPhaseSpeedsGrid('cfg-dr-speeds', ['1/500','1/1000','1/2000']);
   // Forcer ISO à 100 par défaut (le selected HTML n'est pas toujours respecté sur éléments cachés)
   document.getElementById('cfg-partial-iso').value = '100';
   document.getElementById('cfg-dr-iso').value      = '100';
