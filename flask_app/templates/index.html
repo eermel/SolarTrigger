@@ -457,35 +457,6 @@ header {
   pointer-events: none;
   white-space: nowrap;
 }
-/* ── OUVERTURES : style radio sans checkbox ── */
-.aperture-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 7px 4px;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-dim);
-  transition: all 0.2s;
-  cursor: pointer;
-  text-align: center;
-  user-select: none;
-}
-.aperture-cell:hover {
-  background: rgba(74,158,255,0.05);
-  border-color: var(--blue);
-  color: var(--text);
-}
-.aperture-cell.selected {
-  background: rgba(61,220,132,0.12);
-  border-color: var(--green);
-  color: var(--green);
-  font-weight: 700;
-}
 /* ── SONS ── */
 .sound-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .sound-btn {
@@ -893,19 +864,18 @@ header {
           <div class="field"><label>INTERVALLE (S)</label>
             <input type="number" id="cfg-partial-interval" value="180" step="1" min="1">
           </div>
+        </div>
+        <div class="grid2" style="margin-bottom:8px">
           <div class="field"><label>ISO</label>
             <select id="cfg-partial-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
               <option selected>100</option><option>200</option><option>400</option><option>800</option>
               <option>1600</option><option>3200</option><option>6400</option>
             </select>
           </div>
-        </div>
-        <div class="field" style="margin-bottom:8px"><label>OUVERTURE</label>
-          <div id="cfg-partial-aperture" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px">
-            <div class="aperture-cell" onclick="selectAperture('cfg-partial-aperture','f/2.8')">f/2.8</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-partial-aperture','f/4')">f/4</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-partial-aperture','f/5.6')">f/5.6</div>
-            <div class="aperture-cell selected" onclick="selectAperture('cfg-partial-aperture','f/8')">f/8</div>
+          <div class="field"><label>Aperture</label>
+            <select id="cfg-partial-aperture">
+              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
+            </select>
           </div>
         </div>
         <div class="grid2">
@@ -930,18 +900,17 @@ header {
             <input type="number" id="cfg-dr-interval" value="4" step="1" min="1">
           </div>
         </div>
-        <div class="field" style="margin-bottom:8px"><label>ISO</label>
-          <select id="cfg-dr-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
-            <option selected>100</option><option>200</option><option>400</option><option>800</option>
-            <option>1600</option><option>3200</option><option>6400</option>
-          </select>
-        </div>
-        <div class="field" style="margin-bottom:8px"><label>OUVERTURE</label>
-          <div id="cfg-dr-aperture" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px">
-            <div class="aperture-cell" onclick="selectAperture('cfg-dr-aperture','f/2.8')">f/2.8</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-dr-aperture','f/4')">f/4</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-dr-aperture','f/5.6')">f/5.6</div>
-            <div class="aperture-cell selected" onclick="selectAperture('cfg-dr-aperture','f/8')">f/8</div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>ISO</label>
+            <select id="cfg-dr-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+              <option selected>100</option><option>200</option><option>400</option><option>800</option>
+              <option>1600</option><option>3200</option><option>6400</option>
+            </select>
+          </div>
+          <div class="field"><label>Aperture</label>
+            <select id="cfg-dr-aperture">
+              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
+            </select>
           </div>
         </div>
         <div class="grid2">
@@ -958,18 +927,17 @@ header {
       <!-- ── CARD 4 : Phase Totalité ── -->
       <div class="card">
         <div class="card-title" style="color:var(--green)">🌑 TOTALITÉ</div>
-        <div class="field" style="margin-bottom:8px"><label>ISO</label>
-          <select id="cfg-tot-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
-            <option selected>100</option><option>200</option><option>400</option><option>800</option>
-            <option>1600</option><option>3200</option><option>6400</option>
-          </select>
-        </div>
-        <div class="field" style="margin-bottom:8px"><label>OUVERTURE</label>
-          <div id="cfg-tot-aperture" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px">
-            <div class="aperture-cell" onclick="selectAperture('cfg-tot-aperture','f/2.8')">f/2.8</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-tot-aperture','f/4')">f/4</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-tot-aperture','f/5.6')">f/5.6</div>
-            <div class="aperture-cell selected" onclick="selectAperture('cfg-tot-aperture','f/8')">f/8</div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>ISO</label>
+            <select id="cfg-tot-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+              <option selected>100</option><option>200</option><option>400</option><option>800</option>
+              <option>1600</option><option>3200</option><option>6400</option>
+            </select>
+          </div>
+          <div class="field"><label>Aperture</label>
+            <select id="cfg-tot-aperture">
+              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
+            </select>
           </div>
         </div>
         <div class="grid2">
@@ -3176,27 +3144,6 @@ function getPhaseSpeedSelection(gridId) {
   });
 }
 
-const APERTURES = ['f/2.8', 'f/4', 'f/5.6', 'f/8'];
-
-function selectAperture(gridId, value) {
-  const grid = document.getElementById(gridId);
-  if (!grid) return;
-  grid.querySelectorAll('.aperture-cell').forEach(cell => {
-    cell.classList.toggle('selected', cell.textContent.trim() === value);
-  });
-}
-
-function getApertureSelection(gridId) {
-  const grid = document.getElementById(gridId);
-  if (!grid) return 'f/8';
-  const sel = grid.querySelector('.aperture-cell.selected');
-  return sel ? sel.textContent.trim() : 'f/8';
-}
-
-function setApertureSelection(gridId, value) {
-  selectAperture(gridId, value);
-}
-
 async function loadConfigFileList() {
   try {
     const r = await fetch('/api/configs/list');
@@ -3277,15 +3224,15 @@ function _applyCameraConfig(data) {
   const t  = data.totality     || {};
   if (p.interval)  document.getElementById('cfg-partial-interval').value = p.interval;
   document.getElementById('cfg-partial-iso').value = p.iso || '100';
-  if (p.aperture)  setApertureSelection('cfg-partial-aperture', p.aperture);
+  document.getElementById('cfg-partial-aperture').value = p.aperture || 'f/8';
   initPhaseSpeedsGrid('cfg-partial-speeds', p.speeds || ['1/500']);
   if (dr.duration) document.getElementById('cfg-dr-duration').value = dr.duration;
   if (dr.interval) document.getElementById('cfg-dr-interval').value = dr.interval;
   document.getElementById('cfg-dr-iso').value = dr.iso || '100';
-  if (dr.aperture) setApertureSelection('cfg-dr-aperture', dr.aperture);
+  document.getElementById('cfg-dr-aperture').value = dr.aperture || 'f/8';
   initPhaseSpeedsGrid('cfg-dr-speeds', dr.speeds || ['1/500']);
   document.getElementById('cfg-tot-iso').value = t.iso || '100';
-  if (t.aperture)  setApertureSelection('cfg-tot-aperture', t.aperture);
+  document.getElementById('cfg-tot-aperture').value = t.aperture || 'f/8';
   if (t.speeds)    initSpeedsGrid(t.speeds);
 }
 
@@ -3295,16 +3242,16 @@ function _readCameraConfig() {
   ).map(cb => cb.parentElement.querySelector('label').textContent.trim());
   return {
     _type: 'camera_config',
-    partial:      { aperture: getApertureSelection('cfg-partial-aperture'),
+    partial:      { aperture: document.getElementById('cfg-partial-aperture').value,
                     interval: parseInt(document.getElementById('cfg-partial-interval').value)||180,
                     iso:      document.getElementById('cfg-partial-iso').value,
                     speeds:   getPhaseSpeedSelection('cfg-partial-speeds') },
-    diamond_ring: { aperture: getApertureSelection('cfg-dr-aperture'),
+    diamond_ring: { aperture: document.getElementById('cfg-dr-aperture').value,
                     duration: parseInt(document.getElementById('cfg-dr-duration').value)||40,
                     interval: parseInt(document.getElementById('cfg-dr-interval').value)||4,
                     iso:      document.getElementById('cfg-dr-iso').value,
                     speeds:   getPhaseSpeedSelection('cfg-dr-speeds') },
-    totality:     { aperture: getApertureSelection('cfg-tot-aperture'),
+    totality:     { aperture: document.getElementById('cfg-tot-aperture').value,
                     iso:      document.getElementById('cfg-tot-iso').value,
                     speeds:   totSpeeds }
   };
