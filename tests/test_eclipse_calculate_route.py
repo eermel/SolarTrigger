@@ -126,10 +126,25 @@ def test_eclipse_calculate_invokes_python_calculator_and_updates_state(
 ):
     commands = []
     client, emitted = _prepare_calculation(monkeypatch, tmp_path, commands)
+    timezone_calls = []
+    monkeypatch.setattr(
+        flask_module,
+        "calculate_timezone_from_coords",
+        lambda lat, lon, eclipse_date=None: timezone_calls.append(
+            (lat, lon, eclipse_date)
+        ) or 2.0,
+    )
 
     response = client.post(
         "/api/eclipse/calculate",
-        json={"lat": 43.6, "lon": 1.44, "alt": 150, "tz": 2, "eclipse": "2027-08-02"},
+        json={
+            "lat": 43.6,
+            "lon": 1.44,
+            "alt": 150,
+            "tz": -7,
+            "dst": False,
+            "eclipse": "2027-08-02",
+        },
     )
 
     assert response.status_code == 200
@@ -139,11 +154,21 @@ def test_eclipse_calculate_invokes_python_calculator_and_updates_state(
     assert command[1] == str(flask_module.CALC_SCRIPT)
     assert command[1].endswith("eclipse_calculator_py.py")
     assert all("eclipse_calculator_jubier.py" not in str(arg) for arg in command)
+    assert command[command.index("--tz") + 1] == "2.0"
     assert command[command.index("--date") + 1] == "2027-08-02"
     assert command[command.index("--output") + 1] == str(flask_module.JSON_FILE)
+    assert timezone_calls == [(43.6, 1.44, "2027-08-02")]
     assert flask_module._state["calc_running"] is False
     assert flask_module._state["eclipse"] == {"_date": "2027-08-02"}
-    assert ("eclipse_calculated", {"status": "success", "data": {"_date": "2027-08-02"}}) in emitted
+    assert emitted[0] == ("state_update", {"timezone_override": "UTC+2"})
+    assert (
+        "eclipse_calculated",
+        {
+            "status": "success",
+            "data": {"_date": "2027-08-02"},
+            "timezone_override": "UTC+2",
+        },
+    ) in emitted
 
 
 @pytest.mark.parametrize(
@@ -170,6 +195,11 @@ def test_eclipse_calculate_auto_selects_supported_date(
         flask_module.eclipse_loader,
         "list_supported_eclipses",
         lambda: ["2026-08-12", "2024-04-08"],
+    )
+    monkeypatch.setattr(
+        flask_module,
+        "calculate_timezone_from_coords",
+        lambda _lat, _lon, eclipse_date=None: 2.0,
     )
 
     response = client.post(

@@ -964,9 +964,7 @@ def api_eclipse_calculate():
     lat     = data.get("lat")
     lon     = data.get("lon")
     alt     = data.get("alt", 0)
-    tz      = data.get("tz", 0)
     eclipse = data.get("eclipse", "auto")
-    dst     = data.get("dst", False)   # True = calcul DST automatique
 
     if lat is None or lon is None:
         return jsonify({"error": "lat et lon requis"}), 400
@@ -990,36 +988,24 @@ def api_eclipse_calculate():
     else:
         eclipse_date = eclipse
 
-    # Si DST activé : calculer la vraie timezone à la date de l'éclipse
-    tz_used = tz
-    tz_str_dst = None
-    if dst:
-        try:
-            tz_info = calculate_timezone_from_coords(lat, lon, eclipse_date=eclipse_date)
-            if tz_info is not None:
-                tz_used = tz_info
-                sign = '+' if tz_used >= 0 else ''
-                val  = int(tz_used) if tz_used == int(tz_used) else tz_used
-                tz_str_dst = f"UTC{sign}{val}"
-                _append_log(
-                    f"DST activé → timezone éclipse : {tz_str_dst} "
-                    f"(date éclipse : {eclipse_date or 'auto'})",
-                    "info", "calculator"
-                )
-                # Ne PAS écraser _state["gps"]["timezone"] — c'est la timezone système réelle
-                # tz_str_dst est uniquement pour l'affichage des heures locales dans l'onglet Éclipse
-        except Exception as e:
-            _append_log(f"DST calcul erreur : {e} — timezone manuel utilisé", "warning", "calculator")
+    tz_used = calculate_timezone_from_coords(lat, lon, eclipse_date=eclipse_date)
+    sign = '+' if tz_used >= 0 else ''
+    val = int(tz_used) if tz_used == int(tz_used) else tz_used
+    tz_str_dst = f"UTC{sign}{val}"
+    _append_log(
+        f"Timezone éclipse auto : {tz_str_dst} "
+        f"(date éclipse : {eclipse_date})",
+        "info", "calculator"
+    )
 
     def _run():
         global _calc_proc
-        _append_log(f"▶ calculateur Python : lat={lat} lon={lon} alt={alt} tz=+{tz_used} date={eclipse_date}{' (DST auto)' if dst else ''}", "info", "calculator")
+        _append_log(f"▶ calculateur Python : lat={lat} lon={lon} alt={alt} tz=+{tz_used} date={eclipse_date} (timezone auto)", "info", "calculator")
         with _state_lock:
             _state["calc_running"] = True
 
-        # Émettre la timezone DST au client avant le calcul
-        if tz_str_dst:
-            socketio.emit("state_update", {"timezone_override": tz_str_dst})
+        # Émettre la timezone calculée au client avant le calcul
+        socketio.emit("state_update", {"timezone_override": tz_str_dst})
 
         cmd = [sys.executable, str(CALC_SCRIPT),
                "--lat", str(lat), "--lon", str(lon),
@@ -1053,8 +1039,7 @@ def api_eclipse_calculate():
                 _state["eclipse"] = result
             _save_state()
             payload = {"status": "success", "data": result}
-            if tz_str_dst:
-                payload["timezone_override"] = tz_str_dst
+            payload["timezone_override"] = tz_str_dst
             socketio.emit("eclipse_calculated", payload)
             _append_log("✅ Calcul terminé — todayeclipse.json généré.", "success", "calculator")
         else:
