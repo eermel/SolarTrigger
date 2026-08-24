@@ -47,6 +47,8 @@ def test_api_status_exposes_current_circumstances_and_capture(
 
     assert response.status_code == 200
     payload = response.get_json()
+    assert isinstance(payload["time"]["backend_utc_epoch_ms"], int)
+    assert isinstance(payload["time"]["backend_local_epoch_ms"], int)
     assert payload["circumstances"] == circumstances
     assert payload["capture"] == capture
     assert payload["circumstances"] == state_store.snapshot("circumstances")
@@ -70,7 +72,32 @@ def test_on_connect_status_update_exposes_current_circumstances_and_capture(
 
     assert [event for event, _payload in emitted] == ["status_update"]
     payload = emitted[0][1]
+    assert isinstance(payload["time"]["backend_utc_epoch_ms"], int)
+    assert isinstance(payload["time"]["backend_local_epoch_ms"], int)
     assert payload["circumstances"] == circumstances
     assert payload["capture"] == capture
     assert payload["circumstances"] == state_store.snapshot("circumstances")
     assert payload["capture"] == state_store.snapshot("capture")
+
+
+def test_synced_gps_update_emits_clock_reset_epochs(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(
+        flask_module.socketio,
+        "emit",
+        lambda event, payload, **kwargs: emitted.append((event, payload, kwargs)),
+    )
+
+    flask_module._emit_backend("gps_update", {"synced": True})
+
+    assert [event for event, _payload, _kwargs in emitted] == [
+        "gps_update",
+        "status_update",
+        "clock_reset",
+    ]
+    status_time = emitted[1][1]["time"]
+    clock_reset = emitted[2][1]
+    assert isinstance(clock_reset["new_utc_epoch_ms"], int)
+    assert isinstance(clock_reset["new_local_epoch_ms"], int)
+    assert clock_reset["new_utc_epoch_ms"] == status_time["backend_utc_epoch_ms"]
+    assert clock_reset["new_local_epoch_ms"] == status_time["backend_local_epoch_ms"]

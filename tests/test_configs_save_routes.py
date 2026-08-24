@@ -166,7 +166,13 @@ def test_config_save_overwrites_active_circumstances_and_emits_status(
             {"circumstances": circumstances, "time": emitted[0][1]["time"]},
         )
     ]
-    assert set(emitted[0][1]["time"]) == {"epoch_ms", "local", "utc"}
+    assert set(emitted[0][1]["time"]) == {
+        "epoch_ms",
+        "backend_utc_epoch_ms",
+        "backend_local_epoch_ms",
+        "local",
+        "utc",
+    }
     assert json.loads((configs_dir / filename).read_text(encoding="utf-8")) == data
 
 
@@ -198,5 +204,11 @@ def test_config_save_camera_overwrites_active_capture_and_emits_status(save_rout
     assert emitted == [
         ("status_update", {"capture": capture, "time": emitted[0][1]["time"]})
     ]
-    assert set(emitted[0][1]["time"]) == {"epoch_ms", "local", "utc"}
+    assert set(emitted[0][1]["time"]) == {
+        "epoch_ms",
+        "backend_utc_epoch_ms",
+        "backend_local_epoch_ms",
+        "local",
+        "utc",
+    }
     assert json.loads((configs_dir / filename).read_text(encoding="utf-8")) == data

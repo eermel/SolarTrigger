@@ -1447,6 +1447,18 @@ async function playSound(filename) {
 // ════════════════════════════════════════════════════════════════
 const socket = io({ transports: ['websocket'] });
 
+async function _reanchorClockFromStatus() {
+  try {
+    const response = await fetch('/api/status');
+    if (response.ok) {
+      const status = await response.json();
+      updateTime(status.time);
+    }
+  } catch (e) {
+    console.warn('Impossible de recaler l\'heure depuis le statut:', e);
+  }
+}
+
 socket.on('connect', async () => {
   flash('Connecté au Pi ✓', 'green');
   try {
@@ -1459,6 +1471,7 @@ socket.on('connect', async () => {
     console.warn('Impossible de recaler l\'heure après connexion:', e);
   }
 });
+socket.io.on('reconnect', _reanchorClockFromStatus);
 socket.on('disconnect', () => flash('Déconnecté', 'red'));
 
 socket.on('gps_sync_done', d => {
@@ -1467,14 +1480,7 @@ socket.on('gps_sync_done', d => {
 });
 
 socket.on('clock_reset', d => {
-  // Recharger seulement si la dérive est > 60s (boot sans heure valide)
-  if (!d.new_utc) return;
-  const piMs = new Date(d.new_utc).getTime();
-  const drift = Math.abs(piMs - _nowAdjusted().getTime());
-  if (drift > 60000) {
-    flash('🕐 Heure GPS synchronisée — rechargement…', 'green');
-    setTimeout(() => location.reload(), 2000);
-  }
+  _reanchorClockFromReset(d);
 });
 
 socket.on('status_update', d => {
@@ -1496,8 +1502,18 @@ socket.on('status_update', d => {
   }
 });
 
-socket.on('gps_update', d => updateGPS(d));
+socket.on('gps_update', d => {
+  if (d.synced === true) {
+    if (d.time) updateTime(d.time);
+    else _reanchorClockFromStatus();
+  }
+  updateGPS(d);
+});
 socket.on('trigger_phase', d => updatePhase(d.phase));
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) _reanchorClockFromStatus();
+});
 
 
 socket.on('eclipse_calculated', d => {
@@ -1967,6 +1983,8 @@ socket.on('battery_alert', d => {
 // ════════════════════════════════════════════════════════════════
 // Ancrage recalé à chaque status_update reçu du Pi.
 let _clockAnchorEpochMs = null;
+let _clockAnchorUtcMs = null;
+let _clockAnchorLocalMs = null;
 let _clockAnchorPerfMs = null;
 let _clockInterval = null;
 let _clockSource = 'Pi';
@@ -2015,24 +2033,40 @@ function _isoUtcToConfiguredLocalTime(iso) {
 function _nowAdjusted() {
   // The Pi is the sole time authority. performance.now() is monotonic and is
   // immune to iPad/browser wall-clock or timezone changes after reconnection.
-  return new Date(_clockAnchorEpochMs + (performance.now() - _clockAnchorPerfMs));
+  const utcMs = Number.isFinite(_clockAnchorUtcMs)
+    ? _nowAdjustedUtcMs()
+    : _clockAnchorEpochMs + (performance.now() - _clockAnchorPerfMs);
+  return new Date(utcMs);
+}
+
+function _nowAdjustedUtcMs() {
+  return _clockAnchorUtcMs + (performance.now() - _clockAnchorPerfMs);
+}
+
+function _nowAdjustedLocalMs() {
+  return _clockAnchorLocalMs + (performance.now() - _clockAnchorPerfMs);
 }
 
 function _tickClock() {
+  if (!Number.isFinite(_clockAnchorUtcMs) || !Number.isFinite(_clockAnchorPerfMs)) return;
   const now = _nowAdjusted();
   const utcH = fmt(now.getUTCHours()), utcM = fmt(now.getUTCMinutes()), utcS = fmt(now.getUTCSeconds());
   const utcTime = `${utcH}:${utcM}:${utcS}`;
   const utcDate = now.toISOString().slice(0,10);
-  const offsetH = _getTimezoneOffset();
-  const localMs = now.getTime() + ((offsetH === null ? 0 : offsetH) * 3600000);
-  const localDateObj = new Date(localMs);
-  const locTime = `${fmt(localDateObj.getUTCHours())}:${fmt(localDateObj.getUTCMinutes())}:${fmt(localDateObj.getUTCSeconds())}`;
-  const locDate = localDateObj.toISOString().slice(0,10);
+  const hasLocalAnchor = Number.isFinite(_clockAnchorLocalMs);
+  const localDateObj = hasLocalAnchor ? new Date(_nowAdjustedLocalMs()) : null;
+  const locTime = localDateObj
+    ? `${fmt(localDateObj.getUTCHours())}:${fmt(localDateObj.getUTCMinutes())}:${fmt(localDateObj.getUTCSeconds())}`
+    : '--:--:--';
+  const locDate = localDateObj ? localDateObj.toISOString().slice(0,10) : '---- -- --';
 
   // Header
   const hdrLocal = document.getElementById('hdr-local');
   const hdrUtc   = document.getElementById('hdr-utc');
-  if (hdrLocal) hdrLocal.textContent = locTime;
+  if (hdrLocal) {
+    hdrLocal.textContent = locTime;
+    hdrLocal.style.visibility = hasLocalAnchor ? 'visible' : 'hidden';
+  }
   if (hdrUtc)   hdrUtc.textContent   = utcTime;
 
 // Onglet Statut
@@ -2071,15 +2105,23 @@ function _updateGpsBadge(synced) {
 function updateTime(t) {
   if (!t) return;
   let piMs = null;
-  if (Number.isFinite(t.epoch_ms)) {
+  if (Number.isFinite(t.backend_utc_epoch_ms)) {
+    piMs = t.backend_utc_epoch_ms;
+  } else if (Number.isFinite(t.epoch_ms)) {
     piMs = t.epoch_ms;
-  } else {
-    const utc = t.utc || {};
-    if (utc.iso) piMs = new Date(utc.iso).getTime();
-    else if (utc.time && utc.date) piMs = new Date(`${utc.date}T${utc.time}Z`).getTime();
   }
   if (Number.isFinite(piMs)) {
+    let piLocalMs = null;
+    if (Number.isFinite(t.backend_local_epoch_ms)) {
+      piLocalMs = t.backend_local_epoch_ms;
+    } else if (t.local && typeof t.local.iso === 'string'
+               && /(?:Z|[+-]\d{2}:\d{2})$/i.test(t.local.iso)) {
+      piLocalMs = Date.parse(t.local.iso.replace(/(?:Z|[+-]\d{2}:\d{2})$/i, 'Z'));
+      if (!Number.isFinite(piLocalMs)) piLocalMs = null;
+    }
     _clockAnchorEpochMs = piMs;
+    _clockAnchorUtcMs = piMs;
+    _clockAnchorLocalMs = piLocalMs;
     _clockAnchorPerfMs = performance.now();
     _clockSource = 'Pi';
     _tickClock();
@@ -2087,6 +2129,16 @@ function updateTime(t) {
       _clockInterval = setInterval(_tickClock, 1000);
     }
   }
+}
+
+function _reanchorClockFromReset(payload) {
+  if (!payload
+      || !Number.isFinite(payload.new_utc_epoch_ms)
+      || !Number.isFinite(payload.new_local_epoch_ms)) return;
+  updateTime({
+    backend_utc_epoch_ms: payload.new_utc_epoch_ms,
+    backend_local_epoch_ms: payload.new_local_epoch_ms,
+  });
 }
 
 function updateGPS(gps) {

@@ -178,7 +178,13 @@ def test_trigger_select_updates_persists_and_emits_circumstances(tmp_path, monke
         "data": eclipse_data,
     }
     assert events["status_update"]["circumstances"] == circumstances
-    assert set(events["status_update"]["time"]) == {"epoch_ms", "local", "utc"}
+    assert set(events["status_update"]["time"]) == {
+        "epoch_ms",
+        "backend_utc_epoch_ms",
+        "backend_local_epoch_ms",
+        "local",
+        "utc",
+    }
 
 
 def test_trigger_select_camera_updates_persists_and_emits_capture(tmp_path, monkeypatch):
@@ -234,4 +240,10 @@ def test_trigger_select_camera_updates_persists_and_emits_capture(tmp_path, monk
     event, event_payload = emitted[0]
     assert event == "status_update"
     assert event_payload["capture"] == capture
-    assert set(event_payload["time"]) == {"epoch_ms", "local", "utc"}
+    assert set(event_payload["time"]) == {
+        "epoch_ms",
+        "backend_utc_epoch_ms",
+        "backend_local_epoch_ms",
+        "local",
+        "utc",
+    }

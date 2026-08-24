@@ -81,8 +81,14 @@ def test_frontend_time_authority_does_not_use_browser_wall_clock_offset():
     )
     assert update_time is not None
     update_time_body = update_time.group('body')
+    assert 'Number.isFinite(t.backend_utc_epoch_ms)' in update_time_body
+    assert 'piMs = t.backend_utc_epoch_ms;' in update_time_body
+    assert 'Number.isFinite(t.backend_local_epoch_ms)' in update_time_body
+    assert 'piLocalMs = t.backend_local_epoch_ms;' in update_time_body
     assert 'Number.isFinite(t.epoch_ms)' in update_time_body
     assert '_clockAnchorEpochMs = piMs;' in update_time_body
+    assert '_clockAnchorUtcMs = piMs;' in update_time_body
+    assert '_clockAnchorLocalMs = piLocalMs;' in update_time_body
     assert '_clockAnchorPerfMs = performance.now();' in update_time_body
     assert update_time_body.index('_clockAnchorEpochMs = piMs;') < update_time_body.index(
         '_clockAnchorPerfMs = performance.now();'
@@ -117,6 +123,16 @@ def test_frontend_displays_recompute_time_from_anchor_on_every_refresh():
         r'updateCountdowns\(state\.eclipse\);\s*\},\s*1000\s*\)',
         html,
     )
+
+
+def test_header_clock_does_not_use_browser_locale_or_timezone_offset():
+    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    header_clock = html[
+        html.index('function _tickClock() {'):html.index('function _updateGpsBadge(')
+    ]
+
+    assert not re.search(r'\.toLocaleTimeString\s*\(', header_clock)
+    assert not re.search(r'\.getTimezoneOffset\s*\(', header_clock)
 
 
 def test_frontend_connect_fetches_status_and_reanchors_time():

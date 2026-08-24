@@ -251,6 +251,8 @@ def _time_payload():
     now_utc   = datetime.now(timezone.utc)
     return {
         "epoch_ms": int(now_utc.timestamp() * 1000),
+        "backend_utc_epoch_ms": int(now_utc.timestamp() * 1000),
+        "backend_local_epoch_ms": int(now_local.timestamp() * 1000),
         "local": {
             "time":     now_local.strftime("%H:%M:%S"),
             "date":     now_local.strftime("%Y-%m-%d"),
@@ -813,7 +815,11 @@ def _emit_backend(event, payload):
     if event == "gps_update" and payload.get("synced"):
         new_time = _time_payload()
         socketio.emit("status_update", {"time": new_time, "gps": payload}, namespace="/")
-        socketio.emit("clock_reset", {"new_utc": new_time["utc"]["iso"]}, namespace="/")
+        socketio.emit("clock_reset", {
+            "new_utc": new_time["utc"]["iso"],
+            "new_utc_epoch_ms": new_time["backend_utc_epoch_ms"],
+            "new_local_epoch_ms": new_time["backend_local_epoch_ms"],
+        }, namespace="/")
 
 def _sync_time_backend(gps_time, dry_run=False):
     from gps_sync import sync_system_time
