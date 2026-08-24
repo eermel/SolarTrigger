@@ -1334,7 +1334,7 @@ def api_configs_save_camera():
 
 @app.route("/api/configs/save", methods=["POST"])
 def api_configs_save():
-    """Sauvegarde le contenu courant de todayeclipse.json dans configs/ sous un nouveau nom."""
+    """Sauvegarde le contenu courant de todayeclipse.json sous un nouveau nom."""
     body = request.json or {}
     requested = body.get("filename", "").strip()
     if not requested:
@@ -1354,8 +1354,13 @@ def api_configs_save():
         return jsonify({"error": "Aucune configuration active"}), 400
     try:
         CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
-        destination = CONFIGS_DIR / filename
-        if destination.resolve().parent != CONFIGS_DIR.resolve():
+        destination_dir = (
+            CONFIGS_DIR if filename == "todayeclipse.json"
+            else CONFIGS_DIR / "circumstances"
+        )
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / filename
+        if destination.resolve().parent != destination_dir.resolve():
             return jsonify({"error": "Nom de fichier invalide"}), 400
         filename = destination.resolve().name
         overwriting = destination.exists()

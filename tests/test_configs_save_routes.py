@@ -87,7 +87,12 @@ def test_config_save_new_file_returns_summary_without_state_update(
         "filename": saved_filename,
         "saved": {"filename": saved_filename, "data": data},
     }
-    assert json.loads((configs_dir / saved_filename).read_text(encoding="utf-8")) == data
+    saved_path = (
+        configs_dir / "circumstances" / saved_filename
+        if endpoint == "/api/configs/save"
+        else configs_dir / saved_filename
+    )
+    assert json.loads(saved_path.read_text(encoding="utf-8")) == data
     assert state_store.snapshot() == initial_state
     assert emitted == []
 
@@ -136,7 +141,9 @@ def test_config_save_appends_json_extension(save_routes, monkeypatch):
         "saved": {"filename": "my_eclipse.json", "data": data},
     }
     assert json.loads(
-        (configs_dir / "my_eclipse.json").read_text(encoding="utf-8")
+        (configs_dir / "circumstances" / "my_eclipse.json").read_text(
+            encoding="utf-8"
+        )
     ) == data
     assert state_store.snapshot() == initial_state
     assert emitted == []
@@ -184,9 +191,15 @@ def test_config_save_collision_without_overwrite_returns_409(
     save_routes, monkeypatch, endpoint, filename, body
 ):
     client, configs_dir, state_store, emitted = save_routes
-    configs_dir.mkdir()
+    destination_dir = (
+        configs_dir / "circumstances"
+        if endpoint == "/api/configs/save"
+        else configs_dir
+    )
+    destination_dir.mkdir(parents=True)
     original = {"original": True}
-    (configs_dir / filename).write_text(json.dumps(original), encoding="utf-8")
+    destination = destination_dir / filename
+    destination.write_text(json.dumps(original), encoding="utf-8")
     if endpoint == "/api/configs/save":
         monkeypatch.setattr(
             flask_module, "_load_eclipse_json", lambda: {"replacement": True}
@@ -200,7 +213,7 @@ def test_config_save_collision_without_overwrite_returns_409(
         "error": "Le fichier existe déjà",
         "filename": filename,
     }
-    assert json.loads((configs_dir / filename).read_text(encoding="utf-8")) == original
+    assert json.loads(destination.read_text(encoding="utf-8")) == original
     assert state_store.snapshot() == initial_state
     assert emitted == []
 
