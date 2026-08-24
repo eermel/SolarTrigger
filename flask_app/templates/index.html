@@ -1447,6 +1447,18 @@ async function playSound(filename) {
 // ════════════════════════════════════════════════════════════════
 const socket = io({ transports: ['websocket'] });
 
+async function _reanchorClockFromStatus() {
+  try {
+    const response = await fetch('/api/status');
+    if (response.ok) {
+      const status = await response.json();
+      updateTime(status.time);
+    }
+  } catch (e) {
+    console.warn('Impossible de recaler l\'heure depuis le statut:', e);
+  }
+}
+
 socket.on('connect', async () => {
   flash('Connecté au Pi ✓', 'green');
   try {
@@ -1459,6 +1471,7 @@ socket.on('connect', async () => {
     console.warn('Impossible de recaler l\'heure après connexion:', e);
   }
 });
+socket.io.on('reconnect', _reanchorClockFromStatus);
 socket.on('disconnect', () => flash('Déconnecté', 'red'));
 
 socket.on('gps_sync_done', d => {
@@ -1490,10 +1503,17 @@ socket.on('status_update', d => {
 });
 
 socket.on('gps_update', d => {
-  if (d.synced) _reanchorClockFromReset(d);
+  if (d.synced === true) {
+    if (d.time) updateTime(d.time);
+    else _reanchorClockFromStatus();
+  }
   updateGPS(d);
 });
 socket.on('trigger_phase', d => updatePhase(d.phase));
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) _reanchorClockFromStatus();
+});
 
 
 socket.on('eclipse_calculated', d => {
