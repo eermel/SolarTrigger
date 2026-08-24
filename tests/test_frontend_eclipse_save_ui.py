@@ -70,9 +70,7 @@ if (
 import flask_app.app as flask_module
 
 
-def test_save_circumstances_controls_are_unique_and_before_observation_location(
-    monkeypatch,
-):
+def _render_index(monkeypatch):
     monkeypatch.setattr(
         flask_module,
         "send_from_directory",
@@ -84,9 +82,14 @@ def test_save_circumstances_controls_are_unique_and_before_observation_location(
 
     assert response.status_code == 200
     if hasattr(response, "get_data"):
-        html = response.get_data(as_text=True)
-    else:
-        html = response.get_json()
+        return response.get_data(as_text=True)
+    return response.get_json()
+
+
+def test_save_circumstances_controls_are_unique_and_before_observation_location(
+    monkeypatch,
+):
+    html = _render_index(monkeypatch)
 
     save_title = '<div class="card-title">Save circumstances</div>'
     observation_title = '<div class="card-title">Observation location</div>'
@@ -110,3 +113,31 @@ def test_save_circumstances_controls_are_unique_and_before_observation_location(
     assert html.count(filename_label) == 1
     assert len(re.findall(r'id=["\']eclipse-save-filename["\']', html)) == 1
     assert html.count('onclick="saveEclipseConfig()"') == 1
+
+
+def test_eclipse_save_prefix_uses_backend_date_and_calculation_event(monkeypatch):
+    html = _render_index(monkeypatch)
+
+    prefix_function = re.search(
+        r"function updateEclipseSaveFilename\(eclipseData\) \{(.*?)\n\}",
+        html,
+        re.DOTALL,
+    )
+
+    assert prefix_function is not None
+    prefix_logic = prefix_function.group(1)
+    assert "eclipseData._date || eclipseData._date_utc" in prefix_logic
+    assert "_Circonstances_" in prefix_logic
+    assert "new Date(" not in prefix_logic
+    assert "Date()" not in prefix_logic
+    assert "input.value.startsWith(_eclipseSavePrefix)" in prefix_logic
+    assert "input.value.slice(_eclipseSavePrefix.length)" in prefix_logic
+
+    calculated_handler = re.search(
+        r"socket\.on\('eclipse_calculated', d => \{(.*?)\n\}\);",
+        html,
+        re.DOTALL,
+    )
+    assert calculated_handler is not None
+    assert "d.status === 'success' && d.data" in calculated_handler.group(1)
+    assert "updateEclipseSaveFilename(d.data)" in calculated_handler.group(1)
