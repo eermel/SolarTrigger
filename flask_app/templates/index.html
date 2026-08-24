@@ -3219,41 +3219,89 @@ async function loadCameraConfig(filename) {
 }
 
 function _applyCameraConfig(data) {
-  const p  = data.partial      || {};
-  const dr = data.diamond_ring || {};
-  const t  = data.totality     || {};
-  if (p.interval)  document.getElementById('cfg-partial-interval').value = p.interval;
-  document.getElementById('cfg-partial-iso').value = p.iso || '100';
-  document.getElementById('cfg-partial-aperture').value = p.aperture || 'f/8';
-  initPhaseSpeedsGrid('cfg-partial-speeds', p.speeds || ['1/500']);
-  if (dr.duration) document.getElementById('cfg-dr-duration').value = dr.duration;
-  if (dr.interval) document.getElementById('cfg-dr-interval').value = dr.interval;
-  document.getElementById('cfg-dr-iso').value = dr.iso || '100';
-  document.getElementById('cfg-dr-aperture').value = dr.aperture || 'f/8';
-  initPhaseSpeedsGrid('cfg-dr-speeds', dr.speeds || ['1/500']);
-  document.getElementById('cfg-tot-iso').value = t.iso || '100';
-  document.getElementById('cfg-tot-aperture').value = t.aperture || 'f/8';
-  if (t.speeds)    initSpeedsGrid(t.speeds);
+  const phases = data.phases || {};
+  const phaseData = {
+    partial: phases.partial || data.partial || {},
+    diamond_ring: phases.diamond_ring || data.diamond_ring || {},
+    totality: phases.totality || data.totality || {}
+  };
+
+  const p = phaseData.partial;
+  const dr = phaseData.diamond_ring;
+  if (p.interval_s != null || p.interval != null) {
+    document.getElementById('cfg-partial-interval').value = p.interval_s ?? p.interval;
+  }
+  if (dr.duration_s != null || dr.duration != null) {
+    document.getElementById('cfg-dr-duration').value = dr.duration_s ?? dr.duration;
+  }
+  if (dr.interval_s != null || dr.interval != null) {
+    document.getElementById('cfg-dr-interval').value = dr.interval_s ?? dr.interval;
+  }
+
+  const legacySingleSpeeds = {
+    partial: data.shutterspeed_partial,
+    diamond_ring: data.shutterspeed_diamondring
+  };
+  Object.entries(phaseData).forEach(([phase, values]) => {
+    const prefix = phase === 'partial' ? 'partial' : phase === 'diamond_ring' ? 'dr' : 'tot';
+    document.getElementById(`cfg-${prefix}-iso`).value = values.iso ?? '100';
+    document.getElementById(`cfg-${prefix}-aperture`).value = values.aperture ?? 'f/8';
+
+    if (values.shutter_min != null && values.shutter_max != null) {
+      _setShutterBounds(prefix, values.shutter_min, values.shutter_max);
+      return;
+    }
+    if (legacySingleSpeeds[phase] != null) {
+      _setShutterBounds(prefix, legacySingleSpeeds[phase], legacySingleSpeeds[phase]);
+      return;
+    }
+    if (Array.isArray(values.speeds) && values.speeds.length) {
+      _setLegacyShutterBounds(prefix, values.speeds);
+    }
+  });
+}
+
+function _setShutterBounds(prefix, slowest, fastest) {
+  document.getElementById(`cfg-${prefix}-shutter-min`).value = String(slowest);
+  document.getElementById(`cfg-${prefix}-shutter-max`).value = String(fastest);
+}
+
+function _setLegacyShutterBounds(prefix, speeds) {
+  const select = document.getElementById(`cfg-${prefix}-shutter-min`);
+  const canonicalOrder = Array.from(select.options, option => option.value);
+  const ordered = speeds
+    .map(String)
+    .filter(speed => canonicalOrder.includes(speed))
+    .sort((a, b) => canonicalOrder.indexOf(a) - canonicalOrder.indexOf(b));
+  if (ordered.length) {
+    _setShutterBounds(prefix, ordered[0], ordered[ordered.length - 1]);
+  }
 }
 
 function _readCameraConfig() {
-  const totSpeeds = Array.from(
-    document.querySelectorAll('#totality-speeds-grid .speed-cell input:checked')
-  ).map(cb => cb.parentElement.querySelector('label').textContent.trim());
+  const phase = (prefix, interval_s, duration_s) => ({
+    iso: parseInt(document.getElementById(`cfg-${prefix}-iso`).value, 10),
+    aperture: document.getElementById(`cfg-${prefix}-aperture`).value,
+    shutter_min: document.getElementById(`cfg-${prefix}-shutter-min`).value,
+    shutter_max: document.getElementById(`cfg-${prefix}-shutter-max`).value,
+    step_ev: 1.0,
+    enabled: true,
+    interval_s,
+    duration_s
+  });
   return {
-    _type: 'camera_config',
-    partial:      { aperture: document.getElementById('cfg-partial-aperture').value,
-                    interval: parseInt(document.getElementById('cfg-partial-interval').value)||180,
-                    iso:      document.getElementById('cfg-partial-iso').value,
-                    speeds:   getPhaseSpeedSelection('cfg-partial-speeds') },
-    diamond_ring: { aperture: document.getElementById('cfg-dr-aperture').value,
-                    duration: parseInt(document.getElementById('cfg-dr-duration').value)||40,
-                    interval: parseInt(document.getElementById('cfg-dr-interval').value)||4,
-                    iso:      document.getElementById('cfg-dr-iso').value,
-                    speeds:   getPhaseSpeedSelection('cfg-dr-speeds') },
-    totality:     { aperture: document.getElementById('cfg-tot-aperture').value,
-                    iso:      document.getElementById('cfg-tot-iso').value,
-                    speeds:   totSpeeds }
+    schema_version: 2,
+    kind: 'capture_execution',
+    phases: {
+      partial: phase('partial', parseInt(document.getElementById('cfg-partial-interval').value, 10), null),
+      diamond_ring: phase(
+        'dr',
+        parseInt(document.getElementById('cfg-dr-interval').value, 10),
+        parseInt(document.getElementById('cfg-dr-duration').value, 10)
+      ),
+      totality: phase('tot', 0, null)
+    },
+    exposure_correction: { atmospheric_attenuation_enabled: false }
   };
 }
 
