@@ -10,19 +10,21 @@ class GpsController:
         self.log = log_fn; self.emit = emit_fn
         self._lock = threading.Lock(); self._thread = None
 
-    def start(self, timeout_s=60.0):
+    def start(self, timeout_s=60.0, mode="time_location"):
         with self._lock:
             if self._thread and self._thread.is_alive(): return False
             self.state.update_section("gps", {"gps_sync_running": True})
             self.state.set("gps_sync_running", True)
-            self._thread = threading.Thread(target=self._run, args=(timeout_s,),
+            self._thread = threading.Thread(target=self._run, args=(timeout_s, mode),
                                             name="gps-operator-sync", daemon=True)
             self._thread.start(); return True
 
-    def _run(self, timeout_s):
+    def _run(self, timeout_s, mode="time_location"):
         synced = False
         self.log("▶ Acquisition GPS demandée par l'opérateur…", "gps", "gps_sync")
         try:
+            if mode not in {"time_location", "time_only", "location_only"}:
+                raise ValueError(f"Mode GPS inconnu : {mode}")
             from services.gps_service import GpsService
             cfg = json.loads(self.config_file.read_text(encoding="utf-8"))
             service = GpsService.from_config(cfg, log_fn=lambda m: self.log(str(m), "gps", "gps_sync"))
@@ -34,31 +36,46 @@ class GpsController:
                      f"alt={pos.altitude_m if pos.altitude_m is not None else 0.0:.1f} "
                      f"sats={pos.satellites or 0} hdop={pos.hdop if pos.hdop is not None else 'n/a'}",
                      "gps", "gps_sync")
-            if not self.time_sync_fn(snap.gps_time, dry_run=False):
-                raise RuntimeError("Échec de synchronisation de l'heure système")
-            tz_offset = self.timezone_fn(pos.latitude, pos.longitude, eclipse_date=None)
-            utc_offset_minutes = round(tz_offset * 60)
-            try:
-                from timezonefinder import TimezoneFinder
-                timezone_name = TimezoneFinder().timezone_at(
-                    lat=pos.latitude, lng=pos.longitude)
-            except Exception:
-                timezone_name = None
-            tz_str = f"UTC{tz_offset:+g}"
-            gps_snap = self.state.update_section("gps", {
-                "connected": False, "synced": True,
-                "lat": round(pos.latitude, 6), "lon": round(pos.longitude, 6),
-                "alt": round(pos.altitude_m, 1) if pos.altitude_m is not None else None,
-                "satellites": pos.satellites or 0,
-                "hdop": round(pos.hdop, 2) if pos.hdop is not None else None,
-                "date": snap.gps_time.strftime("%Y-%m-%d"),
-                "sync_time": datetime.now(timezone.utc).isoformat(), "timezone": tz_str,
-                "timezone_name": timezone_name,
-                "utc_offset_minutes": utc_offset_minutes,
-                "gps_sync_running": False,
-            })
+            values = {"gps_sync_running": False}
+            if mode in {"time_location", "time_only"}:
+                if not self.time_sync_fn(snap.gps_time, dry_run=False):
+                    raise RuntimeError("Échec de synchronisation de l'heure système")
+                values.update({
+                    "synced": True,
+                    "sync_time": datetime.now(timezone.utc).isoformat(),
+                })
+            if mode in {"time_location", "location_only"}:
+                tz_offset = self.timezone_fn(
+                    pos.latitude, pos.longitude, eclipse_date=None)
+                utc_offset_minutes = round(tz_offset * 60)
+                try:
+                    from timezonefinder import TimezoneFinder
+                    timezone_name = TimezoneFinder().timezone_at(
+                        lat=pos.latitude, lng=pos.longitude)
+                except Exception:
+                    timezone_name = None
+                tz_str = f"UTC{tz_offset:+g}"
+                values.update({
+                    "lat": round(pos.latitude, 6),
+                    "lon": round(pos.longitude, 6),
+                    "alt": round(pos.altitude_m, 1) if pos.altitude_m is not None else None,
+                    "satellites": pos.satellites or 0,
+                    "hdop": round(pos.hdop, 2) if pos.hdop is not None else None,
+                    "date": snap.gps_time.strftime("%Y-%m-%d"),
+                    "timezone": tz_str,
+                    "timezone_name": timezone_name,
+                    "utc_offset_minutes": utc_offset_minutes,
+                })
+            if mode == "time_location":
+                values["connected"] = False
+            gps_snap = self.state.update_section("gps", values)
             self.state.set("gps_sync_running", False); self.state.save(); synced = True
-            self.log(f"✅ GPS synchronisé — {tz_str}", "success", "gps_sync")
+            if mode == "time_only":
+                self.log("✅ Heure GPS synchronisée", "success", "gps_sync")
+            elif mode == "location_only":
+                self.log(f"✅ Position GPS acquise — {tz_str}", "success", "gps_sync")
+            else:
+                self.log(f"✅ GPS synchronisé — {tz_str}", "success", "gps_sync")
             self.emit("gps_update", gps_snap)
         except Exception as exc:
             self.log(f"❌ GPS : {exc}", "error", "gps_sync")

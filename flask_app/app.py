@@ -832,14 +832,26 @@ _gps_controller = GpsController(
     time_sync_fn=_sync_time_backend, log_fn=_append_log, emit_fn=_emit_backend)
 
 @app.route("/api/gps/sync", methods=["POST"])
+@app.route("/api/gps/sync_time_location", methods=["POST"])
 def api_gps_sync():
+    return _start_gps_sync("time_location")
+
+@app.route("/api/gps/sync_time", methods=["POST"])
+def api_gps_sync_time():
+    return _start_gps_sync("time_only")
+
+@app.route("/api/gps/get_location", methods=["POST"])
+def api_gps_get_location():
+    return _start_gps_sync("location_only")
+
+def _start_gps_sync(mode):
     inactive = require_device_active("gps")
     if inactive is not None:
         return inactive
     trigger_state = _state_store.snapshot("trigger") or {}
     if trigger_state.get("running"):
         return jsonify({"error": "Synchronisation GPS interdite pendant un trigger actif.", "code": "TRIGGER_RUNNING"}), 409
-    if not _gps_controller.start(timeout_s=60.0):
+    if not _gps_controller.start(timeout_s=60.0, mode=mode):
         return jsonify({"error": "Synchronisation GPS déjà en cours."}), 409
     return jsonify({"status": "started"})
 
