@@ -2,7 +2,7 @@
 <!-- SolarEclipse Portal — index.html
      Version : 5.1.02
      Date    : 2026-03-18 -->
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -457,35 +457,6 @@ header {
   pointer-events: none;
   white-space: nowrap;
 }
-/* ── OUVERTURES : style radio sans checkbox ── */
-.aperture-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 7px 4px;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-dim);
-  transition: all 0.2s;
-  cursor: pointer;
-  text-align: center;
-  user-select: none;
-}
-.aperture-cell:hover {
-  background: rgba(74,158,255,0.05);
-  border-color: var(--blue);
-  color: var(--text);
-}
-.aperture-cell.selected {
-  background: rgba(61,220,132,0.12);
-  border-color: var(--green);
-  color: var(--green);
-  font-weight: 700;
-}
 /* ── SONS ── */
 .sound-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .sound-btn {
@@ -603,7 +574,7 @@ header {
   <!-- HEADER -->
   <header>
 <div class="header-logo">
-  SOLAR<br><span>ECLIPSE</span>
+  SOLAR<br><span>ÉCLIPSE</span>
   <span id="hdr-gps-badge" style="font-size:8px;letter-spacing:.08em;padding:2px 5px;border-radius:4px;background:rgba(90,122,154,.2);color:var(--text-dim);border:1px solid var(--border);margin-left:10px">NO SYNC</span>
 </div>    
 <div id="header-time">
@@ -620,7 +591,7 @@ header {
 </div>
     <div id="header-status">
       <div class="dot" id="dot-gps"    title="GPS"></div>
-      <div class="dot" id="dot-camera" title="Caméra"></div>
+      <div class="dot" id="dot-camera" title="Camera"></div>
       <div class="dot" id="dot-trigger" title="Trigger"></div>
     </div>
   </header>
@@ -661,7 +632,7 @@ header {
 
     <div class="page active" id="devices-panel">
       <div class="card">
-        <div class="card-title">Sélection des périphériques</div>
+        <div class="card-title">Device selection</div>
         <div id="devices-list" style="display:flex;flex-direction:column;gap:10px"></div>
       </div>
       <button class="btn btn-primary btn-full" id="devices-rescan" onclick="rescanDevices()">
@@ -674,7 +645,7 @@ header {
 
       <!-- Heure + Date -->
       <div class="card">
-        <div class="card-title">Horloge système</div>
+        <div class="card-title">System clock</div>
          <div class="stat">
             <div style="display:flex;align-items:center;gap:12px;font-family:var(--mono);font-size:16px">
             <span class="stat-value blue" style="color:var(--text-dim);font-size:14px">Date:</span>
@@ -686,7 +657,7 @@ header {
             <span class="stat-value blue" id="sys-time-utc">--:--:--</span>
             <span style="color:var(--text-dim);font-size:14px">Timezone:</span>
             <span class="stat-value blue" id="sys-timezone" style="font-size:14px">UTC+1</span>
-            <span style="color:var(--text-dim);font-size:14px">Heure Locale:</span>
+            <span style="color:var(--text-dim);font-size:14px">Local time:</span>
             <span class="stat-value orange" id="sys-time-local">--:--:--</span>
           </div>
          </div>
@@ -731,7 +702,7 @@ header {
 
       <!-- Formulaire coordonnées -->
       <div class="card">
-        <div class="card-title">Position d'observation</div>
+        <div class="card-title">Observation location</div>
         <div style="display:flex;flex-direction:column;gap:10px">
           <div class="grid2">
             <div class="field">
@@ -749,16 +720,16 @@ header {
               <input type="number" id="inp-alt" placeholder="80" step="1">
             </div>
             <div class="field">
-              <label>Fuseau UTC+</label>
+              <label>Time zone UTC+</label>
               <input type="number" id="inp-tz" placeholder="0" step="1" value="0">
             </div>
           </div>
           <div class="field">
-            <label>Éclipse</label>
+            <label>Eclipse</label>
             <select id="inp-eclipse">
-              <option value="auto">Auto (prochaine)</option>
-              <option value="2026-08-12">2026-08-12 — Espagne</option>
-              <option value="2027-08-02">2027-08-02 — Égypte / Louxor</option>
+              <option value="auto">Auto (next)</option>
+              <option value="2026-08-12">2026-08-12 — Spain</option>
+              <option value="2027-08-02">2027-08-02 — Egypt / Luxor</option>
               <option value="2028-07-22">2028-07-22</option>
               <option value="2030-11-25">2030-11-25</option>
               <option value="2034-03-20">2034-03-20</option>
@@ -768,9 +739,9 @@ header {
           <div style="display:flex;align-items:center;gap:8px;padding:6px 2px">
             <input type="checkbox" id="inp-dst" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
             <label for="inp-dst" style="font-size:12px;color:var(--text-dim);cursor:pointer;user-select:none">
-              Appliquer heure d'été / hiver automatiquement (DST)
+              Apply daylight saving time automatically (DST)
               <span style="font-size:10px;color:var(--text-dim);font-family:var(--mono);display:block;margin-top:1px">
-                Calcul DST basé sur les coordonnées et la date de l'éclipse — ignore le fuseau saisi.
+                DST is calculated from the coordinates and eclipse date, ignoring the entered time zone.
               </span>
             </label>
           </div>
@@ -784,20 +755,20 @@ header {
 
       <!-- Circonstances — résultats Jubier -->
       <div class="card" id="contacts-card" style="display:none">
-        <div class="card-title">Circonstances</div>
+        <div class="card-title">Circumstances</div>
         <div class="contacts" id="contacts-list"></div>
         <div class="sep" style="margin:10px 0"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
           <div class="stat">
-            <div class="stat-label">Durée totalité</div>
+            <div class="stat-label">Totality duration</div>
             <div class="stat-value green" id="eclipse-duration">--</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Type éclipse</div>
+            <div class="stat-label">Eclipse type</div>
             <div class="stat-value" id="eclipse-type2" style="color:var(--blue)">--</div>
           </div>
           <div class="stat">
-            <div class="stat-label">Type pos. GPS</div>
+            <div class="stat-label">GPS position type</div>
             <div class="stat-value" id="eclipse-type-gps" style="color:var(--orange)">--</div>
           </div>
         </div>
@@ -814,11 +785,11 @@ header {
           <!-- Ligne 1 : C1 + C2 -->
           <div class="grid2">
             <div class="field">
-              <label>C1 — 1er contact</label>
+              <label>C1 — First contact</label>
               <input type="text" id="man-C1" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
             </div>
             <div class="field">
-              <label>C2 — Début totalité</label>
+              <label>C2 — Start of totality</label>
               <input type="text" id="man-C2" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
             </div>
           </div>
@@ -828,7 +799,7 @@ header {
             <div class="field" style="width:50%;min-width:160px">
               <label style="display:flex;align-items:center;gap:6px">
                 TMAX — Maximum
-                <span style="font-size:9px;color:var(--text-dim);font-family:var(--mono)">(calculé)</span>
+                <span style="font-size:9px;color:var(--text-dim);font-family:var(--mono)">(calculated)</span>
               </label>
               <input type="text" id="man-TMAX" placeholder="--:--:--.---"
                      readonly style="background:var(--bg2);color:var(--accent);cursor:default;
@@ -839,11 +810,11 @@ header {
           <!-- Ligne 3 : C3 + C4 -->
           <div class="grid2">
             <div class="field">
-              <label>C3 — Fin totalité</label>
+              <label>C3 — End of totality</label>
               <input type="text" id="man-C3" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
             </div>
             <div class="field">
-              <label>C4 — 4e contact</label>
+              <label>C4 — Fourth contact</label>
               <input type="text" id="man-C4" placeholder="--:--:--.---" pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?" style="color:var(--blue)">
             </div>
           </div>
@@ -874,7 +845,7 @@ header {
 
       <!-- ── CARD 1 : Charger / Sauvegarder ── -->
       <div class="card">
-        <div class="card-title">Configuration appareil photo</div>
+        <div class="card-title">Camera configuration</div>
         <div style="display:flex;gap:6px">
           <select id="camera-config-select" style="flex:1;background:var(--bg3);border:1px solid var(--border);
             border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
@@ -888,84 +859,96 @@ header {
 
       <!-- ── CARD 2 : Phase Partielle ── -->
       <div class="card">
-        <div class="card-title" style="color:var(--purple)">☀ PARTIELLE</div>
+        <div class="card-title" style="color:var(--purple)">☀ PARTIAL PHASE</div>
         <div class="grid2" style="margin-bottom:8px">
-          <div class="field"><label>INTERVALLE (S)</label>
+          <div class="field"><label>INTERVAL (S)</label>
             <input type="number" id="cfg-partial-interval" value="180" step="1" min="1">
           </div>
+        </div>
+        <div class="grid2" style="margin-bottom:8px">
           <div class="field"><label>ISO</label>
             <select id="cfg-partial-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
               <option selected>100</option><option>200</option><option>400</option><option>800</option>
               <option>1600</option><option>3200</option><option>6400</option>
             </select>
           </div>
-        </div>
-        <div class="field" style="margin-bottom:8px"><label>OUVERTURE</label>
-          <div id="cfg-partial-aperture" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px">
-            <div class="aperture-cell" onclick="selectAperture('cfg-partial-aperture','f/2.8')">f/2.8</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-partial-aperture','f/4')">f/4</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-partial-aperture','f/5.6')">f/5.6</div>
-            <div class="aperture-cell selected" onclick="selectAperture('cfg-partial-aperture','f/8')">f/8</div>
+          <div class="field"><label>Aperture</label>
+            <select id="cfg-partial-aperture">
+              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
+            </select>
           </div>
         </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-dim)">VITESSES BRACKET (PLUSIEURS POSSIBLES)</label>
-          <div id="cfg-partial-speeds" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px"></div>
+        <div class="grid2">
+          <div class="field"><label>Minimum shutter speed (slowest)</label>
+            <select id="cfg-partial-shutter-min"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+          <div class="field"><label>Maximum shutter speed (fastest)</label>
+            <select id="cfg-partial-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
         </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
       </div>
 
       <!-- ── CARD 3 : Phase Diamond Ring ── -->
       <div class="card">
-        <div class="card-title" style="color:var(--accent)">💎 DIAMOND RING <small style="font-size:10px;opacity:.7">(avant C2 / après C3)</small></div>
+        <div class="card-title" style="color:var(--accent)">💎 DIAMOND RING <small style="font-size:10px;opacity:.7">(before C2 / after C3)</small></div>
         <div class="grid2" style="margin-bottom:8px">
-          <div class="field"><label>DURÉE TOTALE (S)</label>
+          <div class="field"><label>TOTAL DURATION (S)</label>
             <input type="number" id="cfg-dr-duration" value="40" step="1" min="1">
           </div>
-          <div class="field"><label>INTERVALLE (S)</label>
+          <div class="field"><label>INTERVAL (S)</label>
             <input type="number" id="cfg-dr-interval" value="4" step="1" min="1">
           </div>
         </div>
-        <div class="field" style="margin-bottom:8px"><label>ISO</label>
-          <select id="cfg-dr-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
-            <option selected>100</option><option>200</option><option>400</option><option>800</option>
-            <option>1600</option><option>3200</option><option>6400</option>
-          </select>
-        </div>
-        <div class="field" style="margin-bottom:8px"><label>OUVERTURE</label>
-          <div id="cfg-dr-aperture" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px">
-            <div class="aperture-cell" onclick="selectAperture('cfg-dr-aperture','f/2.8')">f/2.8</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-dr-aperture','f/4')">f/4</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-dr-aperture','f/5.6')">f/5.6</div>
-            <div class="aperture-cell selected" onclick="selectAperture('cfg-dr-aperture','f/8')">f/8</div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>ISO</label>
+            <select id="cfg-dr-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+              <option selected>100</option><option>200</option><option>400</option><option>800</option>
+              <option>1600</option><option>3200</option><option>6400</option>
+            </select>
+          </div>
+          <div class="field"><label>Aperture</label>
+            <select id="cfg-dr-aperture">
+              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
+            </select>
           </div>
         </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-dim)">VITESSES BRACKET (PLUSIEURS POSSIBLES)</label>
-          <div id="cfg-dr-speeds" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px"></div>
+        <div class="grid2">
+          <div class="field"><label>Minimum shutter speed (slowest)</label>
+            <select id="cfg-dr-shutter-min"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+          <div class="field"><label>Maximum shutter speed (fastest)</label>
+            <select id="cfg-dr-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000" selected>1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
         </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
       </div>
 
       <!-- ── CARD 4 : Phase Totalité ── -->
       <div class="card">
-        <div class="card-title" style="color:var(--green)">🌑 TOTALITÉ</div>
-        <div class="field" style="margin-bottom:8px"><label>ISO</label>
-          <select id="cfg-tot-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
-            <option selected>100</option><option>200</option><option>400</option><option>800</option>
-            <option>1600</option><option>3200</option><option>6400</option>
-          </select>
-        </div>
-        <div class="field" style="margin-bottom:8px"><label>OUVERTURE</label>
-          <div id="cfg-tot-aperture" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px">
-            <div class="aperture-cell" onclick="selectAperture('cfg-tot-aperture','f/2.8')">f/2.8</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-tot-aperture','f/4')">f/4</div>
-            <div class="aperture-cell" onclick="selectAperture('cfg-tot-aperture','f/5.6')">f/5.6</div>
-            <div class="aperture-cell selected" onclick="selectAperture('cfg-tot-aperture','f/8')">f/8</div>
+        <div class="card-title" style="color:var(--green)">🌑 TOTALITY</div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>ISO</label>
+            <select id="cfg-tot-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+              <option selected>100</option><option>200</option><option>400</option><option>800</option>
+              <option>1600</option><option>3200</option><option>6400</option>
+            </select>
+          </div>
+          <div class="field"><label>Aperture</label>
+            <select id="cfg-tot-aperture">
+              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
+            </select>
           </div>
         </div>
-        <div>
-          <label style="font-size:11px;color:var(--text-dim)">VITESSES BRACKET — ORDRE RAPIDE → LENT → RAPIDE</label>
-          <div id="totality-speeds-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:4px;margin-bottom:8px"></div>
+        <div class="grid2">
+          <div class="field"><label>Minimum shutter speed (slowest)</label>
+            <select id="cfg-tot-shutter-min"><option value="8">8s</option><option value="4" selected>4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+          <div class="field"><label>Maximum shutter speed (fastest)</label>
+            <select id="cfg-tot-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000" selected>1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
         </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
       </div>
 
     </div><!-- /page-2 CFG PHOTO -->
@@ -1042,11 +1025,11 @@ header {
 
           <div class="grid2" style="margin-top:12px">
             <div class="field">
-              <label for="focuser-step-slow">PAS LENT</label>
+              <label for="focuser-step-slow">SLOW STEP</label>
               <input type="number" id="focuser-step-slow" min="1" value="80">
             </div>
             <div class="field">
-              <label for="focuser-step-fast">PAS RAPIDE</label>
+              <label for="focuser-step-fast">FAST STEP</label>
               <div class="focuser-mode-switch"><input type="number" id="focuser-step-fast" min="1" value="800"><label for="focuser-speed-switch">Slow</label><input type="checkbox" id="focuser-speed-switch" data-focuser-control="speed-switch" role="switch" aria-label="Focuser speed mode"><label for="focuser-speed-switch">Fast</label></div>
             </div>
           </div>
@@ -2316,9 +2299,6 @@ function _calcTmax(c1, c2, c3, c4) {
 function computeTmilieu() {}
 
 document.addEventListener('DOMContentLoaded', () => {
-  initSpeedsGrid();
-  initPhaseSpeedsGrid('cfg-partial-speeds', ['1/500']);
-  initPhaseSpeedsGrid('cfg-dr-speeds', ['1/500','1/1000','1/2000']);
   // Forcer ISO à 100 par défaut (le selected HTML n'est pas toujours respecté sur éléments cachés)
   document.getElementById('cfg-partial-iso').value = '100';
   document.getElementById('cfg-dr-iso').value      = '100';
@@ -3164,27 +3144,6 @@ function getPhaseSpeedSelection(gridId) {
   });
 }
 
-const APERTURES = ['f/2.8', 'f/4', 'f/5.6', 'f/8'];
-
-function selectAperture(gridId, value) {
-  const grid = document.getElementById(gridId);
-  if (!grid) return;
-  grid.querySelectorAll('.aperture-cell').forEach(cell => {
-    cell.classList.toggle('selected', cell.textContent.trim() === value);
-  });
-}
-
-function getApertureSelection(gridId) {
-  const grid = document.getElementById(gridId);
-  if (!grid) return 'f/8';
-  const sel = grid.querySelector('.aperture-cell.selected');
-  return sel ? sel.textContent.trim() : 'f/8';
-}
-
-function setApertureSelection(gridId, value) {
-  selectAperture(gridId, value);
-}
-
 async function loadConfigFileList() {
   try {
     const r = await fetch('/api/configs/list');
@@ -3260,41 +3219,89 @@ async function loadCameraConfig(filename) {
 }
 
 function _applyCameraConfig(data) {
-  const p  = data.partial      || {};
-  const dr = data.diamond_ring || {};
-  const t  = data.totality     || {};
-  if (p.interval)  document.getElementById('cfg-partial-interval').value = p.interval;
-  document.getElementById('cfg-partial-iso').value = p.iso || '100';
-  if (p.aperture)  setApertureSelection('cfg-partial-aperture', p.aperture);
-  initPhaseSpeedsGrid('cfg-partial-speeds', p.speeds || ['1/500']);
-  if (dr.duration) document.getElementById('cfg-dr-duration').value = dr.duration;
-  if (dr.interval) document.getElementById('cfg-dr-interval').value = dr.interval;
-  document.getElementById('cfg-dr-iso').value = dr.iso || '100';
-  if (dr.aperture) setApertureSelection('cfg-dr-aperture', dr.aperture);
-  initPhaseSpeedsGrid('cfg-dr-speeds', dr.speeds || ['1/500']);
-  document.getElementById('cfg-tot-iso').value = t.iso || '100';
-  if (t.aperture)  setApertureSelection('cfg-tot-aperture', t.aperture);
-  if (t.speeds)    initSpeedsGrid(t.speeds);
+  const phases = data.phases || {};
+  const phaseData = {
+    partial: phases.partial || data.partial || {},
+    diamond_ring: phases.diamond_ring || data.diamond_ring || {},
+    totality: phases.totality || data.totality || {}
+  };
+
+  const p = phaseData.partial;
+  const dr = phaseData.diamond_ring;
+  if (p.interval_s != null || p.interval != null) {
+    document.getElementById('cfg-partial-interval').value = p.interval_s ?? p.interval;
+  }
+  if (dr.duration_s != null || dr.duration != null) {
+    document.getElementById('cfg-dr-duration').value = dr.duration_s ?? dr.duration;
+  }
+  if (dr.interval_s != null || dr.interval != null) {
+    document.getElementById('cfg-dr-interval').value = dr.interval_s ?? dr.interval;
+  }
+
+  const legacySingleSpeeds = {
+    partial: data.shutterspeed_partial,
+    diamond_ring: data.shutterspeed_diamondring
+  };
+  Object.entries(phaseData).forEach(([phase, values]) => {
+    const prefix = phase === 'partial' ? 'partial' : phase === 'diamond_ring' ? 'dr' : 'tot';
+    document.getElementById(`cfg-${prefix}-iso`).value = values.iso ?? '100';
+    document.getElementById(`cfg-${prefix}-aperture`).value = values.aperture ?? 'f/8';
+
+    if (values.shutter_min != null && values.shutter_max != null) {
+      _setShutterBounds(prefix, values.shutter_min, values.shutter_max);
+      return;
+    }
+    if (legacySingleSpeeds[phase] != null) {
+      _setShutterBounds(prefix, legacySingleSpeeds[phase], legacySingleSpeeds[phase]);
+      return;
+    }
+    if (Array.isArray(values.speeds) && values.speeds.length) {
+      _setLegacyShutterBounds(prefix, values.speeds);
+    }
+  });
+}
+
+function _setShutterBounds(prefix, slowest, fastest) {
+  document.getElementById(`cfg-${prefix}-shutter-min`).value = String(slowest);
+  document.getElementById(`cfg-${prefix}-shutter-max`).value = String(fastest);
+}
+
+function _setLegacyShutterBounds(prefix, speeds) {
+  const select = document.getElementById(`cfg-${prefix}-shutter-min`);
+  const canonicalOrder = Array.from(select.options, option => option.value);
+  const ordered = speeds
+    .map(String)
+    .filter(speed => canonicalOrder.includes(speed))
+    .sort((a, b) => canonicalOrder.indexOf(a) - canonicalOrder.indexOf(b));
+  if (ordered.length) {
+    _setShutterBounds(prefix, ordered[0], ordered[ordered.length - 1]);
+  }
 }
 
 function _readCameraConfig() {
-  const totSpeeds = Array.from(
-    document.querySelectorAll('#totality-speeds-grid .speed-cell input:checked')
-  ).map(cb => cb.parentElement.querySelector('label').textContent.trim());
+  const phase = (prefix, interval_s, duration_s) => ({
+    iso: parseInt(document.getElementById(`cfg-${prefix}-iso`).value, 10),
+    aperture: document.getElementById(`cfg-${prefix}-aperture`).value,
+    shutter_min: document.getElementById(`cfg-${prefix}-shutter-min`).value,
+    shutter_max: document.getElementById(`cfg-${prefix}-shutter-max`).value,
+    step_ev: 1.0,
+    enabled: true,
+    interval_s,
+    duration_s
+  });
   return {
-    _type: 'camera_config',
-    partial:      { aperture: getApertureSelection('cfg-partial-aperture'),
-                    interval: parseInt(document.getElementById('cfg-partial-interval').value)||180,
-                    iso:      document.getElementById('cfg-partial-iso').value,
-                    speeds:   getPhaseSpeedSelection('cfg-partial-speeds') },
-    diamond_ring: { aperture: getApertureSelection('cfg-dr-aperture'),
-                    duration: parseInt(document.getElementById('cfg-dr-duration').value)||40,
-                    interval: parseInt(document.getElementById('cfg-dr-interval').value)||4,
-                    iso:      document.getElementById('cfg-dr-iso').value,
-                    speeds:   getPhaseSpeedSelection('cfg-dr-speeds') },
-    totality:     { aperture: getApertureSelection('cfg-tot-aperture'),
-                    iso:      document.getElementById('cfg-tot-iso').value,
-                    speeds:   totSpeeds }
+    schema_version: 2,
+    kind: 'capture_execution',
+    phases: {
+      partial: phase('partial', parseInt(document.getElementById('cfg-partial-interval').value, 10), null),
+      diamond_ring: phase(
+        'dr',
+        parseInt(document.getElementById('cfg-dr-interval').value, 10),
+        parseInt(document.getElementById('cfg-dr-duration').value, 10)
+      ),
+      totality: phase('tot', 0, null)
+    },
+    exposure_correction: { atmospheric_attenuation_enabled: false }
   };
 }
 
