@@ -759,10 +759,17 @@ def _get_camera_model_info(camera):
     battery = None
     try:
         from plugins.camera import get_camera_model
+        from plugins.camera.nikon import NikonDSLRPlugin, NikonZPlugin
+        from plugins.camera.sony import SonyPlugin
         full_model = get_camera_model(camera)
         if full_model:
             model = full_model
-            brand = full_model.split()[0]
+            if SonyPlugin.matches(model):
+                brand = "SONY"
+            elif NikonZPlugin.matches(model) or NikonDSLRPlugin.matches(model):
+                brand = "NIKON"
+            else:
+                brand = model.split()[0].upper()
     except Exception:
         pass
     try:
