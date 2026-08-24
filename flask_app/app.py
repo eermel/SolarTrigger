@@ -1161,13 +1161,18 @@ def _is_circumstances_config(path):
             and not stem.startswith("_"))
 
 def _resolve_config_file(filename, subdirectory):
-    """Résout une config à la racine, puis dans son sous-répertoire dédié."""
+    """Résout une config dans les emplacements indiqués puis à la racine."""
     root_path = CONFIGS_DIR / filename
-    if root_path.is_file():
-        return root_path
-    subdirectory_path = CONFIGS_DIR / subdirectory / filename
-    if subdirectory_path.is_file():
-        return subdirectory_path
+    if isinstance(subdirectory, str):
+        if root_path.is_file():
+            return root_path
+        subdirectories = (subdirectory,)
+    else:
+        subdirectories = subdirectory
+    for directory in subdirectories:
+        subdirectory_path = CONFIGS_DIR / directory / filename
+        if subdirectory_path.is_file():
+            return subdirectory_path
     return root_path
 
 @app.route("/api/configs/list", methods=["GET"])
@@ -1277,7 +1282,7 @@ def api_configs_load_camera(filename):
     """Charge un fichier de configuration appareil photo."""
     try:
         filename = Path(filename).name
-        path = _resolve_config_file(filename, "capture")
+        path = _resolve_config_file(filename, ("camera_cfg", "capture"))
         if not path.exists() or path.suffix != ".json":
             return jsonify({"error": "Fichier introuvable"}), 404
         with open(path, encoding="utf-8") as f:
@@ -1550,7 +1555,7 @@ def api_trigger_select_camera():
     if not filename or not filename.endswith(".json"):
         return jsonify({"error": "Nom de fichier invalide"}), 400
     filename = Path(filename).name
-    path = _resolve_config_file(filename, "capture")
+    path = _resolve_config_file(filename, ("camera_cfg", "capture"))
     if not path.exists():
         return jsonify({"error": f"Fichier introuvable : {filename}"}), 404
     try:

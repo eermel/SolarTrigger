@@ -65,6 +65,58 @@ def test_config_list_camera_returns_only_sorted_camera_cfg_files(save_routes):
     }
 
 
+def test_camera_load_and_select_prefer_camera_cfg_then_fall_back_to_capture(
+    save_routes,
+):
+    client, configs_dir, _state_store, _emitted = save_routes
+    camera_configs_dir = configs_dir / "camera_cfg"
+    capture_dir = configs_dir / "capture"
+    camera_configs_dir.mkdir(parents=True)
+    capture_dir.mkdir()
+
+    preferred_filename = "camera_shared.json"
+    legacy_filename = "camera_legacy.json"
+    preferred_data = camera_data(_comment="camera_cfg")
+    shadowed_legacy_data = camera_data(_comment="capture shadow")
+    legacy_data = camera_data(_comment="capture")
+    (camera_configs_dir / preferred_filename).write_text(
+        json.dumps(preferred_data), encoding="utf-8"
+    )
+    (capture_dir / preferred_filename).write_text(
+        json.dumps(shadowed_legacy_data), encoding="utf-8"
+    )
+    (capture_dir / legacy_filename).write_text(
+        json.dumps(legacy_data), encoding="utf-8"
+    )
+
+    preferred_load = flask_module.api_configs_load_camera(preferred_filename)
+    preferred_select = client.post(
+        "/api/trigger/select_camera", json={"filename": preferred_filename}
+    )
+    legacy_load = flask_module.api_configs_load_camera(legacy_filename)
+    legacy_select = client.post(
+        "/api/trigger/select_camera", json={"filename": legacy_filename}
+    )
+    listed = client.get("/api/configs/list_camera")
+
+    preferred_load_data = (
+        preferred_load.get_json()
+        if hasattr(preferred_load, "get_json")
+        else preferred_load
+    )
+    legacy_load_data = (
+        legacy_load.get_json() if hasattr(legacy_load, "get_json") else legacy_load
+    )
+    assert preferred_load_data == preferred_data
+    assert preferred_select.status_code == 200
+    assert preferred_select.get_json()["capture"]["meta"]["_comment"] == "camera_cfg"
+    assert legacy_load_data == legacy_data
+    assert legacy_select.status_code == 200
+    assert legacy_select.get_json()["capture"]["meta"]["_comment"] == "capture"
+    assert listed.status_code == 200
+    assert listed.get_json() == {"files": [preferred_filename]}
+
+
 @pytest.mark.parametrize(
     ("endpoint", "requested_filename", "saved_filename", "data"),
     [
