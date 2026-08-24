@@ -80,6 +80,17 @@ if "flask_socketio" not in sys.modules and importlib.util.find_spec("flask_socke
 import flask_app.app as flask_module
 
 
+MOCK_UTC_RESULT = {
+    "_date": "2027-08-02",
+    "_date_utc": "2027-08-02",
+    "C1": "08:24:10.347",
+    "C2": "09:21:15.682",
+    "TMAX": "09:24:28.126",
+    "C3": "09:27:42.491",
+    "C4": "10:28:50.903",
+}
+
+
 class ImmediateThread:
     def __init__(self, target, **_kwargs):
         self.target = target
@@ -97,7 +108,10 @@ def _prepare_calculation(monkeypatch, tmp_path, captured_commands):
 
         def __init__(self, command, **_kwargs):
             captured_commands.append(command)
-            json_file.write_text(json.dumps({"_date": command[command.index("--date") + 1]}))
+            result = dict(MOCK_UTC_RESULT)
+            result["_date"] = command[command.index("--date") + 1]
+            result["_date_utc"] = result["_date"]
+            json_file.write_text(json.dumps(result))
             self.stdout = iter(())
 
         def wait(self):
@@ -159,16 +173,45 @@ def test_eclipse_calculate_invokes_python_calculator_and_updates_state(
     assert command[command.index("--output") + 1] == str(flask_module.JSON_FILE)
     assert timezone_calls == [(43.6, 1.44, "2027-08-02")]
     assert flask_module._state["calc_running"] is False
-    assert flask_module._state["eclipse"] == {"_date": "2027-08-02"}
+    assert flask_module._state["eclipse"] == MOCK_UTC_RESULT
     assert emitted[0] == ("state_update", {"timezone_override": "UTC+2"})
     assert (
         "eclipse_calculated",
         {
             "status": "success",
-            "data": {"_date": "2027-08-02"},
+            "data": MOCK_UTC_RESULT,
             "timezone_override": "UTC+2",
         },
     ) in emitted
+
+
+def test_eclipse_calculate_legacy_dst_field_does_not_change_utc_result(
+    tmp_path, monkeypatch
+):
+    commands = []
+    client, emitted = _prepare_calculation(monkeypatch, tmp_path, commands)
+    monkeypatch.setattr(
+        flask_module,
+        "calculate_timezone_from_coords",
+        lambda _lat, _lon, eclipse_date=None: 2.0,
+    )
+    request_data = {
+        "lat": 43.6,
+        "lon": 1.44,
+        "alt": 150,
+        "eclipse": "2027-08-02",
+    }
+
+    assert client.post("/api/eclipse/calculate", json=request_data).status_code == 200
+    result_without_dst = emitted[-1][1]["data"]
+
+    assert client.post(
+        "/api/eclipse/calculate", json={**request_data, "dst": True}
+    ).status_code == 200
+    result_with_dst = emitted[-1][1]["data"]
+
+    assert result_with_dst == result_without_dst == MOCK_UTC_RESULT
+    assert commands[0] == commands[1]
 
 
 @pytest.mark.parametrize(
