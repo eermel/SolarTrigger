@@ -75,6 +75,10 @@ def test_frontend_time_authority_does_not_use_browser_wall_clock_offset():
     html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
     assert 'performance.now()' in html
     assert 't.epoch_ms' in html
+    assert 'let _clockAnchorEpochMs = null;' in html
+    assert 'let _clockAnchorPerfMs = null;' in html
+    assert 'let _clockAnchorEpochMs = Date.now();' not in html
+    assert html.index('_clockAnchorEpochMs = piMs;') < html.index('setInterval(_tickClock, 1000)')
     assert 'Date.now() + _clockOffset' not in html
     assert 'offset = -now.getTimezoneOffset() / 60' not in html
 
