@@ -127,6 +127,8 @@ ok "  app.py + index.html + assets → $FLASK_DIR"
 info "Configs JSON runtime..."
 [ -d "$PACKAGE_DIR/configs" ] || err "configs/ absent du package"
 mkdir -p "$CONFIGS_DIR"
+mkdir -p "$CONFIGS_DIR/circumstances"
+mkdir -p "$CONFIGS_DIR/camera_cfg"
 cp -a "$PACKAGE_DIR/configs/." "$CONFIGS_DIR/"
 find "$CONFIGS_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 ok "  configs/ → $CONFIGS_DIR"
@@ -166,7 +168,7 @@ fi
 if [ "${SOLARECLIPSE_TEST_MODE:-0}" != "1" ]; then
     chown -R "$CURRENT_USER:$CURRENT_USER" "$TRIGGER_DIR" "$FLASK_DIR" "$CONFIGS_DIR"
 fi
-chmod 755 "$CONFIGS_DIR"
+chmod 755 "$CONFIGS_DIR" "$CONFIGS_DIR/circumstances" "$CONFIGS_DIR/camera_cfg"
 chmod +x "$TRIGGER_DIR/tests/run_test.sh" 2>/dev/null || true
 ok "Droits mis à jour."
 
