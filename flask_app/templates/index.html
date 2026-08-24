@@ -2467,8 +2467,8 @@ function updateCountdowns(data) {
       diff = (targetMs - nowUtcMs) / 1000;
     } else {
       // Compatibilité vieux JSON sans date : fallback HH:MM:SS avec fenêtre ±12 h.
-      const n = _nowAdjusted();
-      const nowUtcSec = n.getUTCHours()*3600+n.getUTCMinutes()*60+n.getUTCSeconds();
+      const nowUtc = new Date(nowUtcMs);
+      const nowUtcSec = nowUtc.getUTCHours()*3600+nowUtc.getUTCMinutes()*60+nowUtc.getUTCSeconds();
       const contactUtcSec = toSec(t);
       if (contactUtcSec === null) return;
       diff = contactUtcSec - nowUtcSec;

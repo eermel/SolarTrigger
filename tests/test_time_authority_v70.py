@@ -96,6 +96,29 @@ def test_frontend_time_authority_does_not_use_browser_wall_clock_offset():
     assert 'offset = -now.getTimezoneOffset() / 60' not in html
 
 
+def test_frontend_displays_recompute_time_from_anchor_on_every_refresh():
+    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    tick_clock_body = html[
+        html.index('function _tickClock() {'):html.index('function _updateGpsBadge(')
+    ]
+    countdown_body = html[
+        html.index('function updateCountdowns(data) {'):html.index('function fmt(')
+    ]
+    display_time_code = tick_clock_body + countdown_body
+
+    assert 'const now = _nowAdjusted();' in tick_clock_body
+    assert 'const nowUtcMs = _nowAdjusted().getTime();' in countdown_body
+    assert 'Date.now()' not in display_time_code
+    assert not re.search(r'\bdisplayed\s*\+=\s*1000\b', html, re.IGNORECASE)
+    assert not re.search(r'\b(?:now|time|timestamp|epoch|clock)\w*\s*\+=\s*1000\b', display_time_code)
+    assert 'setInterval(_tickClock, 1000)' in html
+    assert re.search(
+        r'setInterval\(\s*\(\)\s*=>\s*\{\s*if \(state\.eclipse\) '
+        r'updateCountdowns\(state\.eclipse\);\s*\},\s*1000\s*\)',
+        html,
+    )
+
+
 def test_frontend_connect_fetches_status_and_reanchors_time():
     html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
     assert re.search(
