@@ -1447,7 +1447,18 @@ async function playSound(filename) {
 // ════════════════════════════════════════════════════════════════
 const socket = io({ transports: ['websocket'] });
 
-socket.on('connect', () => flash('Connecté au Pi ✓', 'green'));
+socket.on('connect', async () => {
+  flash('Connecté au Pi ✓', 'green');
+  try {
+    const response = await fetch('/api/status');
+    if (response.ok) {
+      const status = await response.json();
+      updateTime(status.time);
+    }
+  } catch (e) {
+    console.warn('Impossible de recaler l\'heure après connexion:', e);
+  }
+});
 socket.on('disconnect', () => flash('Déconnecté', 'red'));
 
 socket.on('gps_sync_done', d => {
@@ -1952,12 +1963,12 @@ socket.on('battery_alert', d => {
 });
 
 // ════════════════════════════════════════════════════════════════
-// HORLOGE — tourne toujours en local, recalée sur le Pi via offset
+// HORLOGE — démarre après le premier recalage sur le Pi
 // ════════════════════════════════════════════════════════════════
-// _clockOffset : décalage en ms entre l'heure Pi et l'horloge locale
-// Recalé à chaque status_update reçu du Pi.
-let _clockAnchorEpochMs = Date.now();
-let _clockAnchorPerfMs = performance.now();
+// Ancrage recalé à chaque status_update reçu du Pi.
+let _clockAnchorEpochMs = null;
+let _clockAnchorPerfMs = null;
+let _clockInterval = null;
 let _clockSource = 'Pi';
 let _gpsTimezone = null;   // timezone reçue du GPS — prioritaire sur le navigateur
 
@@ -2040,8 +2051,6 @@ if (sysTz && !_gpsTimezone && _getTimezoneOffset() === null) {
   sysTz.textContent = 'UTC';
 }
 }
-setInterval(_tickClock, 1000);
-_tickClock();  // immédiat au chargement
 
 function _updateGpsBadge(synced) {
   const badge = document.getElementById('hdr-gps-badge');
@@ -2073,8 +2082,11 @@ function updateTime(t) {
     _clockAnchorEpochMs = piMs;
     _clockAnchorPerfMs = performance.now();
     _clockSource = 'Pi';
+    _tickClock();
+    if (_clockInterval === null) {
+      _clockInterval = setInterval(_tickClock, 1000);
+    }
   }
-  _tickClock();
 }
 
 function updateGPS(gps) {
@@ -2455,8 +2467,8 @@ function updateCountdowns(data) {
       diff = (targetMs - nowUtcMs) / 1000;
     } else {
       // Compatibilité vieux JSON sans date : fallback HH:MM:SS avec fenêtre ±12 h.
-      const n = _nowAdjusted();
-      const nowUtcSec = n.getUTCHours()*3600+n.getUTCMinutes()*60+n.getUTCSeconds();
+      const nowUtc = new Date(nowUtcMs);
+      const nowUtcSec = nowUtc.getUTCHours()*3600+nowUtc.getUTCMinutes()*60+nowUtc.getUTCSeconds();
       const contactUtcSec = toSec(t);
       if (contactUtcSec === null) return;
       diff = contactUtcSec - nowUtcSec;
