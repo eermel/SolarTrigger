@@ -1248,9 +1248,13 @@ def api_configs_circumstances_clean():
 
 @app.route("/api/configs/list_camera", methods=["GET"])
 def api_configs_list_camera():
-    """Retourne les fichiers de configuration appareil photo (camera_*)."""
+    """Retourne les configurations appareil photo de camera_cfg/."""
     try:
-        files = [f.name for f in _unique_config_files("camera_*.json", "capture/*.json")]
+        camera_configs_dir = CONFIGS_DIR / "camera_cfg"
+        files = sorted(
+            path.name for path in camera_configs_dir.glob("*.json")
+            if path.is_file()
+        )
         return jsonify({"files": files})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

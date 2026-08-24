@@ -46,6 +46,25 @@ def save_routes(tmp_path, monkeypatch):
     return flask_module.app.test_client(), configs_dir, state_store, emitted
 
 
+def test_config_list_camera_returns_only_sorted_camera_cfg_files(save_routes):
+    client, configs_dir, _state_store, _emitted = save_routes
+    camera_configs_dir = configs_dir / "camera_cfg"
+    capture_dir = configs_dir / "capture"
+    camera_configs_dir.mkdir(parents=True)
+    capture_dir.mkdir()
+    (camera_configs_dir / "camera_zulu.json").write_text("{}", encoding="utf-8")
+    (camera_configs_dir / "camera_alpha.json").write_text("{}", encoding="utf-8")
+    (capture_dir / "camera_capture.json").write_text("{}", encoding="utf-8")
+    (configs_dir / "camera_root.json").write_text("{}", encoding="utf-8")
+
+    response = client.get("/api/configs/list_camera")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "files": ["camera_alpha.json", "camera_zulu.json"]
+    }
+
+
 @pytest.mark.parametrize(
     ("endpoint", "requested_filename", "saved_filename", "data"),
     [
