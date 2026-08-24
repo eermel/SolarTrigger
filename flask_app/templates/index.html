@@ -682,9 +682,17 @@ header {
     <span style="color:var(--text-dim);margin-left:4px">ALT:</span><span style="color:var(--green)" id="gps-alt">--</span>
   </div>
 </div>
-        <button class="btn btn-primary btn-full" id="btn-gps-sync" onclick="syncGPS()">
-          📡 Synchroniser Position / Timezone / Heure UTC / Heure Locale
-        </button>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+          <button class="btn btn-primary btn-full" id="btn-gps-sync-time-location" onclick="syncGpsTimeLocation()">
+            SYNC TIME &amp; LOCATION
+          </button>
+          <button class="btn btn-primary btn-full" id="btn-gps-sync-time" onclick="syncGpsTime()">
+            SYNC TIME
+          </button>
+          <button class="btn btn-primary btn-full" id="btn-gps-get-location" onclick="getGpsLocation()">
+            GET LOCATION
+          </button>
+        </div>
       </div>
 
 <!-- Journal GPS -->
@@ -1465,8 +1473,7 @@ socket.io.on('reconnect', _reanchorClockFromStatus);
 socket.on('disconnect', () => flash('Déconnecté', 'red'));
 
 socket.on('gps_sync_done', d => {
-  const btn = document.getElementById('btn-gps-sync');
-  if (btn) { btn.disabled = false; btn.textContent = '📡 Synchroniser l\'heure'; }
+  resetGpsActionButtons();
 });
 
 socket.on('clock_reset', d => {
@@ -2560,27 +2567,54 @@ function fmt(n) { return String(n).padStart(2,'0'); }
 // ════════════════════════════════════════════════════════════════
 // ACTIONS
 // ════════════════════════════════════════════════════════════════
-async function syncGPS() {
-  const btn = document.getElementById('btn-gps-sync');
-  btn.disabled = true;
-  btn.textContent = '⏳ Synchronisation…';
+const GPS_ACTION_BUTTONS = {
+  'btn-gps-sync-time-location': 'SYNC TIME & LOCATION',
+  'btn-gps-sync-time': 'SYNC TIME',
+  'btn-gps-get-location': 'GET LOCATION',
+};
+
+function resetGpsActionButtons() {
+  Object.entries(GPS_ACTION_BUTTONS).forEach(([id, label]) => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  });
+}
+
+async function runGpsAction(buttonId, request, startedMessage) {
+  const buttons = Object.keys(GPS_ACTION_BUTTONS).map(id => document.getElementById(id)).filter(Boolean);
+  const btn = document.getElementById(buttonId);
+  buttons.forEach(button => { button.disabled = true; });
+  if (btn) btn.textContent = '⏳ WORKING…';
   try {
-    const r = await fetch('/api/gps/sync', { method: 'POST' });
+    const r = await request;
     const d = await r.json();
-    if (d.error) {
-      flash(d.error, 'red');
-      btn.disabled = false;
-      btn.textContent = '📡 Synchroniser l\'heure';
+    if (!r.ok || d.error) {
+      flash(d.error || `Erreur HTTP ${r.status}`, 'red');
+      resetGpsActionButtons();
     } else {
-      flash('GPS sync lancé…', 'blue');
+      flash(startedMessage, 'blue');
       // Fallback : réactiver après 90s si gps_sync_done n'arrive pas
-      setTimeout(() => { btn.disabled = false; btn.textContent = '📡 Synchroniser l\'heure'; }, 90000);
+      setTimeout(resetGpsActionButtons, 90000);
     }
   } catch(e) {
     flash('Erreur réseau', 'red');
-    btn.disabled = false;
-    btn.textContent = '📡 Synchroniser l\'heure';
+    resetGpsActionButtons();
   }
+}
+
+function syncGpsTimeLocation() {
+  return runGpsAction('btn-gps-sync-time-location',
+    fetch('/api/gps/sync_time_location', { method: 'POST' }), 'Synchronisation heure et position lancée…');
+}
+
+function syncGpsTime() {
+  return runGpsAction('btn-gps-sync-time',
+    fetch('/api/gps/sync_time', { method: 'POST' }), 'Synchronisation heure lancée…');
+}
+
+function getGpsLocation() {
+  return runGpsAction('btn-gps-get-location',
+    fetch('/api/gps/get_location', { method: 'POST' }), 'Acquisition de la position lancée…');
 }
 
 async function calculateEclipse() {
