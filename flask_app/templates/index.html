@@ -1086,28 +1086,14 @@ header {
 
         <!-- Boutons START / STOP -->
         <div style="display:flex;flex-direction:column;gap:8px;min-width:110px">
-          <div style="display:flex;gap:6px">
-            <button class="btn" id="btn-debug-gen" onclick="generateDebug()"
-                    style="flex:1;background:rgba(120,80,200,.25);border:1px solid rgba(120,80,200,.5);
-                           color:#b09de0;font-size:11px">🛠 DEBUG</button>
-            <button class="btn" id="btn-debug-clear" onclick="clearDebugFiles()"
-                    style="flex:1;background:rgba(180,60,60,.2);border:1px solid rgba(180,60,60,.4);
-                           color:#e09090;font-size:11px" title="Supprimer tous les fichiers debug_*.json">🗑</button>
-          </div>
-          <button class="btn" id="btn-debug-realistic" onclick="generateDebugRealistic()"
-                  style="background:rgba(0,140,80,.25);border:1px solid rgba(0,140,80,.5);
-                         color:#60d090;font-size:10px" title="Debug proportions vraie éclipse — 180s/photo, ~3h44m">🌍 DEBUG RÉEL</button>
-          <button class="btn btn-success" id="btn-start" onclick="startTrigger()" style="flex:1">▶ START</button>
           <button class="btn" id="btn-dryrun" onclick="startDryRun()"
                   style="flex:1;background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
                   title="Même moteur et même caméra que le jour J, timeline translatée sur maintenant, vitesse ×1">🧪 DRY-RUN ×1</button>
+          <button class="btn btn-success" id="btn-start" onclick="startTrigger()" style="flex:1">▶ START</button>
           <button class="btn" id="btn-totality-only" onclick="startTotalityOnly()"
                   style="flex:1;background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);
                          color:var(--accent);font-size:11px"
                   title="Arrête le trigger en cours et déclenche la séquence totalité en boucle jusqu'au STOP">🌑 Totalité uniquement</button>
-          <button class="btn" id="btn-usb" onclick="toggleUsb()"
-                  style="flex:1;background:rgba(0,180,180,.2);border:1px solid rgba(0,180,180,.4);color:#00d0d0;font-size:12px"
-                  title="Libère l'USB pour voir les photos sur l'appareil photo">📷 Libérer USB</button>
           <button class="btn btn-danger"  id="btn-stop"  onclick="stopTrigger()" style="flex:1">■ STOP</button>
         </div>
 
@@ -2869,65 +2855,6 @@ async function loadTriggerConfig(filename, dir) {
   } catch(e) { flash('Erreur réseau', 'red'); }
 }
 
-async function clearDebugFiles() {
-  if (!confirm('Supprimer tous les fichiers debug_*.json ?')) return;
-  const btn = document.getElementById('btn-debug-clear');
-  btn.disabled = true; btn.textContent = '⏳';
-  try {
-    const r = await fetch('/api/configs/clear_debug', { method: 'POST' });
-    const d = await r.json();
-    if (d.error) { flash(d.error, 'red'); }
-    else {
-      flash(`🗑 ${d.deleted.length} fichier(s) supprimé(s)`, 'yellow');
-      loadTriggerConfigList();
-    }
-  } catch(e) { flash('Erreur réseau', 'red'); }
-  btn.disabled = false; btn.textContent = '🗑';
-}
-
-async function generateDebug() {
-  const btn = document.getElementById('btn-debug-gen');
-  btn.disabled = true; btn.textContent = '⏳ Génération…';
-  try {
-    const r = await fetch('/api/debug/generate', { method: 'POST' });
-    const d = await r.json();
-    if (d.error) {
-      flash('Erreur DEBUG : ' + d.error, 'red');
-    } else {
-      flash(`🛠 ${d.filename} — éclipse totale dans ~4 min`, 'yellow');
-      // Rafraîchir le menu et sélectionner le nouveau fichier
-      await loadTriggerConfigList();
-      const sel = document.getElementById('trigger-config-select');
-      if (sel && d.filename) {
-        sel.value = d.filename;
-      }
-    }
-  } catch(e) {
-    flash('Erreur réseau', 'red');
-  }
-  btn.disabled = false; btn.textContent = '🛠 DEBUG';
-}
-
-async function generateDebugRealistic() {
-  const btn = document.getElementById('btn-debug-realistic');
-  btn.disabled = true; btn.textContent = '⏳ Génération…';
-  try {
-    const r = await fetch('/api/debug/generate_realistic', { method: 'POST' });
-    const d = await r.json();
-    if (d.error) {
-      flash('Erreur DEBUG RÉEL : ' + d.error, 'red');
-    } else {
-      flash(`🌍 ${d.filename} — séquence ~3h44m`, 'yellow');
-      await loadTriggerConfigList();
-      const sel = document.getElementById('trigger-config-select');
-      if (sel && d.filename) sel.value = d.filename;
-    }
-  } catch(e) {
-    flash('Erreur réseau', 'red');
-  }
-  btn.disabled = false; btn.textContent = '🌍 DEBUG RÉEL';
-}
-
 async function startTrigger() {
   const r = await fetch('/api/trigger/start', { method: 'POST' });
   const d = await r.json();
@@ -2997,38 +2924,6 @@ async function startTotalityOnly() {
   } catch(e) {
     flash('Erreur réseau', 'red');
   }
-}
-
-let _usbReleased = false;
-async function toggleUsb() {
-  const btn = document.getElementById('btn-usb');
-  btn.disabled = true;
-  try {
-    if (!_usbReleased) {
-      const r = await fetch('/api/camera/usb', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'release'}) });
-      const d = await r.json();
-      if (d.status === 'ok') {
-        _usbReleased = true;
-        btn.textContent = '🔌 Reprendre USB';
-        btn.style.background = 'rgba(200,120,0,.3)';
-        btn.style.borderColor = 'rgba(200,120,0,.6)';
-        btn.style.color = '#ffaa00';
-        flash('USB libéré — appareil photo indépendant', 'yellow');
-      } else { flash(d.error || 'Erreur libération USB', 'red'); }
-    } else {
-      const r = await fetch('/api/camera/usb', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'reconnect'}) });
-      const d = await r.json();
-      if (d.status === 'ok') {
-        _usbReleased = false;
-        btn.textContent = '📷 Libérer USB';
-        btn.style.background = 'rgba(0,180,180,.2)';
-        btn.style.borderColor = 'rgba(0,180,180,.4)';
-        btn.style.color = '#00d0d0';
-        flash('USB reconnecté — Pi reprend le contrôle', 'green');
-      } else { flash(d.error || 'Erreur reconnexion USB', 'red'); }
-    }
-  } catch(e) { flash('Erreur réseau USB', 'red'); }
-  btn.disabled = false;
 }
 
 function testSound(file) { playSound(file); }

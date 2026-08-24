@@ -107,44 +107,22 @@ def test_gps_sync_alias_active_starts_time_location_mode(
     assert starts == [{"timeout_s": 60.0, "mode": "time_location"}]
 
 
-def test_camera_usb_inactive_does_not_run_subprocess(
-    guarded_routes, monkeypatch
-):
-    client, state_store = guarded_routes
-    _set_device_active(state_store, "camera", False)
-    monkeypatch.setattr(
-        flask_module.subprocess,
-        "run",
-        lambda *args, **kwargs: pytest.fail("subprocess must not be invoked"),
-    )
-
-    response = client.post("/api/camera/usb", json={"action": "release"})
-
-    assert response.status_code == 409
-    assert response.get_json()["code"] == "DEVICE_INACTIVE"
-    assert response.get_json()["category"] == "camera"
-
-
-def test_camera_usb_active_continues_existing_release_flow(
-    guarded_routes, monkeypatch
-):
-    client, state_store = guarded_routes
-    _set_device_active(state_store, "camera", True)
-    calls = []
-    monkeypatch.setattr(
-        flask_module.subprocess,
-        "run",
-        lambda command, **kwargs: calls.append((command, kwargs)),
-    )
-    monkeypatch.setattr("glob.glob", lambda _pattern: [])
-    monkeypatch.setattr("time.sleep", lambda _seconds: None)
-
-    response = client.post("/api/camera/usb", json={"action": "release"})
-
-    assert response.status_code == 200
-    assert response.get_json() == {"status": "ok"}
-    assert [call[0][-1] for call in calls] == [
-        "gvfsd-gphoto2",
-        "gphoto2",
-        "gvfs-gphoto2-volume-monitor",
-    ]
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/api/debug/generate",
+        "/api/debug/generate_realistic",
+        "/api/camera/usb",
+        "/api/configs/clear_debug",
+    ],
+)
+def test_removed_ui_routes_are_not_registered(route):
+    if hasattr(flask_module.app, "routes"):
+        assert (route, "POST") not in flask_module.app.routes
+    else:
+        registered_routes = {
+            rule.rule
+            for rule in flask_module.app.url_map.iter_rules()
+            if "POST" in rule.methods
+        }
+        assert route not in registered_routes
