@@ -1113,6 +1113,7 @@ header {
         <div class="field" style="margin-bottom:10px">
           <label>TSTART <span style="color:var(--blue);font-size:9px">UTC</span></label>
           <input type="text" id="ov-tstart" placeholder="HH:MM:SS"
+                 pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?"
                  style="color:var(--green);font-family:var(--mono)">
           <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:2px">= C1 − 1h par défaut</div>
         </div>
@@ -1124,6 +1125,7 @@ header {
         <div class="field" style="margin-top:10px">
           <label>TEND <span style="color:var(--blue);font-size:9px">UTC</span></label>
           <input type="text" id="ov-tend" placeholder="HH:MM:SS"
+                 pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?"
                  style="color:var(--green);font-family:var(--mono)">
           <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:2px">= C4 + 1h par défaut</div>
         </div>
@@ -2231,9 +2233,6 @@ function _calcTmax(c1, c2, c3, c4) {
   return null;
 }
 
-// computeTmilieu — plus utilisé dans l'onglet Trigger (C1/C2/C3/C4 gérés par l'onglet Éclipse)
-function computeTmilieu() {}
-
 document.addEventListener('DOMContentLoaded', () => {
   // Forcer ISO à 100 par défaut (le selected HTML n'est pas toujours respecté sur éléments cachés)
   document.getElementById('cfg-partial-iso').value = '100';
@@ -2399,14 +2398,6 @@ function renderContacts(data) {
 
   // Pré-remplir overrides (TSTART/TEND uniquement — C1/C2/C3/C4 gérés dans l'onglet Éclipse)
   populateOverrides(data);
-
-  // Alimenter les champs de saisie manuelle dans l'onglet Éclipse
-  const manFields = { C1: data.C1, C2: data.C2, TMAX: data.TMAX, C3: data.C3, C4: data.C4 };
-  Object.entries(manFields).forEach(([k, v]) => {
-    const el = document.getElementById('man-' + k);
-    if (el && v) el.value = v;
-  });
-  _updateManualLocals();
 }
 
 function updateCountdowns(data) {
@@ -2571,80 +2562,6 @@ async function calculateEclipse() {
   } catch(e) { flash('Erreur réseau', 'red'); }
   // Le bouton est réactivé par l'événement eclipse_calculated
 }
-
-// Met à jour les heures locales et recalcule TMAX automatiquement
-function _updateManualLocals() {
-  // Recalculer TMAX (non modifiable par l'utilisateur)
-  const c1 = document.getElementById('man-C1')?.value?.trim();
-  const c2 = document.getElementById('man-C2')?.value?.trim();
-  const c3 = document.getElementById('man-C3')?.value?.trim();
-  const c4 = document.getElementById('man-C4')?.value?.trim();
-  const tmax = _calcTmax(c1, c2, c3, c4);
-  const tmaxEl = document.getElementById('man-TMAX');
-  if (tmaxEl) tmaxEl.value = tmax || '';
-
-  // Heures locales sous chaque champ (C1, C2, C3, C4, TMAX)
-  ['C1', 'C2', 'C3', 'C4', 'TMAX'].forEach(k => {
-    const inp = document.getElementById('man-' + k);
-    const lbl = document.getElementById('man-' + k + '-local');
-    if (inp && lbl) lbl.textContent = inp.value ? (_utcToLocal(inp.value) || '--') : '--';
-  });
-}
-
-// Sauvegarde manuelle des contacts dans todayeclipse.json via /api/eclipse/override
-async function saveManualContacts() {
-  const get = id => { const el = document.getElementById(id); return el && el.value.trim() ? el.value.trim() : null; };
-  const timeRx = /^\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
-  const fields = { C1: get('man-C1'), C2: get('man-C2'), C3: get('man-C3'), C4: get('man-C4') };
-  // TMAX est calculé automatiquement — on le lit depuis le champ readonly
-  const tmaxEl = document.getElementById('man-TMAX');
-  fields.TMAX = tmaxEl && tmaxEl.value.trim() ? tmaxEl.value.trim() : null;
-
-  // Validation format HH:MM:SS (sauf TMAX qui est calculé automatiquement)
-  for (const [k, v] of Object.entries(fields)) {
-    if (k === 'TMAX') continue;
-    if (v && !timeRx.test(v)) { flash('Format invalide pour ' + k + ' — attendu HH:MM:SS ou HH:MM:SS.sss', 'red'); return; }
-  }
-
-  const toSec = _toSec;
-  const fromSec = _fromSec;
-
-  const payload = {};
-  if (fields.C1)   payload.C1   = fields.C1;
-  if (fields.C2)   payload.C2   = fields.C2;
-  if (fields.TMAX) payload.TMAX = fields.TMAX;
-  if (fields.C3)   payload.C3   = fields.C3;
-  if (fields.C4)   payload.C4   = fields.C4;
-  if (fields.C1)   payload.TSTART = fromSec(toSec(fields.C1) - 3600);
-  if (fields.C4)   payload.TEND   = fromSec(toSec(fields.C4) + 3600);
-  // Calculer TMAX automatiquement si non saisi
-  if (!fields.TMAX) {
-    const computed = _calcTmax(fields.C1, fields.C2, fields.C3, fields.C4);
-    if (computed) payload.TMAX = computed;
-  }
-  // Éclipse partielle : C2 == C3 == TMAX
-  if (!fields.C2 && fields.TMAX) { payload.C2 = fields.TMAX; payload.C3 = fields.TMAX; }
-
-  try {
-    const r = await fetch('/api/eclipse/override', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const d = await r.json();
-    if (d.status === 'ok') flash('Contacts sauvegardés \u2713 — Trigger prêt', 'green');
-    else flash(d.error || 'Erreur sauvegarde', 'red');
-  } catch(e) { flash('Erreur réseau', 'red'); }
-}
-
-// Listeners : mise à jour temps réel des heures locales lors de la saisie
-// TMAX est readonly — recalculé automatiquement via _updateManualLocals
-document.addEventListener('DOMContentLoaded', () => {
-  ['C1','C2','C3','C4'].forEach(k => {
-    const el = document.getElementById('man-' + k);
-    if (el) el.addEventListener('input', _updateManualLocals);
-  });
-});
 
 async function probeCamera() {
   const btn  = document.getElementById('btn-cam-probe');
@@ -2950,8 +2867,6 @@ function populateOverrides(data) {
     set('ov-p1a-interval', data.phase3b.interval_s);
     set('ov-p1a-speed',    data.phase3b.speed_denom);
   }
-  // Recalculer Tmilieu
-  computeTmilieu();
 }
 
 async function saveOverrides() {
