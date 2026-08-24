@@ -61,7 +61,6 @@ def camera_api(tmp_path, monkeypatch):
     monkeypatch.setattr(flask_module, "_state_store", state_store)
     monkeypatch.setattr(flask_module, "_state", state_store.data)
     monkeypatch.setattr(flask_module, "_state_lock", state_store.lock)
-    monkeypatch.setattr(flask_module, "_save_state", lambda: None)
     monkeypatch.setattr(flask_module, "_append_log", lambda *args, **kwargs: None)
     flask_module.app.config.update(TESTING=True)
     return flask_module.app.test_client(), monkeypatch
@@ -154,3 +153,58 @@ def test_camera_status_idempotent_brand_model(camera_api):
     _assert_separated(first_camera, "SONY", model, connected=True)
     _assert_separated(second_camera, "SONY", model, connected=True)
     assert second_camera == first_camera
+
+
+def test_camera_brand_model_persist_across_status_and_probe_calls(camera_api):
+    client, monkeypatch = camera_api
+    model = "Sony ILCE-7M5 (PC Control)"
+    _install_camera(monkeypatch, model)
+
+    for _reconnection in range(2):
+        status_before_probe = client.get("/api/status")
+        assert status_before_probe.status_code == 200
+        _assert_separated(
+            status_before_probe.get_json()["camera"],
+            "SONY",
+            model,
+            connected=True,
+        )
+        _assert_separated(
+            flask_module._state_store.snapshot("camera"),
+            "SONY",
+            model,
+            connected=True,
+        )
+
+        probe = client.post("/api/camera/probe")
+        assert probe.status_code == 200
+        _assert_separated(probe.get_json(), "SONY", model)
+        _assert_separated(
+            flask_module._state_store.snapshot("camera"),
+            "SONY",
+            model,
+            connected=False,
+        )
+
+        status_after_probe = client.get("/api/status")
+        assert status_after_probe.status_code == 200
+        _assert_separated(
+            status_after_probe.get_json()["camera"],
+            "SONY",
+            model,
+            connected=True,
+        )
+        _assert_separated(
+            flask_module._state_store.snapshot("camera"),
+            "SONY",
+            model,
+            connected=True,
+        )
+
+    persisted_store = StateStore(flask_module._state_store.path)
+    _assert_separated(
+        persisted_store.snapshot("camera"),
+        "SONY",
+        model,
+        connected=True,
+    )
