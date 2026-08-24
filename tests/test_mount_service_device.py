@@ -62,3 +62,26 @@ def test_status_passes_through_device_and_pushes_gps_once(tmp_path):
     assert plugins[1].location_calls == [(48.8566, 2.3522, 35.0)]
 
     service.close()
+
+
+def test_status_connects_without_gps_location(tmp_path):
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices", {"mount": {"plugin": "fake", "active": True}}
+    )
+    plugin = LocationMountPlugin()
+    service = MountService(
+        state_store,
+        plugin_loader=lambda *_args, **_kwargs: plugin,
+    )
+
+    status = service.status()
+
+    assert status["connected"] is True
+    assert status["device"] == {
+        "name": "Test mount",
+        "port": "/dev/test",
+    }
+    assert plugin.location_calls == []
+
+    service.close()
