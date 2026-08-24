@@ -71,6 +71,15 @@ chmod +x install_python_deps.sh
 ./install_python_deps.sh
 ```
 
+### Variables de test de la mise à jour
+
+Pour tester `install/update_files.sh` sans cibler l'installation réelle, définir
+`SOLARECLIPSE_TEST_MODE=1`. Les chemins peuvent alors être redirigés avec
+`SOLARECLIPSE_TEST_PACKAGE_DIR`, `SOLARECLIPSE_TEST_TRIGGER_DIR` et
+`SOLARECLIPSE_TEST_FLASK_DIR`. `SOLARECLIPSE_SKIP_SERVICE_RESTART=1` désactive
+uniquement le redémarrage des services. La copie et la validation ne sont jamais
+ignorées ; sans ces variables, le comportement de production reste inchangé.
+
 ---
 
 ## 📋 Workflow le jour J
