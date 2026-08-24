@@ -205,8 +205,9 @@ def test_config_save_collision_without_overwrite_returns_409(
     assert emitted == []
 
 
+@pytest.mark.parametrize("requested_filename", ["todayeclipse.json", "todayeclipse"])
 def test_config_save_overwrites_active_circumstances_and_emits_status(
-    save_routes, monkeypatch
+    save_routes, monkeypatch, requested_filename
 ):
     client, configs_dir, state_store, emitted = save_routes
     filename = "todayeclipse.json"
@@ -227,7 +228,8 @@ def test_config_save_overwrites_active_circumstances_and_emits_status(
     monkeypatch.setattr(flask_module, "_load_eclipse_json", lambda: data)
 
     response = client.post(
-        "/api/configs/save", json={"filename": filename, "overwrite": True}
+        "/api/configs/save",
+        json={"filename": requested_filename, "overwrite": True},
     )
 
     assert response.status_code == 200
