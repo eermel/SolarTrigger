@@ -86,6 +86,27 @@ def test_gps_sync_active_starts_controller(
     assert starts == [{"timeout_s": 60.0, "mode": mode}]
 
 
+def test_gps_sync_alias_active_starts_time_location_mode(
+    guarded_routes, monkeypatch
+):
+    client, state_store = guarded_routes
+    _set_device_active(state_store, "gps", True)
+    starts = []
+
+    class RecordingController:
+        def start(self, **kwargs):
+            starts.append(kwargs)
+            return True
+
+    monkeypatch.setattr(flask_module, "_gps_controller", RecordingController())
+
+    response = client.post("/api/gps/sync")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "started"}
+    assert starts == [{"timeout_s": 60.0, "mode": "time_location"}]
+
+
 def test_camera_usb_inactive_does_not_run_subprocess(
     guarded_routes, monkeypatch
 ):
