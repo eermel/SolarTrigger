@@ -18,20 +18,26 @@ def test_save_circumstances_controls_are_unique_and_before_observation_location(
         '<button class="btn btn-primary" type="button" '
         'onclick="saveEclipseConfig()">💾 Save</button>'
     )
+    clean_button = (
+        '<button class="btn btn-secondary" type="button" '
+        'onclick="cleanCircumstances()">🧹 Clean</button>'
+    )
 
     save_index = html.index(save_title)
     observation_index = html.index(observation_title)
     label_index = html.index(filename_label)
     input_index = html.index(filename_input)
     button_index = html.index(save_button)
+    clean_button_index = html.index(clean_button)
 
     assert save_index < label_index < observation_index
     assert save_index < input_index < observation_index
-    assert save_index < button_index < observation_index
+    assert save_index < button_index < clean_button_index < observation_index
     assert html.count(save_title) == 1
     assert html.count(filename_label) == 1
     assert len(re.findall(r'id=["\']eclipse-save-filename["\']', html)) == 1
     assert html.count('onclick="saveEclipseConfig()"') == 1
+    assert html.count('onclick="cleanCircumstances()"') == 1
 
 
 def test_eclipse_save_prefix_uses_backend_date_and_calculation_event():

@@ -1223,6 +1223,29 @@ def api_configs_list_eclipse():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/configs/circumstances/clean", methods=["POST"])
+def api_configs_circumstances_clean():
+    """Supprime les fichiers JSON de premier niveau des circonstances."""
+    base_dir = CONFIGS_DIR / "circumstances"
+    deleted = 0
+    errors = []
+
+    if not base_dir.exists():
+        return jsonify({"status": "ok", "deleted": deleted, "errors": errors})
+
+    for entry in base_dir.iterdir():
+        if (entry.is_symlink()
+                or not entry.is_file()
+                or entry.suffix.lower() != ".json"):
+            continue
+        try:
+            entry.unlink()
+            deleted += 1
+        except OSError as err:
+            errors.append({"file": entry.name, "error": str(err)})
+
+    return jsonify({"status": "ok", "deleted": deleted, "errors": errors})
+
 @app.route("/api/configs/list_camera", methods=["GET"])
 def api_configs_list_camera():
     """Retourne les fichiers de configuration appareil photo (camera_*)."""
@@ -1334,7 +1357,7 @@ def api_configs_save_camera():
 
 @app.route("/api/configs/save", methods=["POST"])
 def api_configs_save():
-    """Sauvegarde le contenu courant de todayeclipse.json dans configs/ sous un nouveau nom."""
+    """Sauvegarde le contenu courant de todayeclipse.json sous un nouveau nom."""
     body = request.json or {}
     requested = body.get("filename", "").strip()
     if not requested:
@@ -1354,8 +1377,13 @@ def api_configs_save():
         return jsonify({"error": "Aucune configuration active"}), 400
     try:
         CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
-        destination = CONFIGS_DIR / filename
-        if destination.resolve().parent != CONFIGS_DIR.resolve():
+        destination_dir = (
+            CONFIGS_DIR if filename == "todayeclipse.json"
+            else CONFIGS_DIR / "circumstances"
+        )
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / filename
+        if destination.resolve().parent != destination_dir.resolve():
             return jsonify({"error": "Nom de fichier invalide"}), 400
         filename = destination.resolve().name
         overwriting = destination.exists()
