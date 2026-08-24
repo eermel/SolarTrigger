@@ -41,7 +41,12 @@ def test_two_clients_derive_identical_utc_and_local_from_backend_anchors():
         re.DOTALL,
     )
     assert "_clockAnchorUtcMs + (performance.now() - _clockAnchorPerfMs)" in clock_source
-    assert "_clockAnchorLocalMs + (performance.now() - _clockAnchorPerfMs)" in clock_source
+    # Local time must be derived from the Pi UTC anchor plus the
+    # backend/configured timezone offset. A Unix epoch has no timezone,
+    # so a separate "local epoch" must not be advanced as if it differed
+    # from the UTC epoch.
+    assert "_getTimezoneOffset()" in clock_source
+    assert "_nowAdjustedUtcMs() + offsetH * 3600000" in clock_source
 
     payload = {
         "backend_utc_epoch_ms": 1_816_675_200_000,

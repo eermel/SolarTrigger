@@ -2044,7 +2044,12 @@ function _nowAdjustedUtcMs() {
 }
 
 function _nowAdjustedLocalMs() {
-  return _clockAnchorLocalMs + (performance.now() - _clockAnchorPerfMs);
+  // L'epoch Unix est toujours un instant absolu : UTC et local ont donc
+  // le même epoch. Pour afficher l'heure locale du Trigger, appliquer
+  // explicitement l'offset configuré/GPS, jamais celui du navigateur.
+  const offsetH = _getTimezoneOffset();
+  if (!Number.isFinite(_clockAnchorUtcMs) || offsetH === null) return null;
+  return _nowAdjustedUtcMs() + offsetH * 3600000;
 }
 
 function _tickClock() {
@@ -2053,8 +2058,9 @@ function _tickClock() {
   const utcH = fmt(now.getUTCHours()), utcM = fmt(now.getUTCMinutes()), utcS = fmt(now.getUTCSeconds());
   const utcTime = `${utcH}:${utcM}:${utcS}`;
   const utcDate = now.toISOString().slice(0,10);
-  const hasLocalAnchor = Number.isFinite(_clockAnchorLocalMs);
-  const localDateObj = hasLocalAnchor ? new Date(_nowAdjustedLocalMs()) : null;
+  const localMs = _nowAdjustedLocalMs();
+  const hasLocalAnchor = Number.isFinite(localMs);
+  const localDateObj = hasLocalAnchor ? new Date(localMs) : null;
   const locTime = localDateObj
     ? `${fmt(localDateObj.getUTCHours())}:${fmt(localDateObj.getUTCMinutes())}:${fmt(localDateObj.getUTCSeconds())}`
     : '--:--:--';
