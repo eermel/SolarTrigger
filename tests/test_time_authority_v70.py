@@ -81,8 +81,14 @@ def test_frontend_time_authority_does_not_use_browser_wall_clock_offset():
     )
     assert update_time is not None
     update_time_body = update_time.group('body')
+    assert 'Number.isFinite(t.backend_utc_epoch_ms)' in update_time_body
+    assert 'piMs = t.backend_utc_epoch_ms;' in update_time_body
+    assert 'Number.isFinite(t.backend_local_epoch_ms)' in update_time_body
+    assert 'piLocalMs = t.backend_local_epoch_ms;' in update_time_body
     assert 'Number.isFinite(t.epoch_ms)' in update_time_body
     assert '_clockAnchorEpochMs = piMs;' in update_time_body
+    assert '_clockAnchorUtcMs = piMs;' in update_time_body
+    assert '_clockAnchorLocalMs = piLocalMs;' in update_time_body
     assert '_clockAnchorPerfMs = performance.now();' in update_time_body
     assert update_time_body.index('_clockAnchorEpochMs = piMs;') < update_time_body.index(
         '_clockAnchorPerfMs = performance.now();'
