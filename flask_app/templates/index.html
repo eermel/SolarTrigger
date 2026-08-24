@@ -708,6 +708,17 @@ header {
     <!-- ═══════════════ PAGE 1 : ÉCLIPSE ═══════════════ -->
     <div class="page" id="page-1">
 
+      <div class="card">
+        <div class="card-title">Save circumstances</div>
+        <div class="field">
+          <label for="eclipse-save-filename">File name</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="eclipse-save-filename" value="" style="flex:1">
+            <button class="btn btn-primary" type="button" onclick="saveEclipseConfig()">💾 Save</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Formulaire coordonnées -->
       <div class="card">
         <div class="card-title">Observation location</div>
@@ -748,13 +759,6 @@ header {
             <button class="btn btn-accent btn-full" id="btn-calc" onclick="calculateEclipse()">
               🌑 Calculer les contacts
             </button>
-          </div>
-          <div class="field">
-            <label for="eclipse-save-filename">File name</label>
-            <div style="display:flex;gap:8px">
-              <input type="text" id="eclipse-save-filename" value="todayeclipse.json" style="flex:1">
-              <button class="btn btn-primary" type="button" onclick="saveEclipseConfig()">💾 Save</button>
-            </div>
           </div>
         </div>
       </div>
@@ -1369,12 +1373,32 @@ async function playSound(filename) {
 // ════════════════════════════════════════════════════════════════
 const socket = io({ transports: ['websocket'] });
 
+let _eclipseSavePrefix = null;
+function updateEclipseSaveFilename(eclipseData) {
+  if (!eclipseData) return;
+
+  const eclipseDate = eclipseData._date || eclipseData._date_utc;
+  if (typeof eclipseDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(eclipseDate)) return;
+
+  const newPrefix = `${eclipseDate.replace(/-/g, '')}_Circonstances_`;
+  const input = document.getElementById('eclipse-save-filename');
+  if (!input) return;
+
+  if (!input.value) {
+    input.value = newPrefix;
+  } else if (_eclipseSavePrefix && input.value.startsWith(_eclipseSavePrefix)) {
+    input.value = newPrefix + input.value.slice(_eclipseSavePrefix.length);
+  }
+  _eclipseSavePrefix = newPrefix;
+}
+
 async function _reanchorClockFromStatus() {
   try {
     const response = await fetch('/api/status');
     if (response.ok) {
       const status = await response.json();
       updateTime(status.time);
+      updateEclipseSaveFilename(status.eclipse);
     }
   } catch (e) {
     console.warn('Impossible de recaler l\'heure depuis le statut:', e);
@@ -1388,6 +1412,7 @@ socket.on('connect', async () => {
     if (response.ok) {
       const status = await response.json();
       updateTime(status.time);
+      updateEclipseSaveFilename(status.eclipse);
     }
   } catch (e) {
     console.warn('Impossible de recaler l\'heure après connexion:', e);
@@ -1409,6 +1434,7 @@ socket.on('status_update', d => {
   if (d.gps)     updateGPS(d.gps);
   if (d.camera) updateCameraTimeSync(d.camera, d.gps || state.gps || {});
   if (d.trigger) updatePhase(d.trigger.phase);
+  if (d.eclipse) updateEclipseSaveFilename(d.eclipse);
   // Restaurer le fichier config caméra sélectionné
   if (d.camera_config_file) {
     const sel = document.getElementById('trigger-camera-select');
@@ -1453,6 +1479,7 @@ socket.on('eclipse_calculated', d => {
     }
     console.log('[DST] _gpsTimezone=', _gpsTimezone, 'offset=', _getTimezoneOffset());
     state.eclipse = d.data;
+    updateEclipseSaveFilename(d.data);
     renderContacts(d.data);
     populateOverrides(d.data);
     flash('Calcul terminé ✓', 'green');
@@ -3155,8 +3182,15 @@ async function promptSaveConfig() {
 async function saveEclipseConfig() {
   const input = document.getElementById('eclipse-save-filename');
   const filename = input ? input.value.trim() : '';
-  if (!filename) {
-    flash('File name is required.', 'red');
+  const activePrefix = typeof _eclipseSavePrefix === 'string'
+    && /^\d{8}_Circonstances_$/.test(_eclipseSavePrefix)
+    ? _eclipseSavePrefix
+    : null;
+  const hasEmptySuffix = activePrefix
+    && filename.startsWith(activePrefix)
+    && filename.slice(filename.lastIndexOf('_') + 1) === '';
+  if (!filename || filename === activePrefix || hasEmptySuffix) {
+    flash('Please complete the file name after the default prefix.', 'red');
     return;
   }
 
@@ -3286,6 +3320,7 @@ async function loadEclipseData() {
       const d = await r.json();
       if (!d.error) {
         state.eclipse = d;
+        updateEclipseSaveFilename(d);
         if (d._timezone) _gpsTimezone = d._timezone;
         renderContacts(d);
         populateOverrides(d);
