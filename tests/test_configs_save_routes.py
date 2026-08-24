@@ -46,6 +46,77 @@ def save_routes(tmp_path, monkeypatch):
     return flask_module.app.test_client(), configs_dir, state_store, emitted
 
 
+def test_config_list_camera_returns_only_sorted_camera_cfg_files(save_routes):
+    client, configs_dir, _state_store, _emitted = save_routes
+    camera_configs_dir = configs_dir / "camera_cfg"
+    capture_dir = configs_dir / "capture"
+    camera_configs_dir.mkdir(parents=True)
+    capture_dir.mkdir()
+    (camera_configs_dir / "camera_zulu.json").write_text("{}", encoding="utf-8")
+    (camera_configs_dir / "camera_alpha.json").write_text("{}", encoding="utf-8")
+    (capture_dir / "camera_capture.json").write_text("{}", encoding="utf-8")
+    (configs_dir / "camera_root.json").write_text("{}", encoding="utf-8")
+
+    response = client.get("/api/configs/list_camera")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "files": ["camera_alpha.json", "camera_zulu.json"]
+    }
+
+
+def test_camera_load_and_select_prefer_camera_cfg_then_fall_back_to_capture(
+    save_routes,
+):
+    client, configs_dir, _state_store, _emitted = save_routes
+    camera_configs_dir = configs_dir / "camera_cfg"
+    capture_dir = configs_dir / "capture"
+    camera_configs_dir.mkdir(parents=True)
+    capture_dir.mkdir()
+
+    preferred_filename = "camera_shared.json"
+    legacy_filename = "camera_legacy.json"
+    preferred_data = camera_data(_comment="camera_cfg")
+    shadowed_legacy_data = camera_data(_comment="capture shadow")
+    legacy_data = camera_data(_comment="capture")
+    (camera_configs_dir / preferred_filename).write_text(
+        json.dumps(preferred_data), encoding="utf-8"
+    )
+    (capture_dir / preferred_filename).write_text(
+        json.dumps(shadowed_legacy_data), encoding="utf-8"
+    )
+    (capture_dir / legacy_filename).write_text(
+        json.dumps(legacy_data), encoding="utf-8"
+    )
+
+    preferred_load = flask_module.api_configs_load_camera(preferred_filename)
+    preferred_select = client.post(
+        "/api/trigger/select_camera", json={"filename": preferred_filename}
+    )
+    legacy_load = flask_module.api_configs_load_camera(legacy_filename)
+    legacy_select = client.post(
+        "/api/trigger/select_camera", json={"filename": legacy_filename}
+    )
+    listed = client.get("/api/configs/list_camera")
+
+    preferred_load_data = (
+        preferred_load.get_json()
+        if hasattr(preferred_load, "get_json")
+        else preferred_load
+    )
+    legacy_load_data = (
+        legacy_load.get_json() if hasattr(legacy_load, "get_json") else legacy_load
+    )
+    assert preferred_load_data == preferred_data
+    assert preferred_select.status_code == 200
+    assert preferred_select.get_json()["capture"]["meta"]["_comment"] == "camera_cfg"
+    assert legacy_load_data == legacy_data
+    assert legacy_select.status_code == 200
+    assert legacy_select.get_json()["capture"]["meta"]["_comment"] == "capture"
+    assert listed.status_code == 200
+    assert listed.get_json() == {"files": [preferred_filename]}
+
+
 @pytest.mark.parametrize(
     ("endpoint", "requested_filename", "saved_filename", "data"),
     [
@@ -90,7 +161,7 @@ def test_config_save_new_file_returns_summary_without_state_update(
     saved_path = (
         configs_dir / "circumstances" / saved_filename
         if endpoint == "/api/configs/save"
-        else configs_dir / saved_filename
+        else configs_dir / "camera_cfg" / saved_filename
     )
     assert json.loads(saved_path.read_text(encoding="utf-8")) == data
     assert state_store.snapshot() == initial_state
@@ -194,7 +265,7 @@ def test_config_save_collision_without_overwrite_returns_409(
     destination_dir = (
         configs_dir / "circumstances"
         if endpoint == "/api/configs/save"
-        else configs_dir
+        else configs_dir / "camera_cfg"
     )
     destination_dir.mkdir(parents=True)
     original = {"original": True}
@@ -284,8 +355,9 @@ def test_config_save_camera_overwrites_active_capture_and_emits_status(save_rout
     client, configs_dir, state_store, emitted = save_routes
     filename = "camera_active.json"
     data = camera_data(_comment="Réglages totalité", iso=400)
-    configs_dir.mkdir()
-    (configs_dir / filename).write_text("{}", encoding="utf-8")
+    camera_configs_dir = configs_dir / "camera_cfg"
+    camera_configs_dir.mkdir(parents=True)
+    (camera_configs_dir / filename).write_text("{}", encoding="utf-8")
     state_store.update_section(
         "capture",
         {"loaded": True, "active_file": filename, "meta": {"_comment": "Ancien"}},
@@ -315,7 +387,26 @@ def test_config_save_camera_overwrites_active_capture_and_emits_status(save_rout
         "local",
         "utc",
     }
-    assert json.loads((configs_dir / filename).read_text(encoding="utf-8")) == data
+    assert json.loads(
+        (camera_configs_dir / filename).read_text(encoding="utf-8")
+    ) == data
+
+
+def test_config_save_camera_writes_only_to_camera_cfg(save_routes):
+    client, configs_dir, _state_store, _emitted = save_routes
+    filename = "camera_scoped.json"
+    data = camera_data(iso=200)
+
+    response = client.post(
+        "/api/configs/save_camera",
+        json={"filename": filename, "data": data},
+    )
+
+    assert response.status_code == 200
+    assert json.loads(
+        (configs_dir / "camera_cfg" / filename).read_text(encoding="utf-8")
+    ) == data
+    assert not (configs_dir / filename).exists()
 
 
 @pytest.mark.parametrize(
@@ -346,7 +437,7 @@ def test_config_save_camera_rejects_invalid_phase_values_without_writing(
 
     assert response.status_code == 400
     assert "error" in response.get_json()
-    assert not (configs_dir / "camera_invalid.json").exists()
+    assert not (configs_dir / "camera_cfg" / "camera_invalid.json").exists()
 
 
 def test_config_save_camera_persists_default_step_ev_for_every_phase(save_routes):
@@ -360,6 +451,8 @@ def test_config_save_camera_persists_default_step_ev_for_every_phase(save_routes
 
     assert response.status_code == 200
     saved = json.loads(
-        (configs_dir / "camera_defaults.json").read_text(encoding="utf-8")
+        (configs_dir / "camera_cfg" / "camera_defaults.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert all(phase["step_ev"] == 1.0 for phase in saved["phases"].values())

@@ -1161,13 +1161,18 @@ def _is_circumstances_config(path):
             and not stem.startswith("_"))
 
 def _resolve_config_file(filename, subdirectory):
-    """Résout une config à la racine, puis dans son sous-répertoire dédié."""
+    """Résout une config dans les emplacements indiqués puis à la racine."""
     root_path = CONFIGS_DIR / filename
-    if root_path.is_file():
-        return root_path
-    subdirectory_path = CONFIGS_DIR / subdirectory / filename
-    if subdirectory_path.is_file():
-        return subdirectory_path
+    if isinstance(subdirectory, str):
+        if root_path.is_file():
+            return root_path
+        subdirectories = (subdirectory,)
+    else:
+        subdirectories = subdirectory
+    for directory in subdirectories:
+        subdirectory_path = CONFIGS_DIR / directory / filename
+        if subdirectory_path.is_file():
+            return subdirectory_path
     return root_path
 
 @app.route("/api/configs/list", methods=["GET"])
@@ -1184,10 +1189,7 @@ def api_configs_list_eclipse():
     """Retourne uniquement les fichiers de circonstances éclipse."""
     try:
         active_file = _state_store.snapshot("circumstances").get("active_file")
-        allowed_roots = {
-            "configs": CONFIGS_DIR.resolve(),
-            "circumstances": (CONFIGS_DIR / "circumstances").resolve(),
-        }
+        circumstances_root = (CONFIGS_DIR / "circumstances").resolve()
         files_by_name = {}
 
         def add_file(path, source_dir, allowed_root):
@@ -1209,14 +1211,10 @@ def api_configs_list_eclipse():
         if JSON_FILE.is_file():
             add_file(JSON_FILE, "trigger", TRIGGER_DIR.resolve())
 
-        for path in _unique_config_files("*.json", "circumstances/*.json"):
+        for path in _unique_config_files("circumstances/*.json"):
             if not _is_circumstances_config(path):
                 continue
-            resolved_parent = path.resolve().parent
-            if resolved_parent == allowed_roots["configs"]:
-                add_file(path, "configs", allowed_roots["configs"])
-            elif resolved_parent == allowed_roots["circumstances"]:
-                add_file(path, "circumstances", allowed_roots["circumstances"])
+            add_file(path, "circumstances", circumstances_root)
 
         return jsonify({"files": [files_by_name[name]
                                   for name in sorted(files_by_name)]})
@@ -1248,12 +1246,39 @@ def api_configs_circumstances_clean():
 
 @app.route("/api/configs/list_camera", methods=["GET"])
 def api_configs_list_camera():
-    """Retourne les fichiers de configuration appareil photo (camera_*)."""
+    """Retourne les configurations appareil photo de camera_cfg/."""
     try:
-        files = [f.name for f in _unique_config_files("camera_*.json", "capture/*.json")]
+        camera_configs_dir = CONFIGS_DIR / "camera_cfg"
+        files = sorted(
+            path.name for path in camera_configs_dir.glob("*.json")
+            if path.is_file()
+        )
         return jsonify({"files": files})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/configs/camera_cfg/clean", methods=["POST"])
+def api_configs_camera_clean():
+    """Supprime les fichiers JSON de premier niveau de camera_cfg/."""
+    base_dir = CONFIGS_DIR / "camera_cfg"
+    deleted = 0
+    errors = []
+
+    if not base_dir.exists():
+        return jsonify({"status": "ok", "deleted": deleted, "errors": errors})
+
+    for entry in base_dir.iterdir():
+        if (entry.is_symlink()
+                or not entry.is_file()
+                or entry.suffix.lower() != ".json"):
+            continue
+        try:
+            entry.unlink()
+            deleted += 1
+        except OSError as err:
+            errors.append({"file": entry.name, "error": str(err)})
+
+    return jsonify({"status": "ok", "deleted": deleted, "errors": errors})
 
 @app.route("/api/configs/load/<filename>", methods=["GET"])
 def api_configs_load(filename):
@@ -1273,7 +1298,7 @@ def api_configs_load_camera(filename):
     """Charge un fichier de configuration appareil photo."""
     try:
         filename = Path(filename).name
-        path = _resolve_config_file(filename, "capture")
+        path = _resolve_config_file(filename, ("camera_cfg", "capture"))
         if not path.exists() or path.suffix != ".json":
             return jsonify({"error": "Fichier introuvable"}), 404
         with open(path, encoding="utf-8") as f:
@@ -1319,8 +1344,9 @@ def api_configs_save_camera():
         phase.setdefault("step_ev", 1.0)
 
     try:
-        CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
-        destination = CONFIGS_DIR / filename
+        destination_dir = CONFIGS_DIR / "camera_cfg"
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / filename
         overwriting = destination.exists()
         if overwriting and body.get("overwrite") is not True:
             return jsonify({"error": "Le fichier existe déjà", "filename": filename}), 409
@@ -1545,7 +1571,7 @@ def api_trigger_select_camera():
     if not filename or not filename.endswith(".json"):
         return jsonify({"error": "Nom de fichier invalide"}), 400
     filename = Path(filename).name
-    path = _resolve_config_file(filename, "capture")
+    path = _resolve_config_file(filename, ("camera_cfg", "capture"))
     if not path.exists():
         return jsonify({"error": f"Fichier introuvable : {filename}"}), 404
     try:

@@ -102,7 +102,7 @@ def test_list_eclipse_returns_only_authorized_json_files_in_stable_order(
     tmp_path, monkeypatch
 ):
     client, configs_dir, json_file = _configure_list_route(
-        tmp_path, monkeypatch, active_file="middle.json"
+        tmp_path, monkeypatch, active_file="bravo.json"
     )
     circumstances_dir = configs_dir / "circumstances"
 
@@ -111,6 +111,7 @@ def test_list_eclipse_returns_only_authorized_json_files_in_stable_order(
     _write_json(configs_dir / "middle.json")
     _write_json(circumstances_dir / "alpha.json")
     _write_json(circumstances_dir / "bravo.json")
+    _write_json(circumstances_dir / "camera_cfg.json")
 
     (configs_dir / "notes.txt").write_text("not a config", encoding="utf-8")
     (circumstances_dir / "invalid.json").write_text("not json", encoding="utf-8")
@@ -125,10 +126,8 @@ def test_list_eclipse_returns_only_authorized_json_files_in_stable_order(
     assert response.get_json() == {
         "files": [
             {"name": "alpha.json", "dir": "circumstances", "active": False},
-            {"name": "bravo.json", "dir": "circumstances", "active": False},
-            {"name": "middle.json", "dir": "configs", "active": True},
+            {"name": "bravo.json", "dir": "circumstances", "active": True},
             {"name": "todayeclipse.json", "dir": "trigger", "active": False},
-            {"name": "zulu.json", "dir": "configs", "active": False},
         ]
     }
 
