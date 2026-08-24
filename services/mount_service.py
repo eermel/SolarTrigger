@@ -31,6 +31,7 @@ class MountService:
         self._plugin_access_lock = threading.RLock()
         self._plugin = None
         self._plugin_id: str | None = None
+        self._location_pushed = False
         self._moving = False
         self._direction: str | None = None
         self._homing = False
@@ -52,6 +53,7 @@ class MountService:
     def _close_locked(self) -> None:
         plugin, self._plugin = self._plugin, None
         self._plugin_id = None
+        self._location_pushed = False
         self._clear_motion_locked()
         if plugin is not None and getattr(plugin, "connected", False):
             plugin.disconnect()
@@ -75,6 +77,7 @@ class MountService:
             plugin = self._plugin
             try:
                 plugin.connect()
+                self._push_gps_location(plugin)
                 get_tracking_capabilities = getattr(
                     plugin, "get_tracking_capabilities", None
                 )
@@ -98,6 +101,7 @@ class MountService:
             except Exception:
                 self._plugin = None
                 self._plugin_id = None
+                self._location_pushed = False
                 self._clear_motion_locked()
                 try:
                     plugin.disconnect()
@@ -105,6 +109,41 @@ class MountService:
                     pass
                 raise
         return self._plugin
+
+    @staticmethod
+    def _valid_location_value(value) -> bool:
+        return (
+            isinstance(value, Real)
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+        )
+
+    @staticmethod
+    def _set_plugin_location(plugin, latitude, longitude, elevation) -> None:
+        setter = getattr(plugin, "set_location", None)
+        if not callable(setter):
+            raise RuntimeError("location setting is unsupported by this mount")
+        try:
+            inspect.signature(setter).bind(latitude, longitude, elevation)
+        except TypeError:
+            setter(latitude, longitude)
+        else:
+            setter(latitude, longitude, elevation)
+
+    def _push_gps_location(self, plugin) -> None:
+        if self._location_pushed:
+            return
+        setter = getattr(plugin, "set_location", None)
+        gps = self._state_store.snapshot("gps") or {}
+        if not isinstance(gps, dict):
+            return
+        location = (gps.get("lat"), gps.get("lon"), gps.get("alt"))
+        if not callable(setter) or not all(
+            self._valid_location_value(value) for value in location
+        ):
+            return
+        self._set_plugin_location(plugin, *location)
+        self._location_pushed = True
 
     def _status_locked(self, plugin) -> dict:
         raw = dict(plugin.status() or {})
@@ -122,7 +161,7 @@ class MountService:
             if callable(get_tracking_capabilities)
             else None
         )
-        return {
+        status = {
             "active": True,
             "connected": bool(plugin.connected),
             "moving": bool(self._moving),
@@ -135,6 +174,9 @@ class MountService:
             "tracking_caps": tracking_capabilities,
             "plugin": self._plugin_id,
         }
+        if "device" in raw:
+            status["device"] = raw["device"]
+        return status
 
     def _homing_status_locked(self, plugin_id: str) -> dict:
         """Return a backend-only snapshot while Home owns mount I/O."""
@@ -269,6 +311,12 @@ class MountService:
                 raise RuntimeError("slew speed is unsupported by this mount")
             self._validate_speed(value, capabilities)
             plugin.set_speed(value)
+            return self._status_locked(plugin)
+
+    def set_location(self, latitude, longitude, elevation) -> dict:
+        with self._lock:
+            plugin = self._plugin_for_operation()
+            self._set_plugin_location(plugin, latitude, longitude, elevation)
             return self._status_locked(plugin)
 
     def start_slew(self, direction: str) -> dict:
