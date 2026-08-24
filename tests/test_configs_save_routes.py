@@ -93,6 +93,83 @@ def test_config_save_new_file_returns_summary_without_state_update(
 
 
 @pytest.mark.parametrize(
+    "filename",
+    [
+        "/abs.json",
+        "../escape.json",
+        "dir/name.json",
+        "..",
+        "foo/..",
+        "../foo",
+        "/foo",
+    ],
+)
+def test_config_save_rejects_invalid_filename_without_writing(
+    save_routes, monkeypatch, filename
+):
+    client, configs_dir, state_store, emitted = save_routes
+    data = {"_date": "2027-08-02", "title": "Éclipse totale 2027"}
+    monkeypatch.setattr(flask_module, "_load_eclipse_json", lambda: data)
+    initial_state = state_store.snapshot()
+
+    response = client.post("/api/configs/save", json={"filename": filename})
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "Nom de fichier invalide"}
+    assert not configs_dir.exists()
+    assert state_store.snapshot() == initial_state
+    assert emitted == []
+
+
+def test_config_save_appends_json_extension(save_routes, monkeypatch):
+    client, configs_dir, state_store, emitted = save_routes
+    data = {"_date": "2027-08-02", "title": "Éclipse totale 2027"}
+    monkeypatch.setattr(flask_module, "_load_eclipse_json", lambda: data)
+    initial_state = state_store.snapshot()
+
+    response = client.post("/api/configs/save", json={"filename": "my_eclipse"})
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "ok",
+        "filename": "my_eclipse.json",
+        "saved": {"filename": "my_eclipse.json", "data": data},
+    }
+    assert json.loads(
+        (configs_dir / "my_eclipse.json").read_text(encoding="utf-8")
+    ) == data
+    assert state_store.snapshot() == initial_state
+    assert emitted == []
+
+
+def test_config_save_todayeclipse_default_flow_without_state_update(
+    save_routes, monkeypatch
+):
+    client, configs_dir, state_store, emitted = save_routes
+    filename = "todayeclipse.json"
+    data = {
+        "_date": "2027-08-02",
+        "_date_utc": "2027-08-02",
+        "title": "Éclipse totale 2027",
+        "_type": "total",
+    }
+    monkeypatch.setattr(flask_module, "_load_eclipse_json", lambda: data)
+    initial_state = state_store.snapshot()
+
+    response = client.post("/api/configs/save", json={"filename": filename})
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "ok",
+        "filename": filename,
+        "saved": {"filename": filename, "data": data},
+    }
+    assert json.loads((configs_dir / filename).read_text(encoding="utf-8")) == data
+    assert state_store.snapshot() == initial_state
+    assert emitted == []
+
+
+@pytest.mark.parametrize(
     ("endpoint", "filename", "body"),
     [
         ("/api/configs/save", "existing.json", {"filename": "existing.json"}),
@@ -128,8 +205,9 @@ def test_config_save_collision_without_overwrite_returns_409(
     assert emitted == []
 
 
+@pytest.mark.parametrize("requested_filename", ["todayeclipse.json", "todayeclipse"])
 def test_config_save_overwrites_active_circumstances_and_emits_status(
-    save_routes, monkeypatch
+    save_routes, monkeypatch, requested_filename
 ):
     client, configs_dir, state_store, emitted = save_routes
     filename = "todayeclipse.json"
@@ -150,7 +228,8 @@ def test_config_save_overwrites_active_circumstances_and_emits_status(
     monkeypatch.setattr(flask_module, "_load_eclipse_json", lambda: data)
 
     response = client.post(
-        "/api/configs/save", json={"filename": filename, "overwrite": True}
+        "/api/configs/save",
+        json={"filename": requested_filename, "overwrite": True},
     )
 
     assert response.status_code == 200
