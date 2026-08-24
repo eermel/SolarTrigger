@@ -91,6 +91,19 @@ def test_trigger_initialization_uses_trigger_tab_index():
     assert trigger_initialization.search(INDEX)
 
 
+def test_eclipse_calculation_has_no_dst_control_or_payload_field():
+    source = _function_source("calculateEclipse", asynchronous=True)
+
+    assert 'id="inp-dst"' not in INDEX
+    assert not re.search(r"\bdst\b", source, re.IGNORECASE)
+    assert re.search(
+        r"body\s*:\s*JSON\.stringify\(\s*"
+        r"\{\s*lat\s*,\s*lon\s*,\s*alt\s*,\s*tz\s*,\s*eclipse\s*:\s*ecl\s*\}\s*"
+        r"\)",
+        source,
+    )
+
+
 def test_mount_section_is_unique_and_inside_controls_panel():
     controls_start = INDEX.index('<div class="page" id="controls-panel"')
     trigger_start = INDEX.index('<!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->')
