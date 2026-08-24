@@ -2805,21 +2805,22 @@ async function syncCameraTime() {
 
 async function loadTriggerConfigList() {
   try {
-    const r = await fetch('/api/configs/list_trigger');
+    const r = await fetch('/api/configs/list_eclipse');
     const d = await r.json();
     const sel = document.getElementById('trigger-config-select');
     if (!sel) return;
-    sel.innerHTML = '<option value="">— Choisir un fichier —</option>';
+    sel.innerHTML = '';
+    let activeFilename = null;
     (d.files || []).forEach(f => {
       const opt = document.createElement('option');
       opt.value = f.name;
       opt.dataset.dir = f.dir;
-      opt.textContent = f.active ? `★ ${f.name}` : f.name;
-      if (f.active) opt.style.color = 'var(--accent)';
+      opt.textContent = f.name;
       sel.appendChild(opt);
+      if (f.active) activeFilename = f.name;
     });
-    const active = Array.from(sel.options).find(o => o.value === 'todayeclipse.json');
-    if (active) sel.value = 'todayeclipse.json';
+    if (activeFilename !== null) sel.value = activeFilename;
+    else sel.selectedIndex = -1;
   } catch(e) {}
   // Charger aussi la liste des configs appareil
   try {
@@ -2862,8 +2863,9 @@ async function loadTriggerConfig(filename, dir) {
       body: JSON.stringify({ filename, dir: dir || 'configs' })
     });
     const d = await r.json();
-    if (d.error) { flash(d.error, 'red'); return; }
+    if (!r.ok || d.error) { flash(d.error || `Erreur HTTP ${r.status}`, 'red'); return; }
     flash(`📂 ${filename} chargé`, 'green');
+    await Promise.all([loadTriggerConfigList(), loadEclipseData()]);
   } catch(e) { flash('Erreur réseau', 'red'); }
 }
 

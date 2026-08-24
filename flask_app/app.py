@@ -1265,9 +1265,43 @@ def api_configs_list():
 def api_configs_list_eclipse():
     """Retourne uniquement les fichiers de circonstances éclipse."""
     try:
-        candidates = _unique_config_files("*.json", "circumstances/*.json")
-        files = [f.name for f in candidates if _is_circumstances_config(f)]
-        return jsonify({"files": files})
+        active_file = _state_store.snapshot("circumstances").get("active_file")
+        allowed_roots = {
+            "configs": CONFIGS_DIR.resolve(),
+            "circumstances": (CONFIGS_DIR / "circumstances").resolve(),
+        }
+        files_by_name = {}
+
+        def add_file(path, source_dir, allowed_root):
+            try:
+                resolved = path.resolve()
+                if (resolved.parent != allowed_root
+                        or resolved.suffix.lower() != ".json"):
+                    return
+                with open(resolved, encoding="utf-8") as f:
+                    json.load(f)
+            except (OSError, ValueError, TypeError):
+                return
+            files_by_name.setdefault(path.name, {
+                "name": path.name,
+                "dir": source_dir,
+                "active": path.name == active_file,
+            })
+
+        if JSON_FILE.is_file():
+            add_file(JSON_FILE, "trigger", TRIGGER_DIR.resolve())
+
+        for path in _unique_config_files("*.json", "circumstances/*.json"):
+            if not _is_circumstances_config(path):
+                continue
+            resolved_parent = path.resolve().parent
+            if resolved_parent == allowed_roots["configs"]:
+                add_file(path, "configs", allowed_roots["configs"])
+            elif resolved_parent == allowed_roots["circumstances"]:
+                add_file(path, "circumstances", allowed_roots["circumstances"])
+
+        return jsonify({"files": [files_by_name[name]
+                                  for name in sorted(files_by_name)]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
