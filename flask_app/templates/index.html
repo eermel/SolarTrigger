@@ -827,6 +827,8 @@ header {
           </select>
           <button class="btn btn-primary" style="font-size:11px;padding:7px 10px"
             onclick="saveCameraConfig()">💾 Sauvegarder</button>
+          <button class="btn btn-secondary" type="button" style="font-size:11px;padding:7px 10px"
+            onclick="cleanCameraConfigs()">🧹 CLEAN</button>
         </div>
       </div>
 
@@ -3275,6 +3277,48 @@ async function cleanCircumstances() {
         option.value = file.name;
         option.textContent = file.name;
         eclipseSelect.appendChild(option);
+      });
+    }
+  } catch(e) {
+    alert('Clean failed.');
+  }
+}
+
+async function cleanCameraConfigs() {
+  try {
+    const cleanResponse = await fetch('/api/configs/camera_cfg/clean', { method: 'POST' });
+    if (!cleanResponse.ok) {
+      alert('Clean failed.');
+      return;
+    }
+
+    const listResponse = await fetch('/api/configs/list_camera');
+    if (!listResponse.ok) {
+      alert('Refresh failed.');
+      return;
+    }
+    const data = await listResponse.json();
+    const files = data.files || [];
+
+    const cameraSelect = document.getElementById('camera-config-select');
+    if (cameraSelect) {
+      cameraSelect.innerHTML = '<option value="">— Fichier config appareil —</option>';
+      files.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        cameraSelect.appendChild(option);
+      });
+    }
+
+    const triggerCameraSelect = document.getElementById('trigger-camera-select');
+    if (triggerCameraSelect) {
+      triggerCameraSelect.innerHTML = '<option value="">— Config appareil —</option>';
+      files.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        triggerCameraSelect.appendChild(option);
       });
     }
   } catch(e) {
