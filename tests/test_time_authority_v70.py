@@ -74,8 +74,20 @@ def test_numeric_deadline_uses_monotonic(monkeypatch):
 
 def test_frontend_time_authority_does_not_use_browser_wall_clock_offset():
     html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
-    assert 'performance.now()' in html
-    assert 't.epoch_ms' in html
+    update_time = re.search(
+        r"function updateTime\(t\)\s*\{(?P<body>.*?)\n\}",
+        html,
+        re.DOTALL,
+    )
+    assert update_time is not None
+    update_time_body = update_time.group('body')
+    assert 'Number.isFinite(t.epoch_ms)' in update_time_body
+    assert '_clockAnchorEpochMs = piMs;' in update_time_body
+    assert '_clockAnchorPerfMs = performance.now();' in update_time_body
+    assert update_time_body.index('_clockAnchorEpochMs = piMs;') < update_time_body.index(
+        '_clockAnchorPerfMs = performance.now();'
+    )
+    assert 'Date.now()' not in update_time_body
     assert 'let _clockAnchorEpochMs = null;' in html
     assert 'let _clockAnchorPerfMs = null;' in html
     assert 'let _clockAnchorEpochMs = Date.now();' not in html
