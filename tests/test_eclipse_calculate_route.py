@@ -138,7 +138,7 @@ def test_eclipse_calculate_invokes_python_calculator_and_updates_state(
     command = commands[0]
     assert command[1] == str(flask_module.CALC_SCRIPT)
     assert command[1].endswith("eclipse_calculator_py.py")
-    assert "jubier" not in command[1].lower()
+    assert all("eclipse_calculator_jubier.py" not in str(arg) for arg in command)
     assert command[command.index("--date") + 1] == "2027-08-02"
     assert command[command.index("--output") + 1] == str(flask_module.JSON_FILE)
     assert flask_module._state["calc_running"] is False
