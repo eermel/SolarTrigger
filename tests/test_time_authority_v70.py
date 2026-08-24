@@ -125,6 +125,16 @@ def test_frontend_displays_recompute_time_from_anchor_on_every_refresh():
     )
 
 
+def test_header_clock_does_not_use_browser_locale_or_timezone_offset():
+    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    header_clock = html[
+        html.index('function _tickClock() {'):html.index('function _updateGpsBadge(')
+    ]
+
+    assert not re.search(r'\.toLocaleTimeString\s*\(', header_clock)
+    assert not re.search(r'\.getTimezoneOffset\s*\(', header_clock)
+
+
 def test_frontend_connect_fetches_status_and_reanchors_time():
     html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
     assert re.search(
