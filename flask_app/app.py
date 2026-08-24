@@ -1223,6 +1223,29 @@ def api_configs_list_eclipse():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/configs/circumstances/clean", methods=["POST"])
+def api_configs_circumstances_clean():
+    """Supprime les fichiers JSON de premier niveau des circonstances."""
+    base_dir = CONFIGS_DIR / "circumstances"
+    deleted = 0
+    errors = []
+
+    if not base_dir.exists():
+        return jsonify({"status": "ok", "deleted": deleted, "errors": errors})
+
+    for entry in base_dir.iterdir():
+        if (entry.is_symlink()
+                or not entry.is_file()
+                or entry.suffix.lower() != ".json"):
+            continue
+        try:
+            entry.unlink()
+            deleted += 1
+        except OSError as err:
+            errors.append({"file": entry.name, "error": str(err)})
+
+    return jsonify({"status": "ok", "deleted": deleted, "errors": errors})
+
 @app.route("/api/configs/list_camera", methods=["GET"])
 def api_configs_list_camera():
     """Retourne les fichiers de configuration appareil photo (camera_*)."""
