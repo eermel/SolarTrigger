@@ -17,17 +17,24 @@ info() { echo -e "${CYAN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 err()  { echo -e "${RED}[ERR]${NC}  $1"; exit 1; }
 
-if [ "$(id -u)" -ne 0 ]; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/datasets_sync.sh"
+
+if [ "${SOLARECLIPSE_TEST_MODE:-0}" != "1" ] && [ "$(id -u)" -ne 0 ]; then
     err "Lancer avec sudo : sudo ./install/update_files.sh"
 fi
 
 CURRENT_USER=${SUDO_USER:-$USER}
 USER_HOME=$(eval echo "~$CURRENT_USER")
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(dirname "$SCRIPT_DIR")"
 
 TRIGGER_DIR="$USER_HOME/python_solareclipsetrigger"
 FLASK_DIR="$USER_HOME/flaskapp_solareclipsetrigger"
+if [ "${SOLARECLIPSE_TEST_MODE:-0}" = "1" ]; then
+    PACKAGE_DIR="${SOLARECLIPSE_TEST_PACKAGE_DIR:-$PACKAGE_DIR}"
+    TRIGGER_DIR="${SOLARECLIPSE_TEST_TRIGGER_DIR:-$TRIGGER_DIR}"
+    FLASK_DIR="${SOLARECLIPSE_TEST_FLASK_DIR:-$FLASK_DIR}"
+fi
 CONFIGS_DIR="$TRIGGER_DIR/configs"
 
 PACKAGE_VERSION="unknown"
@@ -94,6 +101,7 @@ info "Copie des couches applicatives..."
 sync_app_dir "backend"
 sync_app_dir "services"
 sync_app_dir "plugins"
+sync_eclipse_datasets "$PACKAGE_DIR" "$TRIGGER_DIR"
 
 # ── 1c. Tests / diagnostic
 if [ -d "$PACKAGE_DIR/tests" ]; then
@@ -155,7 +163,9 @@ if [ -f "$PACKAGE_DIR/VERSION" ]; then
 fi
 
 # ── 7. Droits
-chown -R "$CURRENT_USER:$CURRENT_USER" "$TRIGGER_DIR" "$FLASK_DIR" "$CONFIGS_DIR"
+if [ "${SOLARECLIPSE_TEST_MODE:-0}" != "1" ]; then
+    chown -R "$CURRENT_USER:$CURRENT_USER" "$TRIGGER_DIR" "$FLASK_DIR" "$CONFIGS_DIR"
+fi
 chmod 755 "$CONFIGS_DIR"
 chmod +x "$TRIGGER_DIR/tests/run_test.sh" 2>/dev/null || true
 ok "Droits mis à jour."
@@ -176,17 +186,21 @@ PYTHON_BIN="$FLASK_DIR/venv/bin/python3"
 ok "Compilation Python minimale OK."
 
 # ── 9. Redémarrage Flask et contrôle de santé systemd
-info "Redémarrage du portail Flask..."
-systemctl restart solareclipse.service || err "Redémarrage solareclipse.service échoué"
-if systemctl is-active --quiet solareclipse.service; then
-    ok "Portail redémarré et actif."
+if [ "${SOLARECLIPSE_SKIP_SERVICE_RESTART:-0}" = "1" ] || [ "${SOLARECLIPSE_TEST_MODE:-0}" = "1" ]; then
+    info "Redémarrage systemd et reload nginx ignorés."
 else
-    err "solareclipse.service n'est pas actif après redémarrage"
-fi
+    info "Redémarrage du portail Flask..."
+    systemctl restart solareclipse.service || err "Redémarrage solareclipse.service échoué"
+    if systemctl is-active --quiet solareclipse.service; then
+        ok "Portail redémarré et actif."
+    else
+        err "solareclipse.service n'est pas actif après redémarrage"
+    fi
 
-# Nginx n'a pas besoin d'être redémarré, mais un reload est sans risque si actif.
-if systemctl is-active --quiet nginx.service; then
-    systemctl reload nginx.service 2>/dev/null || warn "Reload nginx échoué"
+    # Nginx n'a pas besoin d'être redémarré, mais un reload est sans risque si actif.
+    if systemctl is-active --quiet nginx.service; then
+        systemctl reload nginx.service 2>/dev/null || warn "Reload nginx échoué"
+    fi
 fi
 
 echo ""
