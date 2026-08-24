@@ -248,7 +248,18 @@ apt install -y \
     usbutils \
     psmisc procps
 
+apt install -y indi-bin indi-eqmod
+
 success "Dépendances système installées."
+
+# L'utilisateur du service INDI doit pouvoir accéder aux périphériques série.
+if id -nG "$CURRENT_USER" | grep -qw dialout; then
+    success "Utilisateur '$CURRENT_USER' déjà membre du groupe dialout."
+else
+    usermod -aG dialout "$CURRENT_USER"
+    success "Utilisateur '$CURRENT_USER' ajouté au groupe dialout."
+    warning "Déconnectez-vous puis reconnectez-vous pour appliquer le nouveau groupe à votre session."
+fi
 
 # ── Empêcher gvfsd de monter automatiquement la caméra (libère l'USB pour gphoto2)
 info "Désactivation du montage automatique GVFS pour appareils photo..."
@@ -716,7 +727,28 @@ StandardError=journal
 SyslogIdentifier=solareclipse-trigger
 EOL
 
+# Service INDI pour la monture EQMod. Le groupe principal est résolu à
+# l'installation ; l'accès série est fourni par l'appartenance à dialout.
+RUNTIME_GROUP=$(id -gn "$CURRENT_USER")
+cat > /etc/systemd/system/indiserver-eqmod.service <<EOL
+[Unit]
+Description=INDI server (EQMod)
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/indiserver indi_eqmod_telescope
+Restart=on-failure
+User=$CURRENT_USER
+Group=$RUNTIME_GROUP
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
 systemctl daemon-reload
+systemctl enable indiserver-eqmod.service
+systemctl start indiserver-eqmod.service
+success "Service indiserver-eqmod démarré et activé au boot."
 systemctl enable solareclipse.service
 systemctl restart solareclipse.service && success "Service solareclipse démarré/rechargé et activé au boot." \
     || warning "Service solareclipse non démarré — vérifier app.py dans $FLASK_DIR"
