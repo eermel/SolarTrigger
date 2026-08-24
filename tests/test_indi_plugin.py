@@ -94,6 +94,33 @@ def test_connect_configures_serial_baud_auto_search_and_connection(tmp_path, ful
     assert plugin.connected is True
 
 
+def test_connect_skips_optional_properties_when_they_are_absent(tmp_path):
+    serial_port = tmp_path / "ttyUSB0"
+    serial_port.touch(mode=0o600)
+    client = StubIndiClient({"CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}})
+
+    mount(client, serial_port=str(serial_port)).connect()
+
+    assert client.set_calls[0] == {
+        "CONNECTION_MODE": {"CONNECTION_SERIAL": "On", "CONNECTION_TCP": "Off"},
+        "DEVICE_PORT": {"PORT": str(serial_port)},
+    }
+
+
+def test_connect_rejects_baud_missing_from_advertised_property(tmp_path, full_props):
+    serial_port = tmp_path / "ttyUSB0"
+    serial_port.touch(mode=0o600)
+    client = StubIndiClient(full_props)
+
+    error = assert_code(
+        "PROPERTY_UNSUPPORTED",
+        mount(client, serial_port=str(serial_port), baud=57600).connect,
+    )
+
+    assert "57600" in str(error)
+    assert client.set_calls == []
+
+
 @pytest.mark.parametrize("serial_port", [None, ""])
 def test_connect_requires_serial_port_before_client_access(serial_port):
     client = StubIndiClient()
@@ -176,6 +203,34 @@ def test_tracking_capabilities_and_tracking_writes(full_props):
     }
 
 
+def test_tracking_mode_supports_short_indi_element_names():
+    client = StubIndiClient({
+        "TELESCOPE_TRACK_MODE": {
+            "SIDEREAL": "Off", "SOLAR": "On", "LUNAR": "Off"
+        },
+        "TELESCOPE_TRACK_STATE": {"TRACK_ON": "On", "TRACK_OFF": "Off"},
+    })
+    plugin = mount(client)
+
+    assert plugin.status()["tracking_rate"] == "solar"
+    assert plugin.get_tracking_capabilities() == {
+        "toggle": True, "modes": ["sidereal", "solar", "lunar"]
+    }
+    plugin.set_tracking_mode("lunar")
+    assert client.set_calls[-1] == {
+        "TELESCOPE_TRACK_MODE": {
+            "SIDEREAL": "Off", "SOLAR": "Off", "LUNAR": "On"
+        }
+    }
+
+
+def test_tracking_mode_rejects_absent_mode_property():
+    assert_code(
+        "PROPERTY_UNSUPPORTED",
+        lambda: mount(StubIndiClient()).set_tracking_mode("solar"),
+    )
+
+
 def test_tracking_timeout_is_structured(full_props):
     client = StubIndiClient(full_props)
     client.set_props = lambda assignments: client.set_calls.append(deepcopy(assignments))
@@ -218,6 +273,23 @@ def test_speed_selects_value_updates_rate_and_rejects_unknown(full_props):
     }
     assert plugin.status()["move_rate"] == "Maximum"
     assert_code("PROPERTY_UNSUPPORTED", lambda: plugin.set_speed("missing"))
+
+
+def test_slew_capability_discovery_preserves_element_names_and_labels(full_props):
+    plugin = mount(StubIndiClient(full_props))
+
+    assert plugin.get_slew_speed_capabilities() == {
+        "kind": "discrete",
+        "unit": None,
+        "min": None,
+        "max": None,
+        "step": None,
+        "values": [
+            {"value": "SLEW_GUIDE", "label": "Guide"},
+            {"value": "SLEW_MAX", "label": "Maximum"},
+        ],
+    }
+    assert mount(StubIndiClient()).get_slew_speed_capabilities() is None
 
 
 def test_location_push_and_unsupported_property(full_props):

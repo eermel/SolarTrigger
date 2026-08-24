@@ -66,6 +66,20 @@ def test_get_props_without_patterns_adds_no_filter(monkeypatch):
     assert commands == [["indi_getprop", "-h", "127.0.0.1", "-p", "7624"]]
 
 
+def test_get_props_preserves_qualified_pattern_and_value_delimiters(monkeypatch):
+    commands = []
+    monkeypatch.setattr(
+        "plugins.mount.indi_client.subprocess.run",
+        lambda command, **kwargs: commands.append(command)
+        or completed(stdout="EQMod Mount.DEVICE_PORT.PORT=/dev/serial/by-id/a=b\n"),
+    )
+
+    props = IndiSubprocessClient().get_props(["EQMod Mount.DEVICE_PORT.PORT"])
+
+    assert commands[0][-1] == "EQMod Mount.DEVICE_PORT.PORT"
+    assert props == {"DEVICE_PORT": {"PORT": "/dev/serial/by-id/a=b"}}
+
+
 def test_set_props_builds_assignment_arguments(monkeypatch):
     commands = []
     monkeypatch.setattr(
@@ -199,3 +213,14 @@ def test_ensure_device_present_raises_when_missing(monkeypatch):
 
     assert raised.value.code == "DEVICE_NOT_FOUND"
 
+
+def test_device_not_found_error_identifies_requested_device(monkeypatch):
+    monkeypatch.setattr(
+        "plugins.mount.indi_client.subprocess.run",
+        lambda command, **kwargs: completed(),
+    )
+
+    with pytest.raises(IndiClientError) as raised:
+        IndiSubprocessClient().ensure_device_present("Absent Mount")
+
+    assert str(raised.value) == "INDI device not found: Absent Mount"
