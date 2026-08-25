@@ -404,3 +404,49 @@ def test_boot_does_not_restore_missing_capture_file(tmp_path, monkeypatch):
 
     assert restored.snapshot("circumstances")["loaded"] is True
     assert restored.snapshot("capture")["loaded"] is False
+
+
+def test_trigger_dryrun_accepts_circumstances_from_another_date(tmp_path, monkeypatch):
+    another_date = datetime.now().astimezone().date() + timedelta(days=30)
+    client = _configure_trigger_route(
+        tmp_path,
+        monkeypatch,
+        eclipse_date=another_date,
+    )
+
+    response = client.post(
+        "/api/trigger/dryrun",
+        json={"delay_s": 0},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "started",
+        "mode": "dryrun",
+        "speed": 1.0,
+        "delay_s": 0.0,
+    }
+
+
+def test_trigger_simulation_accepts_circumstances_from_another_date(
+    tmp_path, monkeypatch
+):
+    another_date = datetime.now().astimezone().date() + timedelta(days=30)
+    client = _configure_trigger_route(
+        tmp_path,
+        monkeypatch,
+        eclipse_date=another_date,
+    )
+
+    response = client.post(
+        "/api/trigger/simulate",
+        json={"speed": 60},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "started",
+        "mode": "simulation",
+        "speed": 60.0,
+    }
+

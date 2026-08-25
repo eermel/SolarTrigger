@@ -28,7 +28,17 @@ class TriggerService:
         self.line_level_fn=line_level_fn or (lambda _: "info")
         self.line_clean_fn=line_clean_fn or (lambda x:x); self._proc=None; self._lock=threading.RLock(); self._starting=False
 
-    def validate_start(self, require_gps=True):
+    def _resolve_camera_config(self, camera_config_file):
+        if not camera_config_file:
+            return None
+        filename = Path(camera_config_file).name
+        for subdir in ("camera_cfg", "capture"):
+            candidate = self.configs_dir / subdir / filename
+            if candidate.exists():
+                return candidate
+        return None
+
+    def validate_start(self, require_gps=True, require_current_date=True):
         # Une simulation ne pilote aucun matériel et utilise sa propre horloge
         # virtuelle : elle ne doit donc pas être bloquée par l'état GPS.
         if require_gps:
@@ -60,14 +70,7 @@ class TriggerService:
 
         capture=self.state.snapshot("capture") or {}
         camera_config_file=self.state.get("camera_config_file")
-        camera_config_path=None
-        if camera_config_file:
-            filename=Path(camera_config_file).name
-            for subdir in ("camera_cfg", "capture"):
-                candidate=self.configs_dir/subdir/filename
-                if candidate.exists():
-                    camera_config_path=candidate
-                    break
+        camera_config_path=self._resolve_camera_config(camera_config_file)
 
         if not capture.get("loaded") or camera_config_path is None:
             raise TriggerValidationError("Aucune configuration de capture sélectionnée", "CAPTURE_NOT_LOADED")
@@ -76,12 +79,13 @@ class TriggerService:
         except Exception:
             raise TriggerValidationError("Aucune configuration de capture sélectionnée", "CAPTURE_NOT_LOADED")
 
-        try:
-            circumstances_date=parse_date_from_config(ecl)
-        except (TypeError, ValueError):
-            circumstances_date=None
-        if circumstances_date != datetime.now().astimezone().date():
-            raise TriggerValidationError("Les circonstances d’éclipse ne correspondent pas à la date locale", "CIRCUMSTANCES_DATE_INVALID")
+        if require_current_date:
+            try:
+                circumstances_date=parse_date_from_config(ecl)
+            except (TypeError, ValueError):
+                circumstances_date=None
+            if circumstances_date != datetime.now().astimezone().date():
+                raise TriggerValidationError("Les circonstances d’éclipse ne correspondent pas à la date locale", "CIRCUMSTANCES_DATE_INVALID")
 
         validate_eclipse(ecl); return ecl
 
@@ -104,7 +108,10 @@ class TriggerService:
             if self._starting or self.state.snapshot("trigger").get("running") or (self._proc and self._proc.poll() is None): return False
             self._starting=True
             try:
-                ecl=self.validate_start(require_gps=not simulate)
+                ecl=self.validate_start(
+                    require_gps=not simulate,
+                    require_current_date=not (simulate or dry_run),
+                )
             except Exception:
                 self._starting=False
                 raise
@@ -129,9 +136,9 @@ class TriggerService:
             elif dry_run:
                 cmd += ["--dry-run","--dry-run-delay",str(dry_run_delay)]
             cfg=self.state.get("camera_config_file")
-            if cfg:
-                p=self.configs_dir/cfg
-                if p.exists(): cmd += ["--camera",str(p)]
+            camera_config_path=self._resolve_camera_config(cfg)
+            if camera_config_path is not None:
+                cmd += ["--camera",str(camera_config_path)]
             env=os.environ.copy(); env["PYTHONUNBUFFERED"]="1"
             proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,cwd=str(self.trigger_script.parent),env=env)
             with self._lock: self._proc=proc
