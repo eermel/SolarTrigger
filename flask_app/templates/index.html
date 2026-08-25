@@ -150,12 +150,13 @@ header {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
-.tab {
+#tabs .tab {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 3px;
+  box-sizing: border-box;
   padding: 8px 14px;
   cursor: pointer;
   user-select: none;
@@ -169,34 +170,37 @@ header {
   -webkit-appearance: none;
   appearance: none;
 }
-.tab svg {
+#tabs .tab svg {
+  display: block;
   width: 18px;
   height: 18px;
+  flex-shrink: 0;
   stroke: var(--text-dim);
   fill: none;
 }
-.tab > svg,
-.tab > span {
+#tabs .tab > svg,
+#tabs .tab > span {
   pointer-events: none;
 }
-.tab span {
+#tabs .tab span {
+  display: block;
   font-size: 9px;
   font-family: var(--mono);
   letter-spacing: .08em;
   color: var(--text-dim);
 }
-.tab.active::after {
+#tabs .tab.active::after {
   content: '';
   position: absolute;
   bottom: 0; left: 0; right: 0;
   height: 2px;
   background: var(--accent);
 }
-.tab.active svg {
+#tabs .tab.active svg {
   stroke: var(--accent);
   filter: drop-shadow(0 0 4px var(--accent));
 }
-.tab.active span {
+#tabs .tab.active span {
   color: var(--accent);
 }
 
