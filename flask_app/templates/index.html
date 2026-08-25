@@ -3114,6 +3114,9 @@ async function loadCameraConfig(filename) {
     const r = await fetch('/api/configs/load_camera/' + encodeURIComponent(filename));
     if (!r.ok) { flash('Erreur chargement config appareil', 'red'); return; }
     const data = await r.json();
+    document.getElementById('cfg-atmo-switch').checked = Boolean(
+      data.exposure_correction?.atmospheric_attenuation_enabled
+    );
     _applyCameraConfig(data);
     flash('Config appareil chargée : ' + filename, 'green');
   } catch(e) { flash('Erreur réseau', 'red'); }
