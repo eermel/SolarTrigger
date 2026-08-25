@@ -78,7 +78,19 @@ def normalize_selection(payload: Mapping[str, Any] | str | None) -> dict[str, An
 
 
 def detect_camera(model: str | None = None) -> dict[str, Any]:
-    """Detect a camera plugin from an already read model string."""
+    """Detect the connected camera and suggest the matching plugin.
+
+    When no model is supplied, ask the camera registry for the most specific
+    model reported by libgphoto2 autodetect.  Detection remains generic:
+    backend code never knows Sony/Nikon model names.
+    """
+    if not model:
+        try:
+            model = camera.get_camera_model(None)
+        except Exception:
+            model = None
+
+    model = str(model or "").strip() or None
     suggested = camera_plugin_for_model(model) if model else None
     return _result(bool(model), model, model, suggested)
 

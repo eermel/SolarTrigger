@@ -92,6 +92,25 @@ def test_detect_camera_suggests_only_a_unique_match(monkeypatch, matches, sugges
     assert result["suggested_plugin"] == suggested
 
 
+def test_detect_camera_autodetects_model_when_missing(monkeypatch):
+    monkeypatch.setattr(
+        devices.camera,
+        "get_camera_model",
+        lambda _camera: "Detected model",
+    )
+    monkeypatch.setattr(
+        devices,
+        "camera_plugin_for_model",
+        lambda model: "camera-auto" if model == "Detected model" else None,
+    )
+
+    result = devices.detect_camera()
+
+    assert result["detected"] is True
+    assert result["detected_model"] == "Detected model"
+    assert result["suggested_plugin"] == "camera-auto"
+
+
 class _Probe:
     def __init__(self, outcome):
         self.outcome = outcome
