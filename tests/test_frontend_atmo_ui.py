@@ -34,3 +34,22 @@ def test_atmospheric_attenuation_card_has_on_off_switch():
     )
     assert '<label for="cfg-atmo-switch">OFF</label>' in control
     assert '<label for="cfg-atmo-switch">ON</label>' in control
+
+
+def test_save_camera_config_includes_atmospheric_attenuation_switch_state():
+    function = re.search(
+        r'async function saveCameraConfig\(\) \{(.*?)\n\}',
+        INDEX,
+        re.DOTALL,
+    )
+
+    assert function is not None
+    body = function.group(1)
+    assert re.search(
+        r'data\.exposure_correction\s*=\s*\{\s*'
+        r'atmospheric_attenuation_enabled\s*:\s*'
+        r'Boolean\(document\.getElementById\([\'\"]cfg-atmo-switch[\'\"]\)'
+        r'\.checked\)\s*\}',
+        body,
+        re.DOTALL,
+    )

@@ -3214,6 +3214,9 @@ async function saveCameraConfig() {
   const name = prompt('Nom du fichier config appareil :', current);
   if (!name) return;
   const data = _readCameraConfig();
+  data.exposure_correction = {
+    atmospheric_attenuation_enabled: Boolean(document.getElementById('cfg-atmo-switch').checked)
+  };
   try {
     const r = await fetch('/api/configs/save_camera', {
       method: 'POST', headers: {'Content-Type':'application/json'},
