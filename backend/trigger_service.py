@@ -25,8 +25,20 @@ class TriggerService:
                  log_fn, emit_fn, line_level_fn=None, line_clean_fn=None):
         self.state=state_store; self.trigger_script=trigger_script; self.json_file=json_file
         self.events_file=events_file; self.configs_dir=configs_dir; self.log=log_fn; self.emit=emit_fn
+        self.project_dir=self.trigger_script.resolve().parent.parent
         self.line_level_fn=line_level_fn or (lambda _: "info")
         self.line_clean_fn=line_clean_fn or (lambda x:x); self._proc=None; self._lock=threading.RLock(); self._starting=False
+
+    def _subprocess_env(self):
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        existing = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = (
+            str(self.project_dir)
+            if not existing
+            else str(self.project_dir) + os.pathsep + existing
+        )
+        return env
 
     def _resolve_camera_config(self, camera_config_file):
         if not camera_config_file:
@@ -38,7 +50,7 @@ class TriggerService:
                 return candidate
         return None
 
-    def validate_start(self, require_gps=True, require_current_date=True):
+    def validate_start(self, require_gps=True):
         # Une simulation ne pilote aucun matériel et utilise sa propre horloge
         # virtuelle : elle ne doit donc pas être bloquée par l'état GPS.
         if require_gps:
@@ -79,14 +91,6 @@ class TriggerService:
         except Exception:
             raise TriggerValidationError("Aucune configuration de capture sélectionnée", "CAPTURE_NOT_LOADED")
 
-        if require_current_date:
-            try:
-                circumstances_date=parse_date_from_config(ecl)
-            except (TypeError, ValueError):
-                circumstances_date=None
-            if circumstances_date != datetime.now().astimezone().date():
-                raise TriggerValidationError("Les circonstances d’éclipse ne correspondent pas à la date locale", "CIRCUMSTANCES_DATE_INVALID")
-
         validate_eclipse(ecl); return ecl
 
     def start(self, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0):
@@ -108,10 +112,7 @@ class TriggerService:
             if self._starting or self.state.snapshot("trigger").get("running") or (self._proc and self._proc.poll() is None): return False
             self._starting=True
             try:
-                ecl=self.validate_start(
-                    require_gps=not simulate,
-                    require_current_date=not (simulate or dry_run),
-                )
+                ecl=self.validate_start(require_gps=not simulate)
             except Exception:
                 self._starting=False
                 raise
@@ -139,8 +140,16 @@ class TriggerService:
             camera_config_path=self._resolve_camera_config(cfg)
             if camera_config_path is not None:
                 cmd += ["--camera",str(camera_config_path)]
-            env=os.environ.copy(); env["PYTHONUNBUFFERED"]="1"
-            proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,cwd=str(self.trigger_script.parent),env=env)
+            env=self._subprocess_env()
+            proc=subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=str(self.project_dir),
+                env=env,
+            )
             with self._lock: self._proc=proc
             mode="simulation" if simulate else ("dryrun" if dry_run else "real")
             self.state.set("trigger", {"running":True,"phase":"waiting","mode":mode,"speed":speed if simulate else 1.0}); self.emit("trigger_phase",{"phase":"waiting"})
@@ -179,10 +188,19 @@ class TriggerService:
         try:
             cmd=[sys.executable,"-u",str(script_path)]
             cfg=self.state.get("camera_config_file")
-            if cfg:
-                p=self.configs_dir/cfg
-                if p.exists(): cmd += ["--camera",str(p)]
-            proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1,cwd=str(self.trigger_script.parent))
+            camera_config_path=self._resolve_camera_config(cfg)
+            if camera_config_path is not None:
+                cmd += ["--camera",str(camera_config_path)]
+            env=self._subprocess_env()
+            proc=subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=str(self.project_dir),
+                env=env,
+            )
             with self._lock: self._proc=proc
             self.state.set("trigger", {"running":True,"phase":"totality"}); self.emit("trigger_phase",{"phase":"totality"})
             self.log("🌑 Totalité uniquement — démarrage","info","trigger")

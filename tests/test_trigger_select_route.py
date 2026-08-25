@@ -108,17 +108,20 @@ def test_trigger_start_rejects_missing_capture(tmp_path, monkeypatch):
     }
 
 
-def test_trigger_start_rejects_invalid_local_date(tmp_path, monkeypatch):
-    yesterday = datetime.now().astimezone().date() - timedelta(days=1)
-    client = _configure_trigger_route(tmp_path, monkeypatch, eclipse_date=yesterday)
+def test_trigger_start_accepts_operator_selected_circumstances_date(
+    tmp_path, monkeypatch
+):
+    another_date = datetime.now().astimezone().date() + timedelta(days=30)
+    client = _configure_trigger_route(
+        tmp_path,
+        monkeypatch,
+        eclipse_date=another_date,
+    )
 
     response = client.post("/api/trigger/start")
 
-    assert response.status_code == 409
-    assert response.get_json() == {
-        "error": "CIRCUMSTANCES_DATE_INVALID",
-        "message": "Les circonstances d’éclipse ne correspondent pas à la date locale",
-    }
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "started", "mode": "real"}
 
 
 def test_trigger_start_succeeds_when_preconditions_are_met(tmp_path, monkeypatch):

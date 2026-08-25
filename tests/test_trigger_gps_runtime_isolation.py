@@ -86,17 +86,9 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
     real_validate_start = TriggerService.validate_start
     validate_calls = []
 
-    def counting_validate_start(
-        self,
-        require_gps=True,
-        require_current_date=True,
-    ):
+    def counting_validate_start(self, require_gps=True):
         validate_calls.append(require_gps)
-        return real_validate_start(
-            self,
-            require_gps=require_gps,
-            require_current_date=require_current_date,
-        )
+        return real_validate_start(self, require_gps=require_gps)
 
     monkeypatch.setattr(TriggerService, "validate_start", counting_validate_start)
 

@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import threading
 import types
@@ -200,7 +201,8 @@ def test_trigger_service_simulation_builds_safe_command(tmp_path, monkeypatch):
     eclipse.write_text(json.dumps({
         'TSTART':'10:00:00','C1':'10:10:00','C2':'10:20:00','C3':'10:21:00','C4':'10:30:00','TEND':'10:40:00'
     }))
-    script=tmp_path/'eclipse_trigger.py'; script.write_text('')
+    scripts=tmp_path/'scripts'; scripts.mkdir()
+    script=scripts/'eclipse_trigger.py'; script.write_text('')
     events=tmp_path/'events.log'; configs=tmp_path/'configs'; configs.mkdir()
     seen={}
     class Stdout:
@@ -212,12 +214,16 @@ def test_trigger_service_simulation_builds_safe_command(tmp_path, monkeypatch):
         def wait(self, timeout=None): return 0
     def fake_popen(cmd, **kwargs):
         seen['cmd']=cmd
+        seen['kwargs']=kwargs
         return Proc()
     monkeypatch.setattr('backend.trigger_service.subprocess.Popen', fake_popen)
     svc=TriggerService(store,script,eclipse,events,configs,lambda *a:None,lambda *a:None)
     svc._run(simulate=True,speed=120)
     assert '--simulate' in seen['cmd']
     assert seen['cmd'][seen['cmd'].index('--speed')+1] == '120'
+    assert Path(seen['kwargs']['cwd']) == tmp_path
+    pythonpath = seen['kwargs']['env']['PYTHONPATH'].split(os.pathsep)
+    assert pythonpath[0] == str(tmp_path)
 
 
 def test_trigger_service_rejects_bad_simulation_speed(tmp_path):
@@ -276,18 +282,103 @@ def test_trigger_service_dryrun_builds_real_camera_command(tmp_path, monkeypatch
     store.update_section('gps', {'synced': True, 'sync_time': datetime.now().isoformat()})
     eclipse=tmp_path/'todayeclipse.json'
     eclipse.write_text(json.dumps({'_date':'2027-08-02','TSTART':'10:00:00.125','C1':'10:10:00.250','C2':'10:20:00.375','C3':'10:21:00.500','C4':'10:30:00.625','TEND':'10:40:00.750'}))
-    script=tmp_path/'eclipse_trigger.py'; script.write_text('')
-    configs=tmp_path/'configs'; configs.mkdir(); seen={}
+    scripts=tmp_path/'scripts'; scripts.mkdir()
+    script=scripts/'eclipse_trigger.py'; script.write_text('')
+    configs=tmp_path/'configs'; configs.mkdir()
+    camera_cfg=configs/'camera_cfg'; camera_cfg.mkdir()
+    camera_file=camera_cfg/'camera.json'; camera_file.write_text('{}')
+    store.set('camera_config_file', 'camera.json')
+    seen={}
     class Stdout:
         def readline(self): return ''
     class Proc:
         returncode=0; stdout=Stdout()
         def poll(self): return 0
         def wait(self, timeout=None): return 0
-    def fake_popen(cmd, **kwargs): seen['cmd']=cmd; return Proc()
+    def fake_popen(cmd, **kwargs):
+        seen['cmd']=cmd
+        seen['kwargs']=kwargs
+        return Proc()
     monkeypatch.setattr('backend.trigger_service.subprocess.Popen', fake_popen)
     svc=TriggerService(store,script,eclipse,tmp_path/'events',configs,lambda *a:None,lambda *a:None)
     svc._run(dry_run=True,dry_run_delay=45)
     assert '--dry-run' in seen['cmd']
     assert '--dry-run-delay' in seen['cmd']
     assert '--simulate' not in seen['cmd']
+    assert seen['cmd'][seen['cmd'].index('--camera') + 1] == str(camera_file)
+    assert Path(seen['kwargs']['cwd']) == tmp_path
+    pythonpath = seen['kwargs']['env']['PYTHONPATH'].split(os.pathsep)
+    assert pythonpath[0] == str(tmp_path)
+
+
+def test_trigger_service_totality_uses_project_runtime_environment(
+    tmp_path, monkeypatch
+):
+    from backend.trigger_service import TriggerService
+
+    store = StateStore(tmp_path / "state.json")
+
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    trigger_script = scripts / "eclipse_trigger.py"
+    trigger_script.write_text("", encoding="utf-8")
+    totality_script = scripts / "totality_only.py"
+    totality_script.write_text("", encoding="utf-8")
+
+    configs = tmp_path / "configs"
+    camera_cfg = configs / "camera_cfg"
+    camera_cfg.mkdir(parents=True)
+
+    camera_file = camera_cfg / "camera.json"
+    camera_file.write_text("{}", encoding="utf-8")
+    store.set("camera_config_file", "camera.json")
+
+    seen = {}
+
+    class Stdout:
+        def readline(self):
+            return ""
+
+    class Proc:
+        returncode = 0
+        stdout = Stdout()
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    def fake_popen(cmd, **kwargs):
+        seen["cmd"] = cmd
+        seen["kwargs"] = kwargs
+        return Proc()
+
+    monkeypatch.setattr(
+        "backend.trigger_service.subprocess.Popen",
+        fake_popen,
+    )
+
+    svc = TriggerService(
+        store,
+        trigger_script,
+        tmp_path / "todayeclipse.json",
+        tmp_path / "events.log",
+        configs,
+        lambda *args: None,
+        lambda *args: None,
+    )
+
+    svc._run_totality(totality_script)
+
+    assert seen["cmd"][0:3] == [
+        sys.executable,
+        "-u",
+        str(totality_script),
+    ]
+    assert seen["cmd"][seen["cmd"].index("--camera") + 1] == str(camera_file)
+
+    assert Path(seen["kwargs"]["cwd"]) == tmp_path
+
+    pythonpath = seen["kwargs"]["env"]["PYTHONPATH"].split(os.pathsep)
+    assert pythonpath[0] == str(tmp_path)
