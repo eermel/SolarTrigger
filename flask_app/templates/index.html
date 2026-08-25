@@ -100,6 +100,22 @@ header {
   color: var(--accent);
 }
 .header-logo span { color: var(--text-dim); font-size: 10px; }
+#header-gps {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+#hdr-gps-badge {
+  font-size: 8px;
+  letter-spacing: .08em;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: rgba(90,122,154,.2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
 #header-time {
   font-family: var(--mono);
   font-size: 15px; color: var(--accent2);
@@ -592,7 +608,6 @@ header {
   <header>
 <div class="header-logo">
   SOLAR<br><span>ÉCLIPSE</span>
-  <span id="hdr-gps-badge" style="font-size:8px;letter-spacing:.08em;padding:2px 5px;border-radius:4px;background:rgba(90,122,154,.2);color:var(--text-dim);border:1px solid var(--border);margin-left:10px">NO SYNC</span>
 </div>    
 <div id="header-time">
   <div style="display:flex;align-items:center;gap:8px;justify-content:center">
@@ -606,10 +621,8 @@ header {
     </div>
   </div>
 </div>
-    <div id="header-status">
-      <div class="dot" id="dot-gps"    title="GPS"></div>
-      <div class="dot" id="dot-camera" title="Camera"></div>
-      <div class="dot" id="dot-trigger" title="Trigger"></div>
+    <div id="header-gps">
+      <span id="hdr-gps-badge">NO SYNC</span>
     </div>
   </header>
 
@@ -1445,6 +1458,14 @@ socket.on('disconnect', () => flash('Déconnecté', 'red'));
 
 socket.on('gps_sync_done', d => {
   resetGpsActionButtons();
+
+  // L'état de synchronisation est explicitement fourni par le backend.
+  _updateGpsBadge(d && d.synced === true);
+
+  // Rafraîchir également l'état complet du GPS affiché dans l'IHM.
+  if (d && d.synced === true) {
+    _reanchorClockFromStatus();
+  }
 });
 
 socket.on('clock_reset', d => {
