@@ -71,7 +71,12 @@ def _install_camera(monkeypatch, model, source="abilities"):
         camera = _FakeCamera(abilities_model=model)
     else:
         camera = _FakeCamera(config_model=model)
-    monkeypatch.setattr(flask_module.gp, "Camera", lambda: camera)
+    monkeypatch.setattr(
+        flask_module.gp,
+        "Camera",
+        lambda: camera,
+        raising=False,
+    )
 
 
 def _assert_separated(camera, brand, model, *, connected=None):
