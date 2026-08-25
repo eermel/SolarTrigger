@@ -1520,6 +1520,26 @@ def _usb_wait_or_hold(camera_service, next_shot_time, deadline=None):
             time.sleep(0.5)
 
 
+def _phase_is_future(phase_end):
+    """True tant que la phase possède encore du temps futur à exécuter."""
+    return now() < phase_end
+
+
+def _first_future_grid_slot(first_target, interval_s, phase_end):
+    """Retourne le premier slot de la grille qui n'est pas déjà passé.
+
+    La grille absolue originale est conservée : aucune action passée
+    n'est rattrapée et aucun décalage de timeline n'est introduit.
+    """
+    target = first_target
+    current = now()
+
+    while target < current and target < phase_end:
+        target += timedelta(seconds=interval_s)
+
+    return target
+
+
 def main():
     """Main function to execute the eclipse photography sequence."""
     camera_service = None
@@ -1533,26 +1553,25 @@ def main():
             _runtime_clock.start_simulation(TSTART - timedelta(seconds=30))
             print(f"WARNING {Colors.PINK}⚡ SIMULATION ×{_sim_speed:.0f} | Heure virtuelle départ : {_runtime_clock.virt_start.strftime('%H:%M:%S')} | 1 seconde réelle = {_sim_speed:.0f}s virtuelles{Colors.RESET}")
 
-        # ── Watchdog : reprise après crash ? ──────────────────────────────
+        # ── Watchdog : diagnostic uniquement ─────────────────────────────
+        # Un nouveau START ne reprend jamais à partir de trigger_state.json.
+        # La position dans l'éclipse est déterminée exclusivement par l'heure
+        # absolue courante. Toutes les actions passées sont abandonnées.
         prev_state = _watchdog_read()
-        resume_from = None
         if prev_state and not _sim_mode:
-            phase_prev      = prev_state.get("phase")
-            next_shot_prev  = prev_state.get("next_shot_time")
-            written_at      = prev_state.get("written_at", "")
-            _log(f"WARNING {Colors.ORANGE}⚠ WATCHDOG : état précédent détecté (phase={phase_prev}, next_shot={next_shot_prev}, écrit={written_at[:19]}){Colors.RESET}")
-            if next_shot_prev:
-                try:
-                    # v7.1 : le watchdog stocke un ISO UTC complet, fractions incluses.
-                    resume_from = datetime.fromisoformat(str(next_shot_prev).replace("Z", "+00:00"))
-                    if resume_from.tzinfo is not None:
-                        resume_from = resume_from.astimezone(timezone.utc).replace(tzinfo=None)
-                    interval = interval_partial
-                    while resume_from <= now():
-                        resume_from += timedelta(seconds=interval)
-                    _log(f"WARNING {Colors.ORANGE}⚠ REPRISE : prochaine photo à {format_hms_ms(resume_from)}{Colors.RESET}")
-                except Exception as e:
-                    _log(f"{Colors.YELLOW}Watchdog : impossible de parser next_shot_time : {e}{Colors.RESET}")
+            phase_prev = prev_state.get("phase")
+            next_shot_prev = prev_state.get("next_shot_time")
+            written_at = (
+                prev_state.get("written_at_utc")
+                or prev_state.get("written_at")
+                or ""
+            )
+            _log(
+                f"WARNING {Colors.ORANGE}⚠ WATCHDOG : ancien état détecté "
+                f"(phase={phase_prev}, next_shot={next_shot_prev}, "
+                f"écrit={str(written_at)[:19]}) — ignoré pour la reprise"
+                f"{Colors.RESET}"
+            )
 
         # ── Connexion caméra via CameraService / CameraPlugin ─────────────
         _log(f"{Colors.GREEN}### CLEAR CONNEXION TO CAMERA{Colors.RESET}")
@@ -1621,164 +1640,290 @@ def main():
         if not is_partial:
             ### ECLIPSE TOTALE DE SOLEIL
 
-            ###
-            ### PHASE 1a : START -> C1 -> C2-duree_diamond_ring
-            ###
-            _log(f"{Colors.GREEN}# PHASE 1a : Start to C1 to C2-{diamond_ring_duration_s}s{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_partial}{Colors.RESET}")
-            next_shot_time = calculer_temps_debut_sequence(TSTART, TMAX, interval_partial)
-
-            # Reprise watchdog : sauter jusqu'à la prochaine photo calculée
-            if resume_from and resume_from > next_shot_time:
-                while next_shot_time < resume_from:
-                    next_shot_time += timedelta(seconds=interval_partial)
-                _log(f"{Colors.ORANGE}⚠ REPRISE 1a : première photo à {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
-
-            nbTotalBracket = estimatedPhoto(next_shot_time, (C2 - timedelta(seconds=diamond_ring_duration_s)), interval_partial)
-            _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
-            _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
-
-            nbBracket = 1
-            nbPhoto   = 1
             fin_phase_1a = C2 - timedelta(seconds=diamond_ring_duration_s)
-            _run_absolute_grid(camera_service, "phase1a", _partial_capture,
-                               next_shot_time, fin_phase_1a, interval_partial,
-                               aperture_partial, iso_partial,
-                               deadline=fin_phase_1a)
+            fin_phase_3a = C3 + timedelta(seconds=diamond_ring_duration_s)
 
-            ###
-            ### PHASE 1b : DIAMOND RING -- C2-duree_diamond_ring -> C2
-            ###
-            _log(f"{Colors.GREEN}# PHASE 1b : DIAMOND RING -- C2-{diamond_ring_duration_s}s -> C2{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
-            next_shot_time = calculer_temps_debut_sequence(C2 - timedelta(seconds=diamond_ring_duration_s), C2, interval_diamond_ring)
-            nbTotalBracket = estimatedPhoto(next_shot_time, C2, interval_diamond_ring)
-            _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
-            _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
-            nbBracket = 1
-            nbPhoto   = 1
-            _run_absolute_grid(camera_service, "phase1b", _diamond_capture,
-                               next_shot_time, C2, interval_diamond_ring,
-                               aperture_diamond, iso_diamond_ring, deadline=C2)
-
-            ###
-            ### PHASE 2 : TOTALITY -- C2 -> C3
-            ###
-            _log(f"{Colors.GREEN}# PHASE 2 - TOTALITY -- C2 -> C3{Colors.RESET}")
-            _log(f"{Colors.YELLOW}Capture{Colors.RESET}")
-
-            _log(f"{Colors.BLUE}Sécurité C3 : débordement court autorisé "
-                 f"jusqu'à +{C3_OVERFLOW_GRACE_S:g}s pour les poses "
-                 f"≤ {SHORT_EXPOSURE_MAX_S:g}s ({format_hms_ms(C3)}){Colors.RESET}")
-
-            if interval_totality < 0:
+            # Un nouveau START se positionne uniquement d'après l'heure absolue.
+            # Aucune phase passée et aucune photo passée ne sont rejouées.
+            current = now()
+            if current >= TEND:
                 _log(
-                    f"{Colors.RED}Intervalle totalité invalide : "
-                    f"{interval_totality}{Colors.RESET}"
-                )
-            elif interval_totality == 0:
-                _run_continuous_totality(
-                    camera_service,
-                    _totality_capture,
-                    C2,
-                    C3,
-                    aperture_totality,
-                    iso_totality,
+                    f"{Colors.ORANGE}⚠ START après TEND : "
+                    f"séquence déjà terminée à {format_hms_ms(TEND)}"
+                    f"{Colors.RESET}"
                 )
             else:
-                _run_absolute_grid(
-                    camera_service,
-                    "phase2",
-                    _totality_capture,
-                    C2,
-                    C3,
-                    float(interval_totality),
-                    aperture_totality,
-                    iso_totality,
-                    deadline=C3,
-                )
+                if current > TSTART:
+                    _log(
+                        f"{Colors.ORANGE}⚡ REPRISE TEMPORELLE : "
+                        f"heure courante {format_hms_ms(current)} — "
+                        f"toutes les actions antérieures sont ignorées."
+                        f"{Colors.RESET}"
+                    )
 
-            ###
-            ### PHASE 3a : DIAMOND RING -- C3 -> C3+duree_diamond_ring
-            ###
-            _log(f"{Colors.GREEN}# PHASE 3a : DIAMOND RING -- C3 -> C3+{diamond_ring_duration_s}s{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
-            next_shot_time = C3
-            nbTotalBracket = estimatedPhoto(next_shot_time, C3 + timedelta(seconds=diamond_ring_duration_s), interval_diamond_ring)
-            _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
-            _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
-            nbBracket = 1
-            nbPhoto   = 1
-            fin_phase_3a = C3 + timedelta(seconds=diamond_ring_duration_s)
-            _run_absolute_grid(camera_service, "phase3a", _diamond_capture,
-                               next_shot_time, fin_phase_3a,
-                               interval_diamond_ring, aperture_diamond,
-                               iso_diamond_ring, deadline=fin_phase_3a)
+                ###
+                ### PHASE 1a : START -> C1 -> C2-duree_diamond_ring
+                ###
+                if _phase_is_future(fin_phase_1a):
+                    _log(f"{Colors.GREEN}# PHASE 1a : Start to C1 to C2-{diamond_ring_duration_s}s{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_partial}{Colors.RESET}")
 
-            ###
-            ### PHASE 3b : C3+duree_diamond_ring -> C4 -> TEND
-            ###
-            _log(f"{Colors.GREEN}# Phase 3b - C3+{diamond_ring_duration_s}s -> C4 -> TEND{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
+                    first_grid = calculer_temps_debut_sequence(
+                        TSTART, TMAX, interval_partial
+                    )
+                    next_shot_time = _first_future_grid_slot(
+                        first_grid,
+                        interval_partial,
+                        fin_phase_1a,
+                    )
 
-            next_shot_time = TMAX + timedelta(seconds=interval_partial)
-            debut_3b = C3 + timedelta(seconds=diamond_ring_duration_s)
-            while next_shot_time < debut_3b:
-                next_shot_time += timedelta(seconds=interval_partial)
+                    if next_shot_time < fin_phase_1a:
+                        nbTotalBracket = estimatedPhoto(
+                            next_shot_time,
+                            fin_phase_1a,
+                            interval_partial,
+                        )
+                        _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
+                        _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
 
-            # Reprise watchdog phase 3b
-            if resume_from and resume_from > next_shot_time:
-                while next_shot_time < resume_from:
-                    next_shot_time += timedelta(seconds=interval_partial)
-                _log(f"{Colors.ORANGE}⚠ REPRISE 3b : première photo à {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+                        _run_absolute_grid(
+                            camera_service,
+                            "phase1a",
+                            _partial_capture,
+                            next_shot_time,
+                            fin_phase_1a,
+                            interval_partial,
+                            aperture_partial,
+                            iso_partial,
+                            deadline=fin_phase_1a,
+                        )
 
-            nbTotalBracket = estimatedPhoto(next_shot_time, TEND, interval_partial)
-            _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
-            _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+                ###
+                ### PHASE 1b : DIAMOND RING -- C2-duree_diamond_ring -> C2
+                ###
+                if _phase_is_future(C2):
+                    _log(f"{Colors.GREEN}# PHASE 1b : DIAMOND RING -- C2-{diamond_ring_duration_s}s -> C2{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
 
-            nbBracket = 1
-            nbPhoto   = 1
-            _run_absolute_grid(camera_service, "phase3b", _partial_capture,
-                               next_shot_time, TEND, interval_partial,
-                               aperture_partial, iso_partial, deadline=TEND)
+                    first_grid = calculer_temps_debut_sequence(
+                        fin_phase_1a,
+                        C2,
+                        interval_diamond_ring,
+                    )
+                    next_shot_time = _first_future_grid_slot(
+                        first_grid,
+                        interval_diamond_ring,
+                        C2,
+                    )
+
+                    if next_shot_time < C2:
+                        nbTotalBracket = estimatedPhoto(
+                            next_shot_time,
+                            C2,
+                            interval_diamond_ring,
+                        )
+                        _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
+                        _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+
+                        _run_absolute_grid(
+                            camera_service,
+                            "phase1b",
+                            _diamond_capture,
+                            next_shot_time,
+                            C2,
+                            interval_diamond_ring,
+                            aperture_diamond,
+                            iso_diamond_ring,
+                            deadline=C2,
+                        )
+
+                ###
+                ### PHASE 2 : TOTALITY -- C2 -> C3
+                ###
+                if _phase_is_future(C3):
+                    _log(f"{Colors.GREEN}# PHASE 2 - TOTALITY -- C2 -> C3{Colors.RESET}")
+                    _log(f"{Colors.YELLOW}Capture{Colors.RESET}")
+
+                    _log(
+                        f"{Colors.BLUE}Sécurité C3 : débordement court autorisé "
+                        f"jusqu'à +{C3_OVERFLOW_GRACE_S:g}s pour les poses "
+                        f"≤ {SHORT_EXPOSURE_MAX_S:g}s ({format_hms_ms(C3)})"
+                        f"{Colors.RESET}"
+                    )
+
+                    if interval_totality < 0:
+                        _log(
+                            f"{Colors.RED}Intervalle totalité invalide : "
+                            f"{interval_totality}{Colors.RESET}"
+                        )
+                    elif interval_totality == 0:
+                        _run_continuous_totality(
+                            camera_service,
+                            _totality_capture,
+                            C2,
+                            C3,
+                            aperture_totality,
+                            iso_totality,
+                        )
+                    else:
+                        first_totality = _first_future_grid_slot(
+                            C2,
+                            float(interval_totality),
+                            C3,
+                        )
+                        if first_totality < C3:
+                            _run_absolute_grid(
+                                camera_service,
+                                "phase2",
+                                _totality_capture,
+                                first_totality,
+                                C3,
+                                float(interval_totality),
+                                aperture_totality,
+                                iso_totality,
+                                deadline=C3,
+                            )
+
+                ###
+                ### PHASE 3a : DIAMOND RING -- C3 -> C3+duree_diamond_ring
+                ###
+                if _phase_is_future(fin_phase_3a):
+                    _log(f"{Colors.GREEN}# PHASE 3a : DIAMOND RING -- C3 -> C3+{diamond_ring_duration_s}s{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
+
+                    next_shot_time = _first_future_grid_slot(
+                        C3,
+                        interval_diamond_ring,
+                        fin_phase_3a,
+                    )
+
+                    if next_shot_time < fin_phase_3a:
+                        nbTotalBracket = estimatedPhoto(
+                            next_shot_time,
+                            fin_phase_3a,
+                            interval_diamond_ring,
+                        )
+                        _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
+                        _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+
+                        _run_absolute_grid(
+                            camera_service,
+                            "phase3a",
+                            _diamond_capture,
+                            next_shot_time,
+                            fin_phase_3a,
+                            interval_diamond_ring,
+                            aperture_diamond,
+                            iso_diamond_ring,
+                            deadline=fin_phase_3a,
+                        )
+
+                ###
+                ### PHASE 3b : C3+duree_diamond_ring -> C4 -> TEND
+                ###
+                if _phase_is_future(TEND):
+                    _log(f"{Colors.GREEN}# Phase 3b - C3+{diamond_ring_duration_s}s -> C4 -> TEND{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
+
+                    first_grid = TMAX + timedelta(seconds=interval_partial)
+                    while first_grid < fin_phase_3a:
+                        first_grid += timedelta(seconds=interval_partial)
+
+                    next_shot_time = _first_future_grid_slot(
+                        first_grid,
+                        interval_partial,
+                        TEND,
+                    )
+
+                    if next_shot_time < TEND:
+                        nbTotalBracket = estimatedPhoto(
+                            next_shot_time,
+                            TEND,
+                            interval_partial,
+                        )
+                        _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
+                        _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+
+                        _run_absolute_grid(
+                            camera_service,
+                            "phase3b",
+                            _partial_capture,
+                            next_shot_time,
+                            TEND,
+                            interval_partial,
+                            aperture_partial,
+                            iso_partial,
+                            deadline=TEND,
+                        )
 
             _watchdog_clear()
             _log(f"{Colors.GREEN}✅ Séquence terminée normalement.{Colors.RESET}")
+
         else:
             # ECLIPSE PARTIELLE DE SOLEIL
-            
-            ###
-            ### PHASE UNIQUE : Start to C1 to C4 to END
-            ###
-            _log(f"{Colors.GREEN}# PHASE UNIQUE : Start to C1 to C4 to END{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
-            _log(f"{Colors.BLUE}Camera Settings : Shutterspeed : {shutterspeed_partial}{Colors.RESET}")
-            next_shot_time = calculer_temps_debut_sequence(TSTART, TMAX, interval_partial)
+            #
+            # Même politique : l'heure absolue décide de la reprise et les
+            # slots passés sont définitivement abandonnés.
 
-            # Reprise watchdog : sauter jusqu'à la prochaine photo calculée
-            if resume_from and resume_from > next_shot_time:
-                while next_shot_time < resume_from:
-                    next_shot_time += timedelta(seconds=interval_partial)
-                _log(f"{Colors.ORANGE}⚠ REPRISE 1a : première photo à {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+            if now() >= TEND:
+                _log(
+                    f"{Colors.ORANGE}⚠ START après TEND : "
+                    f"séquence déjà terminée à {format_hms_ms(TEND)}"
+                    f"{Colors.RESET}"
+                )
+            else:
+                if now() > TSTART:
+                    _log(
+                        f"{Colors.ORANGE}⚡ REPRISE TEMPORELLE : "
+                        f"heure courante {format_hms_ms(now())} — "
+                        f"toutes les actions antérieures sont ignorées."
+                        f"{Colors.RESET}"
+                    )
 
-            nbTotalBracket = estimatedPhoto(next_shot_time, TEND, interval_partial)
-            _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
-            _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+                _log(f"{Colors.GREEN}# PHASE UNIQUE : Start to C1 to C4 to END{Colors.RESET}")
+                _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
+                _log(f"{Colors.BLUE}Camera Settings : Shutterspeed : {shutterspeed_partial}{Colors.RESET}")
 
-            nbBracket = 1
-            nbPhoto   = 1
-            fin_phase = TEND
-            _run_absolute_grid(camera_service, "partial", _partial_capture,
-                               next_shot_time, fin_phase, interval_partial,
-                               aperture_partial, iso_partial, deadline=TEND)
+                first_grid = calculer_temps_debut_sequence(
+                    TSTART,
+                    TMAX,
+                    interval_partial,
+                )
+                next_shot_time = _first_future_grid_slot(
+                    first_grid,
+                    interval_partial,
+                    TEND,
+                )
 
+                if next_shot_time < TEND:
+                    nbTotalBracket = estimatedPhoto(
+                        next_shot_time,
+                        TEND,
+                        interval_partial,
+                    )
+                    _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
+                    _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+
+                    _run_absolute_grid(
+                        camera_service,
+                        "partial",
+                        _partial_capture,
+                        next_shot_time,
+                        TEND,
+                        interval_partial,
+                        aperture_partial,
+                        iso_partial,
+                        deadline=TEND,
+                    )
+
+            _watchdog_clear()
     except KeyboardInterrupt:
         _log("INFO Script stopped by user.")
     except Exception as e:

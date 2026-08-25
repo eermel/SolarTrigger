@@ -158,3 +158,62 @@ def test_continuous_stops_after_first_no_admissible_subset(monkeypatch):
     assert service.triggered == []
     assert waits == [(start, c3, c3)]
     assert clock.now() == c3
+
+
+def test_continuous_totality_restart_uses_current_time_not_phase_start(monkeypatch):
+    from datetime import datetime, timedelta
+    from types import SimpleNamespace
+
+    import scripts.eclipse_trigger as trigger
+
+    c2 = datetime(2027, 8, 2, 10, 0, 0)
+    restart_time = c2 + timedelta(seconds=90)
+    c3 = c2 + timedelta(minutes=3)
+
+    clock = {"now": restart_time}
+
+    monkeypatch.setattr(trigger, "now", lambda: clock["now"])
+
+    prepared_targets = []
+
+    class Service:
+        def apply_phase_settings(self, aperture=None, iso=None):
+            pass
+
+        def prepare_capture(self, intent):
+            return SimpleNamespace(
+                estimated_total_s=1.0,
+                exposures_s=[0.01],
+            )
+
+        def trigger_prepared(self, prepared, deadline=None):
+            # Une seule capture puis on avance après C3 pour terminer la boucle.
+            clock["now"] = c3
+            return SimpleNamespace(frames=1)
+
+    def fake_prepare(service, capture, target, phase_end):
+        prepared_targets.append(target)
+        return (
+            SimpleNamespace(
+                estimated_total_s=1.0,
+                exposures_s=[0.01],
+            ),
+            phase_end,
+        )
+
+    monkeypatch.setattr(
+        trigger,
+        "_prepare_totality_sub_bracket",
+        fake_prepare,
+    )
+    monkeypatch.setattr(trigger, "_watchdog_write", lambda *args, **kwargs: None)
+
+    trigger._run_continuous_totality(
+        Service(),
+        ["1/1000"],
+        c2,
+        c3,
+    )
+
+    assert prepared_targets == [restart_time]
+    assert prepared_targets[0] != c2
