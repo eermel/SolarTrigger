@@ -1053,7 +1053,7 @@ header {
           <button class="btn" id="btn-totality-only" onclick="startTotalityOnly()"
                   style="flex:1;background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);
                          color:var(--accent);font-size:11px"
-                  title="Arrête le trigger en cours et déclenche la séquence totalité en boucle jusqu'au STOP">🌑 Totalité uniquement</button>
+                  title="Override immédiat : arrête le trigger en cours et lance la séquence totalité en boucle jusqu'au STOP">⚠ Override for Totality Sequence</button>
           <button class="btn btn-danger"  id="btn-stop"  onclick="stopTrigger()" style="flex:1">■ STOP</button>
         </div>
 
@@ -2209,7 +2209,10 @@ function updatePhase(phase) {
   const btnTot   = document.getElementById('btn-totality-only');
   if (btnStart) btnStart.disabled = (phase !== 'idle');
   if (btnStop)  btnStop.disabled  = false;
-  if (btnTot)   btnTot.style.opacity = (phase !== 'idle') ? '0.5' : '1';
+  if (btnTot) {
+    btnTot.style.opacity = '1';
+    btnTot.disabled = false;
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
