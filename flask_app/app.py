@@ -1923,6 +1923,49 @@ def _thread_camera_poll():
     Maintenu pour compatibilité structurelle mais ne fait rien."""
     pass
 
+def _restore_persisted_trigger_selections():
+    """Réactive au boot les sélections persistées uniquement si elles sont valides."""
+
+    circumstances = _state_store.snapshot("circumstances") or {}
+    circumstances_loaded = False
+
+    if circumstances.get("active_file") and JSON_FILE.exists():
+        try:
+            data = json.loads(JSON_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                circumstances_loaded = True
+        except Exception:
+            pass
+
+    _state_store.update_section(
+        "circumstances",
+        {"loaded": circumstances_loaded},
+        persist=False,
+    )
+
+    capture = _state_store.snapshot("capture") or {}
+    camera_config_file = _state_store.get("camera_config_file")
+    capture_loaded = False
+
+    if camera_config_file:
+        filename = Path(camera_config_file).name
+        path = _resolve_config_file(filename, ("camera_cfg", "capture"))
+
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    capture_loaded = True
+            except Exception:
+                pass
+
+    _state_store.update_section(
+        "capture",
+        {"loaded": capture_loaded},
+        persist=False,
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DÉMARRAGE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1939,6 +1982,7 @@ def start_background_threads():
 _state = _load_state()
 _load_log_buffer()
 _state_store.reset_boot_sensitive()
+_restore_persisted_trigger_selections()
 
 _append_log("🚀 SolarEclipse Portal démarré.", "success", "system")
 _append_log(f"🐍 Python : {sys.executable}", "info", "system")

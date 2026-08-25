@@ -317,3 +317,90 @@ def test_trigger_start_accepts_legacy_capture_directory(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json() == {"status": "started", "mode": "real"}
+
+
+def test_boot_restores_valid_persisted_trigger_selections(tmp_path, monkeypatch):
+    configs_dir = tmp_path / "configs"
+    camera_cfg_dir = configs_dir / "camera_cfg"
+    camera_cfg_dir.mkdir(parents=True)
+
+    camera_filename = "camera_boot.json"
+    (camera_cfg_dir / camera_filename).write_text("{}", encoding="utf-8")
+
+    today = tmp_path / "todayeclipse.json"
+    today.write_text(
+        json.dumps(
+            {
+                "_date": datetime.now().astimezone().date().isoformat(),
+                "TSTART": "10:00:00",
+                "C1": "10:10:00",
+                "C2": "10:20:00",
+                "C3": "10:21:00",
+                "C4": "10:30:00",
+                "TEND": "10:40:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state_file = tmp_path / "state.json"
+    persisted = StateStore(state_file)
+    persisted.update_section(
+        "circumstances",
+        {"loaded": True, "active_file": "todayeclipse.json", "meta": {}},
+        persist=True,
+    )
+    persisted.update_section(
+        "capture",
+        {"loaded": True, "active_file": camera_filename, "meta": {}},
+        persist=True,
+    )
+    persisted.set("camera_config_file", camera_filename, persist=True)
+
+    restored = StateStore(state_file)
+
+    monkeypatch.setattr(flask_module, "_state_store", restored)
+    monkeypatch.setattr(flask_module, "_state", restored.data)
+    monkeypatch.setattr(flask_module, "_state_lock", restored.lock)
+    monkeypatch.setattr(flask_module, "CONFIGS_DIR", configs_dir)
+    monkeypatch.setattr(flask_module, "JSON_FILE", today)
+
+    flask_module._restore_persisted_trigger_selections()
+
+    assert restored.snapshot("circumstances")["loaded"] is True
+    assert restored.snapshot("capture")["loaded"] is True
+
+
+def test_boot_does_not_restore_missing_capture_file(tmp_path, monkeypatch):
+    configs_dir = tmp_path / "configs"
+    (configs_dir / "camera_cfg").mkdir(parents=True)
+
+    today = tmp_path / "todayeclipse.json"
+    today.write_text("{}", encoding="utf-8")
+
+    state_file = tmp_path / "state.json"
+    persisted = StateStore(state_file)
+    persisted.update_section(
+        "circumstances",
+        {"loaded": True, "active_file": "todayeclipse.json", "meta": {}},
+        persist=True,
+    )
+    persisted.update_section(
+        "capture",
+        {"loaded": True, "active_file": "missing.json", "meta": {}},
+        persist=True,
+    )
+    persisted.set("camera_config_file", "missing.json", persist=True)
+
+    restored = StateStore(state_file)
+
+    monkeypatch.setattr(flask_module, "_state_store", restored)
+    monkeypatch.setattr(flask_module, "_state", restored.data)
+    monkeypatch.setattr(flask_module, "_state_lock", restored.lock)
+    monkeypatch.setattr(flask_module, "CONFIGS_DIR", configs_dir)
+    monkeypatch.setattr(flask_module, "JSON_FILE", today)
+
+    flask_module._restore_persisted_trigger_selections()
+
+    assert restored.snapshot("circumstances")["loaded"] is True
+    assert restored.snapshot("capture")["loaded"] is False
