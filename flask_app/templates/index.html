@@ -853,6 +853,11 @@ header {
         </div>
       </div>
 
+      <div class="card">
+        <div class="card-title">Atmospheric Attenuation</div>
+        <div class="focuser-mode-switch"><label for="cfg-atmo-switch">OFF</label><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation"><label for="cfg-atmo-switch">ON</label></div>
+      </div>
+
       <!-- ── CARD 2 : Phase Partielle ── -->
       <div class="card">
         <div class="card-title" style="color:var(--purple)">☀ PARTIAL PHASE</div>
@@ -3109,6 +3114,9 @@ async function loadCameraConfig(filename) {
     const r = await fetch('/api/configs/load_camera/' + encodeURIComponent(filename));
     if (!r.ok) { flash('Erreur chargement config appareil', 'red'); return; }
     const data = await r.json();
+    document.getElementById('cfg-atmo-switch').checked = Boolean(
+      data.exposure_correction?.atmospheric_attenuation_enabled
+    );
     _applyCameraConfig(data);
     flash('Config appareil chargée : ' + filename, 'green');
   } catch(e) { flash('Erreur réseau', 'red'); }
@@ -3209,6 +3217,9 @@ async function saveCameraConfig() {
   const name = prompt('Nom du fichier config appareil :', current);
   if (!name) return;
   const data = _readCameraConfig();
+  data.exposure_correction = {
+    atmospheric_attenuation_enabled: Boolean(document.getElementById('cfg-atmo-switch').checked)
+  };
   try {
     const r = await fetch('/api/configs/save_camera', {
       method: 'POST', headers: {'Content-Type':'application/json'},
