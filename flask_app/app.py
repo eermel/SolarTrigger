@@ -152,12 +152,22 @@ def calculate_timezone_from_coords(lat, lon, eclipse_date=None):
     return base_offset
 
 # ── Chemins ────────────────────────────────────────────────────────────────────
-BASE_DIR       = Path(__file__).parent
-TRIGGER_DIR    = Path.home() / "python_solareclipsetrigger"
-TRIGGER_SCRIPT = TRIGGER_DIR / "eclipse_trigger.py"
-TOTALITY_ONLY_SCRIPT = TRIGGER_DIR / "totality_only.py"
-CALC_SCRIPT    = TRIGGER_DIR / "eclipse_calculator_py.py"
-GPS_SCRIPT     = TRIGGER_DIR / "gps_sync.py"
+BASE_DIR = Path(__file__).resolve().parent
+
+# Le package source place app.py dans flask_app/, tandis que l'installation
+# de production place app.py directement à la racine applicative.
+PROJECT_DIR = (
+    BASE_DIR.parent
+    if BASE_DIR.name == "flask_app"
+    else BASE_DIR
+)
+
+TRIGGER_DIR    = PROJECT_DIR
+SCRIPTS_DIR    = PROJECT_DIR / "scripts"
+TRIGGER_SCRIPT = SCRIPTS_DIR / "eclipse_trigger.py"
+TOTALITY_ONLY_SCRIPT = SCRIPTS_DIR / "totality_only.py"
+CALC_SCRIPT    = SCRIPTS_DIR / "eclipse_calculator_py.py"
+GPS_SCRIPT     = SCRIPTS_DIR / "gps_sync.py"
 GPS_CONFIG_FILE = TRIGGER_DIR / "configs" / "gps_default.json"
 MOUNT_CONFIG_FILE = TRIGGER_DIR / "configs" / "mount_default.json"
 JSON_FILE      = TRIGGER_DIR / "todayeclipse.json"
@@ -918,7 +928,7 @@ def _emit_backend(event, payload):
         }, namespace="/")
 
 def _sync_time_backend(gps_time, dry_run=False):
-    from gps_sync import sync_system_time
+    from scripts.gps_sync import sync_system_time
     return sync_system_time(gps_time, dry_run=dry_run)
 
 _gps_controller = GpsController(
@@ -1234,7 +1244,7 @@ def api_eclipse_override():
         return jsonify({"error": str(e)}), 500
 
 # ── Routes configs JSON ──────────────────────────────────────────────────────
-CONFIGS_DIR = Path(__file__).parent.parent / "configs"
+CONFIGS_DIR = PROJECT_DIR / "configs"
 CONFIGS_DIR.mkdir(parents=True, exist_ok=True)  # créer si absent
 
 def _unique_config_files(*patterns):
