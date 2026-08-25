@@ -241,9 +241,12 @@ def test_trigger_service_simulation_does_not_require_gps(tmp_path, monkeypatch):
         '_date':datetime.now().astimezone().date().isoformat(),
         'TSTART':'10:00:00','C1':'10:10:00','C2':'10:20:00','C3':'10:21:00','C4':'10:30:00','TEND':'10:40:00'
     }))
-    (tmp_path/'camera.json').write_text('{}')
+    configs=tmp_path/'configs'
+    camera_cfg=configs/'camera_cfg'
+    camera_cfg.mkdir(parents=True)
+    (camera_cfg/'camera.json').write_text('{}')
     script=tmp_path/'eclipse_trigger.py'; script.write_text('')
-    svc=TriggerService(store,script,eclipse,tmp_path/'events',tmp_path,lambda *a:None,lambda *a:None)
+    svc=TriggerService(store,script,eclipse,tmp_path/'events',configs,lambda *a:None,lambda *a:None)
     # Evite de lancer un vrai thread : le but est de valider les préconditions.
     class DummyThread:
         def __init__(self, *a, **k): pass

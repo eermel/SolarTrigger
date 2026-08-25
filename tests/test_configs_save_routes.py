@@ -96,9 +96,14 @@ def test_camera_load_and_select_prefer_camera_cfg_then_fall_back_to_capture(
         json.dumps(legacy_data), encoding="utf-8"
     )
 
-    with flask_module.app.app_context():
+    app_context = getattr(flask_module.app, "app_context", None)
+    if app_context is None:
         preferred_load = flask_module.api_configs_load_camera(preferred_filename)
         legacy_load = flask_module.api_configs_load_camera(legacy_filename)
+    else:
+        with app_context():
+            preferred_load = flask_module.api_configs_load_camera(preferred_filename)
+            legacy_load = flask_module.api_configs_load_camera(legacy_filename)
 
     preferred_select = client.post(
         "/api/trigger/select_camera", json={"filename": preferred_filename}

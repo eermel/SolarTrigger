@@ -16,11 +16,21 @@ sys.modules.setdefault("gphoto2", ModuleType("gphoto2"))
 import flask_app.app as flask_module
 
 
-def _configure_trigger_route(tmp_path, monkeypatch, *, circumstances=True, capture=True, eclipse_date=None):
+def _configure_trigger_route(
+    tmp_path,
+    monkeypatch,
+    *,
+    circumstances=True,
+    capture=True,
+    eclipse_date=None,
+    camera_subdir="camera_cfg",
+):
     configs_dir = tmp_path / "configs"
     configs_dir.mkdir()
     camera_filename = "camera.json"
-    (configs_dir / camera_filename).write_text("{}", encoding="utf-8")
+    camera_dir = configs_dir / camera_subdir
+    camera_dir.mkdir(parents=True)
+    (camera_dir / camera_filename).write_text("{}", encoding="utf-8")
 
     eclipse_file = tmp_path / "todayeclipse.json"
     eclipse_file.write_text(
@@ -294,3 +304,16 @@ def test_trigger_select_camera_updates_persists_and_emits_capture(tmp_path, monk
         "local",
         "utc",
     }
+
+
+def test_trigger_start_accepts_legacy_capture_directory(tmp_path, monkeypatch):
+    client = _configure_trigger_route(
+        tmp_path,
+        monkeypatch,
+        camera_subdir="capture",
+    )
+
+    response = client.post("/api/trigger/start")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"status": "started", "mode": "real"}

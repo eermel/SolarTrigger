@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pathlib import Path
 import json, os, subprocess, sys, threading, time
 from datetime import datetime, timezone
 from backend.timeline import parse_date_from_config, sequence_seconds
@@ -59,8 +60,16 @@ class TriggerService:
 
         capture=self.state.snapshot("capture") or {}
         camera_config_file=self.state.get("camera_config_file")
-        camera_config_path=self.configs_dir/camera_config_file if camera_config_file else None
-        if not capture.get("loaded") or camera_config_path is None or not camera_config_path.exists():
+        camera_config_path=None
+        if camera_config_file:
+            filename=Path(camera_config_file).name
+            for subdir in ("camera_cfg", "capture"):
+                candidate=self.configs_dir/subdir/filename
+                if candidate.exists():
+                    camera_config_path=candidate
+                    break
+
+        if not capture.get("loaded") or camera_config_path is None:
             raise TriggerValidationError("Aucune configuration de capture sélectionnée", "CAPTURE_NOT_LOADED")
         try:
             json.loads(camera_config_path.read_text(encoding="utf-8"))

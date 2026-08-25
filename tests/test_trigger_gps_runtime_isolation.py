@@ -45,8 +45,9 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
     script = tmp_path / "eclipse_trigger.py"
     script.write_text("", encoding="utf-8")
     configs = tmp_path / "configs"
-    configs.mkdir()
-    (configs / "camera.json").write_text("{}", encoding="utf-8")
+    camera_cfg = configs / "camera_cfg"
+    camera_cfg.mkdir(parents=True)
+    (camera_cfg / "camera.json").write_text("{}", encoding="utf-8")
 
     allow_process_exit = threading.Event()
     process_completed = threading.Event()
