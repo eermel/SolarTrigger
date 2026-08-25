@@ -1457,10 +1457,10 @@ socket.on('status_update', d => {
   if (d.camera) updateCameraTimeSync(d.camera, d.gps || state.gps || {});
   if (d.trigger) updatePhase(d.trigger.phase);
   if (d.eclipse) updateEclipseSaveFilename(d.eclipse);
-  // Restaurer le fichier config caméra sélectionné
+  // Restaurer le fichier config caméra sélectionné depuis l'état backend
   if (d.camera_config_file) {
-    const sel = document.getElementById('trigger-camera-select');
-    if (sel) sel.value = d.camera_config_file;
+    _triggerCameraConfigFile = d.camera_config_file;
+    _restoreTriggerCameraSelect();
   }
   // Restauration éclipse si présente dans le status_update initial
   if (d.eclipse && !state.eclipse) {
@@ -2733,14 +2733,32 @@ async function loadTriggerConfigList() {
       opt.value = f; opt.textContent = f;
       sel2.appendChild(opt);
     });
-    // Sélectionner camera_default.json si présent
-    const def = Array.from(sel2.options).find(o => o.value === 'camera_default.json');
-    if (def) { sel2.value = 'camera_default.json'; selectTriggerCamera('camera_default.json'); }
+    // Restaurer la sélection backend après reconstruction de la liste.
+    _restoreTriggerCameraSelect();
   } catch(e) {}
+}
+
+let _triggerCameraConfigFile = null;
+
+function _restoreTriggerCameraSelect() {
+  const sel = document.getElementById('trigger-camera-select');
+  if (!sel || !_triggerCameraConfigFile) return;
+
+  const option = Array.from(sel.options).find(
+    o => o.value === _triggerCameraConfigFile
+  );
+
+  if (option) {
+    sel.value = _triggerCameraConfigFile;
+  }
 }
 
 async function selectTriggerCamera(filename) {
   if (!filename) return;
+
+  // Mémoriser immédiatement le choix opérateur.
+  _triggerCameraConfigFile = filename;
+
   try {
     const r = await fetch('/api/trigger/select_camera', {
       method: 'POST',
