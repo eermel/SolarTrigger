@@ -451,6 +451,10 @@ def api_devices_set():
         return jsonify({"error": "No device category provided."}), 400
 
     previous_devices = _state_store.snapshot("devices") or {}
+
+    previous_mount = previous_devices.get("mount") or {}
+    new_mount = selections.get("mount")
+
     previous_focuser = previous_devices.get("focuser") or {}
     new_focuser = selections.get("focuser")
     if (new_focuser is not None
@@ -463,6 +467,40 @@ def api_devices_set():
 
     selections["updated_at"] = datetime.now(timezone.utc).isoformat()
     _state_store.update_section("devices", selections, persist=True)
+
+    if new_mount is not None:
+        mount_changed = (
+            previous_mount.get("plugin") != new_mount.get("plugin")
+            or previous_mount.get("active") is not new_mount.get("active")
+        )
+
+        if mount_changed:
+            def warm_selected_mount():
+                try:
+                    if (
+                        new_mount.get("active") is True
+                        and new_mount.get("plugin") not in (None, "", "none")
+                    ):
+                        log.info(
+                            "Pré-initialisation monture sélectionnée : %s",
+                            new_mount.get("plugin"),
+                        )
+                        _mount_service.warmup()
+                    else:
+                        _mount_service.close()
+                        log.info("Monture désactivée")
+                except Exception as exc:
+                    log.warning(
+                        "Pré-initialisation monture impossible : %s",
+                        exc,
+                    )
+
+            threading.Thread(
+                target=warm_selected_mount,
+                name="mount-selection-warmup",
+                daemon=True,
+            ).start()
+
     return jsonify(_devices_snapshot())
 
 
@@ -746,7 +784,9 @@ def api_mount_speed():
     if not isinstance(payload, dict):
         return jsonify({"error": "Invalid mount payload."}), 400
     try:
-        speed = _json_number(payload, "speed")
+        if "speed" not in payload:
+            raise ValueError("Missing field 'speed'.")
+        speed = payload["speed"]
         result = _mount_service.set_speed(speed)
     except IndiClientError as exc:
         return _mount_indi_error(exc)
