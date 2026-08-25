@@ -5,6 +5,7 @@ import importlib.util
 import pytest
 
 from backend.state_store import StateStore
+from plugins.mount.indi_client import IndiClientError
 from services.mount_service import MountService
 
 
@@ -385,3 +386,73 @@ def test_mount_endpoints_reject_inactive_device(
     assert response.get_json()["code"] == "DEVICE_INACTIVE"
     assert response.get_json()["category"] == "mount"
     assert plugin.connected is False
+
+
+def test_mount_service_factory_passes_file_plugin_config(tmp_path, monkeypatch):
+    config_file = tmp_path / "mount_default.json"
+    config_file.write_text(
+        '{"plugin": "indi", "plugin_config": '
+        '{"serial_port": "/dev/ttyUSB0"}}',
+        encoding="utf-8",
+    )
+    received = {}
+
+    class CapturingMountService:
+        def __init__(self, state_store, log_fn, config):
+            received.update(state_store=state_store, config=config)
+
+    monkeypatch.setattr(flask_module, "MOUNT_CONFIG_FILE", config_file)
+    monkeypatch.setattr(flask_module, "MountService", CapturingMountService)
+
+    flask_module._create_mount_service()
+
+    assert received == {
+        "state_store": flask_module._state_store,
+        "config": {"serial_port": "/dev/ttyUSB0"},
+    }
+
+
+def test_indi_missing_required_config_returns_structured_error(
+    tmp_path, monkeypatch
+):
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices", {"mount": {"plugin": "indi", "active": True}}
+    )
+    received = {}
+
+    class MissingConfigIndiPlugin(FakeMountPlugin):
+        def __init__(self, config):
+            super().__init__()
+            self.config = config
+
+        def connect(self):
+            if not self.config.get("serial_port"):
+                raise IndiClientError(
+                    "SERIAL_PORT_MISSING", "Serial port is required"
+                )
+
+    def load_mount(plugin_id, log_fn=print, config=None):
+        received.update(plugin_id=plugin_id, config=config)
+        return MissingConfigIndiPlugin(config or {})
+
+    service = MountService(
+        state_store,
+        config={},
+        log_fn=lambda _message: None,
+        plugin_loader=load_mount,
+    )
+    monkeypatch.setattr(flask_module, "_state_store", state_store)
+    monkeypatch.setattr(flask_module, "_mount_service", service)
+    flask_module.app.config.update(TESTING=True)
+
+    response = flask_module.app.test_client().post(
+        "/api/mount/speed", json={"speed": 1.0}
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "error": "Serial port is required",
+        "code": "SERIAL_PORT_MISSING",
+    }
+    assert received == {"plugin_id": "indi", "config": {}}

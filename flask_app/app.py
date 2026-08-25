@@ -159,6 +159,7 @@ TOTALITY_ONLY_SCRIPT = TRIGGER_DIR / "totality_only.py"
 CALC_SCRIPT    = TRIGGER_DIR / "eclipse_calculator_py.py"
 GPS_SCRIPT     = TRIGGER_DIR / "gps_sync.py"
 GPS_CONFIG_FILE = TRIGGER_DIR / "configs" / "gps_default.json"
+MOUNT_CONFIG_FILE = TRIGGER_DIR / "configs" / "mount_default.json"
 JSON_FILE      = TRIGGER_DIR / "todayeclipse.json"
 EVENTS_FILE    = TRIGGER_DIR / "sound_events.jsonl"
 SOUNDS_DIR     = TRIGGER_DIR / "Sounds"
@@ -185,6 +186,7 @@ from backend.timezone_service import calculate_timezone_from_coords as _backend_
 from services.camera_service import CameraService
 from services.focuser_service import FocuserService
 from services.mount_service import MountService
+from plugins.mount.indi_client import IndiClientError
 
 # ── Flask ──────────────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder=str(STATIC_DIR),
@@ -198,15 +200,45 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("solareclipse")
 
 # ── Backend application services ───────────────────────────────────────────────
+def _load_mount_plugin_config():
+    """Load the optional mount plugin settings without blocking startup."""
+    try:
+        with MOUNT_CONFIG_FILE.open(encoding="utf-8") as config_file:
+            mount_config = json.load(config_file)
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("Impossible de charger mount_default.json : %s", exc)
+        return {}
+
+    if not isinstance(mount_config, dict):
+        log.warning("Configuration mount_default.json invalide : objet JSON attendu")
+        return {}
+    if "plugin" in mount_config and not isinstance(mount_config["plugin"], str):
+        log.warning("Configuration mount_default.json invalide : 'plugin' doit être une chaîne")
+        return {}
+    plugin_config = mount_config.get("plugin_config", {})
+    if not isinstance(plugin_config, dict):
+        log.warning("Configuration mount_default.json invalide : 'plugin_config' doit être un objet")
+        return {}
+    return plugin_config
+
+
+def _create_mount_service():
+    return MountService(
+        _state_store,
+        log_fn=lambda message: log.info(message),
+        config=_load_mount_plugin_config(),
+    )
+
+
 _state_store = StateStore(STATE_FILE)
 _state = _state_store.data
 _state_lock = _state_store.lock
 _focuser_service = FocuserService(
     _state_store, log_fn=lambda message: log.info(message)
 )
-_mount_service = MountService(
-    _state_store, log_fn=lambda message: log.info(message)
-)
+_mount_service = _create_mount_service()
 _event_log = EventLog(LOGS_BUFFER_FILE, LOG_BUFFER_SIZE,
                       emit_fn=lambda event, payload: socketio.emit(event, payload))
 _log_buffer = _event_log.buffer
@@ -623,12 +655,19 @@ def api_focuser_set_step():
 # API — MOUNT
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _mount_indi_error(exc):
+    return jsonify({"error": str(exc), "code": exc.code}), 400
+
+
 @app.route("/api/mount/status")
 def api_mount_status():
     inactive = require_device_active("mount")
     if inactive is not None:
         return inactive
-    status = dict(_mount_service.status())
+    try:
+        status = dict(_mount_service.status())
+    except IndiClientError as exc:
+        return _mount_indi_error(exc)
     status.setdefault("tracking_mode", "solar")
     status.setdefault("tracking_enabled", False)
     status.setdefault("tracking_caps", None)
@@ -663,6 +702,8 @@ def api_mount_tracking_mode():
         }), 400
     try:
         result = _mount_service.set_tracking_mode(payload["mode"])
+    except IndiClientError as exc:
+        return _mount_indi_error(exc)
     except (ValueError, RuntimeError) as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(result)
@@ -675,6 +716,8 @@ def api_mount_tracking_start():
         return guarded
     try:
         result = _mount_service.start_tracking()
+    except IndiClientError as exc:
+        return _mount_indi_error(exc)
     except (ValueError, RuntimeError) as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(result)
@@ -687,6 +730,8 @@ def api_mount_tracking_stop():
         return guarded
     try:
         result = _mount_service.stop_tracking()
+    except IndiClientError as exc:
+        return _mount_indi_error(exc)
     except (ValueError, RuntimeError) as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(result)
@@ -703,6 +748,8 @@ def api_mount_speed():
     try:
         speed = _json_number(payload, "speed")
         result = _mount_service.set_speed(speed)
+    except IndiClientError as exc:
+        return _mount_indi_error(exc)
     except (ValueError, RuntimeError) as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(result)
@@ -725,6 +772,8 @@ def api_mount_slew_start():
         }), 400
     try:
         result = _mount_service.start_slew(direction)
+    except IndiClientError as exc:
+        return _mount_indi_error(exc)
     except (ValueError, RuntimeError) as exc:
         if "homing" in str(exc).lower():
             return jsonify({
@@ -742,6 +791,8 @@ def api_mount_home():
         return inactive
     try:
         result = _mount_service.home_start()
+    except IndiClientError as exc:
+        return _mount_indi_error(exc)
     except (ValueError, RuntimeError) as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(result)
@@ -752,7 +803,11 @@ def api_mount_slew_stop():
     inactive = require_device_active("mount")
     if inactive is not None:
         return inactive
-    return jsonify(_mount_service.stop())
+    try:
+        result = _mount_service.stop()
+    except IndiClientError as exc:
+        return _mount_indi_error(exc)
+    return jsonify(result)
 
 
 def _get_camera_model_info(camera):

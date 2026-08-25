@@ -23,6 +23,7 @@ from .base import MountPlugin
 # Le nom d'affichage est ici pour que available_plugins() fonctionne SANS
 # importer le plugin (donc sans pyserial ni materiel).
 _PLUGIN_CLASSES = {
+    "indi": ("indi_plugin", "IndiMount", "INDI / EQMod compatible"),
     "onstep": ("onstep_plugin", "OnStepMount",
                "OnStep / Tessek Mini 11 (LX200 serie)"),
     # a venir :
