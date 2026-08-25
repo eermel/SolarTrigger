@@ -63,7 +63,7 @@ class IndiSubprocessClient:
 
     def ensure_device_present(self, device_name: str) -> None:
         """Raise ``DEVICE_NOT_FOUND`` unless *device_name* is advertised."""
-        output = self._run("indi_getprop", [f"{device_name}.*"])
+        output = self._run("indi_getprop", [f"{device_name}.*.*"])
         if device_name not in self._parse_props(output):
             raise IndiClientError(
                 "DEVICE_NOT_FOUND",

@@ -197,7 +197,7 @@ def test_ensure_device_present_uses_requested_device(monkeypatch):
 
     IndiSubprocessClient().ensure_device_present("Aux Mount")
 
-    assert commands[0][-1] == "Aux Mount.*"
+    assert commands[0][-1] == "Aux Mount.*.*"
 
 
 def test_ensure_device_present_raises_when_missing(monkeypatch):

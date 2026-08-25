@@ -146,37 +146,48 @@ class MountService:
         self._location_pushed = True
 
     def _status_locked(self, plugin) -> dict:
+        # Hardware I/O must happen without holding self._lock.
+        # Otherwise a slow status read blocks interactive START/STOP commands.
         raw = dict(plugin.status() or {})
-        if "moving" in raw:
-            if raw["moving"]:
-                self._moving = True
-            else:
-                self._clear_motion_locked()
-        capabilities = plugin.get_slew_speed_capabilities()
-        get_tracking_capabilities = getattr(
-            plugin, "get_tracking_capabilities", None
-        )
-        tracking_capabilities = (
-            get_tracking_capabilities()
-            if callable(get_tracking_capabilities)
-            else None
-        )
-        status = {
-            "active": True,
-            "connected": bool(plugin.connected),
-            "moving": bool(self._moving),
-            "direction": self._direction,
-            "homing": bool(self._homing),
-            "slew_speed": raw.get("move_rate") or None,
-            "slew_speed_caps": capabilities or None,
-            "tracking_mode": self._tracking_mode,
-            "tracking_enabled": bool(self._tracking_enabled),
-            "tracking_caps": tracking_capabilities,
-            "plugin": self._plugin_id,
-        }
-        if "device" in raw:
-            status["device"] = raw["device"]
-        return status
+
+        capabilities = raw.get("slew_speed_capabilities")
+        if capabilities is None:
+            capabilities = plugin.get_slew_speed_capabilities()
+
+        tracking_capabilities = raw.get("tracking_capabilities")
+        if tracking_capabilities is None:
+            get_tracking_capabilities = getattr(
+                plugin, "get_tracking_capabilities", None
+            )
+            tracking_capabilities = (
+                get_tracking_capabilities()
+                if callable(get_tracking_capabilities)
+                else None
+            )
+
+        with self._lock:
+            if "moving" in raw:
+                if raw["moving"]:
+                    self._moving = True
+                else:
+                    self._clear_motion_locked()
+
+            status = {
+                "active": True,
+                "connected": bool(plugin.connected),
+                "moving": bool(self._moving),
+                "direction": self._direction,
+                "homing": bool(self._homing),
+                "slew_speed": raw.get("move_rate") or None,
+                "slew_speed_caps": capabilities or None,
+                "tracking_mode": self._tracking_mode,
+                "tracking_enabled": bool(self._tracking_enabled),
+                "tracking_caps": tracking_capabilities,
+                "plugin": self._plugin_id,
+            }
+            if "device" in raw:
+                status["device"] = raw["device"]
+            return status
 
     def _homing_status_locked(self, plugin_id: str) -> dict:
         """Return a backend-only snapshot while Home owns mount I/O."""
@@ -215,10 +226,36 @@ class MountService:
                 }
             if self._homing:
                 return self._homing_status_locked(plugin_id)
+
             try:
-                return self._status_locked(self._plugin_for_operation())
+                plugin = self._plugin_for_operation()
             except Exception as exc:
                 self._close_locked()
+                return {
+                    "active": True,
+                    "connected": False,
+                    "moving": False,
+                    "direction": None,
+                    "homing": bool(self._homing),
+                    "slew_speed": None,
+                    "slew_speed_caps": None,
+                    "tracking_mode": self._tracking_mode,
+                    "tracking_enabled": bool(self._tracking_enabled),
+                    "tracking_caps": None,
+                    "plugin": plugin_id,
+                    "error": {
+                        "code": "SERIAL_ERROR",
+                        "message": str(exc),
+                    },
+                }
+
+        # Do not hold self._lock during slow hardware telemetry.
+        try:
+            return self._status_locked(plugin)
+        except Exception as exc:
+            with self._lock:
+                if plugin is self._plugin:
+                    self._close_locked()
                 return {
                     "active": True,
                     "connected": False,
@@ -276,6 +313,8 @@ class MountService:
         kind = capabilities.get("kind")
         if kind == "discrete":
             values = capabilities.get("values") or []
+            if isinstance(value, bool):
+                raise ValueError("speed is not one of the supported values")
             if not any(value == item.get("value") for item in values):
                 raise ValueError("speed is not one of the supported values")
             return
@@ -331,7 +370,19 @@ class MountService:
             plugin.move(direction)
             self._moving = True
             self._direction = direction
-            return self._status_locked(plugin)
+            return {
+                "active": True,
+                "connected": bool(plugin.connected),
+                "moving": True,
+                "direction": direction,
+                "homing": False,
+                "slew_speed": getattr(plugin, "_move_rate", None),
+                "slew_speed_caps": None,
+                "tracking_mode": self._tracking_mode,
+                "tracking_enabled": bool(self._tracking_enabled),
+                "tracking_caps": None,
+                "plugin": self._plugin_id,
+            }
 
     def home_start(self) -> dict:
         """Start an asynchronous home operation."""
@@ -415,6 +466,21 @@ class MountService:
                 "STOP not sent"
             )
         return status
+
+    def warmup(self) -> bool:
+        """Initialize the selected active mount outside the interactive path."""
+        try:
+            with self._lock:
+                active, plugin_id = self._selection()
+                if not active or plugin_id == "none":
+                    self._log("mount warmup skipped: mount inactive")
+                    return False
+                self._plugin_for_operation()
+            self._log(f"mount warmup ready: {plugin_id}")
+            return True
+        except Exception as exc:
+            self._log(f"mount warmup failed: {exc}")
+            return False
 
     def close(self) -> None:
         with self._lock:
