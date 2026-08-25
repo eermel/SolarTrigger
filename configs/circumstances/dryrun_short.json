@@ -1,0 +1,57 @@
+{
+  "_comment": "Circonstances de référence pour l'éclipse totale du 2 août 2027 — calculs validés avec le moteur Jubier",
+  "_eclipse": "2027 Aug 02 (T)",
+  "_type_global": "Totale",
+  "_type": "Totale",
+  "_magnitude": 1.02846,
+  "_moon_sun_ratio": 1.07895,
+  "_duration": "6m 5s",
+  "_sun_alt_tmax": "80.7°",
+  "_date": "2027-08-02",
+  "_date_utc": "2027-08-02",
+  "_circumstances_location": {
+    "latitude": 24.38304,
+    "longitude": 35.38327,
+    "altitude_m": 0.0,
+    "comment": "Circonstances calculées pour cette position GPS et cette altitude."
+  },
+  "_timezone": "UTC+3",
+  "_timezone_name": "Africa/Cairo",
+  "_utc_offset_minutes": 180,
+  "title": "2027 Aug 02 (T)",
+  "C1": "10:00:30.000",
+  "C2": "10:02:00.000",
+  "C3": "10:08:00.000",
+  "C4": "10:09:30.000",
+  "TMAX": "10:05:00.000",
+  "TSTART": "10:00:00.000",
+  "TEND": "10:10:00.000",
+  "C1_local": "13:00:30.000",
+  "C2_local": "13:02:00.000",
+  "C3_local": "13:08:00.000",
+  "C4_local": "13:09:30.000",
+  "TMAX_local": "13:05:00.000",
+  "C1_alt_deg": 75.18180640181374,
+  "C2_alt_deg": 81.15892887102662,
+  "TMAX_alt_deg": 80.67328338503523,
+  "C3_alt_deg": 80.16202070583066,
+  "C4_alt_deg": 63.90863175122565,
+  "interval_partial": 180,
+  "interval_diamond_ring": 4,
+  "duree_diamond_ring": 40,
+  "shutterspeed_partial": "1/500",
+  "shutterspeed_diamondring": "1/500",
+  "phase1a": {
+    "interval_s": 180,
+    "speed_denom": 500
+  },
+  "diamond_ring": {
+    "interval_s": 4,
+    "duration_s": 40,
+    "speed_denom": 500
+  },
+  "phase3b": {
+    "interval_s": 180,
+    "speed_denom": 500
+  }
+}
