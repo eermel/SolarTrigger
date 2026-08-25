@@ -382,3 +382,81 @@ def test_trigger_service_totality_uses_project_runtime_environment(
 
     pythonpath = seen["kwargs"]["env"]["PYTHONPATH"].split(os.pathsep)
     assert pythonpath[0] == str(tmp_path)
+
+
+def test_totality_only_preempts_running_trigger(tmp_path, monkeypatch):
+    from backend.trigger_service import TriggerService
+
+    store = StateStore(tmp_path / "state.json")
+    store.set(
+        "trigger",
+        {"running": True, "phase": "partial", "mode": "real", "speed": 1.0},
+    )
+
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    trigger_script = scripts / "eclipse_trigger.py"
+    trigger_script.write_text("", encoding="utf-8")
+    totality_script = scripts / "totality_only.py"
+    totality_script.write_text("", encoding="utf-8")
+
+    configs = tmp_path / "configs"
+    configs.mkdir()
+
+    svc = TriggerService(
+        store,
+        trigger_script,
+        tmp_path / "todayeclipse.json",
+        tmp_path / "events.log",
+        configs,
+        lambda *args: None,
+        lambda *args: None,
+    )
+
+    class OldProc:
+        def __init__(self):
+            self.returncode = None
+            self.terminated = False
+            self.killed = False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    old_proc = OldProc()
+    svc._proc = old_proc
+
+    launched = []
+
+    def fake_run_totality(script_path):
+        launched.append(script_path)
+
+    monkeypatch.setattr(svc, "_run_totality", fake_run_totality)
+
+    class ImmediateThread:
+        def __init__(self, *, target, args, name, daemon):
+            self.target = target
+            self.args = args
+
+        def start(self):
+            self.target(*self.args)
+
+    monkeypatch.setattr(
+        "backend.trigger_service.threading.Thread",
+        ImmediateThread,
+    )
+
+    assert svc.start_totality_only(totality_script) is True
+    assert old_proc.terminated is True
+    assert old_proc.killed is False
+    assert launched == [totality_script]

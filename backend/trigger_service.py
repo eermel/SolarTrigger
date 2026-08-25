@@ -169,19 +169,88 @@ class TriggerService:
         except Exception as exc:
             self.log(f"ERREUR thread trigger : {exc}","error","trigger")
         finally:
-            self.state.set("trigger", {"running":False,"phase":"idle","mode":None,"speed":None}); self.emit("trigger_phase",{"phase":"idle"})
-            code=proc.returncode if proc else "?"; self.log(f"■ Trigger terminé (code {code}).","info","trigger")
             with self._lock:
-                self._proc=None
-                self._starting=False
+                owns_process = self._proc is proc
+                if owns_process:
+                    self._proc = None
+                    self._starting = False
+
+            if owns_process:
+                self.state.set(
+                    "trigger",
+                    {"running":False,"phase":"idle","mode":None,"speed":None},
+                )
+                self.emit("trigger_phase", {"phase":"idle"})
+
+            code = proc.returncode if proc else "?"
+            self.log(
+                f"■ Trigger terminé (code {code}).",
+                "info",
+                "trigger",
+            )
 
     def start_totality_only(self, script_path):
-        """Start emergency totality-only script under the same process owner."""
+        """Préempte le trigger courant puis démarre le mode secours totalité."""
+
         with self._lock:
-            current=self.state.snapshot("trigger") or {}
-            if current.get("running") or (self._proc and self._proc.poll() is None): return False
-            threading.Thread(target=self._run_totality, args=(script_path,), name="totality-only-process", daemon=True).start()
-            return True
+            old_proc = self._proc
+
+        if old_proc is not None and old_proc.poll() is None:
+            self.log(
+                "🌑 Totalité secours demandée — arrêt du trigger en cours.",
+                "warning",
+                "trigger",
+            )
+
+            try:
+                old_proc.terminate()
+            except Exception:
+                pass
+
+            try:
+                old_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.log(
+                    "⚠️ Trigger précédent non arrêté après 3 s — SIGKILL.",
+                    "warning",
+                    "trigger",
+                )
+                try:
+                    old_proc.kill()
+                    old_proc.wait(timeout=2)
+                except Exception:
+                    pass
+
+            if old_proc.poll() is None:
+                self.log(
+                    "❌ Impossible d'arrêter le trigger courant — totalité non lancée.",
+                    "error",
+                    "trigger",
+                )
+                return False
+
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            with self._lock:
+                if self._proc is None:
+                    break
+            time.sleep(0.02)
+
+        with self._lock:
+            if self._proc is not None and self._proc.poll() is None:
+                return False
+
+            self._proc = None
+            self._starting = True
+
+            threading.Thread(
+                target=self._run_totality,
+                args=(script_path,),
+                name="totality-only-process",
+                daemon=True,
+            ).start()
+
+        return True
 
     def _run_totality(self, script_path):
         proc=None
@@ -211,9 +280,24 @@ class TriggerService:
         except Exception as exc:
             self.log(f"Erreur totality_only : {exc}","error","trigger")
         finally:
-            self.state.set("trigger", {"running":False,"phase":"idle","mode":None,"speed":None}); self.emit("trigger_phase",{"phase":"idle"})
-            self.log("■ Totalité uniquement terminée.","info","trigger")
-            with self._lock: self._proc=None
+            with self._lock:
+                owns_process = self._proc is proc
+                if owns_process:
+                    self._proc = None
+                    self._starting = False
+
+            if owns_process:
+                self.state.set(
+                    "trigger",
+                    {"running":False,"phase":"idle","mode":None,"speed":None},
+                )
+                self.emit("trigger_phase", {"phase":"idle"})
+
+            self.log(
+                "■ Totalité uniquement terminée.",
+                "info",
+                "trigger",
+            )
 
     def stop(self):
         with self._lock: proc=self._proc
