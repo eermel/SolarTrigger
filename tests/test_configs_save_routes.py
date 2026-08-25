@@ -26,6 +26,13 @@ def camera_data(**overrides):
     return data
 
 
+def canonical_camera_data(data):
+    canonical = json.loads(json.dumps(data))
+    for phase_name in ("partial", "diamond_ring", "totality"):
+        canonical["phases"][phase_name].setdefault("step_ev", 1.0)
+    return canonical
+
+
 @pytest.fixture
 def save_routes(tmp_path, monkeypatch):
     configs_dir = tmp_path / "configs"
@@ -89,11 +96,13 @@ def test_camera_load_and_select_prefer_camera_cfg_then_fall_back_to_capture(
         json.dumps(legacy_data), encoding="utf-8"
     )
 
-    preferred_load = flask_module.api_configs_load_camera(preferred_filename)
+    with flask_module.app.app_context():
+        preferred_load = flask_module.api_configs_load_camera(preferred_filename)
+        legacy_load = flask_module.api_configs_load_camera(legacy_filename)
+
     preferred_select = client.post(
         "/api/trigger/select_camera", json={"filename": preferred_filename}
     )
-    legacy_load = flask_module.api_configs_load_camera(legacy_filename)
     legacy_select = client.post(
         "/api/trigger/select_camera", json={"filename": legacy_filename}
     )
@@ -152,18 +161,24 @@ def test_config_save_new_file_returns_summary_without_state_update(
 
     response = client.post(endpoint, json=body)
 
+    expected_data = (
+        canonical_camera_data(data)
+        if endpoint == "/api/configs/save_camera"
+        else data
+    )
+
     assert response.status_code == 200
     assert response.get_json() == {
         "status": "ok",
         "filename": saved_filename,
-        "saved": {"filename": saved_filename, "data": data},
+        "saved": {"filename": saved_filename, "data": expected_data},
     }
     saved_path = (
         configs_dir / "circumstances" / saved_filename
         if endpoint == "/api/configs/save"
         else configs_dir / "camera_cfg" / saved_filename
     )
-    assert json.loads(saved_path.read_text(encoding="utf-8")) == data
+    assert json.loads(saved_path.read_text(encoding="utf-8")) == expected_data
     assert state_store.snapshot() == initial_state
     assert emitted == []
 
@@ -389,7 +404,7 @@ def test_config_save_camera_overwrites_active_capture_and_emits_status(save_rout
     }
     assert json.loads(
         (camera_configs_dir / filename).read_text(encoding="utf-8")
-    ) == data
+    ) == canonical_camera_data(data)
 
 
 def test_config_save_camera_writes_only_to_camera_cfg(save_routes):
@@ -405,7 +420,7 @@ def test_config_save_camera_writes_only_to_camera_cfg(save_routes):
     assert response.status_code == 200
     assert json.loads(
         (configs_dir / "camera_cfg" / filename).read_text(encoding="utf-8")
-    ) == data
+    ) == canonical_camera_data(data)
     assert not (configs_dir / filename).exists()
 
 
