@@ -42,9 +42,7 @@ def setup_files():
     JUBIER_DIR.mkdir(exist_ok=True)
     search_dirs = [
         SCRIPT_DIR,
-        Path("/mnt/user-data/uploads"),
-        Path.home() / "python_solareclipsetrigger",
-        Path.home() / "flaskapp_solareclipsetrigger",
+        SCRIPT_DIR.parent,
     ]
     missing = []
     for fname in REQUIRED_FILES:

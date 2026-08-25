@@ -123,7 +123,7 @@ from backend.atmo import facteur_atmospherique, interpolate_altitude
 from backend import audio_service
 
 _runtime_clock = RuntimeClock()
-_watchdog = TriggerWatchdog(Path.home() / "python_solareclipsetrigger" / "trigger_state.json", _runtime_clock)
+_watchdog = TriggerWatchdog(Path(__file__).resolve().parent.parent / "trigger_state.json", _runtime_clock)
 
 C3_OVERFLOW_GRACE_S = 1.0
 SHORT_EXPOSURE_MAX_S = 0.5
@@ -484,7 +484,7 @@ else:
     capture_canonical = build_legacy_capture_canonical(capture_source, cfg)
 
 # Alertes sonores — fichiers WAV dans le sous-dossier Sounds/ (relatif au script)
-_SOUNDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Sounds")
+_SOUNDS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Sounds")
 audio_service.set_sounds_dir(_SOUNDS_DIR)
 
 # Variables globales
