@@ -1358,6 +1358,24 @@ function selectedPilotableMountRig() {
   return mount && ![null, '', 'none', 'external'].includes(mount.backend) ? rig : null;
 }
 
+function selectedPilotableFocuserRig() {
+  const rig = selectedControlsRig();
+  const focuser = rig && rig.devices && rig.devices.focuser;
+  const backend = focuser && (focuser.backend || focuser.plugin);
+  return focuser && ![null, '', 'none'].includes(backend) ? rig : null;
+}
+
+function renderSelectedFocuserAvailability() {
+  const focuserSection = document.getElementById('focuser-section');
+  if (!focuserSection) return;
+  const focuserAvailable = Boolean(selectedPilotableFocuserRig());
+  focuserSection.hidden = !focuserAvailable;
+  focuserSection.setAttribute('aria-disabled', focuserAvailable ? 'false' : 'true');
+  focuserSection.querySelectorAll('button, input, select').forEach(control => {
+    control.disabled = !focuserAvailable;
+  });
+}
+
 function renderSelectedMountAvailability() {
   const mountSection = document.getElementById('mount-section');
   if (!mountSection) return;
@@ -1385,6 +1403,7 @@ function renderControlsRigSelection() {
   });
   document.dispatchEvent(new CustomEvent('controlsrigchange'));
   renderSelectedMountAvailability();
+  renderSelectedFocuserAvailability();
 
   const targetLabel = document.getElementById('controls-target-label');
   if (!targetLabel) return;
@@ -1970,6 +1989,15 @@ socket.on('play_sound', d => {
   let press = null;
   let pollTimer = null;
 
+  function focuserUrl(path) {
+    const rig = selectedControlsRig();
+    const focuser = rig && rig.devices && rig.devices.focuser;
+    const backend = focuser && (focuser.backend || focuser.plugin);
+    return focuser && ![null, '', 'none'].includes(backend)
+      ? `/api/rigs/${rig.rig_id}/focuser/${path}`
+      : null;
+  }
+
   function displayFocuser(data) {
     if (!data || !active) return;
     plugin.textContent = data.plugin || plugin.textContent || '--';
@@ -2006,9 +2034,10 @@ socket.on('play_sound', d => {
   }
 
   async function refreshFocuser() {
-    if (!active) return;
+    const url = focuserUrl('status');
+    if (!active || !url) return;
     try {
-      displayFocuser(await request('/api/focuser/status'));
+      displayFocuser(await request(url));
     } catch (error) {
       schedulePoll(1500);
     }
@@ -2021,13 +2050,14 @@ socket.on('play_sound', d => {
 
   function applyDevices(devices) {
     const focuser = devices && devices.focuser;
-    active = Boolean(focuser && focuser.active === true);
+    active = Boolean(focuserUrl('status'));
     if (!active) {
       clearTimeout(pollTimer);
       stopPress(false);
       return;
     }
-    plugin.textContent = focuser.plugin || '--';
+    const rigFocuser = selectedControlsRig().devices.focuser;
+    plugin.textContent = rigFocuser.backend || rigFocuser.plugin || (focuser && focuser.plugin) || '--';
     refreshFocuser();
   }
 
@@ -2037,7 +2067,9 @@ socket.on('play_sound', d => {
     applyDevices(devices);
   };
 
-  function post(url, body, renderResponse = true) {
+  function post(path, body, renderResponse = true) {
+    const url = focuserUrl(path);
+    if (!url) return Promise.resolve(null);
     return request(url, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -2049,12 +2081,12 @@ socket.on('play_sound', d => {
   }
 
   function cancelAbsoluteMotion() {
-    post('/api/focuser/stop');
+    post('stop');
   }
 
   homeButton.addEventListener('click', () => {
     if (absoluteMotion === 'home') cancelAbsoluteMotion();
-    else post('/api/focuser/home');
+    else post('home');
   });
   goButton.addEventListener('click', () => {
     if (absoluteMotion === 'go') {
@@ -2062,18 +2094,18 @@ socket.on('play_sound', d => {
       return;
     }
     const requestedPosition = Number.parseInt(target.value, 10);
-    if (Number.isInteger(requestedPosition)) post('/api/focuser/move_to', {position: requestedPosition});
+    if (Number.isInteger(requestedPosition)) post('move_to', {position: requestedPosition});
   });
 
   function saveSteps() {
     const fine = Number.parseInt(slowStep.value, 10);
     const coarse = Number.parseInt(fastStep.value, 10);
-    if (fine > 0 && coarse > 0) post('/api/focuser/set_step', {fine, coarse});
+    if (fine > 0 && coarse > 0) post('set_step', {fine, coarse});
   }
   slowStep.addEventListener('change', saveSteps);
   fastStep.addEventListener('change', saveSteps);
   speedSwitch.addEventListener('change', () => {
-    post('/api/focuser/mode', {mode: speedSwitch.checked ? 'fast' : 'slow'}, false)
+    post('mode', {mode: speedSwitch.checked ? 'fast' : 'slow'}, false)
       .then(data => {
         if (data) displayFocuser(data);
       });
@@ -2087,7 +2119,7 @@ socket.on('play_sound', d => {
     press.timer = setTimeout(() => {
       if (!press || press.pointerId !== event.pointerId) return;
       press.jogStarted = true;
-      post('/api/focuser/jog/start', {
+      post('jog/start', {
         direction: sign < 0 ? 'decrease' : 'increase',
       });
     }, 400);
@@ -2101,10 +2133,11 @@ socket.on('play_sound', d => {
     if (ended.jogStarted) {
       if (!ended.stopSent) {
         ended.stopSent = true;
-        fetch('/api/focuser/jog/stop', {method: 'POST'}).catch(() => {});
+        const url = focuserUrl('jog/stop');
+        if (url) fetch(url, {method: 'POST'}).catch(() => {});
       }
     } else if (singleStep && active) {
-      post('/api/focuser/step', {direction: ended.sign < 0 ? 'decrease' : 'increase'});
+      post('step', {direction: ended.sign < 0 ? 'decrease' : 'increase'});
     }
   }
 
@@ -2125,6 +2158,14 @@ socket.on('play_sound', d => {
     if (document.hidden) stopPress(false);
   });
   window.addEventListener('unload', () => stopPress(false));
+
+  document.addEventListener('controlsrigchange', () => {
+    active = Boolean(focuserUrl('status'));
+    if (!active) {
+      clearTimeout(pollTimer);
+      stopPress(false);
+    }
+  });
 
   socket.on('focuser_update', refreshFocuser);
   socket.on('status_update', data => {
