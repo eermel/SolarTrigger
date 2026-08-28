@@ -190,6 +190,15 @@ class MountWorkerRuntime:
             if first_error is not None:
                 raise first_error
 
+    def get_for_rig(self, rig_id: int) -> MountWorker | None:
+        """Return the persistent worker bound to *rig_id*, if configured."""
+
+        with self._lock:
+            for entry in self._registry.values():
+                if entry.binding.rig_id == rig_id:
+                    return entry.worker
+        return None
+
 
 _mount_worker_runtime: MountWorkerRuntime | None = None
 _mount_worker_runtime_lock = threading.Lock()
