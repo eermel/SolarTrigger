@@ -74,6 +74,7 @@ import logging
 import os
 import sys
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 import threading
 
@@ -962,6 +963,7 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
         shutter_min=shutter_min, shutter_max=shutter_max, step_ev=step_ev,
         speeds=intent_speeds, phase=phase, target_time=target_time,
         deadline=deadline, overflow_policy="truncate",
+        origin=phase, request_id=uuid.uuid4().hex,
     )
 
 

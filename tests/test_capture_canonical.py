@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import types
+import uuid
 
 from plugins.camera.base import CameraPlugin
 from services.camera_service import CameraService, CaptureIntent
@@ -101,6 +102,20 @@ def test_each_phase_builds_intent_from_canonical_capture(
     assert phase["iso"] == expected_iso
     assert intent.speeds == expected_speeds
     assert intent.phase == phase_name
+
+
+def test_capture_intent_identifies_sequencer_request(monkeypatch):
+    canonical = trigger.build_capture_canonical(_minimal_capture_v2())
+    canonical["exposure_correction"]["atmospheric_attenuation_enabled"] = False
+    monkeypatch.setattr(trigger, "capture_canonical", canonical)
+
+    intent = trigger._capture_intent(
+        trigger.capture_phase("partial"), "partial", target_time=None
+    )
+
+    assert intent.origin == "partial"
+    assert intent.request_id
+    assert uuid.UUID(hex=intent.request_id).version == 4
 
 
 def test_legacy_configuration_is_canonicalized_before_capture_engine(monkeypatch):
