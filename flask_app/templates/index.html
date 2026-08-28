@@ -871,6 +871,27 @@ header {
         </div>
       </div>
 
+      <section class="camera-rigs-section">
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
+          <div class="card camcfg-rig-column" id="camcfg-rig-column-1" data-rig-id="1">
+            <div class="card-title">RIG 1</div>
+            <div class="camcfg-rig-body"></div>
+          </div>
+          <div class="card camcfg-rig-column" id="camcfg-rig-column-2" data-rig-id="2">
+            <div class="card-title">RIG 2</div>
+            <div class="camcfg-rig-body"></div>
+          </div>
+          <div class="card camcfg-rig-column" id="camcfg-rig-column-3" data-rig-id="3">
+            <div class="card-title">RIG 3</div>
+            <div class="camcfg-rig-body"></div>
+          </div>
+          <div class="card camcfg-rig-column" id="camcfg-rig-column-4" data-rig-id="4">
+            <div class="card-title">RIG 4</div>
+            <div class="camcfg-rig-body"></div>
+          </div>
+        </div>
+      </section>
+
       <div class="card">
         <div class="card-title">Atmospheric Attenuation</div>
         <div class="focuser-mode-switch"><label for="cfg-atmo-switch">OFF</label><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation"><label for="cfg-atmo-switch">ON</label></div>
@@ -1411,8 +1432,13 @@ function updateRigs(rigs) {
     const rig = byId.get(defaultRig.rig_id) || defaultRig;
     const enabled = rig.enabled === true;
     const column = document.getElementById(`rig-column-${defaultRig.rig_id}`);
+    const cameraColumn = document.getElementById(`camcfg-rig-column-${defaultRig.rig_id}`);
     const toggle = document.getElementById(`rig-switch-${defaultRig.rig_id}`);
     if (column) column.classList.toggle('enabled', enabled);
+    if (cameraColumn) {
+      cameraColumn.classList.toggle('enabled', enabled);
+      cameraColumn.hidden = !enabled;
+    }
     if (toggle) toggle.checked = enabled;
     if (column) column.querySelectorAll('.rig-body input, .rig-body select, .rig-body button').forEach(control => {
       control.disabled = !enabled;
