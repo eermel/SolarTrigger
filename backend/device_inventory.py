@@ -178,7 +178,9 @@ def _normalize_entries(
         alias = _text(source.get("alias"))
         if alias:
             entry["alias"] = alias
-        entry["bindable"] = serial is not None
+        entry["bindable"] = (
+            serial is not None or entry["fallback_physical_path"] is not None
+        )
         normalized.append(entry)
     return normalized
 
@@ -230,7 +232,11 @@ def _usb_identity(locator: Any) -> dict[str, str | None]:
     for path in candidates:
         if (_read(path / "busnum") == busnum and _read(path / "devnum") == devnum):
             serial = _text(_read(path / "serial"))
-            physical = path.name if re.fullmatch(r"\d+-[\d.]+", path.name) else None
+            physical = (
+                f"sysfs-usb:{path.name}"
+                if re.fullmatch(r"\d+-[\d.]+", path.name)
+                else None
+            )
             return {"serial": serial, "physical_path": physical}
     return {"serial": None, "physical_path": None}
 
