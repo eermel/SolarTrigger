@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from backend.camera_ipc_server import CameraIpcServer, IpcError, MAX_MESSAGE_BYTES
+from backend.generic_worker import ExpiredJobError
 
 
 class CountingRuntimeClock:
@@ -67,6 +68,11 @@ class FakeRuntime:
 
     def get_for_rig(self, rig_id):
         return self.workers.get(rig_id)
+
+
+class ExpiredWorker(FakeWorker):
+    def shoot_speed_list(self, speeds, **options):
+        raise ExpiredJobError()
 
 
 def make_server(tmp_path, workers=None, **kwargs):
@@ -153,6 +159,15 @@ def test_structured_errors_and_rig_semantics(tmp_path):
     with pytest.raises(IpcError) as operation:
         request(server, "not-allowed")
     assert operation.value.code == "UNKNOWN_OPERATION"
+
+
+def test_expired_worker_job_is_mapped_to_expired_ipc_error(tmp_path):
+    server = make_server(tmp_path, {1: ExpiredWorker()})
+
+    with pytest.raises(IpcError) as caught:
+        request(server, "shoot_speed_list", {"rig_id": 1, "speeds": ["1/100"]})
+
+    assert caught.value.code == "EXPIRED"
 
 
 def test_session_token_lifecycle_and_single_deadline_conversion(tmp_path):
