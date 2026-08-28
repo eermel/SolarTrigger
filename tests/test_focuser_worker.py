@@ -11,12 +11,34 @@ class DummyFocuserService:
     def __init__(self, marker: str) -> None:
         self.marker = marker
         self.move_started = threading.Event()
+        self.jog_started = threading.Event()
+        self.jog_stop = threading.Event()
+        self.jog_stopped = threading.Event()
+        self.jog_thread: threading.Thread | None = None
         self.close_calls = 0
 
     def move_to(self, duration: float, wait: bool = False) -> str:
         self.move_started.set()
         time.sleep(duration)
         return self.marker
+
+    def start_jog(self, direction: str, mode: str | None = None) -> None:
+        self.jog_stop.clear()
+        self.jog_stopped.clear()
+
+        def jog() -> None:
+            self.jog_started.set()
+            while not self.jog_stop.wait(timeout=0.01):
+                pass
+            self.jog_stopped.set()
+
+        self.jog_thread = threading.Thread(target=jog)
+        self.jog_thread.start()
+
+    def stop(self) -> None:
+        self.jog_stop.set()
+        if self.jog_thread is not None:
+            self.jog_thread.join(timeout=0.2)
 
     def close(self) -> None:
         self.close_calls += 1
@@ -62,3 +84,32 @@ def test_two_focuser_workers_operate_independently() -> None:
     assert not _focuser_worker_threads("B")
     assert service_a.close_calls == 1
     assert service_b.close_calls == 1
+
+
+def test_stop_terminates_ongoing_jog_and_is_idempotent() -> None:
+    service = DummyFocuserService("jog complete")
+    worker = FocuserWorker(rig_id="stop", service_factory=lambda: service)
+    worker.start()
+
+    try:
+        worker.start_jog("out")
+        assert service.jog_started.wait(timeout=1.0)
+        assert service.jog_thread is not None
+        assert service.jog_thread.is_alive()
+
+        stop_started_at = time.monotonic()
+        worker.stop()
+        assert time.monotonic() - stop_started_at < 0.2
+        assert service.jog_stopped.wait(timeout=0.2)
+        assert not service.jog_thread.is_alive()
+
+        worker.stop()
+        assert not service.jog_thread.is_alive()
+    finally:
+        if service.jog_thread is not None and service.jog_thread.is_alive():
+            worker.stop()
+        worker.shutdown(timeout=1.0)
+
+    assert service.close_calls == 1
+    assert service.jog_thread is not None
+    assert not service.jog_thread.is_alive()
