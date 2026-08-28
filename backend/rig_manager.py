@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.device_identity import validate_and_collect_warnings
+
 
 MIN_RIG_ID = 1
 MAX_RIG_ID = 4
@@ -31,8 +33,11 @@ class Rig:
 class RigManager:
     """Own the runtime rigs built from a schema v2 configuration."""
 
-    def __init__(self, rigs: dict[int, Rig]) -> None:
+    def __init__(
+        self, rigs: dict[int, Rig], identity_warnings: list[str] | None = None
+    ) -> None:
         self.rigs = dict(rigs)
+        self.identity_warnings = list(identity_warnings or [])
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "RigManager":
@@ -40,6 +45,8 @@ class RigManager:
 
         if not isinstance(config, dict):
             raise ValueError("configuration must be an object")
+
+        _, identity_warnings = validate_and_collect_warnings(config)
 
         configured_rigs = config.get("rigs")
         if not isinstance(configured_rigs, list):
@@ -88,7 +95,7 @@ class RigManager:
                 devices=dict(devices),
             )
 
-        return cls(rigs)
+        return cls(rigs, identity_warnings=identity_warnings)
 
     def get_rig(self, rig_id: int) -> Rig:
         """Return a configured rig after validating its public identifier."""
