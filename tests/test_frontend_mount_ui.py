@@ -130,7 +130,7 @@ def test_mount_slew_speed_uses_status_capabilities_and_current_value():
 def test_mount_slew_speed_change_posts_selected_speed_and_refreshes():
     assert re.search(
         r"slewSpeed\.addEventListener\(\s*['\"]change['\"].*?"
-        r"postMount\(\s*['\"]/api/mount/speed['\"].*?"
+        r"postMount\(\s*mountUrl\(\s*['\"]speed['\"]\s*\).*?"
         r"JSON\.stringify\(\s*\{\s*speed:\s*selectedSlewSpeed\(\s*\)\s*\}\s*\)",
         MOUNT_JS,
         re.DOTALL,
@@ -177,12 +177,33 @@ def test_mount_reload_and_socket_resync_preserve_backend_homing_display():
 
 
 def test_each_mount_endpoint_is_referenced_once():
-    for endpoint in (
-        "/api/mount/status",
-        "/api/mount/home",
-    ):
-        assert MOUNT_JS.count(endpoint) == 1
-    assert INDEX.count('data-slew-stop-url="/api/mount/slew/stop"') == 1
+    assert re.search(
+        r"`/api/rigs/\$\{rig\.rig_id\}/mount/\$\{path\}`", MOUNT_JS
+    )
+    assert "/api/mount/" not in MOUNT_JS
+
+
+def test_mount_url_uses_the_selected_pilotable_rig():
+    assert re.search(
+        r"function\s+mountUrl\(path\)\s*\{\s*"
+        r"const rig = selectedPilotableMountRig\(\);\s*"
+        r"return rig \? `/api/rigs/\$\{rig\.rig_id\}/mount/\$\{path\}` : null;",
+        MOUNT_JS,
+    )
+    selected_rig_id = 2
+    path = "tracking/start"
+    assert f"/api/rigs/{selected_rig_id}/mount/{path}" == (
+        "/api/rigs/2/mount/tracking/start"
+    )
+
+
+def test_mount_actions_are_guarded_without_a_pilotable_selection():
+    assert re.search(r"if \(!url\) \{.*?disableMountControls\(\);.*?return;", MOUNT_JS, re.DOTALL)
+    assert re.search(r"async function postMount\([^)]*\) \{\s*if \(!url\) return;", MOUNT_JS)
+    assert re.search(r"if \(!startUrl \|\| !stopUrl \|\| homing \|\| activeSlew\) return;", MOUNT_JS)
+    for element_id in ("btn-mount-home", "mount-slew-speed", "mount-tracking-mode", "mount-tracking-switch"):
+        assert re.search(rf'id="{element_id}"[^>]*\bdisabled\b', INDEX)
+    assert len(re.findall(r'class="[^"]*mount-slew-button[^"]*"[^>]*\bdisabled\b', INDEX)) == 4
 
 
 def test_mount_slew_pointer_events_post_one_start_and_one_best_effort_stop():
@@ -194,7 +215,7 @@ def test_mount_slew_pointer_events_post_one_start_and_one_best_effort_stop():
         )) == 1
 
     assert len(re.findall(
-        r"fetch\(\s*['\"]/api/mount/slew/start['\"]\s*,\s*\{"
+        r"fetch\(\s*startUrl\s*,\s*\{"
         r"(?=[^}]*method:\s*['\"]POST['\"])"
         r".*?body:\s*JSON\.stringify\(\s*\{\s*direction:\s*"
         r"button\.dataset\.direction\s*\}\s*\)",
@@ -202,7 +223,7 @@ def test_mount_slew_pointer_events_post_one_start_and_one_best_effort_stop():
         re.DOTALL,
     )) == 1
     assert len(re.findall(
-        r"fetch\(\s*homeButton\.dataset\.slewStopUrl\s*,\s*"
+        r"fetch\(\s*stopUrl\s*,\s*"
         r"\{\s*method:\s*['\"]POST['\"]\s*\}",
         MOUNT_JS,
     )) == 1
@@ -268,8 +289,8 @@ def test_mount_refresh_and_socket_resynchronization_do_not_start_or_stop_slew():
 
 def test_mount_click_uses_last_server_status_and_refreshes_after_post():
     assert re.search(
-        r"postMount\(\s*homing\s*\?\s*homeButton\.dataset\.slewStopUrl\s*"
-        r":\s*['\"]/api/mount/home['\"]\s*\)",
+        r"postMount\(\s*mountUrl\(\s*homing\s*\?\s*['\"]slew/stop['\"]\s*"
+        r":\s*['\"]home['\"]\s*\)\s*\)",
         MOUNT_JS,
     )
     assert re.search(r"async\s+function\s+postMount\([^)]*\).*?refreshMount\(\s*\)", MOUNT_JS, re.DOTALL)
