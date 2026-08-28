@@ -211,6 +211,40 @@ def test_mount_controls_are_reenabled_when_cached_mount_becomes_pilotable():
     )
 
 
+def test_disabled_selected_rig_is_cleared_without_commands_or_auto_selection():
+    selection_source = _function_source("renderControlsRigSelection")
+    update_source = _function_source("updateRigs")
+    visibility_source = _controls_visibility_source()
+
+    rigs = [
+        {"rig_id": 1, "enabled": True},
+        {"rig_id": 2, "enabled": False},
+        {"rig_id": 3, "enabled": True},
+    ]
+    selected_rig_id = 2
+    selected_rig = next(
+        (
+            rig
+            for rig in rigs
+            if rig["rig_id"] == selected_rig_id and rig["enabled"] is True
+        ),
+        None,
+    )
+    if selected_rig is None:
+        selected_rig_id = None
+
+    assert selected_rig_id is None
+    assert re.search(r"if\s*\(!selectedRig\)\s*selectedRigId\s*=\s*null", selection_source)
+    assert "Aucun RIG sélectionné" in selection_source
+    assert "renderSelectedMountAvailability()" in selection_source
+    assert "renderControlsRigSelection()" in update_source
+    assert "renderControlsRigSelection()" in visibility_source
+    assert re.findall(r"selectedRigId\s*=(?!=)\s*([^;]+);", selection_source) == ["null"]
+    for source in (selection_source, update_source, visibility_source):
+        assert "fetch(" not in source
+        assert not re.search(r"/api/|postMount\(|mountUrl\(", source)
+
+
 def test_passive_rig_updates_refresh_cached_mount_label_without_fetch():
     load_source = _function_source("loadRigDevices", asynchronous=True)
     render_source = _function_source("renderRigDevices")
@@ -272,7 +306,7 @@ def test_controls_visibility_for_all_device_states(
     assert re.search(r"controlsTab\.hidden\s*=\s*!controlsActive", source)
     assert re.search(r"controlsPanel\.hidden\s*=\s*!controlsActive", source)
     assert re.search(r"getElementById\(['\"]focuser-section['\"]\)\.hidden\s*=\s*!focuserActive", source)
-    assert "renderSelectedMountAvailability()" in source
+    assert "renderControlsRigSelection()" in source
 
 
 def test_missing_devices_are_inactive_and_hidden():

@@ -1616,7 +1616,7 @@ function updateControlsVisibility(devices) {
   controlsTab.hidden = !controlsActive;
   controlsPanel.hidden = !controlsActive;
   document.getElementById('focuser-section').hidden = !focuserActive;
-  renderSelectedMountAvailability();
+  renderControlsRigSelection();
 
   if (controlsWasSelected && !controlsActive) showTab(0);
 }
