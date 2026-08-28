@@ -42,6 +42,7 @@ class PreparedCapture:
     exposures_s: Optional[List[float]]
     planned_count: Optional[int]
     plugin_name: str
+    materialized: Optional[list] = None
 
 
 def _parse_speed(value):
