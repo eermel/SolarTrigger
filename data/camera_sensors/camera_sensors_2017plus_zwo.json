@@ -1,0 +1,1842 @@
+{
+  "schema_version": 1,
+  "sensors": [
+    {
+      "manufacturer": "Nikon",
+      "model": "D850",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 8256,
+      "height_px": 5504,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon D850"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "D7500",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 5568,
+      "height_px": 3712,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon D7500"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "D3500",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon D3500"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "D780",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 6048,
+      "height_px": 4024,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon D780"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "D6",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 5568,
+      "height_px": 3712,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon D6"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z 7",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 8256,
+      "height_px": 5504,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z 7",
+        "Z7",
+        "Nikon Z7"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z 6",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 6048,
+      "height_px": 4024,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z 6",
+        "Z6",
+        "Nikon Z6"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z 50",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 5568,
+      "height_px": 3712,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z 50",
+        "Z50",
+        "Nikon Z50"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z 5",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 6016,
+      "height_px": 4016,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z 5",
+        "Z5",
+        "Nikon Z5"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z 6II",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 6048,
+      "height_px": 4024,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z 6II",
+        "Z6II",
+        "Nikon Z6II",
+        "Z 6 II"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z 7II",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 8256,
+      "height_px": 5504,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z 7II",
+        "Z7II",
+        "Nikon Z7II",
+        "Z 7 II"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z fc",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 5568,
+      "height_px": 3712,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z fc",
+        "Zfc",
+        "Nikon Zfc"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z 9",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 8256,
+      "height_px": 5504,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z 9",
+        "Z9",
+        "Nikon Z9"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z 30",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 5568,
+      "height_px": 3712,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z 30",
+        "Z30",
+        "Nikon Z30"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z 8",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 8256,
+      "height_px": 5504,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z 8",
+        "Z8",
+        "Nikon Z8"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z f",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 6048,
+      "height_px": 4032,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z f",
+        "Zf",
+        "Nikon Zf"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z6III",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 6048,
+      "height_px": 4032,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z6III",
+        "Z 6III",
+        "Z 6 III",
+        "Nikon Z 6III"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z50II",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 5568,
+      "height_px": 3712,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z50II",
+        "Z 50II",
+        "Z 50 II",
+        "Nikon Z 50II"
+      ]
+    },
+    {
+      "manufacturer": "Nikon",
+      "model": "Z5II",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 6048,
+      "height_px": 4032,
+      "sources": [
+        "Nikon official product/technical specifications (nikonusa.com)"
+      ],
+      "aliases": [
+        "Nikon Z5II",
+        "Z 5II",
+        "Z 5 II",
+        "Nikon Z 5II"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS 6D Mark II",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 24.0,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS 6D Mark II",
+        "EOS 6D Mk II"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS 200D",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS 200D",
+        "EOS Rebel SL2",
+        "EOS Kiss X9"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS 77D",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS 77D",
+        "EOS 9000D"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS 800D",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS 800D",
+        "EOS Rebel T7i",
+        "EOS Kiss X9i"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS M100",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS M100"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS 4000D",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 5184,
+      "height_px": 3456,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS 4000D",
+        "EOS Rebel T100",
+        "EOS 3000D"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS 2000D",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS 2000D",
+        "EOS Rebel T7",
+        "EOS 1500D"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS M50",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS M50",
+        "EOS Kiss M"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R",
+      "sensor_width_mm": 36.0,
+      "sensor_height_mm": 24.0,
+      "width_px": 6720,
+      "height_px": 4480,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS RP",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 24.0,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS RP"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS 250D",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS 250D",
+        "EOS Rebel SL3",
+        "EOS Kiss X10"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS 90D",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.8,
+      "width_px": 6960,
+      "height_px": 4640,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS 90D"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS M6 Mark II",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.8,
+      "width_px": 6960,
+      "height_px": 4640,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS M6 Mark II",
+        "EOS M6 Mk II"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS M200",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS M200"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS-1D X Mark III",
+      "sensor_width_mm": 36.0,
+      "sensor_height_mm": 24.0,
+      "width_px": 5472,
+      "height_px": 3648,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS-1D X Mark III",
+        "EOS 1D X Mark III"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS 850D",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS 850D",
+        "EOS Rebel T8i"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS M50 Mark II",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS M50 Mark II",
+        "EOS Kiss M2"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R5",
+      "sensor_width_mm": 36.0,
+      "sensor_height_mm": 24.0,
+      "width_px": 8192,
+      "height_px": 5464,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R5"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R6",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 5472,
+      "height_px": 3648,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R6"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R3",
+      "sensor_width_mm": 36.0,
+      "sensor_height_mm": 24.0,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R3"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R7",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.8,
+      "width_px": 6960,
+      "height_px": 4640,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R7"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R10",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R10"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R6 Mark II",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R6 Mark II",
+        "EOS R6 Mk II"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R8",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R8"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R50",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R50"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R100",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R100"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R5 Mark II",
+      "sensor_width_mm": 36.0,
+      "sensor_height_mm": 24.0,
+      "width_px": 8192,
+      "height_px": 5464,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R5 Mark II",
+        "EOS R5 Mk II"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R1",
+      "sensor_width_mm": 36.0,
+      "sensor_height_mm": 24.0,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R1"
+      ],
+      "pixel_pitch_um": 6.0
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R50 V",
+      "sensor_width_mm": 22.3,
+      "sensor_height_mm": 14.9,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R50 V"
+      ]
+    },
+    {
+      "manufacturer": "Canon",
+      "model": "EOS R6 Mark III",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 6960,
+      "height_px": 4640,
+      "sources": [
+        "Canon official product/technical specifications (canon-europe.com)"
+      ],
+      "aliases": [
+        "Canon EOS R6 Mark III",
+        "EOS R6 Mk III"
+      ],
+      "pixel_pitch_um": 5.16
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-9",
+      "sensor_width_mm": 35.6,
+      "sensor_height_mm": 23.8,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α9",
+        "Sony Alpha 9",
+        "A9",
+        "α9"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-7RM3",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 24.0,
+      "width_px": 7952,
+      "height_px": 5304,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α7R III",
+        "Sony Alpha 7R III",
+        "A7R III",
+        "α7R III"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-7M3",
+      "sensor_width_mm": 35.6,
+      "sensor_height_mm": 23.8,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α7 III",
+        "Sony Alpha 7 III",
+        "A7 III",
+        "α7 III"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-6400",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α6400",
+        "Sony Alpha 6400",
+        "A6400",
+        "α6400"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-6100",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α6100",
+        "Sony Alpha 6100",
+        "A6100",
+        "α6100"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-6600",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α6600",
+        "Sony Alpha 6600",
+        "A6600",
+        "α6600"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-7RM4",
+      "sensor_width_mm": 35.7,
+      "sensor_height_mm": 23.8,
+      "width_px": 9504,
+      "height_px": 6336,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α7R IV",
+        "Sony Alpha 7R IV",
+        "A7R IV",
+        "α7R IV"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-9M2",
+      "sensor_width_mm": 35.6,
+      "sensor_height_mm": 23.8,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α9 II",
+        "Sony Alpha 9 II",
+        "A9 II",
+        "α9 II"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-7SM3",
+      "sensor_width_mm": 35.6,
+      "sensor_height_mm": 23.8,
+      "width_px": 4240,
+      "height_px": 2832,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α7S III",
+        "Sony Alpha 7S III",
+        "A7S III",
+        "α7S III"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-7C",
+      "sensor_width_mm": 35.6,
+      "sensor_height_mm": 23.8,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α7C",
+        "Sony Alpha 7C",
+        "A7C",
+        "α7C"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-1",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 24.0,
+      "width_px": 8640,
+      "height_px": 5760,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α1",
+        "Sony Alpha 1",
+        "A1",
+        "α1"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-7M4",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 7008,
+      "height_px": 4672,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α7 IV",
+        "Sony Alpha 7 IV",
+        "A7 IV",
+        "α7 IV"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ZV-E10",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony ZV-E10"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-7RM5",
+      "sensor_width_mm": 35.7,
+      "sensor_height_mm": 23.8,
+      "width_px": 9504,
+      "height_px": 6336,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α7R V",
+        "Sony Alpha 7R V",
+        "A7R V",
+        "α7R V"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-6700",
+      "sensor_width_mm": 23.3,
+      "sensor_height_mm": 15.5,
+      "width_px": 6192,
+      "height_px": 4128,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α6700",
+        "Sony Alpha 6700",
+        "A6700",
+        "α6700"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ZV-E1",
+      "sensor_width_mm": 35.6,
+      "sensor_height_mm": 23.8,
+      "width_px": 4240,
+      "height_px": 2832,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony ZV-E1"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-7CM2",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 7008,
+      "height_px": 4672,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α7C II",
+        "Sony Alpha 7C II",
+        "A7C II",
+        "α7C II"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-7CR",
+      "sensor_width_mm": 35.7,
+      "sensor_height_mm": 23.8,
+      "width_px": 9504,
+      "height_px": 6336,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α7CR",
+        "Sony Alpha 7CR",
+        "A7CR",
+        "α7CR"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-9M3",
+      "sensor_width_mm": 35.6,
+      "sensor_height_mm": 23.8,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α9 III",
+        "Sony Alpha 9 III",
+        "A9 III",
+        "α9 III"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-1M2",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 24.0,
+      "width_px": 8640,
+      "height_px": 5760,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α1 II",
+        "Sony Alpha 1 II",
+        "A1 II",
+        "α1 II"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ZV-E10M2",
+      "sensor_width_mm": 23.3,
+      "sensor_height_mm": 15.5,
+      "width_px": 6192,
+      "height_px": 4128,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony ZV-E10 II",
+        "ZV-E10 II"
+      ]
+    },
+    {
+      "manufacturer": "Sony",
+      "model": "ILCE-7M5",
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 7008,
+      "height_px": 4672,
+      "sources": [
+        "Sony official Support specifications (sony.com)"
+      ],
+      "aliases": [
+        "Sony α7 V",
+        "Sony Alpha 7 V",
+        "A7 V",
+        "α7 V"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-T20",
+      "sensor_width_mm": 23.6,
+      "sensor_height_mm": 15.6,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-T20"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-E3",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-E3"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-A5",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-A5"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-H1",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-H1"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-T100",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-T100"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-T3",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-T3"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-T30",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-T30"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-A7",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-A7"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-Pro3",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-Pro3"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-T4",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-T4"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-T200",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 6000,
+      "height_px": 4000,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-T200"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-S10",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-S10"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-E4",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-E4"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-T30 II",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-T30 II"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-H2S",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-H2S"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-H2",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 7728,
+      "height_px": 5152,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-H2"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-T5",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 7728,
+      "height_px": 5152,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-T5"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-S20",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-S20"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-T50",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 7728,
+      "height_px": 5152,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-T50"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-M5",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-M5"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-E5",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 7728,
+      "height_px": 5152,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-E5"
+      ]
+    },
+    {
+      "manufacturer": "Fujifilm",
+      "model": "X-T30 III",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.6,
+      "width_px": 6240,
+      "height_px": 4160,
+      "sources": [
+        "FUJIFILM official X-series specifications (fujifilm-x.com)"
+      ],
+      "aliases": [
+        "FUJIFILM X-T30 III"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-GH5",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX GH5",
+        "LUMIX GH5",
+        "GH5"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-G9",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX G9",
+        "LUMIX G9",
+        "G9"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-GX9",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX GX9",
+        "LUMIX GX9",
+        "GX9"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-GH5S",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 3680,
+      "height_px": 2760,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX GH5S",
+        "LUMIX GH5S",
+        "GH5S"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-G95",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX G95",
+        "LUMIX G95",
+        "G95",
+        "DC-G90",
+        "LUMIX G90",
+        "G90"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-G100",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX G100",
+        "LUMIX G100",
+        "G100"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-GH5M2",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX GH5 II",
+        "LUMIX GH5 II",
+        "GH5 II",
+        "DC-GH5 II"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-GH6",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5776,
+      "height_px": 4336,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX GH6",
+        "LUMIX GH6",
+        "GH6"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-G9M2",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5776,
+      "height_px": 4336,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX G9 II",
+        "LUMIX G9 II",
+        "G9 II"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-GH7",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5776,
+      "height_px": 4336,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX GH7",
+        "LUMIX GH7",
+        "GH7"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-G100D",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX G100D",
+        "LUMIX G100D",
+        "G100D"
+      ]
+    },
+    {
+      "manufacturer": "Panasonic",
+      "model": "DC-G97",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Panasonic official LUMIX specifications (panasonic.com)"
+      ],
+      "aliases": [
+        "Panasonic LUMIX G97",
+        "LUMIX G97",
+        "G97"
+      ]
+    },
+    {
+      "manufacturer": "Olympus",
+      "model": "OM-D E-M10 Mark III",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 4608,
+      "height_px": 3456,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "Olympus E-M10 III",
+        "E-M10 Mark III",
+        "E-M10 III"
+      ]
+    },
+    {
+      "manufacturer": "Olympus",
+      "model": "PEN E-PL9",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 4608,
+      "height_px": 3456,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "Olympus E-PL9",
+        "E-PL9"
+      ]
+    },
+    {
+      "manufacturer": "Olympus",
+      "model": "OM-D E-M1X",
+      "sensor_width_mm": 17.4,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "Olympus E-M1X",
+        "E-M1X"
+      ]
+    },
+    {
+      "manufacturer": "Olympus",
+      "model": "OM-D E-M5 Mark III",
+      "sensor_width_mm": 17.4,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "Olympus E-M5 III",
+        "E-M5 Mark III",
+        "E-M5 III"
+      ]
+    },
+    {
+      "manufacturer": "Olympus",
+      "model": "PEN E-PL10",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 4608,
+      "height_px": 3456,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "Olympus E-PL10",
+        "E-PL10"
+      ]
+    },
+    {
+      "manufacturer": "Olympus",
+      "model": "OM-D E-M1 Mark III",
+      "sensor_width_mm": 17.4,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "Olympus E-M1 III",
+        "E-M1 Mark III",
+        "E-M1 III"
+      ]
+    },
+    {
+      "manufacturer": "Olympus",
+      "model": "OM-D E-M10 Mark IV",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "Olympus E-M10 IV",
+        "E-M10 Mark IV",
+        "E-M10 IV"
+      ]
+    },
+    {
+      "manufacturer": "Olympus",
+      "model": "PEN E-P7",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "Olympus E-P7",
+        "E-P7"
+      ]
+    },
+    {
+      "manufacturer": "OM System",
+      "model": "OM-1",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "OM SYSTEM OM-1"
+      ]
+    },
+    {
+      "manufacturer": "OM System",
+      "model": "OM-5",
+      "sensor_width_mm": 17.4,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "OM SYSTEM OM-5"
+      ]
+    },
+    {
+      "manufacturer": "OM System",
+      "model": "OM-1 Mark II",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "OM SYSTEM OM-1 Mark II",
+        "OM-1 II"
+      ]
+    },
+    {
+      "manufacturer": "OM System",
+      "model": "OM-3",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "OM SYSTEM OM-3"
+      ]
+    },
+    {
+      "manufacturer": "OM System",
+      "model": "OM-5 Mark II",
+      "sensor_width_mm": 17.4,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "OM SYSTEM OM-5 Mark II",
+        "OM-5 II"
+      ]
+    },
+    {
+      "manufacturer": "OM System",
+      "model": "OM-3 ASTRO",
+      "sensor_width_mm": 17.3,
+      "sensor_height_mm": 13.0,
+      "width_px": 5184,
+      "height_px": 3888,
+      "sources": [
+        "Olympus / OM SYSTEM official technical specifications (omsystem.com)"
+      ],
+      "aliases": [
+        "OM SYSTEM OM-3 ASTRO"
+      ]
+    },
+    {
+      "manufacturer": "ZWO",
+      "model": "ASI2600MC Pro",
+      "sensor_width_mm": 23.5,
+      "sensor_height_mm": 15.7,
+      "width_px": 6248,
+      "height_px": 4176,
+      "sources": [
+        "ZWO official product specifications/manuals (zwoastro.com)"
+      ],
+      "aliases": [
+        "ZWO ASI2600MC Pro",
+        "ASI2600MC-P"
+      ],
+      "pixel_pitch_um": 3.76
+    }
+  ]
+}
