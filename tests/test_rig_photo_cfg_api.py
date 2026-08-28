@@ -11,6 +11,8 @@ pytest.importorskip("flask_socketio")
 sys.modules.setdefault("gphoto2", ModuleType("gphoto2"))
 
 import backend.rig_runtime as rig_runtime
+from backend.rig_config import migrate_legacy
+from backend.state_store import StateStore
 import flask_app.app as flask_module
 
 
@@ -41,6 +43,43 @@ def _configuration():
         },
         "sequence": {"common": {}},
         "rigs": rigs,
+    }
+
+
+def test_legacy_migration_initializes_photo_flags(tmp_path):
+    configs_dir = tmp_path / "configs"
+    circumstances_dir = configs_dir / "circumstances"
+    capture_dir = configs_dir / "capture"
+    circumstances_dir.mkdir(parents=True)
+    capture_dir.mkdir(parents=True)
+    circumstances_dir.joinpath("eclipse.json").write_text(json.dumps({
+        "_date": "2026-08-12",
+        "_circumstances_location": {
+            "latitude": 44.0,
+            "longitude": 2.0,
+            "altitude_m": 120.0,
+        },
+        "C1": "16:00:00",
+        "C2": "17:00:00",
+        "TMAX": "17:01:00",
+        "C3": "17:02:00",
+        "C4": "18:00:00",
+    }), encoding="utf-8")
+    capture_dir.joinpath("capture.json").write_text(json.dumps({
+        "exposure_correction": {
+            "atmospheric_attenuation_enabled": True,
+        },
+    }), encoding="utf-8")
+
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.set("circumstances", {"active_file": "eclipse.json"})
+    state_store.set("camera_config_file", "capture.json")
+
+    migrated = migrate_legacy(state_store, configs_dir)
+
+    assert migrated["rigs"][0]["photo"] == {
+        "atmos_enabled": True,
+        "anti_trailing_enabled": False,
     }
 
 

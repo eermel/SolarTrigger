@@ -225,7 +225,10 @@ def migrate_legacy(state_store: Any, configs_dir: str | PathLike[str]) -> dict[s
                     "focuser": active_device("focuser"),
                 },
                 "optics": {"focal_length_mm": None},
-                "photo": {"atmos_enabled": atmos_enabled},
+                "photo": {
+                    "atmos_enabled": atmos_enabled,
+                    "anti_trailing_enabled": False,
+                },
             }
         ],
     }
