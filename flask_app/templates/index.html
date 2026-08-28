@@ -355,6 +355,16 @@ header {
 .device-card:not(.active) { opacity: .75; }
 .device-status { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
 [data-device-section][hidden] { display: none; }
+.devices-rigs-row {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
+}
+.rig-column { min-width: 0; }
+.rig-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rig-body { display: flex; flex-direction: column; gap: 8px; transition: opacity .2s; }
+.rig-column:not(.enabled) .rig-body { opacity: .4; pointer-events: none; }
+.rig-device { padding: 8px; border-radius: 8px; background: var(--bg3); border: 1px solid var(--border); }
+@media (max-width: 900px) { .devices-rigs-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .devices-rigs-row { grid-template-columns: 1fr; } }
 
 /* ── CONTACTS TABLE ── */
 .contacts { display: flex; flex-direction: column; gap: 6px; }
@@ -669,10 +679,18 @@ header {
   <div id="pages">
 
     <div class="page active" id="devices-panel">
-      <div class="card">
-        <div class="card-title">Device selection</div>
-        <div id="devices-list" style="display:flex;flex-direction:column;gap:10px"></div>
-      </div>
+      <section class="devices-section" aria-label="Devices">
+        <div class="card devices-gps" id="devices-gps">
+          <div class="card-title">GPS</div>
+          <div id="devices-list"></div>
+        </div>
+        <div class="devices-rigs-row" id="devices-rigs-row">
+          <div class="card rig-column" id="rig-column-1" data-rig-id="1"><div class="rig-header"><div class="card-title">RIG 1</div><input class="rig-switch" id="rig-switch-1" type="checkbox" role="switch" aria-label="RIG 1 ON/OFF"></div><div class="rig-body" id="rig-body-1"></div></div>
+          <div class="card rig-column" id="rig-column-2" data-rig-id="2"><div class="rig-header"><div class="card-title">RIG 2</div><input class="rig-switch" id="rig-switch-2" type="checkbox" role="switch" aria-label="RIG 2 ON/OFF"></div><div class="rig-body" id="rig-body-2"></div></div>
+          <div class="card rig-column" id="rig-column-3" data-rig-id="3"><div class="rig-header"><div class="card-title">RIG 3</div><input class="rig-switch" id="rig-switch-3" type="checkbox" role="switch" aria-label="RIG 3 ON/OFF"></div><div class="rig-body" id="rig-body-3"></div></div>
+          <div class="card rig-column" id="rig-column-4" data-rig-id="4"><div class="rig-header"><div class="card-title">RIG 4</div><input class="rig-switch" id="rig-switch-4" type="checkbox" role="switch" aria-label="RIG 4 ON/OFF"></div><div class="rig-body" id="rig-body-4"></div></div>
+        </div>
+      </section>
       <button class="btn btn-primary btn-full" id="devices-rescan" onclick="rescanDevices()">
         ↻ Rescan devices
       </button>
@@ -1226,6 +1244,10 @@ const DEVICE_PLUGIN_OPTIONS = {
   focuser: ['zwo_eaf'],
   mount: ['indi', 'onstep'],
 };
+const DEFAULT_RIGS = Array.from({length: 4}, (_, index) => ({
+  rig_id: index + 1, name: `RIG ${index + 1}`, enabled: false
+}));
+const RIG_DEVICE_CATEGORIES = ['camera', 'mount', 'focuser'];
 
 function escapeDeviceText(value) {
   return String(value).replace(/[&<>"']/g, character => ({
@@ -1247,7 +1269,7 @@ function deviceOptions(category, device) {
 function renderDevices(devices) {
   const list = document.getElementById('devices-list');
   if (!list) return;
-  list.innerHTML = DEVICE_CATEGORIES.map(category => {
+  list.innerHTML = ['gps'].map(category => {
     const device = devices[category] || {plugin: 'none', active: false};
     const active = device.active === true;
     const detected = device.detected === true ? 'Détecté' : 'Non détecté';
@@ -1267,7 +1289,7 @@ function renderDevices(devices) {
       <div class="device-status" style="margin-top:8px">${detected} · suggestion : ${suggestion}</div>
     </div>`;
   }).join('');
-  DEVICE_CATEGORIES.forEach(category => {
+  ['gps'].forEach(category => {
     const device = devices[category] || {};
     const select = document.getElementById(`device-${category}-select`);
     if (select) select.value = device.plugin || 'none';
@@ -1275,7 +1297,52 @@ function renderDevices(devices) {
       section.hidden = device.active !== true;
     });
   });
+
+  DEFAULT_RIGS.forEach(({rig_id: rigId}) => {
+    const body = document.getElementById(`rig-body-${rigId}`);
+    if (!body) return;
+    body.innerHTML = RIG_DEVICE_CATEGORIES.map(category => {
+      const device = devices[category] || {plugin: 'none'};
+      return `<div class="rig-device" data-rig-device="${category}">
+        <div class="card-title">${DEVICE_LABELS[category]}</div>
+        <div class="field"><label for="rig-${rigId}-${category}-select">Plugin</label>
+          <div class="select-chev"><select id="rig-${rigId}-${category}-select">
+            ${deviceOptions(category, device)}
+          </select></div>
+        </div>
+      </div>`;
+    }).join('');
+    RIG_DEVICE_CATEGORIES.forEach(category => {
+      const select = document.getElementById(`rig-${rigId}-${category}-select`);
+      if (select) select.value = devices[category]?.plugin || 'none';
+    });
+  });
 }
+
+function updateRigs(rigs) {
+  const byId = new Map((Array.isArray(rigs) ? rigs : DEFAULT_RIGS).map(rig => [Number(rig.rig_id), rig]));
+  DEFAULT_RIGS.forEach(defaultRig => {
+    const rig = byId.get(defaultRig.rig_id) || defaultRig;
+    const enabled = rig.enabled === true;
+    const column = document.getElementById(`rig-column-${defaultRig.rig_id}`);
+    const toggle = document.getElementById(`rig-switch-${defaultRig.rig_id}`);
+    if (column) column.classList.toggle('enabled', enabled);
+    if (toggle) toggle.checked = enabled;
+    if (column) column.querySelectorAll('.rig-body input, .rig-body select, .rig-body button').forEach(control => {
+      control.disabled = !enabled;
+    });
+  });
+}
+
+document.addEventListener('change', event => {
+  const toggle = event.target.closest('.rig-switch');
+  if (!toggle) return;
+  const column = toggle.closest('.rig-column');
+  if (column) column.classList.toggle('enabled', toggle.checked);
+  if (column) column.querySelectorAll('.rig-body input, .rig-body select, .rig-body button').forEach(control => {
+    control.disabled = !toggle.checked;
+  });
+});
 
 function updateControlsVisibility(devices) {
   const focuserActive = Boolean(devices && devices.focuser && devices.focuser.active === true);
@@ -1445,8 +1512,11 @@ async function _reanchorClockFromStatus() {
     const response = await fetch('/api/status');
     if (response.ok) {
       const status = await response.json();
+      const payload = status;
       updateTime(status.time);
       updateEclipseSaveFilename(status.eclipse);
+      renderDevices(payload.devices || {});
+      updateRigs(payload.rigs || DEFAULT_RIGS);
     }
   } catch (e) {
     console.warn('Impossible de recaler l\'heure depuis le statut:', e);
@@ -1459,8 +1529,11 @@ socket.on('connect', async () => {
     const response = await fetch('/api/status');
     if (response.ok) {
       const status = await response.json();
+      const payload = status;
       updateTime(status.time);
       updateEclipseSaveFilename(status.eclipse);
+      renderDevices(payload.devices || {});
+      updateRigs(payload.rigs || DEFAULT_RIGS);
     }
   } catch (e) {
     console.warn('Impossible de recaler l\'heure après connexion:', e);
@@ -1485,7 +1558,9 @@ socket.on('clock_reset', d => {
   _reanchorClockFromReset(d);
 });
 
-socket.on('status_update', d => {
+socket.on('status_update', payload => {
+  const d = payload;
+  updateRigs(payload.rigs || DEFAULT_RIGS);
   if (d.time)    updateTime(d.time);
   if (d.gps)     updateGPS(d.gps);
   if (d.camera) updateCameraTimeSync(d.camera, d.gps || state.gps || {});
@@ -3448,7 +3523,6 @@ function showTab(n) {
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===n));
   document.querySelectorAll('.page').forEach((p,i) => p.classList.toggle('active', i===n));
   state.currentPage = n;
-  if (n === 0) fetchDevices();
   if (n === 3) {
     loadCameraConfigList();
     // Forcer ISO 100 par défaut (Chromium ignore selected sur éléments cachés)
@@ -3527,7 +3601,7 @@ setInterval(() => { if (state.eclipse) updateCountdowns(state.eclipse); }, 1000)
 setInterval(loadCameraStatus, 10000);
 
 // Init
-fetchDevices();
+updateRigs(DEFAULT_RIGS);
 loadEclipseData();
 loadCameraStatus();
 
