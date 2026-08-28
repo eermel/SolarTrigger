@@ -123,7 +123,23 @@ class CameraWorkerRuntime:
                 mount = devices.get("mount") if isinstance(devices, dict) else None
                 optics = rig.get("optics")
                 photo = rig.get("photo")
+                eclipse = self._config.get("eclipse")
+                reference_site = (
+                    eclipse.get("reference_site")
+                    if isinstance(eclipse, dict)
+                    else None
+                )
                 return {
+                    "eclipse": {
+                        "reference_site": {
+                            key: (
+                                reference_site.get(key)
+                                if isinstance(reference_site, dict)
+                                else None
+                            )
+                            for key in ("lat", "lon")
+                        }
+                    },
                     "devices": {
                         "camera": {
                             key: camera.get(key) if isinstance(camera, dict) else None
@@ -147,6 +163,7 @@ class CameraWorkerRuntime:
                             "anti_trailing_enabled",
                             "motion_tolerance_px",
                             "iso_max",
+                            "field_rotation_radius_deg",
                         )
                     },
                 }

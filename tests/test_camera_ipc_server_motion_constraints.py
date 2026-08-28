@@ -126,11 +126,11 @@ def prepare(server, rig_id, intent):
     )
 
 
-@pytest.mark.parametrize("rig_id", [1, 2], ids=["equatorial", "altaz"])
-def test_tracked_rigs_bypass_fixed_trailing_for_lists_and_brackets(
-    tracked_rig_server, rig_id
+def test_equatorial_tracked_rig_bypasses_motion_limits_for_lists_and_brackets(
+    tracked_rig_server,
 ):
     server, workers = tracked_rig_server
+    rig_id = 1
     requested_speeds = ["1/8", "1/2", "4"]
 
     responses = [
