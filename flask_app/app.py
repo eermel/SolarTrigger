@@ -1818,6 +1818,7 @@ def on_connect():
         "eclipse":          eclipse,
         "circumstances":    _state_store.snapshot("circumstances"),
         "capture":          _state_store.snapshot("capture"),
+        "rigs":             normalize_rigs_for_ui(get_rig_manager()),
         "camera_config_file": _state.get("camera_config_file"),
     }))
 
