@@ -190,7 +190,12 @@ from backend.event_log import EventLog
 from backend.gps_controller import GpsController
 from backend.devices import CATEGORIES as DEVICE_CATEGORIES
 from backend.devices import detect_all, normalize_selection, ttl_expired
-from backend.device_inventory import get_cached_inventory, refresh_inventory
+from backend.device_identity import identity_key
+from backend.device_inventory import (
+    build_display_labels,
+    get_cached_inventory,
+    refresh_inventory,
+)
 from backend.eclipse_engine import loader as eclipse_loader
 from backend.rig_runtime import get_rig_manager, normalize_rigs_for_ui
 from backend.trigger_service import TriggerService, TriggerValidationError
@@ -542,6 +547,52 @@ def api_devices_detect():
 def api_rig_device_inventory():
     """Return the runtime inventory cache without probing hardware."""
     return jsonify(get_cached_inventory())
+
+
+@app.route("/api/rigs/devices", methods=["GET"])
+def api_rig_devices_get():
+    """Return persisted rig bindings enriched from the inventory cache."""
+    manager = get_rig_manager()
+    inventory = get_cached_inventory()
+    categories = ("camera", "mount", "focuser")
+
+    for category in categories:
+        entries = inventory.setdefault(category, [])
+        build_display_labels(entries)
+
+    rigs = []
+    bindings_by_category = {category: [] for category in categories}
+    for rig_id in range(1, 5):
+        rig = manager.rigs.get(rig_id)
+        devices = {}
+        for category in categories:
+            configured = rig.devices.get(category) if rig is not None else None
+            binding = dict(configured) if isinstance(configured, dict) else None
+            devices[category] = binding
+            if binding is not None:
+                bindings_by_category[category].append(binding)
+        rigs.append({
+            "rig_id": rig_id,
+            "name": rig.name if rig is not None else f"RIG {rig_id}",
+            "enabled": rig.enabled if rig is not None else False,
+            "devices": devices,
+        })
+
+    for category, bindings in bindings_by_category.items():
+        build_display_labels(bindings)
+        present_identities = {
+            key
+            for entry in inventory[category]
+            if (key := identity_key(entry)) is not None
+        }
+        for binding in bindings:
+            binding["present"] = identity_key(binding) in present_identities
+
+    return jsonify({
+        "rigs": rigs,
+        "inventory": inventory,
+        "identity_warnings": list(manager.identity_warnings),
+    })
 
 
 @app.route("/api/rigs/devices/refresh", methods=["POST"])
