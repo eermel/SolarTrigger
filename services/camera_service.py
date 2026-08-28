@@ -216,6 +216,36 @@ class CameraService:
             return None
         return self.plugin.get_battery_level()
 
+    def read_info(self):
+        if not self.connected:
+            self.connect()
+
+        try:
+            config = self.camera.get_config()
+        except Exception:
+            config = None
+
+        def read_config(*names):
+            if config is None:
+                return None
+            for name in names:
+                try:
+                    return config.get_child_by_name(name).get_value()
+                except Exception:
+                    pass
+            return None
+
+        return {
+            "plugin": getattr(self.plugin, "name", None),
+            "model": self.model or get_camera_model(self.camera),
+            "battery": self.plugin.get_battery_level(),
+            "iso": read_config("iso"),
+            "aperture": read_config("f-number"),
+            "shutterspeed": read_config("shutterspeed", "shutterspeed2"),
+            "mode": read_config("expprogram", "capturemode"),
+            "storage": read_config("capturetarget"),
+        }
+
     def sync_datetime(self, ref):
         if not self.connected:
             self.connect()
