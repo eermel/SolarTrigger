@@ -112,3 +112,111 @@ def save(path: str | PathLike[str], obj: Any) -> None:
     with Path(path).open("w", encoding="utf-8") as stream:
         json.dump(obj, stream, ensure_ascii=False, indent=2)
         stream.write("\n")
+
+
+def migrate_legacy(state_store: Any, configs_dir: str | PathLike[str]) -> dict[str, Any]:
+    """Build a schema v2 configuration from the legacy single-rig state."""
+
+    configs_path = Path(configs_dir)
+    devices = state_store.snapshot("devices") or {}
+    circumstances_state = state_store.snapshot("circumstances") or {}
+    # Reading this snapshot is part of the legacy-state contract even though the
+    # capture document itself remains the authoritative source for its content.
+    state_store.snapshot("capture")
+
+    circumstances_file = configs_path / "circumstances" / circumstances_state["active_file"]
+    with circumstances_file.open("r", encoding="utf-8") as stream:
+        circumstances_source = json.load(stream)
+
+    capture_source: dict[str, Any] = {}
+    camera_config_file = state_store.get("camera_config_file")
+    if camera_config_file:
+        filename = Path(camera_config_file).name
+        for subdir in ("camera_cfg", "capture"):
+            candidate = configs_path / subdir / filename
+            if candidate.exists():
+                with candidate.open("r", encoding="utf-8") as stream:
+                    loaded_capture = json.load(stream)
+                if isinstance(loaded_capture, dict):
+                    capture_source = loaded_capture
+                break
+
+    common = {
+        key: capture_source[key]
+        for key in ("phases", "exposure_correction")
+        if key in capture_source
+    }
+    exposure_correction = capture_source.get("exposure_correction")
+    atmos_enabled = bool(
+        exposure_correction.get("atmospheric_attenuation_enabled", False)
+        if isinstance(exposure_correction, dict)
+        else False
+    )
+
+    def plugin_id(device_name: str) -> Any:
+        device = devices.get(device_name)
+        return device.get("plugin") if isinstance(device, dict) else None
+
+    def active_device(device_name: str) -> dict[str, Any] | None:
+        device = devices.get(device_name)
+        plugin = plugin_id(device_name)
+        if not isinstance(device, dict) or device.get("active") is not True:
+            return None
+        if not plugin or plugin == "none":
+            return None
+        return {
+            "backend": plugin,
+            "manufacturer": None,
+            "model": None,
+            "serial": None,
+        }
+
+    camera_plugin = plugin_id("camera")
+    camera_known = bool(camera_plugin and camera_plugin != "none")
+    camera = {
+        "backend": camera_plugin if camera_known else "none",
+        "manufacturer": None,
+        "model": None,
+        "serial": None,
+    }
+    camera_state = devices.get("camera")
+    enabled = bool(
+        isinstance(camera_state, dict)
+        and camera_state.get("active") is True
+        and camera_known
+    )
+
+    location = circumstances_source["_circumstances_location"]
+    eclipse_date = circumstances_source.get("_date")
+    if eclipse_date is None:
+        eclipse_date = circumstances_source["_date_utc"]
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "eclipse": {
+            "date": eclipse_date,
+            "reference_site": {
+                "lat": location["latitude"],
+                "lon": location["longitude"],
+                "alt_m": location["altitude_m"],
+            },
+            "circumstances": {
+                key: circumstances_source[key] for key in CIRCUMSTANCE_KEYS
+            },
+        },
+        "sequence": {"common": common},
+        "rigs": [
+            {
+                "rig_id": 1,
+                "name": "RIG 1",
+                "enabled": enabled,
+                "devices": {
+                    "camera": camera,
+                    "mount": active_device("mount"),
+                    "focuser": active_device("focuser"),
+                },
+                "optics": {"focal_length_mm": None},
+                "photo": {"atmos_enabled": atmos_enabled},
+            }
+        ],
+    }
