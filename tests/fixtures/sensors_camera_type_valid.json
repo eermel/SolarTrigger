@@ -4,13 +4,13 @@
     {
       "manufacturer": "Nikon",
       "model": "D850",
-      "aliases": [],
+      "aliases": ["Nikon D850"],
       "sensor_width_mm": 35.9,
       "sensor_height_mm": 23.9,
       "width_px": 8256,
       "height_px": 5504,
       "sources": ["manufacturer spec sheet"],
-      "camera_type": "DSLR"
+      "camera_type": "dslr"
     }
   ]
 }
