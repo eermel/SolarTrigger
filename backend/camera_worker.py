@@ -176,3 +176,25 @@ class CameraWorker:
             deadline=deadline,
             slowest_override_seconds=slowest_override_seconds,
         )
+
+    def test_photo_diagnostic(
+        self,
+        speeds,
+        photo_num_start=0,
+        deadline=None,
+        slowest_override_seconds=None,
+    ):
+        def shoot():
+            service = self._ensure_service()
+            if not service.connected:
+                service.connect()
+            return service.shoot_speed_list(
+                speeds,
+                photo_num_start=photo_num_start,
+                deadline=deadline,
+                slowest_override_seconds=slowest_override_seconds,
+            )
+
+        return self._worker.submit_with_priority(
+            PRIORITY_DIAGNOSTIC, shoot, reject_if_busy=True
+        ).result()
