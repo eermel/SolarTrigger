@@ -170,6 +170,40 @@ def test_expired_worker_job_is_mapped_to_expired_ipc_error(tmp_path):
     assert caught.value.code == "EXPIRED"
 
 
+@pytest.mark.parametrize(
+    ("optional_fields", "expected_request_id"),
+    (
+        ({}, None),
+        ({"origin": "scheduler", "request_id": "capture-42"}, "capture-42"),
+    ),
+)
+def test_prepare_capture_accepts_optional_metadata_and_echoes_request_id(
+    tmp_path, optional_fields, expected_request_id
+):
+    worker = FakeWorker()
+    server = make_server(tmp_path, {1: worker})
+    intent_data = {
+        "shutter_min": "1/100",
+        "shutter_max": "1/100",
+        "step_ev": 1.0,
+        "speeds": None,
+        "phase": "C2",
+        "target_time": "2026-08-12T18:00:00Z",
+        "deadline": None,
+        "overflow_policy": None,
+        **optional_fields,
+    }
+
+    prepared = request(
+        server, "prepare_capture", {"rig_id": 1, "intent": intent_data}
+    )
+
+    assert prepared["request_id"] == expected_request_id
+    forwarded_intent = worker.calls[-1][1]
+    assert forwarded_intent.origin == optional_fields.get("origin")
+    assert forwarded_intent.request_id == expected_request_id
+
+
 def test_session_token_lifecycle_and_single_deadline_conversion(tmp_path):
     clock = CountingRuntimeClock()
     worker = FakeWorker(clock)
