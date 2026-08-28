@@ -609,6 +609,7 @@ def api_rig_devices_get():
 
 
 _RIG_PATCH_FIELDS = frozenset(("rig_id", "enabled", "name", "devices"))
+_RIG_PHOTO_PATCH_FIELDS = frozenset(("rig_id", "optics", "photo"))
 _RIG_DEVICE_CATEGORIES = frozenset(("camera", "mount", "focuser"))
 _RUNTIME_DEVICE_FIELDS = frozenset(
     ("present", "transport_locator", "busnum", "devnum")
@@ -624,6 +625,20 @@ def _new_rig_scaffold(rig_id):
         "optics": {},
         "photo": {},
     }
+
+
+def _validate_positive_number(value, field, *, integer=False, nullable=False):
+    """Validate a positive JSON number used by a per-rig photo patch."""
+    if nullable and value is None:
+        return
+    expected = int if integer else (int, float)
+    if (
+        not isinstance(value, expected)
+        or isinstance(value, bool)
+        or value <= 0
+    ):
+        kind = "integer" if integer else "number"
+        raise ValueError(f"{field} must be a {kind} strictly greater than 0")
 
 
 @app.route("/api/rigs/devices", methods=["POST"])
@@ -697,6 +712,105 @@ def api_rig_devices_post():
     except ValueError as exc:
         status = 409 if "duplicate device identity" in str(exc) else 400
         return jsonify({"error": str(exc)}), status
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("Chargement de la configuration rigs impossible : %s", exc)
+        return jsonify({"error": "rig configuration could not be loaded"}), 500
+
+    config_path = TRIGGER_DIR / "configs" / "rig" / "default.json"
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        save_rig_config(config_path, config)
+        manager = reload_rig_manager(config)
+    except (OSError, ValueError) as exc:
+        log.error("Sauvegarde de la configuration rigs impossible : %s", exc)
+        return jsonify({"error": "rig configuration could not be saved"}), 500
+
+    rigs_summary = normalize_rigs_for_ui(manager)
+    socketio.emit(
+        "status_update",
+        _status_update_payload({"rigs": rigs_summary}),
+        namespace="/",
+    )
+    return jsonify({
+        "rigs": rigs_summary,
+        "identity_warnings": list(manager.identity_warnings),
+    })
+
+
+@app.route("/api/rigs/photo", methods=["POST"])
+def api_rig_photo_post():
+    """Persist validated optics and photo patches without touching hardware."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or set(payload) != {"rigs"}:
+        return jsonify({"error": "payload must contain only a rigs array"}), 400
+    patches = payload["rigs"]
+    if not isinstance(patches, list):
+        return jsonify({"error": "rigs must be an array"}), 400
+
+    try:
+        config = deepcopy(load_rig_configuration())
+        rigs_by_id = {
+            rig.get("rig_id"): rig
+            for rig in config.get("rigs", [])
+            if isinstance(rig, dict)
+        }
+        for rig_id in range(1, 5):
+            rigs_by_id.setdefault(rig_id, _new_rig_scaffold(rig_id))
+
+        patched_ids = set()
+        for index, patch in enumerate(patches):
+            prefix = f"rigs[{index}]"
+            if not isinstance(patch, dict):
+                raise ValueError(f"{prefix} must be an object")
+            unknown = set(patch) - _RIG_PHOTO_PATCH_FIELDS
+            if unknown:
+                raise ValueError(
+                    f"{prefix} contains unsupported fields: "
+                    + ", ".join(sorted(unknown))
+                )
+            rig_id = patch.get("rig_id")
+            if (
+                not isinstance(rig_id, int)
+                or isinstance(rig_id, bool)
+                or not 1 <= rig_id <= 4
+            ):
+                raise ValueError(f"{prefix}.rig_id must be an integer from 1 to 4")
+            if rig_id in patched_ids:
+                raise ValueError(f"duplicate rig_id patch: {rig_id}")
+            patched_ids.add(rig_id)
+
+            optics_patch = patch.get("optics", {})
+            photo_patch = patch.get("photo", {})
+            if not isinstance(optics_patch, dict):
+                raise ValueError(f"{prefix}.optics must be an object")
+            if not isinstance(photo_patch, dict):
+                raise ValueError(f"{prefix}.photo must be an object")
+
+            if "focal_length_mm" in optics_patch:
+                _validate_positive_number(
+                    optics_patch["focal_length_mm"],
+                    f"{prefix}.optics.focal_length_mm",
+                    nullable=True,
+                )
+            for field in ("atmos_enabled", "anti_trailing_enabled"):
+                if field in photo_patch and not isinstance(photo_patch[field], bool):
+                    raise ValueError(f"{prefix}.photo.{field} must be a boolean")
+            for field in ("motion_tolerance_px", "iso_max"):
+                if field in photo_patch:
+                    _validate_positive_number(
+                        photo_patch[field],
+                        f"{prefix}.photo.{field}",
+                        integer=True,
+                    )
+
+            target = rigs_by_id[rig_id]
+            target.setdefault("optics", {}).update(deepcopy(optics_patch))
+            target.setdefault("photo", {}).update(deepcopy(photo_patch))
+
+        config["rigs"] = [rigs_by_id[rig_id] for rig_id in range(1, 5)]
+        validate_rig_config(config)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except (OSError, json.JSONDecodeError) as exc:
         log.warning("Chargement de la configuration rigs impossible : %s", exc)
         return jsonify({"error": "rig configuration could not be loaded"}), 500
