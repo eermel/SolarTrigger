@@ -1,7 +1,10 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from backend import device_inventory
+from backend import devices
 
 
 def _mock_discovery(monkeypatch):
@@ -158,3 +161,109 @@ def test_sysfs_topology_identity_survives_usb_address_change(monkeypatch, tmp_pa
 
     assert first == {"serial": None, "physical_path": "sysfs-usb:2-4.1"}
     assert second == first
+
+
+@pytest.mark.parametrize("detected_info", [None, "", []])
+def test_presence_only_mount_and_absent_focuser_return_one_and_zero(
+    monkeypatch, detected_info
+):
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(
+        devices,
+        "detect_mount",
+        lambda: {
+            "detected": True,
+            "detected_info": detected_info,
+            "suggested_plugin": "indi_mount",
+        },
+    )
+    monkeypatch.setattr(
+        devices,
+        "detect_focuser",
+        lambda: {"detected": False, "detected_info": "camera-only"},
+    )
+
+    inventory = device_inventory.refresh_inventory()
+
+    assert inventory["camera"] == []
+    assert inventory["focuser"] == []
+    assert len(inventory["mount"]) == 1
+    assert inventory["mount"][0]["backend"] == "indi_mount"
+    assert inventory["mount"][0]["bindable"] is False
+
+
+def test_mount_and_focuser_identities_are_normalized_and_separated(monkeypatch):
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_cameras",
+        lambda: [{"category": "camera", "backend": "gphoto2", "model": "EOS R"}],
+    )
+    monkeypatch.setattr(
+        devices,
+        "detect_mount",
+        lambda: {
+            "detected": True,
+            "suggested_plugin": "indi_mount",
+            "detected_info": [
+                {"category": "camera", "usb_serial": "CAMERA-SERIAL"},
+                {
+                    "category": "mount",
+                    "usb_serial": "MOUNT-SERIAL",
+                    "physical_path": "pci-0000:00:14.0-usb-0:2",
+                    "indi_device_name": "EQMod Mount",
+                },
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        devices,
+        "detect_focuser",
+        lambda: {
+            "detected": True,
+            "suggested_plugin": "indi_focuser",
+            "detected_info": {"device_name": "MoonLite Focuser"},
+        },
+    )
+
+    inventory = device_inventory.refresh_inventory()
+
+    assert [entry["category"] for entry in inventory["camera"]] == ["camera"]
+    assert [entry["category"] for entry in inventory["mount"]] == ["mount"]
+    assert [entry["category"] for entry in inventory["focuser"]] == ["focuser"]
+    mount = inventory["mount"][0]
+    assert mount["serial"] == "MOUNT-SERIAL"
+    assert mount["fallback_physical_path"] == "pci-0000:00:14.0-usb-0:2"
+    assert mount["device_name"] == "EQMod Mount"
+    assert mount["bindable"] is True
+    assert inventory["focuser"][0]["device_name"] == "MoonLite Focuser"
+    assert inventory["focuser"][0]["bindable"] is True
+
+
+def test_non_mapping_provider_value_and_transient_usb_are_not_stable(monkeypatch):
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(
+        devices,
+        "detect_mount",
+        lambda: {
+            "detected": True,
+            "detected_info": "lx200",
+            "suggested_plugin": None,
+        },
+    )
+    monkeypatch.setattr(
+        devices,
+        "detect_focuser",
+        lambda: {
+            "detected": True,
+            "detected_info": {"usb_serial": "usb:002,009"},
+            "suggested_plugin": "indi_focuser",
+        },
+    )
+
+    inventory = device_inventory.refresh_inventory()
+
+    assert inventory["mount"][0]["backend"] == "lx200"
+    assert inventory["mount"][0]["model"] == "lx200"
+    assert inventory["mount"][0]["bindable"] is False
+    assert inventory["focuser"][0]["serial"] is None
+    assert inventory["focuser"][0]["bindable"] is False

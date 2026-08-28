@@ -146,13 +146,26 @@ def _discover_legacy_category(category: str) -> list[dict[str, Any]]:
         return []
     info = result.get("detected_info")
     values = info if isinstance(info, list) else [info]
-    return [
-        value if isinstance(value, Mapping) else {
-            "backend": result.get("suggested_plugin") or _text(value),
-            "model": _text(value),
-        }
-        for value in values if value not in (None, "")
-    ]
+    if not values or all(value in (None, "") for value in values):
+        values = [{}]
+
+    entries = []
+    for value in values:
+        if value in (None, ""):
+            continue
+        if isinstance(value, Mapping):
+            reported_category = _text(value.get("category"))
+            if reported_category and reported_category != category:
+                continue
+            entry = dict(value)
+            entry.setdefault("backend", result.get("suggested_plugin"))
+        else:
+            entry = {
+                "backend": result.get("suggested_plugin") or _text(value),
+                "model": _text(value),
+            }
+        entries.append(entry)
+    return entries
 
 
 def _normalize_entries(
@@ -162,24 +175,32 @@ def _normalize_entries(
     for source in entries or ():
         if not isinstance(source, Mapping):
             continue
-        serial = _text(source.get("serial"))
+        serial = _first_text(source, "serial", "usb_serial")
         if serial and is_usb_bus_device(serial):
             serial = None
+        physical_path = _first_text(
+            source, "fallback_physical_path", "physical_path"
+        )
+        device_name = _first_text(source, "device_name", "indi_device_name")
         entry = {
             "category": category,
             "backend": _text(source.get("backend")) or category,
             "manufacturer": _text(source.get("manufacturer")),
             "model": _text(source.get("model")),
             "serial": serial,
-            "fallback_physical_path": _text(source.get("fallback_physical_path")),
+            "fallback_physical_path": physical_path,
             "present": True,
             "transport_locator": _text(source.get("transport_locator")),
         }
+        if device_name:
+            entry["device_name"] = device_name
         alias = _text(source.get("alias"))
         if alias:
             entry["alias"] = alias
         entry["bindable"] = (
-            serial is not None or entry["fallback_physical_path"] is not None
+            serial is not None
+            or entry["fallback_physical_path"] is not None
+            or device_name is not None
         )
         normalized.append(entry)
     return normalized
@@ -285,6 +306,14 @@ def _text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _first_text(source: Mapping[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = _text(source.get(key))
+        if value:
+            return value
+    return None
 
 
 __all__ = ["build_display_labels", "get_cached_inventory", "refresh_inventory"]
