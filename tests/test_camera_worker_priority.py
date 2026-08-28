@@ -41,6 +41,23 @@ class RecordingCameraService:
         return 75
 
 
+class DisconnectedCameraService:
+    def __init__(self) -> None:
+        self.connected = False
+        self.calls: list[tuple] = []
+
+    def close(self) -> None:
+        pass
+
+    def connect(self) -> None:
+        self.calls.append(("connect",))
+        self.connected = True
+
+    def shoot_speed_list(self, speeds, **kwargs):
+        self.calls.append(("shoot_speed_list", speeds, kwargs))
+        return "captured"
+
+
 def _wait_for_queued_jobs(worker: CameraWorker, count: int) -> None:
     deadline = time.monotonic() + 1.0
     while worker._worker._queue.qsize() < count:
@@ -67,6 +84,58 @@ def test_probe_info_rejects_while_manual_job_is_running():
     finally:
         service.release_block.set()
         worker.stop(timeout=1.0)
+
+
+def test_test_photo_diagnostic_connects_before_shooting():
+    service = DisconnectedCameraService()
+    worker = CameraWorker(rig_id=304, service_factory=lambda: service)
+    worker.start()
+
+    try:
+        result = worker.test_photo_diagnostic(
+            ["1/100"],
+            photo_num_start=3,
+            deadline=12.5,
+            slowest_override_seconds=0.25,
+        )
+    finally:
+        worker.stop(timeout=1.0)
+
+    assert result == "captured"
+    assert service.calls == [
+        ("connect",),
+        (
+            "shoot_speed_list",
+            ["1/100"],
+            {
+                "photo_num_start": 3,
+                "deadline": 12.5,
+                "slowest_override_seconds": 0.25,
+            },
+        ),
+    ]
+
+
+def test_test_photo_diagnostic_rejects_while_manual_job_is_running():
+    service = RecordingCameraService()
+    worker = CameraWorker(rig_id=305, service_factory=lambda: service)
+    worker.start()
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as callers:
+            blocker = callers.submit(worker.test_photo, ["blocker"])
+            assert service.block_started.wait(1.0)
+
+            with pytest.raises(BusyDeviceError):
+                worker.test_photo_diagnostic(["diagnostic-photo"])
+
+            service.release_block.set()
+            assert blocker.result(timeout=1.0) == "blocker"
+    finally:
+        service.release_block.set()
+        worker.stop(timeout=1.0)
+
+    assert service.executed == ["blocker"]
 
 
 def test_sequencer_call_overtakes_queued_manual_calls():

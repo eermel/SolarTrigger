@@ -212,7 +212,7 @@ from backend.generic_worker import BusyDeviceError
 from backend.mount_worker_runtime import get_mount_worker_runtime
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
-from services.camera_service import CameraService
+from services.camera_service import CameraService, _normalized_speed_plan
 from services.focuser_service import FocuserService
 from services.mount_service import MountService
 from plugins.mount.indi_client import IndiClientError
@@ -1842,6 +1842,77 @@ def api_rig_camera_read_info(rig_id):
         persist=False,
     )
     return jsonify(result)
+
+
+@app.route("/api/rigs/<int:rig_id>/camera/test_photo", methods=["POST"])
+def api_rig_camera_test_photo(rig_id):
+    """Capture one diagnostic photo with the camera for an enabled rig."""
+    payload = request.get_json(silent=True)
+    speed = payload.get("speed") if isinstance(payload, dict) else None
+    if not isinstance(speed, str) or not speed.strip():
+        return jsonify({
+            "error": "speed must be a non-empty string",
+            "code": "INVALID_TEST_PHOTO_SPEED",
+        }), 400
+    try:
+        _normalized_speed_plan([speed])
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return jsonify({
+            "error": "speed is not a valid camera exposure speed",
+            "code": "INVALID_TEST_PHOTO_SPEED",
+        }), 400
+
+    try:
+        rig = get_rig_manager().get_rig(rig_id)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if rig.enabled is not True:
+        return jsonify({"error": f"rig {rig_id} is disabled"}), 409
+
+    runtime = get_camera_worker_runtime(log_fn=log.info)
+    runtime.reconcile(load_rig_configuration())
+    worker = runtime.get_for_rig(rig_id)
+    if worker is None:
+        return jsonify({
+            "error": f"camera is not configured for rig {rig_id}",
+            "code": "DEVICE_NOT_CONFIGURED",
+            "rig_id": rig_id,
+            "device_type": "camera",
+        }), 409
+
+    started_at = datetime.now(timezone.utc).isoformat()
+    t0 = time.monotonic()
+    try:
+        result = worker.test_photo_diagnostic(
+            [speed], photo_num_start=0, deadline=None
+        )
+    except BusyDeviceError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": "CAMERA_BUSY",
+            "rig_id": rig_id,
+        }), 409
+    except Exception as exc:
+        log.warning("Camera test photo unavailable for rig %s: %s", rig_id, exc)
+        return jsonify({
+            "error": "camera unavailable",
+            "code": "CAMERA_UNAVAILABLE",
+            "rig_id": rig_id,
+        }), 404
+    t1 = time.monotonic()
+
+    response = {
+        "status": "ok",
+        "rig_id": rig_id,
+        "speed": str(speed),
+        "started_at": started_at,
+        "duration_s": round(t1 - t0, 6),
+    }
+    for field in ("frames", "planned", "detail"):
+        if hasattr(result, field):
+            response[field] = getattr(result, field)
+    return jsonify(response)
 
 
 @app.route("/api/rigs/<int:rig_id>/camera/sync_time", methods=["POST"])
