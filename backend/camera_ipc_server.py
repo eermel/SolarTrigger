@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import os
+import re
 import secrets
 import socket
 import stat
@@ -15,13 +17,32 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.camera_model_resolution import resolve_sensor_entry
+from backend.exposure_selection import (
+    DEFAULT_SUPPORTED_ISOS,
+    DEFAULT_SUPPORTED_SHUTTERS,
+    safe_shutter_and_iso,
+    select_supported_shutter_at_or_below,
+)
 from backend.generic_worker import ExpiredJobError
+from backend.sensor_db import load_sensor_db
+from backend.solar_position import solar_declination_deg_utc
+from backend.solar_trailing import max_exposure_time_fixed_mount
 from backend.trigger_runtime import RuntimeClock
 from services.camera_service import CaptureIntent
 
 
 MAX_MESSAGE_BYTES = 65536
 MAX_WORKERS = 8
+_SENSOR_DB_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "camera_sensors"
+    / "camera_sensors.v1.json"
+)
+_ISO_PATTERN = re.compile(r"[0-9]+")
+_CORRECTION_ORDER = ("shutter_limited", "iso_compensated", "iso_rounded")
+_WARNING_ORDER = ("iso_capped",)
 
 _ENVELOPE_KEYS = {"operation", "params", "session_id"}
 _REQUIRED_ENVELOPE_KEYS = {"operation"}
@@ -105,6 +126,7 @@ class CameraIpcServer:
         self._state_lock = threading.RLock()
         self._active_session: str | None = None
         self._tokens: dict[str, tuple[str | None, int, Any]] = {}
+        self._rig_iso_targets: dict[int, int] = {}
 
     @property
     def socket_path(self) -> Path:
@@ -161,6 +183,7 @@ class CameraIpcServer:
             self._tokens = {
                 key: value for key, value in self._tokens.items() if value[0] != target
             }
+            self._rig_iso_targets.clear()
 
     def start(self) -> Path:
         with self._state_lock:
@@ -203,6 +226,7 @@ class CameraIpcServer:
         with self._state_lock:
             self._active_session = None
             self._tokens.clear()
+            self._rig_iso_targets.clear()
 
     def _remove_stale_socket(self) -> None:
         try:
@@ -345,11 +369,20 @@ class CameraIpcServer:
             }
         if operation == "apply_phase_settings":
             self._optional_strings(params, "aperture", "iso")
-            _, worker = self._worker(params)
-            return self._call_worker(
+            iso = params.get("iso")
+            if iso is not None and not self._valid_iso_string(iso):
+                raise IpcError(
+                    "INVALID_REQUEST", "iso must be a positive base-10 integer string"
+                )
+            rig_id, worker = self._worker(params)
+            result = self._call_worker(
                 worker.apply_phase_settings,
-                aperture=params.get("aperture"), iso=params.get("iso")
+                aperture=params.get("aperture"), iso=iso
             )
+            if iso is not None:
+                with self._state_lock:
+                    self._rig_iso_targets[rig_id] = int(iso)
+            return result
         if operation == "prepare_capture":
             intent_data = params.get("intent")
             if not isinstance(intent_data, dict):
@@ -371,11 +404,26 @@ class CameraIpcServer:
             except (TypeError, ValueError) as exc:
                 raise IpcError("INVALID_REQUEST", "invalid capture intent") from exc
             rig_id, worker = self._worker(params)
+            policy_getter = getattr(self._runtime, "get_policy_config_for_rig", None)
+            policy = policy_getter(rig_id) if policy_getter is not None else None
+            augmented = None
+            if self._anti_trailing_enabled(policy):
+                intent, iso_applied, corrections, warnings = self._policy_intent(
+                    rig_id, intent, policy
+                )
+                self._call_worker(worker.apply_phase_settings, iso=str(iso_applied))
+                with self._state_lock:
+                    self._rig_iso_targets[rig_id] = iso_applied
+                augmented = {
+                    "iso_applied": str(iso_applied),
+                    "corrections": corrections,
+                    "warnings": warnings,
+                }
             prepared = self._call_worker(worker.prepare_capture, intent)
             token_id = secrets.token_urlsafe(24)
             with self._state_lock:
                 self._tokens[token_id] = (session, rig_id, prepared.token)
-            return {
+            response = {
                 "token_id": token_id,
                 "estimated_total_s": prepared.estimated_total_s,
                 "exposures_s": prepared.exposures_s,
@@ -383,6 +431,9 @@ class CameraIpcServer:
                 "plugin_name": prepared.plugin_name,
                 "request_id": request_id,
             }
+            if augmented is not None:
+                response.update(augmented)
+            return response
         if operation == "trigger_prepared":
             token_id = params.get("token_id")
             if not isinstance(token_id, str) or not token_id:
@@ -430,6 +481,149 @@ class CameraIpcServer:
             return method(*args, **kwargs)
         except ExpiredJobError as exc:
             raise IpcError("EXPIRED", "camera worker job expired") from exc
+
+    @staticmethod
+    def _valid_iso_string(value: Any) -> bool:
+        return (
+            isinstance(value, str)
+            and _ISO_PATTERN.fullmatch(value) is not None
+            and int(value) > 0
+        )
+
+    @staticmethod
+    def _anti_trailing_enabled(policy: Any) -> bool:
+        return (
+            isinstance(policy, dict)
+            and isinstance(policy.get("photo"), dict)
+            and policy["photo"].get("anti_trailing_enabled") is True
+        )
+
+    @staticmethod
+    def _positive_number(value: Any, field: str) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise IpcError("POLICY_INVALID", f"{field} must be a positive number")
+        converted = float(value)
+        if not math.isfinite(converted) or converted <= 0:
+            raise IpcError("POLICY_INVALID", f"{field} must be a positive number")
+        return converted
+
+    @staticmethod
+    def _positive_integer(value: Any, field: str) -> int:
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise IpcError("POLICY_INVALID", f"{field} must be a positive integer")
+        return value
+
+    def _policy_intent(
+        self, rig_id: int, intent: CaptureIntent, policy: dict
+    ) -> tuple[CaptureIntent, int, list[str], list[str]]:
+        optics = policy.get("optics")
+        photo = policy.get("photo")
+        devices = policy.get("devices")
+        camera = devices.get("camera") if isinstance(devices, dict) else None
+        if not isinstance(optics, dict) or not isinstance(photo, dict):
+            raise IpcError("POLICY_INVALID", "RIG policy snapshot is incomplete")
+
+        focal_length = self._positive_number(
+            optics.get("focal_length_mm"), "focal_length_mm"
+        )
+        tolerance = self._positive_number(
+            photo.get("motion_tolerance_px"), "motion_tolerance_px"
+        )
+        iso_max = self._positive_integer(photo.get("iso_max"), "iso_max")
+        with self._state_lock:
+            iso_requested = self._rig_iso_targets.get(rig_id)
+        if iso_requested is None:
+            raise IpcError("POLICY_INVALID", "ISO target is missing for RIG")
+
+        manufacturer = camera.get("manufacturer") if isinstance(camera, dict) else None
+        model = camera.get("model") if isinstance(camera, dict) else None
+        alias = camera.get("alias") if isinstance(camera, dict) else None
+        model_or_alias = model if isinstance(model, str) and model.strip() else alias
+        if not isinstance(manufacturer, str) or not manufacturer.strip():
+            raise IpcError("POLICY_INVALID", "camera manufacturer is missing")
+        if not isinstance(model_or_alias, str) or not model_or_alias.strip():
+            raise IpcError("POLICY_INVALID", "camera model or alias is missing")
+
+        try:
+            sensor_db = load_sensor_db(str(_SENSOR_DB_PATH))
+            sensor = resolve_sensor_entry(manufacturer, model_or_alias, sensor_db)
+            pixel_pitch = self._positive_number(
+                sensor.get("pixel_pitch_um"), "pixel_pitch_um"
+            )
+            declination = solar_declination_deg_utc(intent.target_time)
+            t_max = max_exposure_time_fixed_mount(
+                pixel_pitch, focal_length, tolerance, declination
+            )
+            return self._materialize_policy_intent(
+                intent, iso_requested, iso_max, t_max
+            )
+        except IpcError:
+            raise
+        except (KeyError, OSError, TypeError, ValueError) as exc:
+            raise IpcError("POLICY_INVALID", f"anti-trailing policy failed: {exc}") from exc
+
+    @staticmethod
+    def _materialize_policy_intent(
+        intent: CaptureIntent, iso_requested: int, iso_max: int, t_max: float
+    ) -> tuple[CaptureIntent, int, list[str], list[str]]:
+        results = []
+        if intent.speeds is not None:
+            speeds = [str(speed) for speed in intent.speeds]
+            if not speeds:
+                raise IpcError("POLICY_INVALID", "explicit shutter list must not be empty")
+            for speed in speeds:
+                results.append(
+                    safe_shutter_and_iso(
+                        t_requested=speed,
+                        iso_requested=iso_requested,
+                        t_max=str(t_max),
+                        supported_shutters=DEFAULT_SUPPORTED_SHUTTERS,
+                        supported_isos=DEFAULT_SUPPORTED_ISOS,
+                        iso_max=iso_max,
+                    )
+                )
+            replacement = dataclasses.replace(
+                intent,
+                shutter_min=None,
+                shutter_max=None,
+                speeds=[result["shutter"] for result in results],
+            )
+        else:
+            if intent.shutter_min is None:
+                raise IpcError("POLICY_INVALID", "slowest shutter bound is missing")
+            applied_slowest = select_supported_shutter_at_or_below(
+                t_max, DEFAULT_SUPPORTED_SHUTTERS
+            )
+            results.append(
+                safe_shutter_and_iso(
+                    t_requested=intent.shutter_min,
+                    iso_requested=iso_requested,
+                    t_max=applied_slowest,
+                    supported_shutters=DEFAULT_SUPPORTED_SHUTTERS,
+                    supported_isos=DEFAULT_SUPPORTED_ISOS,
+                    iso_max=iso_max,
+                )
+            )
+            replacement = dataclasses.replace(
+                intent,
+                shutter_min=applied_slowest,
+                shutter_max=intent.shutter_max,
+                step_ev=float(intent.step_ev) if intent.step_ev is not None else 1.0,
+                speeds=None,
+            )
+
+        iso_applied = max(result["iso"] for result in results)
+        corrections = [
+            item
+            for item in _CORRECTION_ORDER
+            if any(item in result["corrections"] for result in results)
+        ]
+        warnings = [
+            item
+            for item in _WARNING_ORDER
+            if any(item in result["warnings"] for result in results)
+        ]
+        return replacement, iso_applied, corrections, warnings
 
     @staticmethod
     def _validate_keys(
