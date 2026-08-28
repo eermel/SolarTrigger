@@ -208,6 +208,7 @@ from backend.rig_runtime import (
 )
 from backend.camera_worker_runtime import get_camera_worker_runtime
 from backend.focuser_worker_runtime import get_focuser_worker_runtime
+from backend.generic_worker import BusyDeviceError
 from backend.mount_worker_runtime import get_mount_worker_runtime
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
@@ -1797,6 +1798,50 @@ def api_rig_camera_probe(rig_id):
         "model": model,
         "battery": info.get("battery"),
     })
+
+
+@app.route("/api/rigs/<int:rig_id>/camera/read_info", methods=["POST"])
+def api_rig_camera_read_info(rig_id):
+    """Read and cache camera information for one enabled rig."""
+    try:
+        rig = get_rig_manager().get_rig(rig_id)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if rig.enabled is not True:
+        return jsonify({"error": f"rig {rig_id} is disabled"}), 409
+
+    runtime = get_camera_worker_runtime(log_fn=log.info)
+    runtime.reconcile(load_rig_configuration())
+    worker = runtime.get_for_rig(rig_id)
+    if worker is None:
+        return jsonify({
+            "error": f"camera is not configured for rig {rig_id}",
+            "code": "DEVICE_NOT_CONFIGURED",
+            "rig_id": rig_id,
+            "device_type": "camera",
+        }), 409
+
+    try:
+        result = worker.read_info()
+    except BusyDeviceError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": "CAMERA_BUSY",
+            "rig_id": rig_id,
+        }), 409
+
+    _state_store.update_section(
+        "camera_info",
+        {
+            str(rig_id): {
+                "last_read": datetime.now(timezone.utc).isoformat(),
+                "data": result,
+            }
+        },
+        persist=False,
+    )
+    return jsonify(result)
 
 
 @app.route("/api/rigs/<int:rig_id>/camera/sync_time", methods=["POST"])

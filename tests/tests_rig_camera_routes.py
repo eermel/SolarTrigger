@@ -1,9 +1,12 @@
 import sys
+from datetime import datetime
 from types import ModuleType
 
 import pytest
 
+from backend.generic_worker import BusyDeviceError
 from backend.rig_manager import RigManager
+from backend.state_store import StateStore
 
 
 pytest.importorskip("flask")
@@ -40,6 +43,11 @@ class FakeCameraWorker:
         self.sync_reference = None
 
     def probe_info(self):
+        if self._error is not None:
+            raise self._error
+        return self._result
+
+    def read_info(self):
         if self._error is not None:
             raise self._error
         return self._result
@@ -137,6 +145,76 @@ def test_probe_returns_camera_unavailable_contract(monkeypatch, worker):
     payload = response.get_json()
     assert payload["code"] == "CAMERA_UNAVAILABLE"
     assert payload["rig_id"] == 1
+
+
+def test_read_info_updates_runtime_cache_without_persistence(monkeypatch, tmp_path):
+    expected = {"model": "Sony ILCE-7M5", "battery": "81%"}
+    client, runtime = _client(
+        monkeypatch, _rig_config(), {1: FakeCameraWorker(expected)}
+    )
+    state_path = tmp_path / "state.json"
+    state_store = StateStore(state_path)
+    monkeypatch.setattr(flask_module, "_state_store", state_store)
+
+    response = client.post("/api/rigs/1/camera/read_info")
+
+    assert response.status_code == 200
+    assert response.get_json() == expected
+    assert runtime.reconciled_config is not None
+    cached = state_store.snapshot("camera_info")["1"]
+    assert cached["data"] == expected
+    datetime.fromisoformat(cached["last_read"])
+    assert not state_path.exists()
+
+
+def test_read_info_rejects_disabled_rig(monkeypatch):
+    client, runtime = _client(monkeypatch, _rig_config(rig_2_enabled=False), {})
+
+    response = client.post("/api/rigs/2/camera/read_info")
+
+    assert response.status_code == 409
+    assert "disabled" in response.get_json()["error"]
+    assert runtime.reconciled_config is None
+
+
+def test_read_info_rejects_invalid_rig_id(monkeypatch):
+    client, runtime = _client(monkeypatch, _rig_config(), {})
+
+    response = client.post("/api/rigs/5/camera/read_info")
+
+    assert response.status_code == 400
+    assert "rig_id" in response.get_json()["error"]
+    assert runtime.reconciled_config is None
+
+
+def test_read_info_returns_device_not_configured_without_worker(monkeypatch):
+    client, runtime = _client(monkeypatch, _rig_config(), {})
+
+    response = client.post("/api/rigs/1/camera/read_info")
+
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "error": "camera is not configured for rig 1",
+        "code": "DEVICE_NOT_CONFIGURED",
+        "rig_id": 1,
+        "device_type": "camera",
+    }
+    assert runtime.reconciled_config is not None
+
+
+def test_read_info_returns_camera_busy(monkeypatch):
+    worker = FakeCameraWorker(error=BusyDeviceError("camera worker is busy"))
+    client, runtime = _client(monkeypatch, _rig_config(), {1: worker})
+
+    response = client.post("/api/rigs/1/camera/read_info")
+
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "error": "camera worker is busy",
+        "code": "CAMERA_BUSY",
+        "rig_id": 1,
+    }
+    assert runtime.reconciled_config is not None
 
 
 def test_sync_time_is_scoped_to_requested_rig_without_persistence(monkeypatch):

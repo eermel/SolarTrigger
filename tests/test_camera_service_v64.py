@@ -16,6 +16,33 @@ class FakeCamera:
     def exit(self): self.exit_count += 1
 
 
+class FakeConfigValue:
+    def __init__(self, value):
+        self.value = value
+
+    def get_value(self):
+        return self.value
+
+
+class FakeConfig:
+    def __init__(self, values):
+        self.values = values
+
+    def get_child_by_name(self, name):
+        if name not in self.values:
+            raise KeyError(name)
+        return FakeConfigValue(self.values[name])
+
+
+class FakeInfoCamera(FakeCamera):
+    def __init__(self, values):
+        super().__init__()
+        self.config = FakeConfig(values)
+
+    def get_config(self):
+        return self.config
+
+
 class FakePlugin:
     name = 'fake'
     def __init__(self, camera): self.camera=camera; self.calls=[]
@@ -132,6 +159,33 @@ def test_service_owns_phase_settings_and_battery(monkeypatch):
     assert svc.get_battery_level() == 73
     assert any(c[0]=='init' for c in svc.plugin.calls)
     assert any(c[0]=='exposure' for c in svc.plugin.calls)
+
+
+def test_read_info_autoconnects_and_tolerates_missing_config(monkeypatch):
+    camera = FakeInfoCamera({'iso': '200', 'shutterspeed2': '1/500'})
+    monkeypatch.setattr(
+        'services.camera_service.get_camera_model',
+        lambda connected_camera: 'Test Camera Model',
+    )
+    service = CameraService(
+        camera_factory=lambda: camera,
+        plugin_loader=loader,
+        log_fn=lambda *args: None,
+    )
+
+    result = service.read_info()
+
+    assert camera.init_count == 1
+    assert result == {
+        'plugin': 'fake',
+        'model': 'Test Camera Model',
+        'battery': 73,
+        'iso': '200',
+        'aperture': None,
+        'shutterspeed': '1/500',
+        'mode': None,
+        'storage': None,
+    }
 
 
 def test_phase_settings_only_send_changed_values():
