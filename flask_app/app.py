@@ -312,6 +312,23 @@ def _time_payload():
     }
 
 
+def _status_update_payload(base: dict) -> dict:
+    """Ajoute les données communes à chaque mise à jour de statut."""
+    try:
+        rigs = normalize_rigs_for_ui(get_rig_manager())
+    except Exception as exc:
+        log.warning("Chargement des rigs impossible : %s", exc)
+        rigs = [
+            {"rig_id": rig_id, "name": f"RIG {rig_id}", "enabled": False}
+            for rig_id in range(1, 5)
+        ]
+    return {
+        **base,
+        "time": _time_payload(),
+        "rigs": rigs,
+    }
+
+
 def _devices_snapshot():
     """Return persisted selections enriched with the latest transient scan."""
     devices = _state_store.snapshot("devices") or {}
@@ -929,8 +946,9 @@ def _load_eclipse_json():
 def _emit_backend(event, payload):
     socketio.emit(event, payload, namespace="/")
     if event == "gps_update" and payload.get("synced"):
-        new_time = _time_payload()
-        socketio.emit("status_update", {"time": new_time, "gps": payload}, namespace="/")
+        status_payload = _status_update_payload({"gps": payload})
+        new_time = status_payload["time"]
+        socketio.emit("status_update", status_payload, namespace="/")
         socketio.emit("clock_reset", {
             "new_utc": new_time["utc"]["iso"],
             "new_utc_epoch_ms": new_time["backend_utc_epoch_ms"],
@@ -1245,10 +1263,9 @@ def api_eclipse_override():
             {"loaded": True, "active_file": JSON_FILE.name, "meta": meta},
             persist=True,
         )
-        socketio.emit("status_update", {
+        socketio.emit("status_update", _status_update_payload({
             "circumstances": circumstances,
-            "time": _time_payload(),
-        })
+        }))
         return jsonify({"status": "ok", "circumstances": circumstances})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1482,10 +1499,9 @@ def api_configs_save_camera():
                 {"loaded": True, "active_file": filename, "meta": meta},
                 persist=True,
             )
-            socketio.emit("status_update", {
+            socketio.emit("status_update", _status_update_payload({
                 "capture": capture,
-                "time": _time_payload(),
-            })
+            }))
             return jsonify({"status": "ok", "filename": filename, "capture": capture})
 
         return jsonify({
@@ -1554,10 +1570,9 @@ def api_configs_save():
                 {"loaded": True, "active_file": filename, "meta": meta},
                 persist=True,
             )
-            socketio.emit("status_update", {
+            socketio.emit("status_update", _status_update_payload({
                 "circumstances": circumstances,
-                "time": _time_payload(),
-            })
+            }))
             return jsonify({
                 "status": "ok",
                 "filename": filename,
@@ -1585,10 +1600,9 @@ def api_eclipse_reset():
             persist=True,
         )
         _append_log("🗑 todayeclipse.json supprimé.", "warning", "debug")
-        socketio.emit("status_update", {
+        socketio.emit("status_update", _status_update_payload({
             "circumstances": circumstances,
-            "time": _time_payload(),
-        })
+        }))
         return jsonify({"status": "ok", "circumstances": circumstances})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1671,10 +1685,9 @@ def api_trigger_select():
         persist=True,
     )
     socketio.emit("eclipse_calculated", {"status": "success", "data": data})
-    socketio.emit("status_update", {
+    socketio.emit("status_update", _status_update_payload({
         "circumstances": circumstances,
-        "time": _time_payload(),
-    })
+    }))
     _append_log(f"📂 Config chargée : {filename}", "info", "trigger")
     return jsonify({"status": "ok", "data": data, "circumstances": circumstances})
 
@@ -1707,10 +1720,9 @@ def api_trigger_select_camera():
         {"loaded": True, "active_file": filename, "meta": meta},
         persist=True,
     )
-    socketio.emit("status_update", {
+    socketio.emit("status_update", _status_update_payload({
         "capture": capture,
-        "time": _time_payload(),
-    })
+    }))
     _append_log(f"📷 Config appareil : {filename}", "info", "trigger")
     return jsonify({"status": "ok", "filename": filename, "capture": capture})
 
@@ -1800,15 +1812,14 @@ def on_connect():
         eclipse = _load_eclipse_json()
 
     # État complet
-    emit("status_update", {
-        "time":             _time_payload(),
+    emit("status_update", _status_update_payload({
         "gps":              gps,
         "trigger":          trigger,
         "eclipse":          eclipse,
         "circumstances":    _state_store.snapshot("circumstances"),
         "capture":          _state_store.snapshot("capture"),
         "camera_config_file": _state.get("camera_config_file"),
-    })
+    }))
 
     # Éclipse séparément pour forcer le rendu des contacts
     if eclipse:
@@ -1919,11 +1930,10 @@ def _thread_status_broadcast():
             with _state_lock:
                 gps     = dict(_state["gps"])
                 trigger = dict(_state["trigger"])
-            socketio.emit("status_update", {
-                "time":    _time_payload(),
+            socketio.emit("status_update", _status_update_payload({
                 "gps":     gps,
                 "trigger": trigger,
-            })
+            }))
         except Exception:
             pass
         time.sleep(1)
