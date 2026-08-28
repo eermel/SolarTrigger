@@ -1490,11 +1490,16 @@ function updateRigs(rigs) {
     const enabled = rig.enabled === true;
     const column = document.getElementById(`rig-column-${defaultRig.rig_id}`);
     const cameraColumn = document.getElementById(`camcfg-rig-column-${defaultRig.rig_id}`);
+    const cameraRigColumn = document.getElementById(`cam-rig-column-${defaultRig.rig_id}`);
     const toggle = document.getElementById(`rig-switch-${defaultRig.rig_id}`);
     if (column) column.classList.toggle('enabled', enabled);
     if (cameraColumn) {
       cameraColumn.classList.toggle('enabled', enabled);
       cameraColumn.hidden = !enabled;
+    }
+    if (cameraRigColumn) {
+      cameraRigColumn.classList.toggle('enabled', enabled);
+      cameraRigColumn.hidden = !enabled;
     }
     if (toggle) toggle.checked = enabled;
     if (column) column.querySelectorAll('.rig-body input, .rig-body select, .rig-body button').forEach(control => {
