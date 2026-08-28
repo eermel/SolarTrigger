@@ -113,6 +113,50 @@ def test_mount_section_is_unique_and_inside_controls_panel():
     assert len(re.findall(r'id=["\']mount-section["\']', INDEX)) == 1
 
 
+def test_controls_panel_has_four_exclusive_rig_buttons_and_target_label():
+    controls_start = INDEX.index('<div class="page" id="controls-panel"')
+    trigger_start = INDEX.index('<!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->')
+    controls_panel = INDEX[controls_start:trigger_start]
+
+    assert len(re.findall(r'data-controls-rig-id="[1-4]"', controls_panel)) == 4
+    for rig_id in range(1, 5):
+        assert f'id="controls-rig-{rig_id}"' in controls_panel
+        assert f'onclick="selectControlsRig({rig_id})"' in controls_panel
+    assert 'id="controls-target-label"' in controls_panel
+    assert re.search(r"let\s+selectedRigId\s*=\s*null\s*;", INDEX)
+
+
+def test_controls_rig_rendering_hides_and_disables_unavailable_rigs():
+    source = _function_source("renderControlsRigSelection")
+
+    assert re.search(r"button\.hidden\s*=\s*!enabled", source)
+    assert re.search(r"button\.disabled\s*=\s*!enabled", source)
+    assert re.search(
+        r"button\.classList\.toggle\(['\"]active['\"],\s*"
+        r"enabled\s*&&\s*selectedRigId\s*===\s*defaultRig\.rig_id\)",
+        source,
+    )
+
+
+def test_controls_rig_selection_rejects_disabled_rigs_and_has_no_network_calls():
+    source = _function_source("selectControlsRig")
+
+    assert re.search(r"if\s*\(!rig\s*\|\|\s*rig\.enabled\s*!==\s*true\)\s*return", source)
+    assert re.search(r"selectedRigId\s*=\s*numericRigId", source)
+    assert "fetch(" not in source
+    assert not re.search(r"/api/", source)
+
+
+def test_controls_target_label_uses_cached_rig_mount_display_label():
+    source = _function_source("renderControlsRigSelection")
+
+    assert "Aucun RIG sélectionné" in source
+    assert "Aucune monture pilotable" in source
+    assert "mount.display_label" in source
+    assert "rigDevicesState.rigs" in source
+    assert "fetch(" not in source
+
+
 def _controls_visibility_source():
     match = re.search(
         r"function\s+updateControlsVisibility\(devices\)\s*\{(?P<body>.*?)\n\}",

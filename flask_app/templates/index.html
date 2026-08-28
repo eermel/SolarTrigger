@@ -318,6 +318,17 @@ header {
 }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn-full { width: 100%; }
+.controls-rig-selector { display: flex; gap: 8px; margin-bottom: 8px; }
+.controls-rig-selector .btn { flex: 1; padding: 9px 8px; }
+.controls-rig-selector .btn.active {
+  background: linear-gradient(135deg, #5a3200, #8b4f00);
+  color: var(--accent);
+  border-color: rgba(245,166,35,.4);
+}
+.controls-target-label {
+  margin-bottom: 12px; color: var(--text-dim);
+  font-family: var(--mono); font-size: 11px;
+}
 
 /* ── INPUTS ── */
 .field { display: flex; flex-direction: column; gap: 5px; }
@@ -1101,6 +1112,14 @@ header {
     </div><!-- /page-3 CAMÉRA -->
 
     <div class="page" id="controls-panel">
+      <div class="controls-rig-selector" role="group" aria-label="RIG contrôlé">
+        <button class="btn btn-primary" id="controls-rig-1" data-controls-rig-id="1" onclick="selectControlsRig(1)" disabled hidden>RIG 1</button>
+        <button class="btn btn-primary" id="controls-rig-2" data-controls-rig-id="2" onclick="selectControlsRig(2)" disabled hidden>RIG 2</button>
+        <button class="btn btn-primary" id="controls-rig-3" data-controls-rig-id="3" onclick="selectControlsRig(3)" disabled hidden>RIG 3</button>
+        <button class="btn btn-primary" id="controls-rig-4" data-controls-rig-id="4" onclick="selectControlsRig(4)" disabled hidden>RIG 4</button>
+      </div>
+      <div class="controls-target-label" id="controls-target-label" aria-live="polite">Aucun RIG sélectionné</div>
+
       <!-- ── FOCUSEUR ── -->
       <div id="focuser-section" style="display:none">
         <div class="card">
@@ -1327,6 +1346,48 @@ const DEFAULT_RIGS = Array.from({length: 4}, (_, index) => ({
 }));
 const RIG_DEVICE_CATEGORIES = ['camera', 'mount', 'focuser'];
 let rigDevicesState = {rigs: DEFAULT_RIGS, inventory: {camera: [], mount: [], focuser: []}};
+let selectedRigId = null;
+
+function selectedControlsRig() {
+  return rigDevicesState.rigs.find(rig => Number(rig.rig_id) === selectedRigId && rig.enabled === true) || null;
+}
+
+function renderControlsRigSelection() {
+  const selectedRig = selectedControlsRig();
+  if (!selectedRig) selectedRigId = null;
+
+  DEFAULT_RIGS.forEach(defaultRig => {
+    const rig = rigDevicesState.rigs.find(candidate => Number(candidate.rig_id) === defaultRig.rig_id);
+    const enabled = Boolean(rig && rig.enabled === true);
+    const button = document.getElementById(`controls-rig-${defaultRig.rig_id}`);
+    if (!button) return;
+    button.hidden = !enabled;
+    button.disabled = !enabled;
+    button.classList.toggle('active', enabled && selectedRigId === defaultRig.rig_id);
+    button.setAttribute('aria-pressed', enabled && selectedRigId === defaultRig.rig_id ? 'true' : 'false');
+  });
+
+  const targetLabel = document.getElementById('controls-target-label');
+  if (!targetLabel) return;
+  const rig = selectedControlsRig();
+  if (!rig) {
+    targetLabel.textContent = 'Aucun RIG sélectionné';
+    return;
+  }
+  const mount = rig.devices && rig.devices.mount;
+  const pilotable = mount && ![null, '', 'none', 'external'].includes(mount.backend);
+  targetLabel.textContent = pilotable
+    ? `RIG ${selectedRigId} — Monture : ${mount.display_label}`
+    : `RIG ${selectedRigId} — Aucune monture pilotable`;
+}
+
+function selectControlsRig(rigId) {
+  const numericRigId = Number(rigId);
+  const rig = rigDevicesState.rigs.find(candidate => Number(candidate.rig_id) === numericRigId);
+  if (!rig || rig.enabled !== true) return;
+  selectedRigId = numericRigId;
+  renderControlsRigSelection();
+}
 
 function escapeDeviceText(value) {
   return String(value).replace(/[&<>"']/g, character => ({
@@ -1506,6 +1567,7 @@ function updateRigs(rigs) {
       control.disabled = !enabled;
     });
   });
+  renderControlsRigSelection();
 }
 
 document.addEventListener('change', event => {
