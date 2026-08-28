@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from backend.generic_worker import GenericWorker
+from backend.generic_worker import (
+    PRIORITY_DIAGNOSTIC,
+    PRIORITY_SEQUENCER,
+    GenericWorker,
+)
 from services.camera_service import CameraService
 
 
@@ -53,12 +57,22 @@ class CameraWorker:
         if self._service is not None:
             self._service.close()
 
-    def _call(self, method_name: str, *args, **kwargs) -> Any:
+    def _call(
+        self,
+        method_name: str,
+        *args,
+        priority: int | None = None,
+        **kwargs,
+    ) -> Any:
         def invoke():
             method = getattr(self._ensure_service(), method_name)
             return method(*args, **kwargs)
 
-        return self._worker.submit(invoke).result()
+        if priority is None:
+            future = self._worker.submit(invoke)
+        else:
+            future = self._worker.submit_with_priority(priority, invoke)
+        return future.result()
 
     def connect(self):
         return self._call("connect")
@@ -89,11 +103,16 @@ class CameraWorker:
         )
 
     def prepare_capture(self, intent):
-        return self._call("prepare_capture", intent)
+        return self._call(
+            "prepare_capture", intent, priority=PRIORITY_SEQUENCER
+        )
 
     def trigger_prepared(self, prepared, deadline=None):
         return self._call(
-            "trigger_prepared", prepared, deadline=deadline
+            "trigger_prepared",
+            prepared,
+            deadline=deadline,
+            priority=PRIORITY_SEQUENCER,
         )
 
     def shoot_speed_list(
@@ -109,10 +128,13 @@ class CameraWorker:
             photo_num_start=photo_num_start,
             deadline=deadline,
             slowest_override_seconds=slowest_override_seconds,
+            priority=PRIORITY_SEQUENCER,
         )
 
     def get_battery_level(self):
-        return self._call("get_battery_level")
+        return self._call(
+            "get_battery_level", priority=PRIORITY_DIAGNOSTIC
+        )
 
     def sync_datetime(self, ref):
         return self._call("sync_datetime", ref)
@@ -128,7 +150,9 @@ class CameraWorker:
                 "battery": service.get_battery_level(),
             }
 
-        return self._worker.submit(probe).result()
+        return self._worker.submit_with_priority(
+            PRIORITY_DIAGNOSTIC, probe, reject_if_busy=True
+        ).result()
 
     def test_photo(
         self,
