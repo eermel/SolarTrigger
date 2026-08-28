@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "sensors": [
+    {
+      "manufacturer": "Example",
+      "model": "Compact Camera",
+      "aliases": [],
+      "sensor_width_mm": 13.2,
+      "sensor_height_mm": 8.8,
+      "width_px": 5472,
+      "height_px": 3648,
+      "sources": ["example"],
+      "camera_type": "compact"
+    }
+  ]
+}
