@@ -19,6 +19,9 @@ class FakeIpcClient:
                 "planned_count": 1,
                 "plugin_name": "nikon",
                 "request_id": "REQ-XYZ",
+                "iso_applied": "ISO 320",
+                "corrections": ["rig-1 shutter correction"],
+                "warnings": ["rig-1 warning"],
             },
             2: {
                 "token_id": "token-rig-2",
@@ -27,6 +30,9 @@ class FakeIpcClient:
                 "planned_count": 2,
                 "plugin_name": "sony",
                 "request_id": "REQ-XYZ",
+                "iso_applied": "ISO 640",
+                "corrections": ["rig-2 ISO correction", "rig-2 shutter correction"],
+                "warnings": [],
             },
         }[rig_id]
 
@@ -84,6 +90,29 @@ def test_prepare_capture_materializes_distinct_plans_with_traceability() -> None
     ] == [
         (1, "nikon", [0.01], "REQ-XYZ"),
         (2, "sony", [0.5, 1.0], "REQ-XYZ"),
+    ]
+
+
+def test_prepare_capture_propagates_per_rig_materialization_details() -> None:
+    adapter = FanoutCameraAdapter(FakeIpcClient(), log_fn=lambda _message: None)
+
+    try:
+        prepared = adapter.prepare_capture(SimpleNamespace(request_id="REQ-XYZ"))
+    finally:
+        adapter.close()
+
+    assert prepared.materialized is not None
+    assert [
+        (entry.rig_id, entry.iso_applied, entry.corrections, entry.warnings)
+        for entry in prepared.materialized
+    ] == [
+        (1, "ISO 320", ["rig-1 shutter correction"], ["rig-1 warning"]),
+        (
+            2,
+            "ISO 640",
+            ["rig-2 ISO correction", "rig-2 shutter correction"],
+            [],
+        ),
     ]
 
 
