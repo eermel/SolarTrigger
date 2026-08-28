@@ -197,12 +197,14 @@ class CameraService:
 
         return self.plugin.prepare_capture(intent)
 
-    def trigger_prepared(self, prepared, deadline=None):
+    def trigger_prepared(
+        self, prepared, deadline=None, *, monotonic_deadline=None
+    ):
         if not self.plugin:
             raise RuntimeError("caméra non connectée")
 
-        plugin_deadline = None
-        if deadline is not None:
+        plugin_deadline = monotonic_deadline
+        if monotonic_deadline is None and deadline is not None:
             if self.clock is None:
                 raise RuntimeError("horloge d'exécution non configurée")
             plugin_deadline = (
@@ -275,13 +277,15 @@ class CameraService:
         photo_num_start=0,
         deadline=None,
         slowest_override_seconds=None,
+        *,
+        monotonic_deadline=None,
     ):
         if not self.plugin:
             raise RuntimeError("caméra non connectée")
 
-        plugin_deadline = deadline
+        plugin_deadline = monotonic_deadline if monotonic_deadline is not None else deadline
 
-        if deadline is not None and self.clock is not None:
+        if monotonic_deadline is None and deadline is not None and self.clock is not None:
             # Convert absolute UTC phase deadline to a monotonic deadline once.
             # Camera plugins are then immune to system/NTP/GPS wall-clock jumps.
             plugin_deadline = (

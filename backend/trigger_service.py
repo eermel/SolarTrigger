@@ -22,14 +22,28 @@ def validate_eclipse(ecl):
 class TriggerService:
     """Owns trigger process lifecycle; Flask is only an HTTP adapter."""
     def __init__(self, state_store, trigger_script, json_file, events_file, configs_dir,
-                 log_fn, emit_fn, line_level_fn=None, line_clean_fn=None):
+                 log_fn, emit_fn, line_level_fn=None, line_clean_fn=None,
+                 camera_runtime=None, rig_config_loader=None):
         self.state=state_store; self.trigger_script=trigger_script; self.json_file=json_file
         self.events_file=events_file; self.configs_dir=configs_dir; self.log=log_fn; self.emit=emit_fn
         self.project_dir=self.trigger_script.resolve().parent.parent
         self.line_level_fn=line_level_fn or (lambda _: "info")
-        self.line_clean_fn=line_clean_fn or (lambda x:x); self._proc=None; self._lock=threading.RLock(); self._starting=False
+        self.line_clean_fn=line_clean_fn or (lambda x:x)
+        is_production_tree = self.project_dir == Path(__file__).resolve().parent.parent
+        self.camera_runtime = camera_runtime
+        self.rig_config_loader = rig_config_loader
+        if is_production_tree:
+            if self.camera_runtime is None:
+                from backend.camera_worker_runtime import get_camera_worker_runtime
 
-    def _subprocess_env(self):
+                self.camera_runtime = get_camera_worker_runtime(log_fn=log_fn)
+            if self.rig_config_loader is None:
+                from backend.rig_runtime import load_rig_configuration
+
+                self.rig_config_loader = load_rig_configuration
+        self._proc=None; self._lock=threading.RLock(); self._starting=False
+
+    def _subprocess_env(self, ipc_session=None):
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         existing = env.get("PYTHONPATH")
@@ -38,6 +52,9 @@ class TriggerService:
             if not existing
             else str(self.project_dir) + os.pathsep + existing
         )
+        if ipc_session is not None:
+            env["SET_CAMERA_IPC_SOCKET"] = ipc_session.socket_path
+            env["SET_CAMERA_IPC_SESSION"] = ipc_session.session_id
         return env
 
     def _resolve_camera_config(self, camera_config_file):
@@ -116,19 +133,58 @@ class TriggerService:
             except Exception:
                 self._starting=False
                 raise
+            ipc_session = None
+            if (
+                not simulate
+                and self.camera_runtime is not None
+                and self.rig_config_loader is not None
+            ):
+                try:
+                    config = self.rig_config_loader()
+                    self.camera_runtime.reconcile(config)
+                    if self.camera_runtime.active_camera_rig_ids():
+                        ipc_session = self.camera_runtime.open_ipc_session()
+                except Exception:
+                    self._starting = False
+                    raise
             gen=ecl.get("_generated_utc", ""); today=datetime.now(timezone.utc).strftime("%Y-%m-%d")
             if gen and today not in gen: self.log(f"⚠️ todayeclipse.json généré le {gen[:10]} — éclipse pas aujourd'hui ?", "warning", "trigger")
             try: self.events_file.write_text("", encoding="utf-8")
             except Exception: pass
             mode="simulation" if simulate else ("dryrun" if dry_run else "real")
-            self.state.set("trigger", {"running":True,"phase":"starting","mode":mode,"speed":speed if simulate else 1.0})
-            self.emit("trigger_phase", {"phase":"starting"})
-            threading.Thread(target=self._run, args=(simulate,speed,dry_run,dry_run_delay), name="eclipse-trigger-process", daemon=True).start(); return True
+            try:
+                self.state.set("trigger", {"running":True,"phase":"starting","mode":mode,"speed":speed if simulate else 1.0})
+                self.emit("trigger_phase", {"phase":"starting"})
+                thread = threading.Thread(
+                    target=self._run,
+                    args=(simulate,speed,dry_run,dry_run_delay,ipc_session),
+                    name="eclipse-trigger-process",
+                    daemon=True,
+                )
+                thread.start()
+            except Exception:
+                self._starting = False
+                if ipc_session is not None:
+                    try:
+                        self.camera_runtime.close_ipc_session(ipc_session.session_id)
+                    except Exception as exc:
+                        self.log(f"Erreur fermeture session IPC caméra : {exc}","error","trigger")
+                try:
+                    self.state.set(
+                        "trigger",
+                        {"running":False,"phase":"idle","mode":None,"speed":None},
+                    )
+                    self.emit("trigger_phase", {"phase":"idle"})
+                except Exception:
+                    pass
+                raise
+            return True
 
     def _set_phase(self, phase):
         self.state.update_section("trigger", {"phase":phase}); self.emit("trigger_phase", {"phase":phase})
 
-    def _run(self, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0):
+    def _run(self, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0,
+             ipc_session=None):
         proc=None
         try:
             cmd=[sys.executable,"-u",str(self.trigger_script),"--file",str(self.json_file)]
@@ -140,7 +196,7 @@ class TriggerService:
             camera_config_path=self._resolve_camera_config(cfg)
             if camera_config_path is not None:
                 cmd += ["--camera",str(camera_config_path)]
-            env=self._subprocess_env()
+            env=self._subprocess_env(ipc_session)
             proc=subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -169,6 +225,12 @@ class TriggerService:
         except Exception as exc:
             self.log(f"ERREUR thread trigger : {exc}","error","trigger")
         finally:
+            if ipc_session is not None:
+                try:
+                    self.camera_runtime.close_ipc_session(ipc_session.session_id)
+                except Exception as exc:
+                    self.log(f"Erreur fermeture session IPC caméra : {exc}","error","trigger")
+
             with self._lock:
                 owns_process = self._proc is proc
                 if owns_process:

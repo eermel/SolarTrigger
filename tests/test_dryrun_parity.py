@@ -21,17 +21,16 @@ def _indented_block(source: str, marker: str) -> str:
 
 
 def test_service_mapping_keeps_dry_run_on_real_camera_service():
-    combined_guard = _indented_block(SRC, "if _sim_mode or args.dry_run:")
-
-    assert "if _sim_mode:" in combined_guard
-    simulation_branch = _indented_block(combined_guard, "if _sim_mode:")
+    camera_selection = SRC[SRC.index('ipc_socket = os.environ.get("SET_CAMERA_IPC_SOCKET")') :]
+    simulation_branch = _indented_block(camera_selection, "if _sim_mode:")
     assert "camera_service = _SimulationCameraService()" in simulation_branch
 
-    alternate_branch = combined_guard[combined_guard.index("else:") :]
-    assert "camera_service = CameraService(" in alternate_branch
+    ipc_branch = _indented_block(camera_selection, "elif ipc_socket:")
+    assert "camera_service = CameraService(" not in ipc_branch
 
-    after_guard = SRC[SRC.index("if _sim_mode or args.dry_run:") + len(combined_guard) :]
-    assert "camera_service = CameraService(" in after_guard
+    legacy_branch = camera_selection[camera_selection.index("        else:") :]
+    assert "if args.dry_run:" in legacy_branch
+    assert "camera_service = CameraService(" in legacy_branch
 
 
 def test_dry_run_startup_log_describes_timeline_translation():
