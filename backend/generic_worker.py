@@ -6,10 +6,20 @@ import queue
 import threading
 from concurrent.futures import Future
 from datetime import datetime, timezone
+from itertools import count
 from typing import Callable
 
 
 _STOP = object()
+
+PRIORITY_STOP = 0
+PRIORITY_SEQUENCER = 10
+PRIORITY_MANUAL = 30
+PRIORITY_DIAGNOSTIC = 90
+
+
+class BusyDeviceError(RuntimeError):
+    """Raised when diagnostic work is rejected by a busy worker."""
 
 
 class GenericWorker:
@@ -36,10 +46,14 @@ class GenericWorker:
         self._log_fn = log_fn
         self._shutdown_policy = shutdown_policy
         self._device_close = device_close
-        self._queue: queue.Queue = queue.Queue(maxsize=max_queue_size or 0)
+        self._queue: queue.PriorityQueue = queue.PriorityQueue(
+            maxsize=max_queue_size or 0
+        )
+        self._sequence = count()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._accepting = True
+        self._executing_priority: int | None = None
         self._close_called = False
         self._last_error: dict | None = None
 
@@ -78,11 +92,35 @@ class GenericWorker:
     def submit(self, callable, *args, **kwargs) -> Future:
         """Queue a callable and return a Future representing its execution."""
 
+        return self.submit_with_priority(
+            PRIORITY_MANUAL, callable, *args, **kwargs
+        )
+
+    def submit_with_priority(
+        self,
+        priority: int,
+        callable,
+        *args,
+        reject_if_busy: bool = False,
+        **kwargs,
+    ) -> Future:
+        """Queue a callable at a priority, optionally rejecting busy work."""
+
+        if not isinstance(priority, int):
+            raise TypeError("priority must be an int")
         future = Future()
         with self._lock:
             if not self._accepting:
                 raise RuntimeError("worker is stopping and no longer accepts jobs")
-            self._queue.put_nowait((future, callable, args, kwargs))
+            if reject_if_busy and (
+                self._executing_priority is not None
+                or self._has_queued_higher_priority_work()
+            ):
+                raise BusyDeviceError(
+                    f"{self.device_kind} worker for rig {self.rig_id} is busy"
+                )
+            job = (future, callable, args, kwargs)
+            self._queue.put_nowait((priority, next(self._sequence), job))
         return future
 
     def stop(self, timeout: float | None = None) -> None:
@@ -102,35 +140,42 @@ class GenericWorker:
             self._close_device_once()
         else:
             if wake_worker:
-                self._queue.put(_STOP)
+                self._queue.put((PRIORITY_STOP, next(self._sequence), _STOP))
             if thread is threading.current_thread():
                 return
             thread.join(timeout)
 
     def _run(self) -> None:
         try:
+            stop_requested = False
             while True:
-                job = self._queue.get()
+                priority, _sequence, job = self._queue.get()
                 try:
                     if job is _STOP:
-                        return
-                    future, func, args, kwargs = job
-                    if not future.set_running_or_notify_cancel():
-                        continue
-                    try:
-                        future.set_result(func(*args, **kwargs))
-                    except BaseException as exc:
-                        future.set_exception(exc)
-                        self._record_error(exc)
+                        stop_requested = True
+                    else:
+                        future, func, args, kwargs = job
+                        with self._lock:
+                            self._executing_priority = priority
+                        if future.set_running_or_notify_cancel():
+                            try:
+                                future.set_result(func(*args, **kwargs))
+                            except BaseException as exc:
+                                future.set_exception(exc)
+                                self._record_error(exc)
                 finally:
+                    with self._lock:
+                        self._executing_priority = None
                     self._queue.task_done()
+                if stop_requested and self._queue.empty():
+                    return
         finally:
             self._close_device_once()
 
     def _cancel_queued_jobs(self) -> None:
         while True:
             try:
-                job = self._queue.get_nowait()
+                _priority, _sequence, job = self._queue.get_nowait()
             except queue.Empty:
                 return
             try:
@@ -158,6 +203,13 @@ class GenericWorker:
             )
         except Exception:
             pass
+
+    def _has_queued_higher_priority_work(self) -> bool:
+        with self._queue.mutex:
+            return any(
+                priority < PRIORITY_DIAGNOSTIC and job is not _STOP
+                for priority, _sequence, job in self._queue.queue
+            )
 
     def _close_device_once(self) -> None:
         with self._lock:
