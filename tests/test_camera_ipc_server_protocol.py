@@ -108,6 +108,37 @@ def test_protocol_parses_one_json_line_and_rejects_invalid_inputs():
         assert caught.value.code == code
 
 
+def test_unknown_request_keys_are_rejected(tmp_path):
+    server = make_server(tmp_path, {1: FakeWorker()})
+    intent = {
+        "shutter_min": "1/100",
+        "shutter_max": "1/100",
+        "step_ev": 1.0,
+        "speeds": None,
+        "phase": "C2",
+        "target_time": "2026-08-12T18:00:00Z",
+        "deadline": None,
+        "overflow_policy": None,
+    }
+
+    invalid_requests = (
+        {"operation": "ping", "extra": 1},
+        {
+            "operation": "apply_phase_settings",
+            "params": {"rig_id": 1, "unexpected": True},
+        },
+        {
+            "operation": "prepare_capture",
+            "params": {"rig_id": 1, "intent": {**intent, "unexpected": True}},
+        },
+    )
+
+    for invalid_request in invalid_requests:
+        with pytest.raises(IpcError) as caught:
+            server.handle_request(invalid_request)
+        assert caught.value.code == "INVALID_REQUEST"
+
+
 def test_structured_errors_and_rig_semantics(tmp_path):
     server = make_server(tmp_path)
     assert server._error("INVALID_JSON", "bad") == {

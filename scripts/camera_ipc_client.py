@@ -203,12 +203,14 @@ class CameraIpcClient:
         if not isinstance(response, dict) or not isinstance(response.get("ok"), bool):
             self._fail("INVALID_RESPONSE", operation, "invalid camera IPC response")
         if response["ok"]:
-            if "result" not in response:
+            if set(response) != {"ok", "result"}:
                 self._fail("INVALID_RESPONSE", operation, "camera IPC result is missing")
             return response["result"]
 
+        if set(response) != {"ok", "error"}:
+            self._fail("INVALID_RESPONSE", operation, "camera IPC error is invalid")
         error = response.get("error")
-        if not isinstance(error, dict):
+        if not isinstance(error, dict) or set(error) != {"code", "message"}:
             self._fail("INVALID_RESPONSE", operation, "camera IPC error is invalid")
         code, message = error.get("code"), error.get("message")
         if not isinstance(code, str) or not code or not isinstance(message, str):

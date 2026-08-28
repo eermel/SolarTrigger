@@ -22,6 +22,47 @@ from services.camera_service import CaptureIntent
 MAX_MESSAGE_BYTES = 65536
 MAX_WORKERS = 8
 
+_ENVELOPE_KEYS = {"operation", "params", "session_id"}
+_REQUIRED_ENVELOPE_KEYS = {"operation"}
+_INTENT_KEYS = {
+    "shutter_min",
+    "shutter_max",
+    "step_ev",
+    "speeds",
+    "phase",
+    "target_time",
+    "deadline",
+    "overflow_policy",
+}
+_PARAM_KEYS = {
+    "ping": set(),
+    "list_active_camera_rigs": set(),
+    "camera.initialize": {
+        "rig_id",
+        "aperture",
+        "iso",
+        "image_format",
+        "white_balance",
+    },
+    "apply_phase_settings": {"rig_id", "aperture", "iso"},
+    "prepare_capture": {"rig_id", "intent"},
+    "trigger_prepared": {"rig_id", "token_id", "deadline"},
+    "shoot_speed_list": {
+        "rig_id",
+        "speeds",
+        "photo_num_start",
+        "deadline",
+        "slowest_override_seconds",
+    },
+}
+_REQUIRED_PARAMS = {
+    "camera.initialize": {"rig_id"},
+    "apply_phase_settings": {"rig_id"},
+    "prepare_capture": {"rig_id", "intent"},
+    "trigger_prepared": {"rig_id", "token_id"},
+    "shoot_speed_list": {"rig_id", "speeds"},
+}
+
 
 class IpcError(Exception):
     """An error which is safe to return across the IPC boundary."""
@@ -255,13 +296,26 @@ class CameraIpcServer:
     def handle_request(self, request: dict[str, Any]) -> Any:
         if not isinstance(request, dict):
             raise IpcError("INVALID_REQUEST", "request must be a JSON object")
-        operation = request.get("operation", request.get("op"))
-        if not isinstance(operation, str):
+        self._validate_keys(
+            request, _ENVELOPE_KEYS, _REQUIRED_ENVELOPE_KEYS, "request"
+        )
+        operation = request["operation"]
+        if not isinstance(operation, str) or not operation:
             raise IpcError("INVALID_REQUEST", "operation must be a string")
+        if operation not in _PARAM_KEYS:
+            raise IpcError("UNKNOWN_OPERATION", "operation is not allowed")
         params = request.get("params", {})
         if not isinstance(params, dict):
             raise IpcError("INVALID_REQUEST", "params must be an object")
+        self._validate_keys(
+            params,
+            _PARAM_KEYS[operation],
+            _REQUIRED_PARAMS.get(operation, set()),
+            "params",
+        )
         session = request.get("session_id")
+        if "session_id" in request and (not isinstance(session, str) or not session):
+            raise IpcError("INVALID_REQUEST", "session_id must be a non-empty string")
         self._validate_session(session)
 
         if operation == "ping":
@@ -269,6 +323,10 @@ class CameraIpcServer:
         if operation == "list_active_camera_rigs":
             return {"rig_ids": list(self._runtime.active_camera_rig_ids())}
         if operation == "camera.initialize":
+            self._optional_strings(params, "aperture", "iso")
+            self._optional_strings(
+                params, "image_format", "white_balance", nullable=False
+            )
             rig_id, worker = self._worker(params)
             plugin = worker.connect()
             worker.init_settings(
@@ -283,15 +341,16 @@ class CameraIpcServer:
                 "plugin_name": getattr(plugin, "name", None),
             }
         if operation == "apply_phase_settings":
+            self._optional_strings(params, "aperture", "iso")
             _, worker = self._worker(params)
             return worker.apply_phase_settings(
                 aperture=params.get("aperture"), iso=params.get("iso")
             )
         if operation == "prepare_capture":
-            rig_id, worker = self._worker(params)
             intent_data = params.get("intent")
             if not isinstance(intent_data, dict):
                 raise IpcError("INVALID_REQUEST", "intent must be an object")
+            self._validate_intent(intent_data)
             try:
                 intent_values = dict(intent_data)
                 intent_values["target_time"] = self._intent_datetime(
@@ -303,6 +362,7 @@ class CameraIpcServer:
                 intent = CaptureIntent(**intent_values)
             except (TypeError, ValueError) as exc:
                 raise IpcError("INVALID_REQUEST", "invalid capture intent") from exc
+            rig_id, worker = self._worker(params)
             prepared = worker.prepare_capture(intent)
             token_id = secrets.token_urlsafe(24)
             with self._state_lock:
@@ -315,10 +375,11 @@ class CameraIpcServer:
                 "plugin_name": prepared.plugin_name,
             }
         if operation == "trigger_prepared":
-            rig_id, worker = self._worker(params)
             token_id = params.get("token_id")
-            if not isinstance(token_id, str):
-                raise IpcError("INVALID_REQUEST", "token_id must be a string")
+            if not isinstance(token_id, str) or not token_id:
+                raise IpcError("INVALID_REQUEST", "token_id must be a non-empty string")
+            deadline = self._deadline(params.get("deadline"))
+            rig_id, worker = self._worker(params)
             with self._state_lock:
                 token = self._tokens.get(token_id)
                 if token is None or token[0] != session or token[1] != rig_id:
@@ -326,20 +387,74 @@ class CameraIpcServer:
                         "UNKNOWN_TOKEN", "prepared capture token is not valid"
                     )
                 del self._tokens[token_id]
-            deadline = self._deadline(params.get("deadline"))
             return worker.trigger_prepared(token[2], deadline=deadline)
         if operation == "shoot_speed_list":
-            _, worker = self._worker(params)
             speeds = params.get("speeds")
-            if not isinstance(speeds, list):
-                raise IpcError("INVALID_REQUEST", "speeds must be an array")
+            if not isinstance(speeds, list) or any(
+                not isinstance(item, str) for item in speeds
+            ):
+                raise IpcError("INVALID_REQUEST", "speeds must be an array of strings")
+            photo_num_start = params.get("photo_num_start", 0)
+            if isinstance(photo_num_start, bool) or not isinstance(photo_num_start, int):
+                raise IpcError("INVALID_REQUEST", "photo_num_start must be an integer")
+            override = params.get("slowest_override_seconds")
+            if override is not None and not self._is_number(override):
+                raise IpcError(
+                    "INVALID_REQUEST", "slowest_override_seconds must be a number"
+                )
+            deadline = self._deadline(params.get("deadline"))
+            _, worker = self._worker(params)
             return worker.shoot_speed_list(
                 speeds,
-                photo_num_start=params.get("photo_num_start", 0),
-                deadline=self._deadline(params.get("deadline")),
-                slowest_override_seconds=params.get("slowest_override_seconds"),
+                photo_num_start=photo_num_start,
+                deadline=deadline,
+                slowest_override_seconds=override,
             )
-        raise IpcError("UNKNOWN_OPERATION", "operation is not allowed")
+        raise AssertionError("validated operation was not dispatched")
+
+    @staticmethod
+    def _validate_keys(
+        value: dict[str, Any], allowed: set[str], required: set[str], label: str
+    ) -> None:
+        if any(not isinstance(key, str) for key in value):
+            raise IpcError("INVALID_REQUEST", f"{label} keys must be strings")
+        if set(value) - allowed:
+            raise IpcError("INVALID_REQUEST", f"{label} contains unknown keys")
+        if required - set(value):
+            raise IpcError("INVALID_REQUEST", f"{label} is missing required keys")
+
+    @staticmethod
+    def _is_number(value: Any) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    @classmethod
+    def _optional_strings(
+        cls, params: dict[str, Any], *fields: str, nullable: bool = True
+    ) -> None:
+        for field in fields:
+            value = params.get(field)
+            if (
+                field in params
+                and not isinstance(value, str)
+                and not (nullable and value is None)
+            ):
+                raise IpcError("INVALID_REQUEST", f"{field} must be a string")
+
+    @classmethod
+    def _validate_intent(cls, intent: dict[str, Any]) -> None:
+        cls._validate_keys(intent, _INTENT_KEYS, _INTENT_KEYS, "intent")
+        for field in ("shutter_min", "shutter_max", "overflow_policy"):
+            if intent[field] is not None and not isinstance(intent[field], str):
+                raise IpcError("INVALID_REQUEST", f"{field} must be a string or null")
+        if intent["step_ev"] is not None and not cls._is_number(intent["step_ev"]):
+            raise IpcError("INVALID_REQUEST", "step_ev must be a number or null")
+        speeds = intent["speeds"]
+        if speeds is not None and (
+            not isinstance(speeds, list) or any(not isinstance(item, str) for item in speeds)
+        ):
+            raise IpcError("INVALID_REQUEST", "speeds must be an array of strings or null")
+        if not isinstance(intent["phase"], str):
+            raise IpcError("INVALID_REQUEST", "phase must be a string")
 
     def _validate_session(self, session: Any) -> None:
         with self._state_lock:
@@ -371,9 +486,9 @@ class CameraIpcServer:
             parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError as exc:
             raise IpcError("INVALID_REQUEST", f"{field} is not valid ISO-8601") from exc
-        if parsed.tzinfo is not None and parsed.utcoffset() is not None:
-            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
-        return parsed
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise IpcError("INVALID_REQUEST", f"{field} must include a UTC offset")
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
 
     @staticmethod
     def _utc_datetime(raw: Any, field: str, *, required: bool) -> datetime | None:
