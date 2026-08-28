@@ -130,6 +130,7 @@ _watchdog = TriggerWatchdog(Path(__file__).resolve().parent.parent / "trigger_st
 
 C3_OVERFLOW_GRACE_S = 1.0
 SHORT_EXPOSURE_MAX_S = 0.5
+_per_rig_atmo_active = False
 
 
 def _select_uniform_indices(exposures, target_size):
@@ -953,7 +954,7 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
                 str(shutter_max), str(shutter_min), float(step_ev), True
             )
 
-        if use_atmo and regular:
+        if use_atmo and regular and not _per_rig_atmo_active:
             loc = _observer_location()
             if loc is None or loc.get("altitude_m") is None:
                 raise RuntimeError(
