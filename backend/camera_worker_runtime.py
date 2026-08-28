@@ -37,6 +37,7 @@ class CameraWorkerRuntime:
         self._ipc_server = None
         self._ipc_session_ids: set[str] = set()
         self._registry: dict[int, CameraWorker] = {}
+        self._config: dict | None = None
         self._lock = threading.RLock()
 
     @staticmethod
@@ -96,6 +97,7 @@ class CameraWorkerRuntime:
                 )
                 for rig_id in desired
             }
+            self._config = config
             for worker in obsolete:
                 worker.stop()
 
@@ -104,6 +106,46 @@ class CameraWorkerRuntime:
 
         with self._lock:
             return self._registry.get(rig_id)
+
+    def get_policy_config_for_rig(self, rig_id: int) -> dict | None:
+        """Return a policy-only configuration snapshot for an active rig."""
+
+        with self._lock:
+            if rig_id not in self._registry or self._config is None:
+                return None
+
+            for rig in self._config.get("rigs", []):
+                if not isinstance(rig, dict) or rig.get("rig_id") != rig_id:
+                    continue
+
+                devices = rig.get("devices")
+                camera = devices.get("camera") if isinstance(devices, dict) else None
+                optics = rig.get("optics")
+                photo = rig.get("photo")
+                return {
+                    "devices": {
+                        "camera": {
+                            key: camera.get(key) if isinstance(camera, dict) else None
+                            for key in ("manufacturer", "model", "alias")
+                        }
+                    },
+                    "optics": {
+                        "focal_length_mm": (
+                            optics.get("focal_length_mm")
+                            if isinstance(optics, dict)
+                            else None
+                        )
+                    },
+                    "photo": {
+                        key: photo.get(key) if isinstance(photo, dict) else None
+                        for key in (
+                            "anti_trailing_enabled",
+                            "motion_tolerance_px",
+                            "iso_max",
+                        )
+                    },
+                }
+            return None
 
     def active_camera_rig_ids(self) -> tuple[int, ...]:
         """Return an ascending snapshot of active camera rig identifiers."""
