@@ -1358,6 +1358,17 @@ function selectedPilotableMountRig() {
   return mount && ![null, '', 'none', 'external'].includes(mount.backend) ? rig : null;
 }
 
+function renderSelectedMountAvailability() {
+  const mountSection = document.getElementById('mount-section');
+  if (!mountSection) return;
+  const mountAvailable = Boolean(selectedPilotableMountRig());
+  mountSection.hidden = !mountAvailable;
+  mountSection.setAttribute('aria-disabled', mountAvailable ? 'false' : 'true');
+  mountSection.querySelectorAll('button, input, select').forEach(control => {
+    control.disabled = !mountAvailable;
+  });
+}
+
 function renderControlsRigSelection() {
   const selectedRig = selectedControlsRig();
   if (!selectedRig) selectedRigId = null;
@@ -1373,6 +1384,7 @@ function renderControlsRigSelection() {
     button.setAttribute('aria-pressed', enabled && selectedRigId === defaultRig.rig_id ? 'true' : 'false');
   });
   document.dispatchEvent(new CustomEvent('controlsrigchange'));
+  renderSelectedMountAvailability();
 
   const targetLabel = document.getElementById('controls-target-label');
   if (!targetLabel) return;
@@ -1552,7 +1564,13 @@ async function selectRigDevice(rigId, category, select) {
 }
 
 function updateRigs(rigs) {
-  const byId = new Map((Array.isArray(rigs) ? rigs : DEFAULT_RIGS).map(rig => [Number(rig.rig_id), rig]));
+  const updatedRigs = Array.isArray(rigs) ? rigs : DEFAULT_RIGS;
+  const cachedById = new Map(rigDevicesState.rigs.map(rig => [Number(rig.rig_id), rig]));
+  rigDevicesState.rigs = updatedRigs.map(rig => ({
+    ...(cachedById.get(Number(rig.rig_id)) || {}),
+    ...rig,
+  }));
+  const byId = new Map(updatedRigs.map(rig => [Number(rig.rig_id), rig]));
   DEFAULT_RIGS.forEach(defaultRig => {
     const rig = byId.get(defaultRig.rig_id) || defaultRig;
     const enabled = rig.enabled === true;
@@ -1598,7 +1616,7 @@ function updateControlsVisibility(devices) {
   controlsTab.hidden = !controlsActive;
   controlsPanel.hidden = !controlsActive;
   document.getElementById('focuser-section').hidden = !focuserActive;
-  document.getElementById('mount-section').hidden = !mountActive;
+  renderSelectedMountAvailability();
 
   if (controlsWasSelected && !controlsActive) showTab(0);
 }
@@ -1879,6 +1897,7 @@ socket.on('eclipse_calculated', d => {
 });
 
 socket.on('state_update', d => {
+  if (d.rigs) updateRigs(d.rigs);
   if (d.devices) updateControlsVisibility(d.devices);
   // Mise à jour timezone DST calculé côté serveur
   if (d.timezone_override) {

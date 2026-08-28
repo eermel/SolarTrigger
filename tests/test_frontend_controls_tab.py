@@ -157,6 +157,77 @@ def test_controls_target_label_uses_cached_rig_mount_display_label():
     assert "fetch(" not in source
 
 
+@pytest.mark.parametrize(
+    ("mount", "expected_label", "mount_hidden"),
+    (
+        (
+            {"backend": "indi", "display_label": "EQMod — USB 2-1"},
+            "RIG 2 — Monture : EQMod — USB 2-1",
+            False,
+        ),
+        (None, "RIG 2 — Aucune monture pilotable", True),
+    ),
+)
+def test_cached_mount_binding_drives_rendered_label_and_visibility(
+    mount, expected_label, mount_hidden
+):
+    rig_devices_state = {
+        "rigs": [
+            {"rig_id": 2, "enabled": True, "devices": {"mount": mount}},
+        ]
+    }
+    selected_rig = rig_devices_state["rigs"][0]
+    selected_mount = selected_rig["devices"]["mount"]
+    pilotable = bool(
+        selected_mount
+        and selected_mount.get("backend") not in {None, "", "none", "external"}
+    )
+    rendered_label = (
+        f"RIG 2 — Monture : {selected_mount['display_label']}"
+        if pilotable
+        else "RIG 2 — Aucune monture pilotable"
+    )
+
+    label_source = _function_source("renderControlsRigSelection")
+    visibility_source = _function_source("renderSelectedMountAvailability")
+    assert rendered_label == expected_label
+    assert (not pilotable) is mount_hidden
+    assert "mount.display_label" in label_source
+    assert "selectedPilotableMountRig()" in visibility_source
+    assert re.search(r"mountSection\.hidden\s*=\s*!mountAvailable", visibility_source)
+    assert re.search(r"control\.disabled\s*=\s*!mountAvailable", visibility_source)
+    assert "fetch(" not in label_source
+    assert "fetch(" not in visibility_source
+
+
+def test_mount_controls_are_reenabled_when_cached_mount_becomes_pilotable():
+    source = _function_source("renderSelectedMountAvailability")
+
+    assert re.search(
+        r"querySelectorAll\(['\"]button, input, select['\"]\).*?"
+        r"control\.disabled\s*=\s*!mountAvailable",
+        source,
+        re.DOTALL,
+    )
+
+
+def test_passive_rig_updates_refresh_cached_mount_label_without_fetch():
+    load_source = _function_source("loadRigDevices", asynchronous=True)
+    render_source = _function_source("renderRigDevices")
+    update_source = _function_source("updateRigs")
+
+    assert "renderRigDevices(payload, inventory)" in load_source
+    assert "updateRigs(rigs)" in render_source
+    assert "renderControlsRigSelection()" in update_source
+    assert re.search(
+        r"socket\.on\(\s*['\"]state_update['\"].*?"
+        r"if\s*\(d\.rigs\)\s*updateRigs\(d\.rigs\)",
+        INDEX,
+        re.DOTALL,
+    )
+    assert "fetch(" not in update_source
+
+
 def _controls_visibility_source():
     match = re.search(
         r"function\s+updateControlsVisibility\(devices\)\s*\{(?P<body>.*?)\n\}",
@@ -201,7 +272,7 @@ def test_controls_visibility_for_all_device_states(
     assert re.search(r"controlsTab\.hidden\s*=\s*!controlsActive", source)
     assert re.search(r"controlsPanel\.hidden\s*=\s*!controlsActive", source)
     assert re.search(r"getElementById\(['\"]focuser-section['\"]\)\.hidden\s*=\s*!focuserActive", source)
-    assert re.search(r"getElementById\(['\"]mount-section['\"]\)\.hidden\s*=\s*!mountActive", source)
+    assert "renderSelectedMountAvailability()" in source
 
 
 def test_missing_devices_are_inactive_and_hidden():
