@@ -191,6 +191,7 @@ from backend.gps_controller import GpsController
 from backend.devices import CATEGORIES as DEVICE_CATEGORIES
 from backend.devices import detect_all, normalize_selection, ttl_expired
 from backend.eclipse_engine import loader as eclipse_loader
+from backend.rig_runtime import get_rig_manager, normalize_rigs_for_ui
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
 from services.camera_service import CameraService
@@ -525,6 +526,14 @@ def api_devices_detect():
 @app.route("/api/status")
 def api_status():
     camera_info = _get_camera_status()
+    try:
+        rigs = normalize_rigs_for_ui(get_rig_manager())
+    except Exception as exc:
+        log.warning("Chargement des rigs impossible : %s", exc)
+        rigs = [
+            {"rig_id": rig_id, "name": f"RIG {rig_id}", "enabled": False}
+            for rig_id in range(1, 5)
+        ]
     with _state_lock:
         gps     = dict(_state["gps"])
         trigger = dict(_state["trigger"])
@@ -537,6 +546,7 @@ def api_status():
         "circumstances": _state_store.snapshot("circumstances"),
         "capture": _state_store.snapshot("capture"),
         "devices": _devices_snapshot(),
+        "rigs": rigs,
     })
 
 

@@ -3,6 +3,7 @@ from types import ModuleType
 
 import pytest
 
+from backend.rig_manager import Rig, RigManager
 from backend.state_store import StateStore
 
 
@@ -53,6 +54,30 @@ def test_api_status_exposes_current_circumstances_and_capture(
     assert payload["capture"] == capture
     assert payload["circumstances"] == state_store.snapshot("circumstances")
     assert payload["capture"] == state_store.snapshot("capture")
+
+
+def test_api_status_exposes_four_normalized_rigs(status_state, monkeypatch):
+    rig_manager = RigManager(
+        {
+            1: Rig(1, True, "Primary", {"camera": {"backend": "simulated"}}),
+            3: Rig(3, False, "Spare", {"camera": {"backend": "none"}}),
+        }
+    )
+    monkeypatch.setattr(flask_module, "get_rig_manager", lambda: rig_manager)
+    monkeypatch.setattr(flask_module, "_get_camera_status", lambda: {})
+    monkeypatch.setattr(flask_module, "_load_eclipse_json", lambda: None)
+
+    response = flask_module.app.test_client().get("/api/status")
+
+    assert response.status_code == 200
+    rigs = response.get_json()["rigs"]
+    assert len(rigs) == 4
+    assert rigs == [
+        {"rig_id": 1, "name": "Primary", "enabled": True},
+        {"rig_id": 2, "name": "RIG 2", "enabled": False},
+        {"rig_id": 3, "name": "Spare", "enabled": False},
+        {"rig_id": 4, "name": "RIG 4", "enabled": False},
+    ]
 
 
 def test_on_connect_status_update_exposes_current_circumstances_and_capture(
