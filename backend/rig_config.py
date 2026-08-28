@@ -97,6 +97,21 @@ def validate(obj: Any) -> None:
                 f"{prefix}.devices.{key} must be an object or null",
             )
 
+        mount = devices.get("mount")
+        if isinstance(mount, dict):
+            mount_fields = {
+                "control": {"none", "external", "indi", "onstep"},
+                "geometry": {"equatorial", "altaz"},
+                "tracking": {"off", "solar", "sidereal"},
+            }
+            for key, allowed_values in mount_fields.items():
+                if key in mount:
+                    _require(
+                        isinstance(mount[key], str) and mount[key] in allowed_values,
+                        f"{prefix}.devices.mount.{key} must be one of "
+                        f"{sorted(allowed_values)}",
+                    )
+
         _require(isinstance(rig.get("optics"), dict), f"{prefix}.optics must be an object")
         _require(isinstance(rig.get("photo"), dict), f"{prefix}.photo must be an object")
 
