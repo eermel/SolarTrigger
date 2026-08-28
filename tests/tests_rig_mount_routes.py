@@ -151,6 +151,32 @@ def test_mount_routes_dispatch_to_requested_rig(
     ]
 
 
+def test_stop_rig1_mount_does_not_affect_rig2(monkeypatch):
+    rig_1_worker = FakeMountWorker(1)
+    rig_2_worker = FakeMountWorker(2)
+    client, _runtime, emitted = _client(
+        monkeypatch, {1: rig_1_worker, 2: rig_2_worker}
+    )
+
+    response = client.post("/api/rigs/1/mount/slew/stop")
+
+    assert response.status_code == 200
+    assert rig_1_worker.calls == [("stop", ())]
+    assert rig_2_worker.calls == []
+    assert emitted == [
+        (
+            "mount_update",
+            {
+                "status": "ok",
+                "worker_rig_id": 1,
+                "rig_id": 1,
+                "device_type": "mount",
+            },
+            {"namespace": "/"},
+        )
+    ]
+
+
 def test_absent_mount_worker_returns_device_not_configured(monkeypatch):
     client, runtime, emitted = _client(monkeypatch, {})
 
