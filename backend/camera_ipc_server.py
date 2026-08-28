@@ -25,6 +25,7 @@ from backend.exposure_selection import (
     select_supported_shutter_at_or_below,
 )
 from backend.generic_worker import ExpiredJobError
+from backend.motion_constraint_resolver import resolve_motion_constraint
 from backend.sensor_db import load_sensor_db
 from backend.solar_position import solar_declination_deg_utc
 from backend.solar_trailing import max_exposure_time_fixed_mount
@@ -407,7 +408,10 @@ class CameraIpcServer:
             policy_getter = getattr(self._runtime, "get_policy_config_for_rig", None)
             policy = policy_getter(rig_id) if policy_getter is not None else None
             augmented = None
-            if self._anti_trailing_enabled(policy):
+            if (
+                isinstance(policy, dict)
+                and resolve_motion_constraint(policy) == "fixed_trailing"
+            ):
                 intent, iso_applied, corrections, warnings = self._policy_intent(
                     rig_id, intent, policy
                 )
@@ -488,14 +492,6 @@ class CameraIpcServer:
             isinstance(value, str)
             and _ISO_PATTERN.fullmatch(value) is not None
             and int(value) > 0
-        )
-
-    @staticmethod
-    def _anti_trailing_enabled(policy: Any) -> bool:
-        return (
-            isinstance(policy, dict)
-            and isinstance(policy.get("photo"), dict)
-            and policy["photo"].get("anti_trailing_enabled") is True
         )
 
     @staticmethod

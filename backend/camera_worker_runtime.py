@@ -120,6 +120,7 @@ class CameraWorkerRuntime:
 
                 devices = rig.get("devices")
                 camera = devices.get("camera") if isinstance(devices, dict) else None
+                mount = devices.get("mount") if isinstance(devices, dict) else None
                 optics = rig.get("optics")
                 photo = rig.get("photo")
                 return {
@@ -127,7 +128,11 @@ class CameraWorkerRuntime:
                         "camera": {
                             key: camera.get(key) if isinstance(camera, dict) else None
                             for key in ("manufacturer", "model", "alias")
-                        }
+                        },
+                        "mount": {
+                            key: mount.get(key) if isinstance(mount, dict) else None
+                            for key in ("control", "geometry", "tracking")
+                        },
                     },
                     "optics": {
                         "focal_length_mm": (

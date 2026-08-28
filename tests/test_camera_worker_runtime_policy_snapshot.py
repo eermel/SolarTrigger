@@ -45,7 +45,12 @@ def test_reconcile_exposes_policy_snapshot_for_active_rig():
                 "manufacturer": "Canon",
                 "model": "EOS R5",
                 "alias": "wide-field",
-            }
+            },
+            "mount": {
+                "control": None,
+                "geometry": None,
+                "tracking": None,
+            },
         },
         "optics": {"focal_length_mm": 400},
         "photo": {
@@ -54,4 +59,3 @@ def test_reconcile_exposes_policy_snapshot_for_active_rig():
             "iso_max": 3200,
         },
     }
-
