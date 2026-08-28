@@ -42,3 +42,20 @@ def test_cfg_photo_has_exactly_four_camera_rig_columns_before_phase_cards():
     rigs_position = page_body.index(rigs_section.group(0))
     first_phase_position = page_body.index("<!-- ── CARD 2 : Phase Partielle ── -->")
     assert camera_config_position < rigs_position < first_phase_position
+
+
+def test_update_rigs_toggles_camera_column_visibility_and_enabled_class():
+    update_rigs = re.search(
+        r"function updateRigs\(rigs\)\s*\{(?P<body>.*?)\n\}",
+        INDEX_HTML,
+        flags=re.DOTALL,
+    )
+    assert update_rigs, "updateRigs function is missing"
+
+    body = update_rigs.group("body")
+    assert re.search(
+        r"document\.getElementById\(`camcfg-rig-column-\$\{defaultRig\.rig_id\}`\)",
+        body,
+    )
+    assert "cameraColumn.classList.toggle('enabled', enabled)" in body
+    assert "cameraColumn.hidden = !enabled" in body
