@@ -438,7 +438,8 @@ def _focuser_motion_conflict(service=None):
 
 def _focuser_result(status):
     """Publish and return the latest focuser state after a successful action."""
-    socketio.emit("focuser_update", status)
+    payload = {**status, "rig_id": 1, "device_type": "focuser"}
+    socketio.emit("focuser_update", payload)
     return jsonify(status)
 
 
