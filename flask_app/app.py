@@ -1382,6 +1382,50 @@ def api_rig_camera_probe(rig_id):
         "battery": info.get("battery"),
     })
 
+
+@app.route("/api/rigs/<int:rig_id>/camera/sync_time", methods=["POST"])
+def api_rig_camera_sync_time(rig_id):
+    """Synchronize the camera worker belonging to one enabled rig."""
+    try:
+        rig = get_rig_manager().get_rig(rig_id)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if rig.enabled is not True:
+        return jsonify({"error": f"rig {rig_id} is disabled"}), 409
+
+    gps_state = _state_store.snapshot("gps") or {}
+    utc_offset_minutes = gps_state.get("utc_offset_minutes")
+    if utc_offset_minutes is None:
+        return jsonify({
+            "error": "Synchronisation GPS requise avant la synchronisation caméra."
+        }), 409
+
+    attempted = datetime.now(timezone.utc)
+    reference = SimpleNamespace(
+        datetime_utc=attempted,
+        datetime_local=attempted + timedelta(minutes=utc_offset_minutes),
+        timezone_name=gps_state.get("timezone_name"),
+        utc_offset_minutes=utc_offset_minutes,
+    )
+
+    try:
+        runtime = get_camera_worker_runtime(log_fn=log.info)
+        runtime.reconcile(load_rig_configuration())
+        worker = runtime.get_for_rig(rig_id)
+        if worker is None:
+            raise RuntimeError("camera worker is unavailable")
+        result = worker.sync_datetime(reference)
+    except Exception as exc:
+        log.warning("Camera time sync unavailable for rig %s: %s", rig_id, exc)
+        return jsonify({
+            "error": "camera unavailable",
+            "code": "CAMERA_UNAVAILABLE",
+            "rig_id": rig_id,
+        }), 404
+
+    return jsonify(result)
+
 @app.route("/api/camera/sync_time", methods=["POST"])
 def api_camera_sync_time():
     inactive = require_device_active("camera")
