@@ -136,6 +136,14 @@ class CameraWorker:
             "get_battery_level", priority=PRIORITY_DIAGNOSTIC
         )
 
+    def read_info(self):
+        def invoke():
+            return self._ensure_service().read_info()
+
+        return self._worker.submit_with_priority(
+            PRIORITY_DIAGNOSTIC, invoke, reject_if_busy=True
+        ).result()
+
     def sync_datetime(self, ref):
         return self._call("sync_datetime", ref)
 
