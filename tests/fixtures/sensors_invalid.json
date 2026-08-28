@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "sensors": [
+    {
+      "manufacturer": "Nikon",
+      "model": "D850",
+      "aliases": ["Nikon D850", "D850 Body"],
+      "sensor_width_mm": 35.9,
+      "sensor_height_mm": 23.9,
+      "width_px": 8256,
+      "height_px": 5504
+    }
+  ]
+}
