@@ -554,7 +554,13 @@ def api_devices_detect():
 @app.route("/api/rigs/devices/inventory", methods=["GET"])
 def api_rig_device_inventory():
     """Return the runtime inventory cache without probing hardware."""
-    return jsonify(get_cached_inventory())
+    inventory = get_cached_inventory()
+    build_display_labels([
+        entry
+        for entries in inventory.values()
+        for entry in entries
+    ])
+    return jsonify(inventory)
 
 
 @app.route("/api/rigs/devices", methods=["GET"])
@@ -565,8 +571,7 @@ def api_rig_devices_get():
     categories = ("camera", "mount", "focuser")
 
     for category in categories:
-        entries = inventory.setdefault(category, [])
-        build_display_labels(entries)
+        inventory.setdefault(category, [])
 
     rigs = []
     bindings_by_category = {category: [] for category in categories}
@@ -587,7 +592,7 @@ def api_rig_devices_get():
         })
 
     for category, bindings in bindings_by_category.items():
-        build_display_labels(bindings)
+        build_display_labels([*inventory[category], *bindings])
         present_identities = {
             key
             for entry in inventory[category]

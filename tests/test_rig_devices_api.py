@@ -215,6 +215,46 @@ def test_rig_devices_get_enriches_persisted_bindings_from_cached_inventory(
     ]
 
 
+def test_rig_devices_get_label_matches_inventory_endpoint(monkeypatch):
+    manager = RigManager.from_config(_rig_config())
+    inventory = {
+        "camera": [
+            {
+                "category": "camera",
+                "backend": "gphoto2",
+                "model": "Sony Alpha",
+                "serial": "CAMERA-0001",
+            },
+            {
+                "category": "camera",
+                "backend": "gphoto2",
+                "model": "Sony Alpha",
+                "serial": "CAMERA-0002",
+            },
+        ],
+        "mount": [],
+        "focuser": [],
+    }
+    monkeypatch.setattr(flask_module, "get_rig_manager", lambda: manager)
+    monkeypatch.setattr(
+        flask_module, "get_cached_inventory", lambda: deepcopy(inventory)
+    )
+
+    client = flask_module.app.test_client()
+    inventory_payload = client.get("/api/rigs/devices/inventory").get_json()
+    rigs_payload = client.get("/api/rigs/devices").get_json()
+
+    inventory_entry = next(
+        entry
+        for entry in inventory_payload["camera"]
+        if entry["serial"] == "CAMERA-0001"
+    )
+    binding = rigs_payload["rigs"][0]["devices"]["camera"]
+
+    assert inventory_entry["display_label"] == "Sony Alpha · 0001"
+    assert binding["display_label"] == inventory_entry["display_label"]
+
+
 def test_rig_devices_post_persists_single_rig_merge_and_reloads_manager(
     persisted_rig_api,
 ):

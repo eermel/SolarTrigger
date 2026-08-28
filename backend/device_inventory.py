@@ -68,22 +68,24 @@ def build_display_labels(
 
     for indices in groups.values():
         suffixes: dict[int, str] = {}
-        serial_indices = [
-            index for index in indices if _stable_serial(entries[index])
-        ]
-        if len(indices) > 1 and serial_indices:
+        serials = {
+            index: serial
+            for index in indices
+            if (serial := _stable_serial(entries[index]))
+        }
+        distinct_serials = set(serials.values())
+        distinct_entries = len(distinct_serials) + len(indices) - len(serials)
+        if distinct_entries > 1 and serials:
             width = 4
-            longest = max(len(_stable_serial(entries[index])) for index in serial_indices)
+            longest = max(len(serial) for serial in distinct_serials)
             while width < longest:
-                values = {
-                    _stable_serial(entries[index])[-width:] for index in serial_indices
-                }
-                if len(values) == len(serial_indices):
+                values = {serial[-width:] for serial in distinct_serials}
+                if len(values) == len(distinct_serials):
                     break
                 width += 1
             suffixes = {
-                index: _stable_serial(entries[index])[-width:]
-                for index in serial_indices
+                index: serial[-width:]
+                for index, serial in serials.items()
             }
         for index in indices:
             suffix = suffixes.get(index)
