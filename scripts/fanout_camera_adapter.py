@@ -83,6 +83,9 @@ class FanoutCameraAdapter:
             plugin_name = result.get("plugin_name")
             exposures_s = result.get("exposures_s")
             request_id = result.get("request_id")
+            iso_applied = result.get("iso_applied")
+            corrections = result.get("corrections")
+            warnings = result.get("warnings")
             if isinstance(plugin_name, str):
                 materialized.append(
                     MaterializedExposure(
@@ -97,9 +100,23 @@ class FanoutCameraAdapter:
                             )
                             else None
                         ),
-                        iso_applied=None,
-                        corrections=[],
-                        warnings=[],
+                        iso_applied=(
+                            iso_applied
+                            if isinstance(iso_applied, str) and iso_applied
+                            else None
+                        ),
+                        corrections=(
+                            corrections
+                            if isinstance(corrections, list)
+                            and all(isinstance(item, str) for item in corrections)
+                            else []
+                        ),
+                        warnings=(
+                            warnings
+                            if isinstance(warnings, list)
+                            and all(isinstance(item, str) for item in warnings)
+                            else []
+                        ),
                         logical_request_id=(
                             request_id if isinstance(request_id, str) else None
                         ),

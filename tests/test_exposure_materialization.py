@@ -47,6 +47,21 @@ class FakeSingleRigIpcClient:
         }
 
 
+class FakeMaterializationDetailsIpcClient:
+    def list_active_camera_rigs(self) -> dict[str, tuple[int]]:
+        return {"rig_ids": (1,)}
+
+    def prepare_capture(self, rig_id: int, _intent: Any) -> dict[str, Any]:
+        assert rig_id == 1
+        return {
+            "token_id": "token-rig-1",
+            "plugin_name": "nikon",
+            "iso_applied": "ISO 400",
+            "corrections": ["shutter rounded to 1/125"],
+            "warnings": ["requested ISO unavailable"],
+        }
+
+
 def test_prepare_capture_materializes_distinct_plans_with_traceability() -> None:
     adapter = FanoutCameraAdapter(FakeIpcClient(), log_fn=lambda _message: None)
     intent = SimpleNamespace(request_id="REQ-XYZ")
@@ -93,3 +108,21 @@ def test_prepare_capture_single_rig_matches_representative_materialization() -> 
         materialized.exposures_s,
         materialized.logical_request_id,
     ) == (1, "nikon", [0.4, 0.8], "REQ-1")
+
+
+def test_prepare_capture_surfaces_materialization_details() -> None:
+    adapter = FanoutCameraAdapter(
+        FakeMaterializationDetailsIpcClient(), log_fn=lambda _message: None
+    )
+
+    try:
+        prepared = adapter.prepare_capture(SimpleNamespace())
+    finally:
+        adapter.close()
+
+    assert prepared.materialized is not None
+    assert len(prepared.materialized) == 1
+    materialized = prepared.materialized[0]
+    assert materialized.iso_applied == "ISO 400"
+    assert materialized.corrections == ["shutter rounded to 1/125"]
+    assert materialized.warnings == ["requested ISO unavailable"]
