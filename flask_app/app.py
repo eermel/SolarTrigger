@@ -206,6 +206,7 @@ from backend.rig_runtime import (
     normalize_rigs_for_ui,
     reload_rig_manager,
 )
+from backend.camera_worker_runtime import get_camera_worker_runtime
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
 from services.camera_service import CameraService
@@ -1346,6 +1347,40 @@ def api_camera_probe():
     except Exception as e:
         _append_log(f"❌ Caméra non détectée : {e}", "error", "system")
         return jsonify({"error": str(e)}), 404
+
+
+@app.route("/api/rigs/<int:rig_id>/camera/probe", methods=["POST"])
+def api_rig_camera_probe(rig_id):
+    """Probe the camera worker belonging to one enabled rig."""
+    try:
+        rig = get_rig_manager().get_rig(rig_id)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if rig.enabled is not True:
+        return jsonify({"error": f"rig {rig_id} is disabled"}), 409
+
+    try:
+        runtime = get_camera_worker_runtime(log_fn=log.info)
+        runtime.reconcile(load_rig_configuration())
+        worker = runtime.get_for_rig(rig_id)
+        if worker is None:
+            raise RuntimeError("camera worker is unavailable")
+        info = worker.probe_info()
+    except Exception as exc:
+        log.warning("Camera probe unavailable for rig %s: %s", rig_id, exc)
+        return jsonify({
+            "error": "camera unavailable",
+            "code": "CAMERA_UNAVAILABLE",
+            "rig_id": rig_id,
+        }), 404
+
+    model = info.get("model")
+    return jsonify({
+        "brand": _brand_from_model(model),
+        "model": model,
+        "battery": info.get("battery"),
+    })
 
 @app.route("/api/camera/sync_time", methods=["POST"])
 def api_camera_sync_time():
