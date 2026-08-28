@@ -73,15 +73,15 @@ def test_press_and_page_lifecycle_safety_bindings_are_present():
 
 def test_short_press_and_long_jog_use_distinct_single_request_paths():
     for endpoint in (
-        "/api/focuser/step",
-        "/api/focuser/jog/start",
-        "/api/focuser/jog/stop",
+        "step",
+        "jog/start",
+        "jog/stop",
     ):
-        assert FOCUSER_JS.count(endpoint) == 1
+        assert len(re.findall(rf"['\"]{re.escape(endpoint)}['\"]", FOCUSER_JS)) == 1
 
     assert re.search(
-        r"if\s*\(ended\.jogStarted\)\s*\{.*?jog/stop.*?\}\s*"
-        r"else\s+if\s*\(singleStep\s*&&\s*active\)\s*\{.*?/api/focuser/step",
+        r"if\s*\(ended\.jogStarted\)\s*\{.*?focuserUrl\(\s*['\"]jog/stop['\"]\s*\).*?\}\s*"
+        r"else\s+if\s*\(singleStep\s*&&\s*active\)\s*\{.*?post\(\s*['\"]step['\"]",
         FOCUSER_JS,
         re.DOTALL,
     )
@@ -95,7 +95,8 @@ def test_movement_does_not_use_set_interval():
 
 
 def test_backend_refresh_and_socket_resynchronization_are_present():
-    assert re.search(r"request\(\s*['\"]/api/focuser/status['\"]\s*\)", FOCUSER_JS)
+    assert re.search(r"const\s+url\s*=\s*focuserUrl\(\s*['\"]status['\"]\s*\)", FOCUSER_JS)
+    assert re.search(r"displayFocuser\(\s*await\s+request\(\s*url\s*\)\s*\)", FOCUSER_JS)
     assert re.search(r"setTimeout\(\s*refreshFocuser\s*,", FOCUSER_JS)
     assert re.search(r"socket\.on\(\s*['\"]focuser_update['\"]", FOCUSER_JS)
     assert re.search(r"socket\.on\(\s*['\"]status_update['\"]", FOCUSER_JS)
@@ -139,24 +140,43 @@ def test_focuser_cancel_style_uses_red_background_white_text_and_red_border():
 
 
 def test_each_focuser_endpoint_is_referenced_once():
-    for endpoint in (
-        "/api/focuser/status",
-        "/api/focuser/stop",
-        "/api/focuser/home",
-        "/api/focuser/move_to",
-        "/api/focuser/set_step",
-        "/api/focuser/mode",
-        "/api/focuser/step",
-        "/api/focuser/jog/start",
-        "/api/focuser/jog/stop",
-    ):
-        assert FOCUSER_JS.count(endpoint) == 1
+    assert not re.search(r"/api/focuser(?:/|['\"])", FOCUSER_JS)
+    assert "`/api/rigs/${rig.rig_id}/focuser/${path}`" in FOCUSER_JS
+
+
+def test_focuser_url_uses_selected_rig_and_is_guarded():
+    url_function = re.search(
+        r"function\s+focuserUrl\(\s*path\s*\)\s*\{(?P<body>.*?)\n\s*\}",
+        FOCUSER_JS,
+        re.DOTALL,
+    )
+    assert url_function
+    assert "selectedControlsRig()" in url_function.group("body")
+    assert "`/api/rigs/${rig.rig_id}/focuser/${path}`" in url_function.group("body")
+    assert re.search(r":\s*null\s*;", url_function.group("body"))
+
+    post_function = re.search(
+        r"function\s+post\(\s*path\b[^)]*\)\s*\{(?P<body>.*?)\n\s*\}",
+        FOCUSER_JS,
+        re.DOTALL,
+    )
+    assert post_function
+    assert re.search(r"const\s+url\s*=\s*focuserUrl\(\s*path\s*\)", post_function.group("body"))
+    assert re.search(r"if\s*\(\s*!url\s*\)\s*return\b", post_function.group("body"))
+
+    for path in ("mode", "home", "stop", "move_to", "set_step", "step", "jog/start"):
+        assert re.search(rf"post\(\s*['\"]{re.escape(path)}['\"]", FOCUSER_JS)
+
+    assert re.search(
+        r"const\s+url\s*=\s*focuserUrl\(\s*['\"]jog/stop['\"]\s*\)\s*;\s*"
+        r"if\s*\(\s*url\s*\)\s*fetch\(\s*url\b",
+        FOCUSER_JS,
+    )
 
 
 def test_mode_switch_posts_backend_authoritative_slow_fast_mode():
-    assert FOCUSER_JS.count("/api/focuser/mode") == 1
     assert re.search(
-        r"post\(\s*['\"]/api/focuser/mode['\"]\s*,\s*"
+        r"post\(\s*['\"]mode['\"]\s*,\s*"
         r"\{\s*mode\s*:\s*speedSwitch\.checked\s*\?\s*['\"]fast['\"]"
         r"\s*:\s*['\"]slow['\"]\s*\}",
         FOCUSER_JS,
@@ -173,12 +193,8 @@ def test_mode_switch_posts_backend_authoritative_slow_fast_mode():
 
 
 def test_step_and_jog_requests_are_direction_only():
-    assert FOCUSER_JS.count("/api/focuser/step") == 1
-    assert FOCUSER_JS.count("/api/focuser/jog/start") == 1
-    assert FOCUSER_JS.count("/api/focuser/jog/stop") == 1
-
     step_call = re.search(
-        r"post\(\s*['\"]/api/focuser/step['\"]\s*,\s*"
+        r"post\(\s*['\"]step['\"]\s*,\s*"
         r"(?P<body>\{.*?\})\s*\)",
         FOCUSER_JS,
         re.DOTALL,
@@ -191,7 +207,7 @@ def test_step_and_jog_requests_are_direction_only():
     assert "mode" not in step_call.group("body")
 
     jog_call = re.search(
-        r"post\(\s*['\"]/api/focuser/jog/start['\"]\s*,\s*"
+        r"post\(\s*['\"]jog/start['\"]\s*,\s*"
         r"(?P<body>\{.*?\})\s*\)",
         FOCUSER_JS,
         re.DOTALL,
