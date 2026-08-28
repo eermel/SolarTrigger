@@ -14,6 +14,7 @@ def test_load_valid_then_lookup_model():
     entry = lookup_model(db, "Nikon", "D850")
 
     assert entry["pixel_pitch_um"] == pytest.approx(35.9 * 1000 / 8256)
+    assert entry["camera_type"] is None
 
 
 def test_lookup_by_alias():
@@ -30,17 +31,25 @@ def test_invalid_fixture_raises():
         load_sensor_db(FIXTURES / "sensors_invalid.json")
 
 
+def test_load_normalizes_camera_type():
+    db = load_sensor_db(FIXTURES / "sensors_camera_type_valid.json")
+
+    entry = lookup_model(db, "Nikon", "D850")
+
+    assert entry["camera_type"] == "dslr"
+
+
+def test_invalid_camera_type_raises():
+    with pytest.raises(ValueError, match="camera_type"):
+        load_sensor_db(FIXTURES / "sensors_camera_type_invalid.json")
+
+
 def test_manual_fallback():
-    manual = make_manual_entry("Unknown", "Custom", 36.0, 24.0, 6000, 4000)
-
-    assert "manual" in manual["sources"]
-    assert manual["pixel_pitch_um"] == pytest.approx(36.0 * 1000 / 6000)
-
     db = load_sensor_db(FIXTURES / "sensors_valid.json")
-    try:
-        fallback = lookup_model(db, "Unknown", "Custom")
-    except KeyError:
-        fallback = make_manual_entry("Unknown", "Custom", 36.0, 24.0, 6000, 4000)
+    with pytest.raises(KeyError):
+        lookup_model(db, "Unknown", "Custom")
 
-    assert fallback["pixel_pitch_um"] == pytest.approx(6.0)
+    fallback = make_manual_entry("Unknown", "Custom", 36.0, 24.0, 6000, 4000)
+
     assert "manual" in fallback["sources"]
+    assert fallback["pixel_pitch_um"] == pytest.approx(36.0 * 1000 / 6000)

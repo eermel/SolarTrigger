@@ -5,9 +5,9 @@ The on-disk format is schema version 1::
     {"schema_version": 1, "sensors": [{...}]}
 
 Each sensor requires ``manufacturer``, ``model``, ``sensor_width_mm``,
-``sensor_height_mm``, ``width_px``, ``height_px``, and ``sources``.  ``aliases``
-and ``pixel_pitch_um`` are optional.  Pixel pitch is derived only from the
-physical and pixel widths when it is not supplied.
+``sensor_height_mm``, ``width_px``, ``height_px``, and ``sources``.  ``aliases``,
+``pixel_pitch_um``, and ``camera_type`` are optional.  Pixel pitch is derived
+only from the physical and pixel widths when it is not supplied.
 """
 
 from __future__ import annotations
@@ -27,6 +27,8 @@ _REQUIRED_ENTRY_FIELDS = (
     "height_px",
     "sources",
 )
+
+_CAMERA_TYPES = {"dslr", "mirrorless", "astronomy"}
 
 
 def _nonempty_string(value: Any, field: str) -> str:
@@ -87,6 +89,12 @@ def validate_db(doc: dict) -> None:
         _positive_integer(entry["height_px"], f"{prefix}.height_px")
         if "pixel_pitch_um" in entry and entry["pixel_pitch_um"] is not None:
             _positive_number(entry["pixel_pitch_um"], f"{prefix}.pixel_pitch_um")
+        if "camera_type" in entry:
+            camera_type = _nonempty_string(entry["camera_type"], f"{prefix}.camera_type")
+            if camera_type.casefold() not in _CAMERA_TYPES:
+                raise ValueError(
+                    f"{prefix}.camera_type must be one of: {', '.join(sorted(_CAMERA_TYPES))}"
+                )
 
         sources = entry["sources"]
         if not isinstance(sources, list) or not sources:
@@ -124,6 +132,9 @@ def _normalize_entry(entry: dict) -> dict:
     normalized["model"] = entry["model"].strip()
     normalized["aliases"] = [alias.strip() for alias in entry.get("aliases", [])]
     normalized["sources"] = [source.strip() for source in entry["sources"]]
+    normalized["camera_type"] = (
+        entry["camera_type"].strip().casefold() if "camera_type" in entry else None
+    )
     normalized["id_key"] = _entry_key(normalized["manufacturer"], normalized["model"])
     if normalized.get("pixel_pitch_um") is None:
         normalized["pixel_pitch_um"] = (
@@ -205,4 +216,3 @@ def make_manual_entry(
         entry["pixel_pitch_um"] = pixel_pitch_um
     validate_db({"schema_version": 1, "sensors": [entry]})
     return _normalize_entry(entry)
-
