@@ -1192,6 +1192,20 @@ def api_mount_slew_stop():
     return jsonify(result)
 
 
+def _brand_from_model(model):
+    """Déduit la marque à partir du modèle déclaré par gphoto2."""
+    from plugins.camera.nikon import NikonDSLRPlugin, NikonZPlugin
+    from plugins.camera.sony import SonyPlugin
+
+    if SonyPlugin.matches(model):
+        return "SONY"
+    if NikonZPlugin.matches(model) or NikonDSLRPlugin.matches(model):
+        return "NIKON"
+    if model and model.split():
+        return model.split()[0].upper()
+    return "Inconnu"
+
+
 def _get_camera_model_info(camera):
     """Lit marque, modèle et batterie depuis la config gphoto2."""
     brand   = None
@@ -1199,17 +1213,9 @@ def _get_camera_model_info(camera):
     battery = None
     try:
         from plugins.camera import get_camera_model
-        from plugins.camera.nikon import NikonDSLRPlugin, NikonZPlugin
-        from plugins.camera.sony import SonyPlugin
         full_model = get_camera_model(camera)
-        if full_model:
-            model = full_model
-            if SonyPlugin.matches(model):
-                brand = "SONY"
-            elif NikonZPlugin.matches(model) or NikonDSLRPlugin.matches(model):
-                brand = "NIKON"
-            else:
-                brand = model.split()[0].upper()
+        model = full_model
+        brand = _brand_from_model(model)
     except Exception:
         pass
     try:
