@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import time
 from typing import Any
 
 from backend.generic_worker import (
@@ -25,6 +26,7 @@ class CameraWorker:
         shutdown_policy: str = "drain",
         max_queue_size: int | None = None,
     ) -> None:
+        self._clock = clock
         self._service_factory = service_factory or (
             lambda: CameraService(log_fn=log_fn, clock=clock)
         )
@@ -62,6 +64,7 @@ class CameraWorker:
         method_name: str,
         *args,
         priority: int | None = None,
+        worker_deadline: float | None = None,
         **kwargs,
     ) -> Any:
         def invoke():
@@ -71,8 +74,20 @@ class CameraWorker:
         if priority is None:
             future = self._worker.submit(invoke)
         else:
-            future = self._worker.submit_with_priority(priority, invoke)
+            future = self._worker.submit_with_priority(
+                priority,
+                invoke,
+                worker_deadline=worker_deadline,
+            )
         return future.result()
+
+    def _capture_deadline(self, deadline) -> float | None:
+        """Convert an absolute UTC capture deadline once, before queueing."""
+        if deadline is None:
+            return None
+        if self._clock is None:
+            raise RuntimeError("horloge d'exécution non configurée")
+        return time.monotonic() + self._clock.remaining(deadline)
 
     def connect(self):
         return self._call("connect")
@@ -108,11 +123,14 @@ class CameraWorker:
         )
 
     def trigger_prepared(self, prepared, deadline=None):
+        monotonic_deadline = self._capture_deadline(deadline)
         return self._call(
             "trigger_prepared",
             prepared,
             deadline=deadline,
+            monotonic_deadline=monotonic_deadline,
             priority=PRIORITY_SEQUENCER,
+            worker_deadline=monotonic_deadline,
         )
 
     def shoot_speed_list(
@@ -122,13 +140,16 @@ class CameraWorker:
         deadline=None,
         slowest_override_seconds=None,
     ):
+        monotonic_deadline = self._capture_deadline(deadline)
         return self._call(
             "shoot_speed_list",
             speeds,
             photo_num_start=photo_num_start,
             deadline=deadline,
+            monotonic_deadline=monotonic_deadline,
             slowest_override_seconds=slowest_override_seconds,
             priority=PRIORITY_SEQUENCER,
+            worker_deadline=monotonic_deadline,
         )
 
     def get_battery_level(self):
