@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from concurrent.futures import Future
 from datetime import datetime, timezone
 from itertools import count
@@ -20,6 +21,12 @@ PRIORITY_DIAGNOSTIC = 90
 
 class BusyDeviceError(RuntimeError):
     """Raised when diagnostic work is rejected by a busy worker."""
+
+
+class ExpiredJobError(RuntimeError):
+    """Raised when a job reaches its deadline before execution."""
+
+    code = "EXPIRED"
 
 
 class GenericWorker:
@@ -89,11 +96,23 @@ class GenericWorker:
             )
             self._thread.start()
 
-    def submit(self, callable, *args, **kwargs) -> Future:
+    def submit(
+        self,
+        callable,
+        *args,
+        worker_deadline: float | None = None,
+        purpose: str | None = None,
+        **kwargs,
+    ) -> Future:
         """Queue a callable and return a Future representing its execution."""
 
         return self.submit_with_priority(
-            PRIORITY_MANUAL, callable, *args, **kwargs
+            PRIORITY_MANUAL,
+            callable,
+            *args,
+            worker_deadline=worker_deadline,
+            purpose=purpose,
+            **kwargs,
         )
 
     def submit_with_priority(
@@ -102,6 +121,8 @@ class GenericWorker:
         callable,
         *args,
         reject_if_busy: bool = False,
+        worker_deadline: float | None = None,
+        purpose: str | None = None,
         **kwargs,
     ) -> Future:
         """Queue a callable at a priority, optionally rejecting busy work."""
@@ -119,7 +140,7 @@ class GenericWorker:
                 raise BusyDeviceError(
                     f"{self.device_kind} worker for rig {self.rig_id} is busy"
                 )
-            job = (future, callable, args, kwargs)
+            job = (future, callable, args, kwargs, worker_deadline, purpose)
             self._queue.put_nowait((priority, next(self._sequence), job))
         return future
 
@@ -154,15 +175,29 @@ class GenericWorker:
                     if job is _STOP:
                         stop_requested = True
                     else:
-                        future, func, args, kwargs = job
+                        future, func, args, kwargs, worker_deadline, purpose = job
                         with self._lock:
                             self._executing_priority = priority
                         if future.set_running_or_notify_cancel():
-                            try:
-                                future.set_result(func(*args, **kwargs))
-                            except BaseException as exc:
-                                future.set_exception(exc)
-                                self._record_error(exc)
+                            if (
+                                worker_deadline is not None
+                                and time.monotonic() >= worker_deadline
+                            ):
+                                future.set_exception(ExpiredJobError())
+                                try:
+                                    self._log_fn(
+                                        f"{self.device_kind} worker for rig "
+                                        f"{self.rig_id} skipped expired job: "
+                                        f"{purpose or 'unspecified'}"
+                                    )
+                                except Exception:
+                                    pass
+                            else:
+                                try:
+                                    future.set_result(func(*args, **kwargs))
+                                except BaseException as exc:
+                                    future.set_exception(exc)
+                                    self._record_error(exc)
                 finally:
                     with self._lock:
                         self._executing_priority = None
