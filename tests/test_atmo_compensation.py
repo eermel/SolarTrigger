@@ -246,6 +246,35 @@ def test_simulated_intent_uses_capture_flag_step_and_inclusive_slow_bound(monkey
 
     assert prepared.exposures_s == pytest.approx([0.125, 0.25, 0.5, 1.0, 2.0])
 
+
+def test_per_rig_atmo_suppresses_global_intent_extension(monkeypatch):
+    monkeypatch.setattr(trig, "_per_rig_atmo_active", True)
+    monkeypatch.setitem(
+        trig.capture_canonical["exposure_correction"],
+        "atmospheric_attenuation_enabled",
+        True,
+    )
+
+    factor_calls = []
+
+    def known_atmo_factor(height, observer_altitude):
+        factor_calls.append((height, observer_altitude))
+        return 4.0
+
+    monkeypatch.setattr(trig, "facteur_atmospherique", known_atmo_factor)
+
+    intent = trig._capture_intent(
+        {"shutter_max": "1/8", "shutter_min": "1/2", "step_ev": 1.0},
+        "totality",
+        datetime(2026, 8, 12, 20, 0, 0),
+    )
+
+    assert intent.speeds is None
+    assert intent.shutter_max == "1/8"
+    assert intent.shutter_min == "1/2"
+    assert intent.step_ev == 1.0
+    assert factor_calls == []
+
 def test_irregular_list_is_unchanged_under_atmo(monkeypatch):
     monkeypatch.setitem(
         trig.capture_canonical["exposure_correction"],

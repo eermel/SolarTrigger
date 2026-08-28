@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from copy import copy
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, is_dataclass, replace
 from datetime import datetime
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 from backend.exposure_model import MaterializedExposure
 from plugins.camera.base import CaptureResult
@@ -22,9 +23,19 @@ class _PreparedRig:
 class FanoutCameraAdapter:
     """Present the camera-service interface for all currently active IPC rigs."""
 
-    def __init__(self, ipc_client: Any, log_fn: Callable[[str], None] = print) -> None:
+    def __init__(
+        self,
+        ipc_client: Any,
+        log_fn: Callable[[str], None] = print,
+        atmos_enabled_by_rig: Mapping[int, bool] | None = None,
+        atmos_intent_transformer: (
+            Callable[[int, Any], tuple[Any, bool]] | None
+        ) = None,
+    ) -> None:
         self._ipc = ipc_client
         self._log = log_fn
+        self._atmos_enabled_by_rig = atmos_enabled_by_rig or {}
+        self._atmos_intent_transformer = atmos_intent_transformer
         # Keep the pool alive: creating one per operation adds avoidable latency at
         # precisely the point where the trigger is preparing or firing cameras.
         self._executor = ThreadPoolExecutor(max_workers=4)
@@ -65,7 +76,15 @@ class FanoutCameraAdapter:
 
     def prepare_capture(self, intent: Any) -> PreparedCapture:
         rig_ids = self._active_rig_ids()
-        futures = self._submit_all(rig_ids, self._ipc.prepare_capture, intent)
+        intents_by_rig = {
+            rig_id: self._prepare_intent_for_rig(rig_id, intent) for rig_id in rig_ids
+        }
+        futures = {
+            rig_id: self._executor.submit(
+                self._ipc.prepare_capture, rig_id, intents_by_rig[rig_id]
+            )
+            for rig_id in rig_ids
+        }
         results = self._collect("prepare_capture", futures)
 
         prepared_rigs: list[_PreparedRig] = []
@@ -146,6 +165,24 @@ class FanoutCameraAdapter:
             plugin_name="fanout",
             materialized=materialized,
         )
+
+    def _prepare_intent_for_rig(self, rig_id: int, intent: Any) -> Any:
+        copied_intent = replace(intent) if is_dataclass(intent) else copy(intent)
+        if not self._atmos_enabled_by_rig.get(rig_id):
+            return copied_intent
+
+        original_origin = getattr(copied_intent, "origin", None)
+        if self._atmos_intent_transformer is None:
+            return copied_intent
+        transformed_intent, added = self._atmos_intent_transformer(
+            rig_id, copied_intent
+        )
+
+        origin = "atmos" if added else original_origin
+        if is_dataclass(transformed_intent):
+            return replace(transformed_intent, origin=origin)
+        setattr(transformed_intent, "origin", origin)
+        return transformed_intent
 
     def trigger_prepared(
         self, prepared: PreparedCapture, deadline: datetime | None = None
