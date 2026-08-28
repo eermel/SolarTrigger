@@ -16,6 +16,17 @@ _rig_manager: RigManager | None = None
 _rig_manager_lock = threading.Lock()
 
 
+def load_rig_configuration() -> dict:
+    """Load the persisted rig configuration, or migrate legacy state in memory."""
+
+    rig_config_path = TRIGGER_DIR / "configs" / "rig" / "default.json"
+    if rig_config_path.exists():
+        return load(rig_config_path)
+
+    state_store = StateStore(TRIGGER_DIR / "flask_app" / "state.json")
+    return migrate_legacy(state_store, TRIGGER_DIR / "configs")
+
+
 def get_rig_manager() -> RigManager:
     """Load and cache the canonical :class:`RigManager` instance.
 
@@ -29,15 +40,22 @@ def get_rig_manager() -> RigManager:
     if _rig_manager is None:
         with _rig_manager_lock:
             if _rig_manager is None:
-                rig_config_path = TRIGGER_DIR / "configs" / "rig" / "default.json"
-                if rig_config_path.exists():
-                    config = load(rig_config_path)
-                else:
-                    state_store = StateStore(TRIGGER_DIR / "flask_app" / "state.json")
-                    config = migrate_legacy(state_store, TRIGGER_DIR / "configs")
-                _rig_manager = RigManager.from_config(config)
+                _rig_manager = RigManager.from_config(load_rig_configuration())
 
     return _rig_manager
+
+
+def reload_rig_manager(config: dict | None = None) -> RigManager:
+    """Build and install a fresh canonical manager without probing hardware."""
+
+    global _rig_manager
+
+    replacement = RigManager.from_config(
+        load_rig_configuration() if config is None else config
+    )
+    with _rig_manager_lock:
+        _rig_manager = replacement
+    return replacement
 
 
 def normalize_rigs_for_ui(rm: RigManager) -> list[dict]:
