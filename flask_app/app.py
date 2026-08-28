@@ -23,6 +23,7 @@ Persistance :
 
 import json
 import re
+from copy import deepcopy
 
 # Détecte la couleur ANSI puis la supprime — mapping vers les niveaux CSS du portail
 _ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*m')
@@ -197,7 +198,14 @@ from backend.device_inventory import (
     refresh_inventory,
 )
 from backend.eclipse_engine import loader as eclipse_loader
-from backend.rig_runtime import get_rig_manager, normalize_rigs_for_ui
+from backend.rig_config import save as save_rig_config, validate as validate_rig_config
+from backend.rig_manager import RigManager
+from backend.rig_runtime import (
+    get_rig_manager,
+    load_rig_configuration,
+    normalize_rigs_for_ui,
+    reload_rig_manager,
+)
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
 from services.camera_service import CameraService
@@ -591,6 +599,120 @@ def api_rig_devices_get():
     return jsonify({
         "rigs": rigs,
         "inventory": inventory,
+        "identity_warnings": list(manager.identity_warnings),
+    })
+
+
+_RIG_PATCH_FIELDS = frozenset(("rig_id", "enabled", "name", "devices"))
+_RIG_DEVICE_CATEGORIES = frozenset(("camera", "mount", "focuser"))
+_RUNTIME_DEVICE_FIELDS = frozenset(
+    ("present", "transport_locator", "busnum", "devnum")
+)
+
+
+def _new_rig_scaffold(rig_id):
+    return {
+        "rig_id": rig_id,
+        "name": f"RIG {rig_id}",
+        "enabled": False,
+        "devices": {"camera": None, "mount": None, "focuser": None},
+        "optics": {},
+        "photo": {},
+    }
+
+
+@app.route("/api/rigs/devices", methods=["POST"])
+def api_rig_devices_post():
+    """Persist validated per-rig binding patches and reload runtime state."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or set(payload) != {"rigs"}:
+        return jsonify({"error": "payload must contain only a rigs array"}), 400
+    patches = payload["rigs"]
+    if not isinstance(patches, list):
+        return jsonify({"error": "rigs must be an array"}), 400
+
+    try:
+        config = deepcopy(load_rig_configuration())
+        rigs_by_id = {
+            rig.get("rig_id"): rig
+            for rig in config.get("rigs", [])
+            if isinstance(rig, dict)
+        }
+        for rig_id in range(1, 5):
+            rigs_by_id.setdefault(rig_id, _new_rig_scaffold(rig_id))
+
+        patched_ids = set()
+        for index, patch in enumerate(patches):
+            if not isinstance(patch, dict):
+                raise ValueError(f"rigs[{index}] must be an object")
+            unknown = set(patch) - _RIG_PATCH_FIELDS
+            if unknown:
+                raise ValueError(
+                    f"rigs[{index}] contains unsupported fields: "
+                    + ", ".join(sorted(unknown))
+                )
+            rig_id = patch.get("rig_id")
+            if (
+                not isinstance(rig_id, int)
+                or isinstance(rig_id, bool)
+                or not 1 <= rig_id <= 4
+            ):
+                raise ValueError(f"rigs[{index}].rig_id must be an integer from 1 to 4")
+            if rig_id in patched_ids:
+                raise ValueError(f"duplicate rig_id patch: {rig_id}")
+            patched_ids.add(rig_id)
+
+            target = rigs_by_id[rig_id]
+            for field in ("enabled", "name"):
+                if field in patch:
+                    target[field] = patch[field]
+            if "devices" in patch:
+                devices_patch = patch["devices"]
+                if not isinstance(devices_patch, dict):
+                    raise ValueError(f"rigs[{index}].devices must be an object")
+                unknown_devices = set(devices_patch) - _RIG_DEVICE_CATEGORIES
+                if unknown_devices:
+                    raise ValueError(
+                        f"rigs[{index}].devices contains unsupported categories: "
+                        + ", ".join(sorted(unknown_devices))
+                    )
+                for category, binding in devices_patch.items():
+                    if isinstance(binding, dict):
+                        transient = set(binding) & _RUNTIME_DEVICE_FIELDS
+                        if transient:
+                            raise ValueError(
+                                f"rigs[{index}].devices.{category} contains runtime-only "
+                                f"fields: {', '.join(sorted(transient))}"
+                            )
+                    target.setdefault("devices", {})[category] = deepcopy(binding)
+
+        config["rigs"] = [rigs_by_id[rig_id] for rig_id in range(1, 5)]
+        validate_rig_config(config)
+        manager = RigManager.from_config(config)
+    except ValueError as exc:
+        status = 409 if "duplicate device identity" in str(exc) else 400
+        return jsonify({"error": str(exc)}), status
+    except (OSError, json.JSONDecodeError) as exc:
+        log.warning("Chargement de la configuration rigs impossible : %s", exc)
+        return jsonify({"error": "rig configuration could not be loaded"}), 500
+
+    config_path = TRIGGER_DIR / "configs" / "rig" / "default.json"
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        save_rig_config(config_path, config)
+        manager = reload_rig_manager(config)
+    except (OSError, ValueError) as exc:
+        log.error("Sauvegarde de la configuration rigs impossible : %s", exc)
+        return jsonify({"error": "rig configuration could not be saved"}), 500
+
+    rigs_summary = normalize_rigs_for_ui(manager)
+    socketio.emit(
+        "status_update",
+        _status_update_payload({"rigs": rigs_summary}),
+        namespace="/",
+    )
+    return jsonify({
+        "rigs": rigs_summary,
         "identity_warnings": list(manager.identity_warnings),
     })
 
