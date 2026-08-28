@@ -92,7 +92,10 @@ def test_oversize_response_maps_to_message_too_large_and_logs_once(tmp_path):
 
     assert caught.value.code == "MESSAGE_TOO_LARGE"
     assert caught.value.operation == "ping"
-    assert logs == ["CAMERA_IPC_ERROR code=MESSAGE_TOO_LARGE operation=ping"]
+    assert logs == [
+        "CAMERA_IPC_ERROR code=MESSAGE_TOO_LARGE operation=ping "
+        "rig_id=none message=response exceeds size limit"
+    ]
 
 
 def test_server_error_preserves_invalid_session_and_logs_once(tmp_path):
@@ -110,7 +113,8 @@ def test_server_error_preserves_invalid_session_and_logs_once(tmp_path):
     assert caught.value.code == "INVALID_SESSION"
     assert caught.value.operation == "list_active_camera_rigs"
     assert logs == [
-        "CAMERA_IPC_ERROR code=INVALID_SESSION operation=list_active_camera_rigs"
+        "CAMERA_IPC_ERROR code=INVALID_SESSION operation=list_active_camera_rigs "
+        "rig_id=none message=session is inactive"
     ]
     assert "invalid-secret" not in logs[0]
 
@@ -134,4 +138,11 @@ def test_connection_loss_and_timeout_have_stable_errors_and_one_log(
 
     assert caught.value.code == expected_code
     assert caught.value.operation == "ping"
-    assert logs == [f"CAMERA_IPC_ERROR code={expected_code} operation=ping"]
+    expected_message = {
+        "IPC_UNAVAILABLE": "camera IPC is unavailable",
+        "TIMEOUT": "camera IPC request timed out",
+    }[expected_code]
+    assert logs == [
+        f"CAMERA_IPC_ERROR code={expected_code} operation=ping "
+        f"rig_id=none message={expected_message}"
+    ]

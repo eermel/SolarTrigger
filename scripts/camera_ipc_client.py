@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 import socket
 import threading
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -27,6 +29,26 @@ class CameraIpcError(Exception):
         self.code = code
         self.operation = operation
         self.message = message
+        self.logged = False
+
+
+def _sanitized_log_value(value: Any, secrets: tuple[str, ...] = ()) -> str:
+    """Return one printable field value with IPC credentials removed."""
+
+    text = "".join(
+        " " if unicodedata.category(character).startswith("C") else character
+        for character in str(value)
+    )
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "[redacted]")
+    text = re.sub(
+        r"(?i)(?:session_id|token_id)(?:\s*[:=]\s*|\s+)[^\s,;]+",
+        "[redacted]",
+        text,
+    )
+    text = re.sub(r"(?i)session_id|token_id", "[redacted]", text)
+    return " ".join(text.split()) or "none"
 
 
 class CameraIpcClient:
@@ -135,7 +157,9 @@ class CameraIpcClient:
             {
                 "rig_id": rig_id,
                 "token_id": token_id,
-                "deadline": self._deadline_value(deadline, "trigger_prepared"),
+                "deadline": self._deadline_value(
+                    deadline, "trigger_prepared", rig_id=rig_id
+                ),
             },
             timeout_s=timeout_s,
             deadline=deadline,
@@ -157,7 +181,9 @@ class CameraIpcClient:
                 "rig_id": rig_id,
                 "speeds": speeds,
                 "photo_num_start": photo_num_start,
-                "deadline": self._deadline_value(deadline, "shoot_speed_list"),
+                "deadline": self._deadline_value(
+                    deadline, "shoot_speed_list", rig_id=rig_id
+                ),
                 "slowest_override_seconds": slowest_override_seconds,
             },
             timeout_s=timeout_s,
@@ -172,6 +198,9 @@ class CameraIpcClient:
         timeout_s: float,
         deadline: datetime | None = None,
     ) -> Any:
+        rig_id = params.get("rig_id")
+        if not isinstance(rig_id, int) or isinstance(rig_id, bool):
+            rig_id = None
         try:
             timeout = self._effective_timeout(timeout_s, deadline)
             request = json.dumps(
@@ -184,40 +213,65 @@ class CameraIpcClient:
                 ensure_ascii=False,
             ).encode("utf-8")
             if len(request) > MAX_MESSAGE_BYTES:
-                self._raise("MESSAGE_TOO_LARGE", operation, "request exceeds size limit")
+                self._raise(
+                    "MESSAGE_TOO_LARGE", operation, "request exceeds size limit", rig_id
+                )
 
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
                 connection.settimeout(timeout)
                 connection.connect(self.socket_path)
                 connection.sendall(request + b"\n")
-                response = self._read_response(connection, operation)
+                response = self._read_response(connection, operation, rig_id)
         except CameraIpcError:
             raise
         except ValueError as exc:
-            self._fail("INVALID_REQUEST", operation, str(exc), exc)
+            self._fail("INVALID_REQUEST", operation, str(exc), exc, rig_id)
         except (socket.timeout, TimeoutError) as exc:
-            self._fail("TIMEOUT", operation, "camera IPC request timed out", exc)
+            self._fail("TIMEOUT", operation, "camera IPC request timed out", exc, rig_id)
         except (OSError, EOFError) as exc:
-            self._fail("IPC_UNAVAILABLE", operation, "camera IPC is unavailable", exc)
+            self._fail("IPC_UNAVAILABLE", operation, "camera IPC is unavailable", exc, rig_id)
 
         if not isinstance(response, dict) or not isinstance(response.get("ok"), bool):
-            self._fail("INVALID_RESPONSE", operation, "invalid camera IPC response")
+            self._fail(
+                "INVALID_RESPONSE", operation, "invalid camera IPC response", rig_id=rig_id
+            )
         if response["ok"]:
             if set(response) != {"ok", "result"}:
-                self._fail("INVALID_RESPONSE", operation, "camera IPC result is missing")
+                self._fail(
+                    "INVALID_RESPONSE",
+                    operation,
+                    "camera IPC result is missing",
+                    rig_id=rig_id,
+                )
             return response["result"]
 
         if set(response) != {"ok", "error"}:
-            self._fail("INVALID_RESPONSE", operation, "camera IPC error is invalid")
+            self._fail(
+                "INVALID_RESPONSE", operation, "camera IPC error is invalid", rig_id=rig_id
+            )
         error = response.get("error")
         if not isinstance(error, dict) or set(error) != {"code", "message"}:
-            self._fail("INVALID_RESPONSE", operation, "camera IPC error is invalid")
+            self._fail(
+                "INVALID_RESPONSE", operation, "camera IPC error is invalid", rig_id=rig_id
+            )
         code, message = error.get("code"), error.get("message")
         if not isinstance(code, str) or not code or not isinstance(message, str):
-            self._fail("INVALID_RESPONSE", operation, "camera IPC error is invalid")
-        self._fail(code, operation, message)
+            self._fail(
+                "INVALID_RESPONSE", operation, "camera IPC error is invalid", rig_id=rig_id
+            )
+        token_id = params.get("token_id")
+        sensitive_values = (token_id,) if isinstance(token_id, str) else ()
+        self._fail(
+            code,
+            operation,
+            message,
+            rig_id=rig_id,
+            sensitive_values=sensitive_values,
+        )
 
-    def _read_response(self, connection: socket.socket, operation: str) -> Any:
+    def _read_response(
+        self, connection: socket.socket, operation: str, rig_id: int | None
+    ) -> Any:
         data = bytearray()
         while True:
             chunk = connection.recv(min(4096, MAX_MESSAGE_BYTES + 1 - len(data)))
@@ -228,18 +282,28 @@ class CameraIpcClient:
             if newline >= 0:
                 if newline > MAX_MESSAGE_BYTES:
                     self._raise(
-                        "MESSAGE_TOO_LARGE", operation, "response exceeds size limit"
+                        "MESSAGE_TOO_LARGE", operation, "response exceeds size limit", rig_id
                     )
                 if data[newline + 1 :]:
-                    self._raise("INVALID_RESPONSE", operation, "multiple responses received")
+                    self._raise(
+                        "INVALID_RESPONSE", operation, "multiple responses received", rig_id
+                    )
                 payload = bytes(data[:newline])
                 break
             if len(data) > MAX_MESSAGE_BYTES:
-                self._raise("MESSAGE_TOO_LARGE", operation, "response exceeds size limit")
+                self._raise(
+                    "MESSAGE_TOO_LARGE", operation, "response exceeds size limit", rig_id
+                )
         try:
             return json.loads(payload.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            self._fail("INVALID_RESPONSE", operation, "response is not valid JSON", exc)
+            self._fail(
+                "INVALID_RESPONSE",
+                operation,
+                "response is not valid JSON",
+                exc,
+                rig_id,
+            )
 
     @staticmethod
     def _effective_timeout(timeout_s: float, deadline: datetime | None) -> float:
@@ -263,7 +327,9 @@ class CameraIpcClient:
             timeout = min(timeout, remaining)
         return timeout
 
-    def _deadline_value(self, deadline: datetime | None, operation: str) -> str | None:
+    def _deadline_value(
+        self, deadline: datetime | None, operation: str, *, rig_id: int | None = None
+    ) -> str | None:
         if deadline is None:
             return None
         if (
@@ -271,7 +337,12 @@ class CameraIpcClient:
             or deadline.tzinfo is None
             or deadline.utcoffset() is None
         ):
-            self._fail("INVALID_DEADLINE", operation, "deadline must be an aware datetime")
+            self._fail(
+                "INVALID_DEADLINE",
+                operation,
+                "deadline must be an aware datetime",
+                rig_id=rig_id,
+            )
         return deadline.astimezone(timezone.utc).isoformat()
 
     @classmethod
@@ -286,8 +357,10 @@ class CameraIpcClient:
             return value.isoformat()
         return value
 
-    def _raise(self, code: str, operation: str, message: str) -> None:
-        self._fail(code, operation, message)
+    def _raise(
+        self, code: str, operation: str, message: str, rig_id: int | None = None
+    ) -> None:
+        self._fail(code, operation, message, rig_id=rig_id)
 
     def _fail(
         self,
@@ -295,14 +368,26 @@ class CameraIpcClient:
         operation: str,
         message: str,
         cause: BaseException | None = None,
+        rig_id: int | None = None,
+        sensitive_values: tuple[str, ...] = (),
     ) -> None:
-        # Deliberately omit paths, session identifiers, payloads, and server text.
+        secrets = (self.session_id, *sensitive_values)
+        safe_code = _sanitized_log_value(code, secrets)
+        safe_operation = _sanitized_log_value(operation, secrets)
+        safe_rig_id = (
+            "none" if rig_id is None else _sanitized_log_value(rig_id, secrets)
+        )
+        safe_message = _sanitized_log_value(message, secrets)
+        error = CameraIpcError(code, operation, message)
         try:
             with self._log_lock:
-                self._log(f"CAMERA_IPC_ERROR code={code} operation={operation}")
+                self._log(
+                    f"CAMERA_IPC_ERROR code={safe_code} operation={safe_operation} "
+                    f"rig_id={safe_rig_id} message={safe_message}"
+                )
+                error.logged = True
         except Exception:
             pass
-        error = CameraIpcError(code, operation, message)
         if cause is None:
             raise error
         raise error from cause

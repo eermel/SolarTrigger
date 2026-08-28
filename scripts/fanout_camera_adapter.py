@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Callable, Iterable
 
 from plugins.camera.base import CaptureResult
+from scripts.camera_ipc_client import CameraIpcError, _sanitized_log_value
 from services.camera_service import PreparedCapture
 
 
@@ -184,9 +185,14 @@ class FanoutCameraAdapter:
         )
 
     def _log_failure(self, operation: str, rig_id: int, exc: Exception) -> None:
+        if isinstance(exc, CameraIpcError) and exc.logged:
+            return
+        code = exc.code if isinstance(exc, CameraIpcError) else type(exc).__name__
         self._log(
-            f"CAMERA_FANOUT_FAILURE operation={operation} rig_id={rig_id} "
-            f"error={type(exc).__name__}: {exc}"
+            f"CAMERA_IPC_ERROR code={_sanitized_log_value(code)} "
+            f"operation={_sanitized_log_value(operation)} "
+            f"rig_id={_sanitized_log_value(rig_id)} "
+            f"message={_sanitized_log_value(exc)}"
         )
 
 
