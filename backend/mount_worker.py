@@ -5,7 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from backend.generic_worker import GenericWorker
+from backend.generic_worker import (
+    PRIORITY_DIAGNOSTIC,
+    PRIORITY_MANUAL,
+    PRIORITY_STOP,
+    GenericWorker,
+)
 
 if TYPE_CHECKING:
     from services.mount_service import MountService
@@ -58,15 +63,21 @@ class MountWorker:
         if service is not None:
             service.close()
 
-    def _call(self, method_name: str, *args, **kwargs) -> Any:
+    def _call(
+        self,
+        method_name: str,
+        *args,
+        priority: int = PRIORITY_MANUAL,
+        **kwargs,
+    ) -> Any:
         def invoke():
             method = getattr(self._ensure_service(), method_name)
             return method(*args, **kwargs)
 
-        return self._worker.submit(invoke).result()
+        return self._worker.submit_with_priority(priority, invoke).result()
 
     def status(self):
-        return self._call("status")
+        return self._call("status", priority=PRIORITY_DIAGNOSTIC)
 
     def set_tracking_mode(self, mode: str):
         return self._call("set_tracking_mode", mode)
@@ -90,7 +101,7 @@ class MountWorker:
         return self._call("home_start")
 
     def stop(self):
-        return self._call("stop")
+        return self._call("stop", priority=PRIORITY_STOP)
 
     def warmup(self):
         return self._call("warmup")
