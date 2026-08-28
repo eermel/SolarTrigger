@@ -355,13 +355,12 @@ def test_config_save_overwrites_active_circumstances_and_emits_status(
             "phases_local": {"C1": "10:10:00", "TMAX": "11:30:00"},
         },
     }
-    assert emitted == [
-        (
-            "status_update",
-            {"circumstances": circumstances, "time": emitted[0][1]["time"]},
-        )
-    ]
-    assert set(emitted[0][1]["time"]) == {
+    assert len(emitted) == 1
+    event, status_payload = emitted[0]
+    assert event == "status_update"
+    assert status_payload["circumstances"] == circumstances
+    assert len(status_payload["rigs"]) == 4
+    assert set(status_payload["time"]) == {
         "epoch_ms",
         "backend_utc_epoch_ms",
         "backend_local_epoch_ms",
@@ -397,10 +396,12 @@ def test_config_save_camera_overwrites_active_capture_and_emits_status(save_rout
         "active_file": filename,
         "meta": {"_type": "capture", "_comment": "Réglages totalité"},
     }
-    assert emitted == [
-        ("status_update", {"capture": capture, "time": emitted[0][1]["time"]})
-    ]
-    assert set(emitted[0][1]["time"]) == {
+    assert len(emitted) == 1
+    event, status_payload = emitted[0]
+    assert event == "status_update"
+    assert status_payload["capture"] == capture
+    assert len(status_payload["rigs"]) == 4
+    assert set(status_payload["time"]) == {
         "epoch_ms",
         "backend_utc_epoch_ms",
         "backend_local_epoch_ms",

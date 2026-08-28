@@ -176,6 +176,7 @@ def test_active_controls_falls_back_to_devices_when_controls_become_hidden():
 
 def test_backend_refresh_restores_device_rendering_and_controls_visibility():
     source = _function_source("fetchDevices", asynchronous=True)
+    show_tab_source = _function_source("showTab")
 
     assert re.search(r"fetch\(\s*['\"]/api/devices['\"]\s*\)", source)
     assert re.search(
@@ -184,8 +185,8 @@ def test_backend_refresh_restores_device_rendering_and_controls_visibility():
         source,
         re.DOTALL,
     )
-    assert re.search(r"if\s*\(n\s*===\s*0\)\s*fetchDevices\(\)", INDEX)
-    assert re.search(r"// Init\s*fetchDevices\(\);", INDEX)
+    assert "fetchDevices()" not in show_tab_source
+    assert not re.search(r"// Init\s*fetchDevices\(\);", INDEX)
 
 
 @pytest.mark.parametrize("function_name", ("selectDevice", "rescanDevices"))
