@@ -119,6 +119,8 @@ from backend.timeline import build_timeline, rebase_timeline, format_hms_ms
 from services.camera_service import CameraService, CaptureIntent, PreparedCapture
 from plugins.camera.base import CaptureResult
 from services.camera_service import _normalized_speed_plan as _norm_plan
+from scripts.camera_ipc_client import CameraIpcClient
+from scripts.fanout_camera_adapter import FanoutCameraAdapter
 from backend.atmo import facteur_atmospherique, interpolate_altitude
 from backend import audio_service
 
@@ -1543,6 +1545,7 @@ def _first_future_grid_slot(first_target, interval_s, phase_end):
 def main():
     """Main function to execute the eclipse photography sequence."""
     camera_service = None
+    ipc_adapter = None
     try:
         _log(f"{Colors.PINK}#{Colors.RESET}")
         print(f"{Colors.PINK}# TOTAL SOLAR ECLIPSE AUTOMATIC SCRIPT - {titre}{Colors.RESET}")
@@ -1576,24 +1579,31 @@ def main():
         # ── Connexion caméra via CameraService / CameraPlugin ─────────────
         _log(f"{Colors.GREEN}### CLEAR CONNEXION TO CAMERA{Colors.RESET}")
         camera_service = None
-        if _sim_mode or args.dry_run:
-            if _sim_mode:
-                _log(f"{Colors.PINK}⚡ SIM : accès matériel caméra totalement désactivé{Colors.RESET}")
-                camera_service = _SimulationCameraService()
-            else:
-                _log(f"{Colors.PINK}🧪 DRY-RUN : chemin matériel caméra identique au mode réel{Colors.RESET}")
-                unmount_camera()
-                camera_service = CameraService(log_fn=_log, clock=_runtime_clock)
-                try:
-                    plugin = camera_service.connect()
-                except Exception as exc:
-                    _log(f"{Colors.RED}Caméra/plugin non initialisé : {exc}{Colors.RESET}")
-                    return
-                _log(f"{Colors.GREEN}### INIT - CAMERA CONFIGURATION ({plugin.name}){Colors.RESET}")
-                camera_service.init_settings(aperture=aperture_partial, iso=iso_partial)
-                time.sleep(1)
-                get_battery_level(camera_service)
+        ipc_socket = os.environ.get("SET_CAMERA_IPC_SOCKET")
+        if _sim_mode:
+            _log(f"{Colors.PINK}⚡ SIM : accès matériel caméra totalement désactivé{Colors.RESET}")
+            camera_service = _SimulationCameraService()
+        elif ipc_socket:
+            ipc_client = CameraIpcClient(
+                ipc_socket,
+                os.environ.get("SET_CAMERA_IPC_SESSION", ""),
+                log_fn=_log,
+            )
+            ipc_client.ping()
+            rig_snapshot = ipc_client.list_active_camera_rigs()
+            _log(
+                f"{Colors.GREEN}### CAMERA IPC RIGS "
+                f"{rig_snapshot['rig_ids']}{Colors.RESET}"
+            )
+            ipc_adapter = FanoutCameraAdapter(ipc_client, log_fn=_log)
+            camera_service = ipc_adapter
+            camera_service.initialize(
+                aperture=aperture_partial,
+                iso=iso_partial,
+            )
         else:
+            if args.dry_run:
+                _log(f"{Colors.PINK}🧪 DRY-RUN : chemin matériel caméra identique au mode réel{Colors.RESET}")
             unmount_camera()
             camera_service = CameraService(log_fn=_log, clock=_runtime_clock)
             try:
@@ -1930,7 +1940,9 @@ def main():
         _log(f"{Colors.RED}Unexpected error: {e}{Colors.RESET}")
     finally:
         _shutdown_audio_threads()
-        if camera_service is not None:
+        if ipc_adapter is not None:
+            ipc_adapter.close()
+        elif camera_service is not None:
             camera_service.close()
         _log(f"{Colors.GREEN}End of the script.{Colors.RESET}")
 
