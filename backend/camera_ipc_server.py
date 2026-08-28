@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.generic_worker import ExpiredJobError
 from backend.trigger_runtime import RuntimeClock
 from services.camera_service import CaptureIntent
 
@@ -329,7 +330,8 @@ class CameraIpcServer:
             )
             rig_id, worker = self._worker(params)
             plugin = worker.connect()
-            worker.init_settings(
+            self._call_worker(
+                worker.init_settings,
                 aperture=params.get("aperture"),
                 iso=params.get("iso"),
                 image_format=params.get("image_format", "RAW"),
@@ -343,7 +345,8 @@ class CameraIpcServer:
         if operation == "apply_phase_settings":
             self._optional_strings(params, "aperture", "iso")
             _, worker = self._worker(params)
-            return worker.apply_phase_settings(
+            return self._call_worker(
+                worker.apply_phase_settings,
                 aperture=params.get("aperture"), iso=params.get("iso")
             )
         if operation == "prepare_capture":
@@ -363,7 +366,7 @@ class CameraIpcServer:
             except (TypeError, ValueError) as exc:
                 raise IpcError("INVALID_REQUEST", "invalid capture intent") from exc
             rig_id, worker = self._worker(params)
-            prepared = worker.prepare_capture(intent)
+            prepared = self._call_worker(worker.prepare_capture, intent)
             token_id = secrets.token_urlsafe(24)
             with self._state_lock:
                 self._tokens[token_id] = (session, rig_id, prepared.token)
@@ -387,7 +390,9 @@ class CameraIpcServer:
                         "UNKNOWN_TOKEN", "prepared capture token is not valid"
                     )
                 del self._tokens[token_id]
-            return worker.trigger_prepared(token[2], deadline=deadline)
+            return self._call_worker(
+                worker.trigger_prepared, token[2], deadline=deadline
+            )
         if operation == "shoot_speed_list":
             speeds = params.get("speeds")
             if not isinstance(speeds, list) or any(
@@ -404,13 +409,21 @@ class CameraIpcServer:
                 )
             deadline = self._deadline(params.get("deadline"))
             _, worker = self._worker(params)
-            return worker.shoot_speed_list(
+            return self._call_worker(
+                worker.shoot_speed_list,
                 speeds,
                 photo_num_start=photo_num_start,
                 deadline=deadline,
                 slowest_override_seconds=override,
             )
         raise AssertionError("validated operation was not dispatched")
+
+    @staticmethod
+    def _call_worker(method, *args, **kwargs):
+        try:
+            return method(*args, **kwargs)
+        except ExpiredJobError as exc:
+            raise IpcError("EXPIRED", "camera worker job expired") from exc
 
     @staticmethod
     def _validate_keys(
