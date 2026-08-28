@@ -173,6 +173,8 @@ def migrate_legacy(state_store: Any, configs_dir: str | PathLike[str]) -> dict[s
             "manufacturer": None,
             "model": None,
             "serial": None,
+            "alias": None,
+            "fallback_physical_path": None,
         }
 
     camera_plugin = plugin_id("camera")
@@ -182,6 +184,8 @@ def migrate_legacy(state_store: Any, configs_dir: str | PathLike[str]) -> dict[s
         "manufacturer": None,
         "model": None,
         "serial": None,
+        "alias": None,
+        "fallback_physical_path": None,
     }
     camera_state = devices.get("camera")
     enabled = bool(
