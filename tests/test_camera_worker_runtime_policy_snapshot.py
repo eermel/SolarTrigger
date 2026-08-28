@@ -15,6 +15,12 @@ class FakeWorker:
 def test_reconcile_exposes_policy_snapshot_for_active_rig():
     runtime = CameraWorkerRuntime(clock=object(), worker_factory=FakeWorker)
     config = {
+        "eclipse": {
+            "reference_site": {
+                "lat": 44.135,
+                "lon": 4.81,
+            }
+        },
         "rigs": [
             {
                 "rig_id": 7,
@@ -32,6 +38,7 @@ def test_reconcile_exposes_policy_snapshot_for_active_rig():
                     "anti_trailing_enabled": True,
                     "motion_tolerance_px": 1.5,
                     "iso_max": 3200,
+                    "field_rotation_radius_deg": 3.25,
                 },
             }
         ]
@@ -40,6 +47,12 @@ def test_reconcile_exposes_policy_snapshot_for_active_rig():
     runtime.reconcile(config)
 
     assert runtime.get_policy_config_for_rig(7) == {
+        "eclipse": {
+            "reference_site": {
+                "lat": 44.135,
+                "lon": 4.81,
+            }
+        },
         "devices": {
             "camera": {
                 "manufacturer": "Canon",
@@ -57,5 +70,6 @@ def test_reconcile_exposes_policy_snapshot_for_active_rig():
             "anti_trailing_enabled": True,
             "motion_tolerance_px": 1.5,
             "iso_max": 3200,
+            "field_rotation_radius_deg": 3.25,
         },
     }
