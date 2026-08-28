@@ -172,6 +172,26 @@ def test_mode_endpoint_is_authoritative_for_step_and_jog(focuser_api):
     assert plugin.jog_calls == [(DIR_OUT, "coarse")]
 
 
+def test_legacy_focuser_update_adds_event_envelope(focuser_api, monkeypatch):
+    client, _, _ = focuser_api
+    emissions = []
+    monkeypatch.setattr(
+        flask_module.socketio,
+        "emit",
+        lambda *args, **kwargs: emissions.append((args, kwargs)),
+    )
+
+    response = client.post("/api/focuser/mode", json={"mode": "fast"})
+
+    assert response.status_code == 200
+    status = response.get_json()
+    assert "rig_id" not in status
+    assert "device_type" not in status
+    assert emissions == [
+        (("focuser_update", {**status, "rig_id": 1, "device_type": "focuser"}), {})
+    ]
+
+
 def test_stop_endpoint_is_idempotent_and_reports_live_position(focuser_api):
     client, service, plugin = focuser_api
     started = service.home()

@@ -22,11 +22,13 @@ class MountService:
         log_fn: Callable[[str], None] = print,
         config: dict | None = None,
         plugin_loader: Callable[..., Any] = load_mount,
+        selected_plugin: str | None = None,
     ):
         self._state_store = state_store
         self._log = log_fn
         self._config = config
         self._plugin_loader = plugin_loader
+        self._selected_plugin = selected_plugin
         self._lock = threading.RLock()
         self._plugin_access_lock = threading.RLock()
         self._plugin = None
@@ -40,6 +42,8 @@ class MountService:
         self._tracking_enabled = False
 
     def _selection(self) -> tuple[bool, str]:
+        if self._selected_plugin is not None:
+            return True, self._selected_plugin
         devices = self._state_store.snapshot("devices") or {}
         selection = devices.get("mount") or {}
         return bool(selection.get("active", False)), str(

@@ -154,6 +154,38 @@ def test_set_step_updates_state_and_persistence():
     assert saved["updated_at"]
 
 
+def test_bound_volatile_service_avoids_global_state_store():
+    class InaccessibleStateStore:
+        def snapshot(self, section):
+            raise AssertionError(f"unexpected StateStore read: {section}")
+
+        def update_section(self, section, value, persist=False):
+            raise AssertionError(f"unexpected StateStore write: {section}")
+
+    plugin = FakePlugin()
+    loaded_plugins = []
+
+    def loader(plugin_id, *_args, **_kwargs):
+        loaded_plugins.append(plugin_id)
+        return plugin
+
+    service = FocuserService(
+        InaccessibleStateStore(),
+        log_fn=lambda *_: None,
+        plugin_loader=loader,
+        selected_plugin="fake",
+        persist_policy="volatile",
+    )
+
+    assert service.status()["plugin"] == "fake"
+    assert service.set_mode("fast")["mode"] == "fast"
+    status = service.set_step(coarse=300, fine=40)
+
+    assert loaded_plugins == ["fake"]
+    assert status["slow_step"] == 40
+    assert status["fast_step"] == 300
+
+
 def test_jog_accepts_canonical_and_legacy_directions():
     service, store, plugin = make_service(recent_settings(mode="slow"))
 

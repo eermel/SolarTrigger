@@ -207,6 +207,8 @@ from backend.rig_runtime import (
     reload_rig_manager,
 )
 from backend.camera_worker_runtime import get_camera_worker_runtime
+from backend.focuser_worker_runtime import get_focuser_worker_runtime
+from backend.mount_worker_runtime import get_mount_worker_runtime
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
 from services.camera_service import CameraService
@@ -410,17 +412,18 @@ def _trigger_running_response():
     return None
 
 
-def _focuser_post_guard(movement=False):
-    inactive = require_device_active("focuser")
-    if inactive is not None:
-        return inactive
+def _focuser_post_guard(movement=False, require_active=True):
+    if require_active:
+        inactive = require_device_active("focuser")
+        if inactive is not None:
+            return inactive
     if movement:
         return _trigger_running_response()
     return None
 
 
-def _focuser_motion_conflict():
-    status_method = getattr(_focuser_service, "status", None)
+def _focuser_motion_conflict(service=None):
+    status_method = getattr(service or _focuser_service, "status", None)
     if not callable(status_method):
         return None
     status = status_method()
@@ -435,7 +438,8 @@ def _focuser_motion_conflict():
 
 def _focuser_result(status):
     """Publish and return the latest focuser state after a successful action."""
-    socketio.emit("focuser_update", status)
+    payload = {**status, "rig_id": 1, "device_type": "focuser"}
+    socketio.emit("focuser_update", payload)
     return jsonify(status)
 
 
@@ -1032,12 +1036,424 @@ def api_focuser_set_step():
     return _focuser_result(_focuser_service.set_step(coarse=coarse, fine=fine))
 
 
+def _focuser_service_factory_provider(binding):
+    return lambda: FocuserService(
+        _state_store,
+        log_fn=log.info,
+        config=dict(binding.focuser_entry),
+        selected_plugin=binding.backend,
+        persist_policy="volatile",
+    )
+
+
+def _rig_focuser_worker(rig_id):
+    try:
+        rig = get_rig_manager().get_rig(rig_id)
+    except ValueError as exc:
+        return None, (jsonify({"error": str(exc)}), 400)
+    if rig.enabled is not True:
+        return None, (jsonify({"error": f"rig {rig_id} is disabled"}), 409)
+    runtime = get_focuser_worker_runtime(
+        service_factory_provider=_focuser_service_factory_provider,
+        log_fn=log.info,
+    )
+    runtime.reconcile(load_rig_configuration())
+    worker = runtime.get_for_rig(rig_id)
+    if worker is None:
+        return None, (jsonify({
+            "error": f"focuser is not configured for rig {rig_id}",
+            "code": "DEVICE_NOT_CONFIGURED",
+            "rig_id": rig_id,
+            "device_type": "focuser",
+        }), 409)
+    return worker, None
+
+
+def _rig_focuser_guard(rig_id, *, movement=False):
+    worker, error = _rig_focuser_worker(rig_id)
+    if error is not None:
+        return None, error
+    guarded = _focuser_post_guard(movement=movement, require_active=False)
+    return (None, guarded) if guarded is not None else (worker, None)
+
+
+def _rig_focuser_result(rig_id, result):
+    payload = dict(result)
+    payload.update({"rig_id": rig_id, "device_type": "focuser"})
+    socketio.emit("focuser_update", payload, namespace="/")
+    return jsonify(result)
+
+
+def _rig_focuser_service_call(worker, method, *args):
+    operation = getattr(worker, method, None)
+    if callable(operation):
+        return operation(*args)
+    return worker._call(method, *args)
+
+
+@app.route("/api/rigs/<int:rig_id>/focuser/status")
+def api_rig_focuser_status(rig_id):
+    worker, error = _rig_focuser_worker(rig_id)
+    if error is not None:
+        return error
+    return _rig_focuser_result(rig_id, worker.status())
+
+
+@app.route("/api/rigs/<int:rig_id>/focuser/mode", methods=["POST"])
+def api_rig_focuser_mode(rig_id):
+    worker, error = _rig_focuser_guard(rig_id)
+    if error is not None:
+        return error
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    mode = payload.get("mode")
+    if mode not in ("slow", "fast"):
+        return jsonify({"error": "Field 'mode' must be 'slow' or 'fast'."}), 400
+    return _rig_focuser_result(
+        rig_id, _rig_focuser_service_call(worker, "set_mode", mode)
+    )
+
+
+@app.route("/api/rigs/<int:rig_id>/focuser/home", methods=["POST"])
+def api_rig_focuser_home(rig_id):
+    worker, error = _rig_focuser_guard(rig_id, movement=True)
+    if error is not None:
+        return error
+    conflict = _focuser_motion_conflict(worker)
+    if conflict is not None:
+        return conflict
+    return _rig_focuser_result(rig_id, worker.home())
+
+
+@app.route("/api/rigs/<int:rig_id>/focuser/stop", methods=["POST"])
+def api_rig_focuser_stop(rig_id):
+    worker, error = _rig_focuser_guard(rig_id)
+    if error is not None:
+        return error
+    return _rig_focuser_result(rig_id, worker.stop())
+
+
+@app.route("/api/rigs/<int:rig_id>/focuser/move_to", methods=["POST"])
+def api_rig_focuser_move_to(rig_id):
+    worker, error = _rig_focuser_guard(rig_id, movement=True)
+    if error is not None:
+        return error
+    conflict = _focuser_motion_conflict(worker)
+    if conflict is not None:
+        return conflict
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    try:
+        position = _json_int(payload, "position")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return _rig_focuser_result(rig_id, worker.move_to(position))
+
+
+@app.route("/api/rigs/<int:rig_id>/focuser/step", methods=["POST"])
+def api_rig_focuser_step(rig_id):
+    worker, error = _rig_focuser_guard(rig_id, movement=True)
+    if error is not None:
+        return error
+    conflict = _focuser_motion_conflict(worker)
+    if conflict is not None:
+        return conflict
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    direction = payload.get("direction")
+    legacy_delta = None
+    if "delta" in payload:
+        try:
+            legacy_delta = _json_int(payload, "delta")
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+    if direction is None:
+        if legacy_delta is None:
+            return jsonify({"error": "Field 'direction' is required."}), 400
+        if legacy_delta == 0:
+            return jsonify({"error": "Field 'delta' must be non-zero."}), 400
+        direction = "increase" if legacy_delta > 0 else "decrease"
+    elif direction not in ("increase", "decrease"):
+        return jsonify({
+            "error": "Field 'direction' must be 'increase' or 'decrease'.",
+            "code": "INVALID_DIRECTION",
+        }), 400
+    elif legacy_delta is not None:
+        matches = ((direction == "increase" and legacy_delta > 0)
+                   or (direction == "decrease" and legacy_delta < 0))
+        if not matches:
+            return jsonify({
+                "error": "Fields 'direction' and 'delta' contradict each other.",
+                "code": "INVALID_DIRECTION",
+            }), 400
+    sign = 1 if direction == "increase" else -1
+    active_step = _rig_focuser_service_call(worker, "active_step")
+    return _rig_focuser_result(rig_id, worker.move_relative(sign * active_step))
+
+
+@app.route("/api/rigs/<int:rig_id>/focuser/jog/start", methods=["POST"])
+def api_rig_focuser_jog_start(rig_id):
+    worker, error = _rig_focuser_guard(rig_id, movement=True)
+    if error is not None:
+        return error
+    conflict = _focuser_motion_conflict(worker)
+    if conflict is not None:
+        return conflict
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    direction = payload.get("direction")
+    if direction not in ("increase", "decrease", "in", "out"):
+        return jsonify({
+            "error": (
+                "Field 'direction' must be 'increase', 'decrease', 'in' or 'out'."
+            ),
+            "code": "INVALID_DIRECTION",
+        }), 400
+    return _rig_focuser_result(rig_id, worker.start_jog(direction))
+
+
+@app.route("/api/rigs/<int:rig_id>/focuser/jog/stop", methods=["POST"])
+def api_rig_focuser_jog_stop(rig_id):
+    worker, error = _rig_focuser_guard(rig_id)
+    if error is not None:
+        return error
+    return _rig_focuser_result(rig_id, worker.stop_jog())
+
+
+@app.route("/api/rigs/<int:rig_id>/focuser/set_step", methods=["POST"])
+def api_rig_focuser_set_step(rig_id):
+    worker, error = _rig_focuser_guard(rig_id)
+    if error is not None:
+        return error
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid focuser payload."}), 400
+    try:
+        coarse = _json_int(payload, "coarse", required=False)
+        fine = _json_int(payload, "fine", required=False)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if coarse is None and fine is None:
+        return jsonify({"error": "At least one step value is required."}), 400
+    return _rig_focuser_result(
+        rig_id, worker.set_step(coarse=coarse, fine=fine)
+    )
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # API — MOUNT
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _mount_indi_error(exc):
     return jsonify({"error": str(exc), "code": exc.code}), 400
+
+
+def _mount_service_factory_provider(binding):
+    return lambda: MountService(
+        _state_store,
+        log_fn=log.info,
+        config=dict(binding.mount_entry),
+        selected_plugin=binding.backend,
+    )
+
+
+def _rig_mount_worker(rig_id):
+    try:
+        rig = get_rig_manager().get_rig(rig_id)
+    except ValueError as exc:
+        return None, (jsonify({"error": str(exc)}), 400)
+    if rig.enabled is not True:
+        return None, (jsonify({"error": f"rig {rig_id} is disabled"}), 409)
+
+    runtime = get_mount_worker_runtime(
+        service_factory_provider=_mount_service_factory_provider,
+        log_fn=log.info,
+    )
+    runtime.reconcile(load_rig_configuration())
+    worker = runtime.get_for_rig(rig_id)
+    if worker is None:
+        return None, (jsonify({
+            "error": f"mount is not configured for rig {rig_id}",
+            "code": "DEVICE_NOT_CONFIGURED",
+            "rig_id": rig_id,
+            "device_type": "mount",
+        }), 409)
+    return worker, None
+
+
+def _rig_mount_emit(rig_id, result):
+    payload = dict(result)
+    payload.update({"rig_id": rig_id, "device_type": "mount"})
+    socketio.emit("mount_update", payload, namespace="/")
+    return jsonify(result)
+
+
+def _rig_mount_error(rig_id, exc, *, status=400, code=None):
+    payload = {
+        "status": "error",
+        "rig_id": rig_id,
+        "device_type": "mount",
+        "error": str(exc),
+    }
+    resolved_code = code if code is not None else getattr(exc, "code", None)
+    if resolved_code is not None:
+        payload["code"] = resolved_code
+    socketio.emit("mount_update", payload, namespace="/")
+    response = {"error": str(exc)}
+    if resolved_code is not None:
+        response["code"] = resolved_code
+    return jsonify(response), status
+
+
+def _rig_mount_tracking_guard(rig_id):
+    worker, error = _rig_mount_worker(rig_id)
+    if error is not None:
+        return None, error
+    trigger_state = _state_store.snapshot("trigger") or {}
+    if trigger_state.get("running"):
+        exc = RuntimeError(
+            "Mount tracking changes are forbidden during an active trigger."
+        )
+        return None, _rig_mount_error(
+            rig_id, exc, status=409, code="TRIGGER_RUNNING"
+        )
+    return worker, None
+
+
+@app.route("/api/rigs/<int:rig_id>/mount/status")
+def api_rig_mount_status(rig_id):
+    worker, error = _rig_mount_worker(rig_id)
+    if error is not None:
+        return error
+    try:
+        result = worker.status()
+    except IndiClientError as exc:
+        return _rig_mount_error(rig_id, exc)
+    return _rig_mount_emit(rig_id, result)
+
+
+@app.route("/api/rigs/<int:rig_id>/mount/tracking/mode", methods=["POST"])
+def api_rig_mount_tracking_mode(rig_id):
+    worker, error = _rig_mount_tracking_guard(rig_id)
+    if error is not None:
+        return error
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or payload.get("mode") not in {
+        "solar", "sidereal"
+    }:
+        return jsonify({
+            "error": "Field 'mode' must be 'solar' or 'sidereal'."
+        }), 400
+    try:
+        result = worker.set_tracking_mode(payload["mode"])
+    except IndiClientError as exc:
+        return _rig_mount_error(rig_id, exc)
+    except (ValueError, RuntimeError) as exc:
+        return _rig_mount_error(rig_id, exc)
+    return _rig_mount_emit(rig_id, result)
+
+
+@app.route("/api/rigs/<int:rig_id>/mount/tracking/start", methods=["POST"])
+def api_rig_mount_tracking_start(rig_id):
+    worker, error = _rig_mount_tracking_guard(rig_id)
+    if error is not None:
+        return error
+    try:
+        result = worker.start_tracking()
+    except IndiClientError as exc:
+        return _rig_mount_error(rig_id, exc)
+    except (ValueError, RuntimeError) as exc:
+        return _rig_mount_error(rig_id, exc)
+    return _rig_mount_emit(rig_id, result)
+
+
+@app.route("/api/rigs/<int:rig_id>/mount/tracking/stop", methods=["POST"])
+def api_rig_mount_tracking_stop(rig_id):
+    worker, error = _rig_mount_tracking_guard(rig_id)
+    if error is not None:
+        return error
+    try:
+        result = worker.stop_tracking()
+    except IndiClientError as exc:
+        return _rig_mount_error(rig_id, exc)
+    except (ValueError, RuntimeError) as exc:
+        return _rig_mount_error(rig_id, exc)
+    return _rig_mount_emit(rig_id, result)
+
+
+@app.route("/api/rigs/<int:rig_id>/mount/speed", methods=["POST"])
+def api_rig_mount_speed(rig_id):
+    worker, error = _rig_mount_worker(rig_id)
+    if error is not None:
+        return error
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid mount payload."}), 400
+    try:
+        if "speed" not in payload:
+            raise ValueError("Missing field 'speed'.")
+        result = worker.set_speed(payload["speed"])
+    except IndiClientError as exc:
+        return _rig_mount_error(rig_id, exc)
+    except (ValueError, RuntimeError) as exc:
+        return _rig_mount_error(rig_id, exc)
+    return _rig_mount_emit(rig_id, result)
+
+
+@app.route("/api/rigs/<int:rig_id>/mount/slew/start", methods=["POST"])
+def api_rig_mount_slew_start(rig_id):
+    worker, error = _rig_mount_worker(rig_id)
+    if error is not None:
+        return error
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid mount payload."}), 400
+    direction = payload.get("direction")
+    if direction not in ("north", "south", "east", "west"):
+        return jsonify({
+            "error": (
+                "Field 'direction' must be 'north', 'south', 'east' or 'west'."
+            )
+        }), 400
+    try:
+        result = worker.start_slew(direction)
+    except IndiClientError as exc:
+        return _rig_mount_error(rig_id, exc)
+    except (ValueError, RuntimeError) as exc:
+        if "homing" in str(exc).lower():
+            return _rig_mount_error(rig_id, exc, status=409, code="MOUNT_HOMING")
+        return _rig_mount_error(rig_id, exc)
+    return _rig_mount_emit(rig_id, result)
+
+
+@app.route("/api/rigs/<int:rig_id>/mount/home", methods=["POST"])
+def api_rig_mount_home(rig_id):
+    worker, error = _rig_mount_worker(rig_id)
+    if error is not None:
+        return error
+    try:
+        result = worker.home_start()
+    except IndiClientError as exc:
+        return _rig_mount_error(rig_id, exc)
+    except (ValueError, RuntimeError) as exc:
+        return _rig_mount_error(rig_id, exc)
+    return _rig_mount_emit(rig_id, result)
+
+
+@app.route("/api/rigs/<int:rig_id>/mount/slew/stop", methods=["POST"])
+def api_rig_mount_slew_stop(rig_id):
+    worker, error = _rig_mount_worker(rig_id)
+    if error is not None:
+        return error
+    try:
+        result = worker.stop()
+    except IndiClientError as exc:
+        return _rig_mount_error(rig_id, exc)
+    return _rig_mount_emit(rig_id, result)
 
 
 @app.route("/api/mount/status")

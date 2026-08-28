@@ -25,11 +25,17 @@ class FocuserService:
         log_fn: Callable[[str], None] = print,
         config: dict | None = None,
         plugin_loader: Callable[..., Any] = load_focuser,
+        selected_plugin: str | None = None,
+        persist_policy: str = "global",
     ):
+        if persist_policy not in ("global", "volatile"):
+            raise ValueError("persist_policy must be 'global' or 'volatile'")
         self._state_store = state_store
         self._log = log_fn
         self._config = config
         self._plugin_loader = plugin_loader
+        self._selected_plugin = selected_plugin
+        self._persist_policy = persist_policy
         self._lock = threading.RLock()
         self._plugin = None
         self._plugin_id: str | None = None
@@ -47,6 +53,8 @@ class FocuserService:
 
     def _persist_settings(self) -> None:
         self._settings_updated_at = self._now_iso()
+        if self._persist_policy == "volatile":
+            return
         self._state_store.update_section(
             "focuser_settings",
             {
@@ -59,6 +67,12 @@ class FocuserService:
         )
 
     def _load_settings(self) -> None:
+        if self._persist_policy == "volatile":
+            self._mode = "slow"
+            self._slow_step = 20
+            self._fast_step = 150
+            self._settings_updated_at = self._now_iso()
+            return
         settings = self._state_store.snapshot("focuser_settings") or {}
         updated_at = settings.get("updated_at")
         if ttl_expired(updated_at):
@@ -125,6 +139,8 @@ class FocuserService:
             return self.status()
 
     def _selection(self) -> tuple[bool, str]:
+        if self._selected_plugin is not None:
+            return True, self._selected_plugin
         devices = self._state_store.snapshot("devices") or {}
         selection = devices.get("focuser") or {}
         return bool(selection.get("active", False)), str(

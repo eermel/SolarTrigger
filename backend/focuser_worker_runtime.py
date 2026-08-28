@@ -1,4 +1,4 @@
-"""Canonical lifecycle owner for configured mount workers."""
+"""Canonical lifecycle owner for configured focuser workers."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from backend.device_identity import identity_key
-from backend.mount_worker import MountWorker
+from backend.focuser_worker import FocuserWorker
 
 if TYPE_CHECKING:
-    from services.mount_service import MountService
+    from services.focuser_service import FocuserService
 
 
 def _freeze(value: Any) -> Any:
@@ -28,36 +28,36 @@ def _freeze(value: Any) -> Any:
 
 
 @dataclass(frozen=True)
-class MountBinding:
-    """Immutable description of one configured mount worker."""
+class FocuserBinding:
+    """Immutable description of one configured focuser worker."""
 
     rig_id: int
     backend: str
     identity: tuple[str, str]
-    mount_entry: Mapping[str, Any]
+    focuser_entry: Mapping[str, Any]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "backend", self.backend.strip().lower())
         object.__setattr__(self, "identity", tuple(self.identity))
-        object.__setattr__(self, "mount_entry", _freeze(self.mount_entry))
+        object.__setattr__(self, "focuser_entry", _freeze(self.focuser_entry))
 
 
-MountServiceFactory = Callable[[], "MountService"]
-MountServiceFactoryProvider = Callable[[MountBinding], MountServiceFactory]
+FocuserServiceFactory = Callable[[], "FocuserService"]
+FocuserServiceFactoryProvider = Callable[[FocuserBinding], FocuserServiceFactory]
 
 
 @dataclass(frozen=True)
 class _WorkerEntry:
-    binding: MountBinding
-    worker: MountWorker
+    binding: FocuserBinding
+    worker: FocuserWorker
 
 
-class MountWorkerRuntime:
-    """Reconcile configured mounts with their persistent worker owners."""
+class FocuserWorkerRuntime:
+    """Reconcile configured focusers with their persistent worker owners."""
 
     def __init__(
         self,
-        service_factory_provider: MountServiceFactoryProvider | None = None,
+        service_factory_provider: FocuserServiceFactoryProvider | None = None,
         log_fn=print,
     ) -> None:
         if service_factory_provider is not None and not callable(
@@ -70,7 +70,7 @@ class MountWorkerRuntime:
         self._lock = threading.RLock()
 
     def set_service_factory_provider(
-        self, provider: MountServiceFactoryProvider
+        self, provider: FocuserServiceFactoryProvider
     ) -> None:
         """Set the provider once, allowing repeated use of the same object."""
 
@@ -81,60 +81,60 @@ class MountWorkerRuntime:
             if current is provider:
                 return
             if current is not None or self._registry:
-                raise RuntimeError("mount service factory provider is already set")
+                raise RuntimeError("focuser service factory provider is already set")
             self._service_factory_provider = provider
 
     @staticmethod
     def _desired_bindings(
         config: dict,
-    ) -> dict[tuple[str, tuple[str, str]], MountBinding]:
-        desired: dict[tuple[str, tuple[str, str]], MountBinding] = {}
+    ) -> dict[tuple[str, tuple[str, str]], FocuserBinding]:
+        desired: dict[tuple[str, tuple[str, str]], FocuserBinding] = {}
         for rig in config.get("rigs", []):
             if not isinstance(rig, dict) or rig.get("enabled") is not True:
                 continue
             devices = rig.get("devices")
-            mount = devices.get("mount") if isinstance(devices, dict) else None
-            if not isinstance(mount, dict):
+            focuser = devices.get("focuser") if isinstance(devices, dict) else None
+            if not isinstance(focuser, dict):
                 continue
-            raw_backend = mount.get("backend")
+            raw_backend = focuser.get("backend")
             if not isinstance(raw_backend, str):
                 continue
             backend = raw_backend.strip().lower()
             if not backend or backend in {"none", "external"}:
                 continue
 
-            identity = identity_key(mount)
+            identity = identity_key(focuser)
             if identity is None:
                 raise ValueError(
-                    f"RIG {rig.get('rig_id')} mount has no stable device identity"
+                    f"RIG {rig.get('rig_id')} focuser has no stable device identity"
                 )
             if not (
                 isinstance(identity[0], str) and isinstance(identity[1], str)
             ):
                 raise ValueError(
-                    f"RIG {rig.get('rig_id')} mount identity must contain strings"
+                    f"RIG {rig.get('rig_id')} focuser identity must contain strings"
                 )
             rig_id = rig.get("rig_id")
             if not isinstance(rig_id, int) or isinstance(rig_id, bool):
-                raise ValueError("pilotable mount requires an integer rig_id")
+                raise ValueError("eligible focuser requires an integer rig_id")
 
-            binding = MountBinding(rig_id, backend, identity, mount)
+            binding = FocuserBinding(rig_id, backend, identity, focuser)
             key = (backend, identity)
             if key in desired:
                 raise ValueError(
-                    f"duplicate mount identity: {identity[0]}={identity[1]}"
+                    f"duplicate focuser identity: {identity[0]}={identity[1]}"
                 )
             desired[key] = binding
         return desired
 
     def reconcile(self, config: dict) -> None:
-        """Atomically reconcile workers against the pilotable mounts in *config*."""
+        """Atomically reconcile workers against the eligible focusers in *config*."""
 
         desired = self._desired_bindings(config)
         with self._lock:
             provider = self._service_factory_provider
             if desired and provider is None:
-                raise RuntimeError("mount service factory provider is not set")
+                raise RuntimeError("focuser service factory provider is not set")
 
             unchanged = {
                 key
@@ -149,8 +149,8 @@ class MountWorkerRuntime:
                     binding = desired[key]
                     factory = provider(binding)  # type: ignore[misc]
                     if not callable(factory):
-                        raise TypeError("mount service factory must be callable")
-                    worker = MountWorker(
+                        raise TypeError("focuser service factory must be callable")
+                    worker = FocuserWorker(
                         rig_id=binding.rig_id,
                         service_factory=factory,
                         log_fn=self._log,
@@ -174,6 +174,15 @@ class MountWorkerRuntime:
             for entry in obsolete:
                 entry.worker.shutdown()
 
+    def get_for_rig(self, rig_id: int) -> FocuserWorker | None:
+        """Return the persistent worker bound to *rig_id*, if configured."""
+
+        with self._lock:
+            for entry in self._registry.values():
+                if entry.binding.rig_id == rig_id:
+                    return entry.worker
+        return None
+
     def stop_all(self, timeout: float | None = None) -> None:
         """Clear the registry and shut down every worker."""
 
@@ -190,57 +199,48 @@ class MountWorkerRuntime:
             if first_error is not None:
                 raise first_error
 
-    def get_for_rig(self, rig_id: int) -> MountWorker | None:
-        """Return the persistent worker bound to *rig_id*, if configured."""
 
-        with self._lock:
-            for entry in self._registry.values():
-                if entry.binding.rig_id == rig_id:
-                    return entry.worker
-        return None
+_focuser_worker_runtime: FocuserWorkerRuntime | None = None
+_focuser_worker_runtime_lock = threading.Lock()
 
 
-_mount_worker_runtime: MountWorkerRuntime | None = None
-_mount_worker_runtime_lock = threading.Lock()
-
-
-def get_mount_worker_runtime(
-    service_factory_provider: MountServiceFactoryProvider | None = None,
+def get_focuser_worker_runtime(
+    service_factory_provider: FocuserServiceFactoryProvider | None = None,
     log_fn=print,
-) -> MountWorkerRuntime:
-    """Return the process-wide mount worker runtime singleton."""
+) -> FocuserWorkerRuntime:
+    """Return the process-wide focuser worker runtime singleton."""
 
-    global _mount_worker_runtime
+    global _focuser_worker_runtime
 
-    with _mount_worker_runtime_lock:
-        if _mount_worker_runtime is None:
-            _mount_worker_runtime = MountWorkerRuntime(
+    with _focuser_worker_runtime_lock:
+        if _focuser_worker_runtime is None:
+            _focuser_worker_runtime = FocuserWorkerRuntime(
                 service_factory_provider=service_factory_provider,
                 log_fn=log_fn,
             )
         elif service_factory_provider is not None:
-            _mount_worker_runtime.set_service_factory_provider(
+            _focuser_worker_runtime.set_service_factory_provider(
                 service_factory_provider
             )
-        return _mount_worker_runtime
+        return _focuser_worker_runtime
 
 
-def reset_mount_worker_runtime_for_tests() -> None:
+def reset_focuser_worker_runtime_for_tests() -> None:
     """Stop and clear the singleton for test isolation."""
 
-    global _mount_worker_runtime
+    global _focuser_worker_runtime
 
-    with _mount_worker_runtime_lock:
-        runtime = _mount_worker_runtime
+    with _focuser_worker_runtime_lock:
+        runtime = _focuser_worker_runtime
         if runtime is not None:
             runtime.stop_all()
-        _mount_worker_runtime = None
+        _focuser_worker_runtime = None
 
 
 __all__ = [
-    "MountBinding",
-    "MountServiceFactory",
-    "MountServiceFactoryProvider",
-    "MountWorkerRuntime",
-    "get_mount_worker_runtime",
+    "FocuserBinding",
+    "FocuserServiceFactory",
+    "FocuserServiceFactoryProvider",
+    "FocuserWorkerRuntime",
+    "get_focuser_worker_runtime",
 ]
