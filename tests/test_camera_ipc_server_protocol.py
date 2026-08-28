@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import backend.camera_ipc_server as camera_ipc_server
 from backend.camera_ipc_server import CameraIpcServer, IpcError, MAX_MESSAGE_BYTES
 from backend.generic_worker import ExpiredJobError
 
@@ -68,6 +69,25 @@ class FakeRuntime:
 
     def get_for_rig(self, rig_id):
         return self.workers.get(rig_id)
+
+
+class CapabilitiesWorker(FakeWorker):
+    def __init__(self, capabilities):
+        super().__init__()
+        self.capabilities = capabilities
+
+    def get_vibration_capabilities(self):
+        self.calls.append(("get_vibration_capabilities",))
+        return self.capabilities
+
+
+class PolicyRuntime(FakeRuntime):
+    def __init__(self, workers, policies):
+        super().__init__(workers)
+        self.policies = policies
+
+    def get_policy_config_for_rig(self, rig_id):
+        return self.policies.get(rig_id)
 
 
 class ExpiredWorker(FakeWorker):
@@ -159,6 +179,98 @@ def test_structured_errors_and_rig_semantics(tmp_path):
     with pytest.raises(IpcError) as operation:
         request(server, "not-allowed")
     assert operation.value.code == "UNKNOWN_OPERATION"
+
+
+@pytest.mark.parametrize(
+    ("camera", "camera_type", "capabilities"),
+    (
+        (
+            {"manufacturer": "Canon", "model": "EOS R5"},
+            "mirrorless",
+            {"efcs": True},
+        ),
+        (
+            {"manufacturer": "Nikon", "alias": "Nikon D850"},
+            "dslr",
+            {},
+        ),
+    ),
+)
+def test_camera_capabilities_resolves_type_and_passes_through_plugin_report(
+    tmp_path, monkeypatch, camera, camera_type, capabilities
+):
+    worker = CapabilitiesWorker(capabilities)
+    runtime = PolicyRuntime(
+        {1: worker}, {1: {"devices": {"camera": camera}}}
+    )
+    server = CameraIpcServer(
+        runtime,
+        endpoint_dir=tmp_path / "ipc",
+        parent_pid=4321,
+        log_fn=lambda _message: None,
+    )
+    sensor_db = object()
+    resolved = []
+    monkeypatch.setattr(camera_ipc_server, "load_sensor_db", lambda _path: sensor_db)
+
+    def resolve(manufacturer, model_or_alias, db):
+        resolved.append((manufacturer, model_or_alias, db))
+        return {"camera_type": camera_type}
+
+    monkeypatch.setattr(camera_ipc_server, "resolve_sensor_entry", resolve)
+
+    result = request(server, "camera.capabilities", {"rig_id": 1})
+
+    assert result == {
+        "rig_id": 1,
+        "camera_type": camera_type,
+        "vibration_caps": capabilities,
+    }
+    assert worker.calls == [("connect",), ("get_vibration_capabilities",)]
+    assert resolved == [
+        (camera["manufacturer"], camera.get("model", camera.get("alias")), sensor_db)
+    ]
+
+
+def test_camera_capabilities_keeps_plugin_report_when_sensor_lookup_fails(
+    tmp_path, monkeypatch
+):
+    worker = CapabilitiesWorker({"efcs": True})
+    runtime = PolicyRuntime(
+        {1: worker},
+        {1: {"devices": {"camera": {"manufacturer": "Unknown", "model": "X"}}}},
+    )
+    server = CameraIpcServer(
+        runtime,
+        endpoint_dir=tmp_path / "ipc",
+        parent_pid=4321,
+        log_fn=lambda _message: None,
+    )
+    monkeypatch.setattr(
+        camera_ipc_server,
+        "load_sensor_db",
+        lambda _path: (_ for _ in ()).throw(ValueError("missing sensor database")),
+    )
+
+    result = request(server, "camera.capabilities", {"rig_id": 1})
+
+    assert result == {
+        "rig_id": 1,
+        "camera_type": None,
+        "vibration_caps": {"efcs": True},
+    }
+
+
+def test_camera_capabilities_uses_existing_rig_errors(tmp_path):
+    server = make_server(tmp_path)
+
+    with pytest.raises(IpcError) as invalid:
+        request(server, "camera.capabilities", {"rig_id": 5})
+    assert invalid.value.code == "INVALID_RIG"
+
+    with pytest.raises(IpcError) as unknown:
+        request(server, "camera.capabilities", {"rig_id": 1})
+    assert unknown.value.code == "UNKNOWN_RIG"
 
 
 def test_expired_worker_job_is_mapped_to_expired_ipc_error(tmp_path):

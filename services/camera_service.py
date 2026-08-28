@@ -221,6 +221,11 @@ class CameraService:
             return None
         return self.plugin.get_battery_level()
 
+    def get_vibration_capabilities(self) -> dict | None:
+        if not self.connected:
+            return None
+        return dict(getattr(self.plugin, "get_vibration_capabilities", lambda: {})())
+
     def read_info(self):
         if not self.connected:
             self.connect()

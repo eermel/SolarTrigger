@@ -98,6 +98,10 @@ class CameraPlugin(ABC):
         self.camera = camera
         self.log = log_fn
 
+    def get_vibration_capabilities(self):
+        """Return plugin-controllable vibration mitigation capabilities."""
+        return {}
+
     # ------------------------------------------------------------------ #
     # Detection
     # ------------------------------------------------------------------ #

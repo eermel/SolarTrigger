@@ -70,6 +70,7 @@ _ALLOWED_INTENT_KEYS = _REQUIRED_INTENT_KEYS | {"origin", "request_id"}
 _PARAM_KEYS = {
     "ping": set(),
     "list_active_camera_rigs": set(),
+    "camera.capabilities": {"rig_id"},
     "camera.initialize": {
         "rig_id",
         "aperture",
@@ -89,6 +90,7 @@ _PARAM_KEYS = {
     },
 }
 _REQUIRED_PARAMS = {
+    "camera.capabilities": {"rig_id"},
     "camera.initialize": {"rig_id"},
     "apply_phase_settings": {"rig_id"},
     "prepare_capture": {"rig_id", "intent"},
@@ -358,6 +360,48 @@ class CameraIpcServer:
             return {"ok": True}
         if operation == "list_active_camera_rigs":
             return {"rig_ids": list(self._runtime.active_camera_rig_ids())}
+        if operation == "camera.capabilities":
+            rig_id, worker = self._worker(params)
+            worker.connect()
+
+            camera_type = None
+            policy_getter = getattr(self._runtime, "get_policy_config_for_rig", None)
+            policy = policy_getter(rig_id) if policy_getter is not None else None
+            devices = policy.get("devices") if isinstance(policy, dict) else None
+            camera = devices.get("camera") if isinstance(devices, dict) else None
+            if isinstance(camera, dict):
+                manufacturer = camera.get("manufacturer")
+                model = camera.get("model")
+                alias = camera.get("alias")
+                model_or_alias = (
+                    model if isinstance(model, str) and model.strip() else alias
+                )
+                if (
+                    isinstance(manufacturer, str)
+                    and manufacturer.strip()
+                    and isinstance(model_or_alias, str)
+                    and model_or_alias.strip()
+                ):
+                    try:
+                        sensor_db = load_sensor_db(str(_SENSOR_DB_PATH))
+                        sensor = resolve_sensor_entry(
+                            manufacturer, model_or_alias, sensor_db
+                        )
+                        camera_type = sensor.get("camera_type")
+                    except (KeyError, OSError, TypeError, ValueError):
+                        camera_type = None
+
+            capability_getter = getattr(worker, "get_vibration_capabilities", None)
+            vibration_caps = (
+                self._call_worker(capability_getter)
+                if capability_getter is not None
+                else None
+            )
+            return {
+                "rig_id": rig_id,
+                "camera_type": camera_type,
+                "vibration_caps": vibration_caps,
+            }
         if operation == "camera.initialize":
             self._optional_strings(params, "aperture", "iso")
             self._optional_strings(
