@@ -60,7 +60,7 @@ def test_slew_slider_uses_capabilities_reflects_status_and_posts_selection():
     )
     assert re.search(
         r"slewSpeed\.addEventListener\(\s*['\"]change['\"].*?"
-        r"postMount\(\s*['\"]/api/mount/speed['\"].*?"
+        r"postMount\(\s*mountUrl\(\s*['\"]speed['\"]\s*\).*?"
         r"body:\s*JSON\.stringify\(\s*\{\s*speed:\s*selectedSlewSpeed\(\)\s*\}\s*\)",
         MOUNT_JS,
         re.DOTALL,
@@ -103,9 +103,9 @@ def test_hold_starts_once_and_all_pointer_end_paths_stop():
             r"stopSlewBestEffort\s*\)",
             MOUNT_JS,
         )
-    assert MOUNT_JS.count("fetch('/api/mount/slew/start'") == 1
+    assert MOUNT_JS.count("fetch(startUrl") == 1
     assert re.search(
-        r"fetch\(\s*homeButton\.dataset\.slewStopUrl\s*,\s*"
+        r"fetch\(\s*stopUrl\s*,\s*"
         r"\{\s*method:\s*['\"]POST['\"]\s*\}\s*\)",
         MOUNT_JS,
     )
@@ -121,19 +121,19 @@ def test_slew_has_no_click_command_or_hold_repetition_timer():
     )
     assert "setInterval" not in SLEW_FUNCTIONS
     assert "setTimeout" not in SLEW_FUNCTIONS
-    assert len(re.findall(r"/api/mount/slew/start", SLEW_FUNCTIONS)) == 1
+    assert len(re.findall(r"mountUrl\(['\"]slew/start['\"]\)", SLEW_FUNCTIONS)) == 1
 
 
 def test_failed_start_clears_the_only_active_slew_state_and_sends_stop():
     assert re.search(r"let\s+activeSlew\s*=\s*null", MOUNT_JS)
     assert re.search(
         r"function\s+stopSlewBestEffort\(\)\s*\{.*?activeSlew\s*=\s*null\s*;.*?"
-        r"fetch\(\s*homeButton\.dataset\.slewStopUrl",
+        r"fetch\(\s*stopUrl",
         MOUNT_JS,
         re.DOTALL,
     )
     assert re.search(
-        r"fetch\(\s*['\"]/api/mount/slew/start['\"].*?"
+        r"fetch\(\s*startUrl.*?"
         r"\.catch\(\s*\(\)\s*=>\s*stopSlewBestEffort\(\)\s*\)",
         MOUNT_JS,
         re.DOTALL,
@@ -153,8 +153,8 @@ def test_homing_disables_every_direction_and_preserves_home_cancel():
         MOUNT_JS,
     )
     assert re.search(
-        r"postMount\(\s*homing\s*\?\s*homeButton\.dataset\.slewStopUrl\s*"
-        r":\s*['\"]/api/mount/home['\"]\s*\)",
+        r"postMount\(\s*mountUrl\(\s*homing\s*\?\s*['\"]slew/stop['\"]\s*"
+        r":\s*['\"]home['\"]\s*\)\s*\)",
         MOUNT_JS,
     )
 
@@ -180,9 +180,9 @@ def test_tracking_switch_reflects_status_and_preserves_tracking_commands():
         MOUNT_JS,
     )
     for endpoint in (
-        "/api/mount/tracking/mode",
-        "/api/mount/tracking/start",
-        "/api/mount/tracking/stop",
+        "mountUrl('tracking/mode')",
+        "'tracking/start'",
+        "'tracking/stop'",
     ):
         assert MOUNT_JS.count(endpoint) == 1
 
@@ -194,9 +194,9 @@ def test_tracking_switch_posts_start_when_on_and_stop_when_off():
         "socket.on('connect'",
     )
     assert re.search(
-        r"postMount\(\s*trackingSwitch\.checked\s*"
-        r"\?\s*['\"]/api/mount/tracking/start['\"]\s*"
-        r":\s*['\"]/api/mount/tracking/stop['\"]\s*\)",
+        r"postMount\(\s*mountUrl\(\s*trackingSwitch\.checked\s*"
+        r"\?\s*['\"]tracking/start['\"]\s*"
+        r":\s*['\"]tracking/stop['\"]\s*\)\s*\)",
         handler,
     )
 
@@ -208,7 +208,7 @@ def test_tracking_mode_change_only_posts_the_selected_mode():
         "trackingSwitch.addEventListener",
     )
     assert re.search(
-        r"postMount\(\s*['\"]/api/mount/tracking/mode['\"].*?"
+        r"postMount\(\s*mountUrl\(\s*['\"]tracking/mode['\"]\s*\).*?"
         r"body:\s*JSON\.stringify\(\s*\{\s*mode:\s*trackingMode\.value\s*\}\s*\)",
         handler,
         re.DOTALL,

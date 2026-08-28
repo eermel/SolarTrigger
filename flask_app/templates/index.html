@@ -1169,12 +1169,12 @@ header {
             <input id="mount-slew-speed" type="range" disabled>
           </div>
           <div class="mount-slew-pad" id="mount-slew-pad" aria-label="Mount slew controls">
-            <button class="btn btn-primary mount-slew-button" data-direction="north" draggable="false" aria-label="Slew north">N</button>
-            <button class="btn btn-primary mount-slew-button" data-direction="west" draggable="false" aria-label="Slew west">W</button>
-            <button class="btn btn-primary mount-slew-button" data-direction="east" draggable="false" aria-label="Slew east">E</button>
-            <button class="btn btn-primary mount-slew-button" data-direction="south" draggable="false" aria-label="Slew south">S</button>
+            <button class="btn btn-primary mount-slew-button" data-direction="north" draggable="false" aria-label="Slew north" disabled>N</button>
+            <button class="btn btn-primary mount-slew-button" data-direction="west" draggable="false" aria-label="Slew west" disabled>W</button>
+            <button class="btn btn-primary mount-slew-button" data-direction="east" draggable="false" aria-label="Slew east" disabled>E</button>
+            <button class="btn btn-primary mount-slew-button" data-direction="south" draggable="false" aria-label="Slew south" disabled>S</button>
           </div>
-          <button class="btn btn-primary btn-full" id="btn-mount-home" data-slew-stop-url="/api/mount/slew/stop">HOME</button>
+          <button class="btn btn-primary btn-full" id="btn-mount-home" disabled>HOME</button>
         </div>
       </div>
     </div>
@@ -1352,6 +1352,12 @@ function selectedControlsRig() {
   return rigDevicesState.rigs.find(rig => Number(rig.rig_id) === selectedRigId && rig.enabled === true) || null;
 }
 
+function selectedPilotableMountRig() {
+  const rig = selectedControlsRig();
+  const mount = rig && rig.devices && rig.devices.mount;
+  return mount && ![null, '', 'none', 'external'].includes(mount.backend) ? rig : null;
+}
+
 function renderControlsRigSelection() {
   const selectedRig = selectedControlsRig();
   if (!selectedRig) selectedRigId = null;
@@ -1366,6 +1372,7 @@ function renderControlsRigSelection() {
     button.classList.toggle('active', enabled && selectedRigId === defaultRig.rig_id);
     button.setAttribute('aria-pressed', enabled && selectedRigId === defaultRig.rig_id ? 'true' : 'false');
   });
+  document.dispatchEvent(new CustomEvent('controlsrigchange'));
 
   const targetLabel = document.getElementById('controls-target-label');
   if (!targetLabel) return;
@@ -2127,6 +2134,19 @@ socket.on('play_sound', d => {
   let slewSpeedValues = null;
   let activeSlew = null;
 
+  function mountUrl(path) {
+    const rig = selectedPilotableMountRig();
+    return rig ? `/api/rigs/${rig.rig_id}/mount/${path}` : null;
+  }
+
+  function disableMountControls() {
+    homeButton.disabled = true;
+    slewSpeed.disabled = true;
+    trackingMode.disabled = true;
+    trackingSwitch.disabled = true;
+    slewButtons.forEach(button => { button.disabled = true; });
+  }
+
   function selectedSlewSpeed() {
     return slewSpeedValues
       ? slewSpeedValues[Number(slewSpeed.value)].value
@@ -2145,7 +2165,12 @@ socket.on('play_sound', d => {
   }
 
   function displayMount(data) {
+    if (!selectedPilotableMountRig()) {
+      disableMountControls();
+      return;
+    }
     homing = data && data.homing === true;
+    homeButton.disabled = false;
     homeButton.textContent = homing ? 'STOP' : 'HOME';
     homeButton.classList.toggle('focuser-cancel', homing);
     slewButtons.forEach(button => { button.disabled = homing; });
@@ -2196,10 +2221,17 @@ socket.on('play_sound', d => {
   }
 
   async function refreshMount() {
+    const url = mountUrl('status');
+    if (!url) {
+      clearTimeout(pollTimer);
+      disableMountControls();
+      return;
+    }
     try {
-      const response = await fetch('/api/mount/status');
+      const response = await fetch(url);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `Erreur HTTP ${response.status}`);
+      if (url !== mountUrl('status')) return;
       displayMount(data);
     } catch (error) {
       scheduleMountRefresh(1500);
@@ -2212,6 +2244,7 @@ socket.on('play_sound', d => {
   }
 
   async function postMount(url, options = {method: 'POST'}) {
+    if (!url) return;
     try {
       const response = await fetch(url, options);
       if (!response.ok) {
@@ -2226,17 +2259,20 @@ socket.on('play_sound', d => {
 
   function stopSlewBestEffort() {
     if (!activeSlew) return;
+    const stopUrl = activeSlew.stopUrl;
     activeSlew = null;
-    fetch(homeButton.dataset.slewStopUrl, {method: 'POST'}).catch(() => {});
+    fetch(stopUrl, {method: 'POST'}).catch(() => {});
   }
 
   function startSlew(event) {
-    if (homing || activeSlew) return;
+    const startUrl = mountUrl('slew/start');
+    const stopUrl = mountUrl('slew/stop');
+    if (!startUrl || !stopUrl || homing || activeSlew) return;
     event.preventDefault();
     const button = event.currentTarget;
-    activeSlew = {button, pointerId: event.pointerId};
+    activeSlew = {button, pointerId: event.pointerId, stopUrl};
     button.setPointerCapture(event.pointerId);
-    fetch('/api/mount/slew/start', {
+    fetch(startUrl, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({direction: button.dataset.direction}),
@@ -2254,12 +2290,12 @@ socket.on('play_sound', d => {
   window.addEventListener('pagehide', stopSlewBestEffort);
 
   homeButton.addEventListener('click', () => {
-    postMount(homing ? homeButton.dataset.slewStopUrl : '/api/mount/home');
+    postMount(mountUrl(homing ? 'slew/stop' : 'home'));
   });
 
   slewSpeed.addEventListener('input', displaySlewSpeedValue);
   slewSpeed.addEventListener('change', () => {
-    postMount('/api/mount/speed', {
+    postMount(mountUrl('speed'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({speed: selectedSlewSpeed()}),
@@ -2267,7 +2303,7 @@ socket.on('play_sound', d => {
   });
 
   trackingMode.addEventListener('change', () => {
-    postMount('/api/mount/tracking/mode', {
+    postMount(mountUrl('tracking/mode'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({mode: trackingMode.value}),
@@ -2275,11 +2311,15 @@ socket.on('play_sound', d => {
   });
 
   trackingSwitch.addEventListener('change', () => {
-    postMount(trackingSwitch.checked
-      ? '/api/mount/tracking/start'
-      : '/api/mount/tracking/stop');
+    postMount(mountUrl(trackingSwitch.checked
+      ? 'tracking/start'
+      : 'tracking/stop'));
   });
 
+  document.addEventListener('controlsrigchange', () => {
+    stopSlewBestEffort();
+    refreshMount();
+  });
   socket.on('connect', refreshMount);
   socket.on('status_update', refreshMount);
   socket.on('trigger_phase', data => {
