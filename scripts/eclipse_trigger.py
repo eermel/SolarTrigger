@@ -855,6 +855,65 @@ def _format_seconds_as_speed(sec: float) -> str:
     frac = 1.0 / sec
     return f"1/{frac:g}"
 
+def _extend_regular_ev_for_atmosphere(
+    speeds,
+    shutter_min,
+    shutter_max,
+    step_ev,
+    target_time,
+    timeline,
+    altitudes,
+    observer_altitude,
+):
+    """Extend a regular EV bracket for atmospheric attenuation."""
+    if observer_altitude is None:
+        raise RuntimeError(
+            "atmo_compensation actif : altitude observateur manquante"
+        )
+
+    if any(value is None for value in altitudes.values()):
+        raise RuntimeError(
+            "atmo_compensation actif : "
+            "altitude C1/C2/TMAX/C3/C4 manquante"
+        )
+
+    try:
+        tl = {
+            key: timeline[key]
+            for key in ("C1", "C2", "TMAX", "C3", "C4")
+        }
+    except KeyError as exc:
+        raise RuntimeError(
+            f"atmo_compensation actif : timestamp {exc.args[0]} manquant"
+        ) from exc
+
+    if target_time is None:
+        raise RuntimeError(
+            "atmo_compensation actif : timestamp capture manquant"
+        )
+
+    h = interpolate_altitude(target_time, tl, altitudes)
+    facteur = facteur_atmospherique(h, float(observer_altitude))
+    updated_speeds = None if speeds is None else list(speeds)
+    slowest = shutter_min
+    slowest_seconds = parse_shutterspeed(slowest)
+    target_slowest = slowest_seconds * float(facteur)
+    next_exposure = slowest_seconds * (2.0 ** step_ev)
+
+    while next_exposure < target_slowest:
+        if updated_speeds is not None:
+            updated_speeds.append(_format_seconds_as_speed(next_exposure))
+        next_exposure *= 2.0 ** step_ev
+
+    added = target_slowest > slowest_seconds
+    if added:
+        if updated_speeds is not None:
+            updated_speeds.append(_format_seconds_as_speed(next_exposure))
+        else:
+            shutter_min = _format_seconds_as_speed(next_exposure)
+
+    return updated_speeds, (shutter_min, shutter_max, step_ev), added
+
 def _capture_intent(speeds, phase, target_time, deadline=None):
     """Build the brand-neutral intent for one absolute scheduler slot."""
     capture = speeds if isinstance(speeds, dict) else {"speeds": speeds}
@@ -896,12 +955,10 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
 
         if use_atmo and regular:
             loc = _observer_location()
-
             if loc is None or loc.get("altitude_m") is None:
                 raise RuntimeError(
                     "atmo_compensation actif : altitude observateur manquante"
                 )
-
             alts = {
                 name: astronomy(name) if circumstances else cfg.get(name)
                 for name in (
@@ -909,52 +966,19 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
                     "C3_alt_deg", "C4_alt_deg",
                 )
             }
-
-            if any(v is None for v in alts.values()):
-                raise RuntimeError(
-                    "atmo_compensation actif : "
-                    "altitude C1/C2/TMAX/C3/C4 manquante"
-                )
-
-            try:
-                tl = {
-                    k: _timeline[k]
-                    for k in ("C1", "C2", "TMAX", "C3", "C4")
-                }
-            except KeyError as exc:
-                raise RuntimeError(
-                    f"atmo_compensation actif : timestamp {exc.args[0]} manquant"
-                ) from exc
-
-            if target_time is None:
-                raise RuntimeError(
-                    "atmo_compensation actif : timestamp capture manquant"
-                )
-
-            h = interpolate_altitude(
+            has_explicit_speeds = intent_speeds is not None
+            intent_speeds, bounds, added = _extend_regular_ev_for_atmosphere(
+                intent_speeds,
+                slowest,
+                fastest,
+                step_il,
                 target_time,
-                tl,
+                _timeline,
                 alts,
+                loc.get("altitude_m"),
             )
-
-            facteur = facteur_atmospherique(
-                h,
-                float(loc["altitude_m"]),
-            )
-
-            slowest_seconds = parse_shutterspeed(slowest)
-
-            target_slowest = slowest_seconds * float(facteur)
-            next_exposure = slowest_seconds * (2.0 ** step_il)
-            while next_exposure < target_slowest:
-                if intent_speeds is not None:
-                    intent_speeds.append(_format_seconds_as_speed(next_exposure))
-                next_exposure *= 2.0 ** step_il
-            if target_slowest > slowest_seconds:
-                if intent_speeds is not None:
-                    intent_speeds.append(_format_seconds_as_speed(next_exposure))
-                else:
-                    shutter_min = _format_seconds_as_speed(next_exposure)
+            if not has_explicit_speeds and added:
+                shutter_min = bounds[0]
 
     except Exception as exc:
         raise RuntimeError(f"construction CaptureIntent impossible: {exc}") from exc
