@@ -190,6 +190,7 @@ from backend.event_log import EventLog
 from backend.gps_controller import GpsController
 from backend.devices import CATEGORIES as DEVICE_CATEGORIES
 from backend.devices import detect_all, normalize_selection, ttl_expired
+from backend.device_inventory import get_cached_inventory, refresh_inventory
 from backend.eclipse_engine import loader as eclipse_loader
 from backend.rig_runtime import get_rig_manager, normalize_rigs_for_ui
 from backend.trigger_service import TriggerService, TriggerValidationError
@@ -535,6 +536,18 @@ def api_devices_set():
 @app.route("/api/devices/detect", methods=["POST"])
 def api_devices_detect():
     return jsonify(_detect_devices())
+
+
+@app.route("/api/rigs/devices/inventory", methods=["GET"])
+def api_rig_device_inventory():
+    """Return the runtime inventory cache without probing hardware."""
+    return jsonify(get_cached_inventory())
+
+
+@app.route("/api/rigs/devices/refresh", methods=["POST"])
+def api_rig_device_inventory_refresh():
+    """Run the operator-requested discovery pass and replace the cache."""
+    return jsonify(refresh_inventory())
 
 # ══════════════════════════════════════════════════════════════════════════════
 # API — STATUT
