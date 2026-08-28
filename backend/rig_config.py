@@ -86,10 +86,14 @@ def validate(obj: Any) -> None:
 
         devices = rig.get("devices")
         _require(isinstance(devices, dict), f"{prefix}.devices must be an object")
-        for key in DEVICE_KEYS:
+        _require(
+            isinstance(devices.get("camera"), dict),
+            f"{prefix}.devices.camera must be an object",
+        )
+        for key in DEVICE_KEYS[1:]:
             _require(
-                isinstance(devices.get(key), dict),
-                f"{prefix}.devices.{key} must be an object",
+                devices.get(key) is None or isinstance(devices.get(key), dict),
+                f"{prefix}.devices.{key} must be an object or null",
             )
 
         _require(isinstance(rig.get("optics"), dict), f"{prefix}.optics must be an object")
