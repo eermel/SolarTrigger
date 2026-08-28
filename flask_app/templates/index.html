@@ -1080,7 +1080,7 @@ header {
           </div>
         </div>
 
-        <button class="btn btn-primary btn-full" id="btn-cam-probe" onclick="probeCamera()">
+        <button class="btn btn-primary btn-full" id="btn-cam-probe" type="button">
           🔌 Tester la connexion USB
         </button>
       </div>
@@ -2912,39 +2912,6 @@ async function calculateEclipse() {
     if (d.error) flash(d.error, 'red');
   } catch(e) { flash('Erreur réseau', 'red'); }
   // Le bouton est réactivé par l'événement eclipse_calculated
-}
-
-async function probeCamera() {
-  const btn  = document.getElementById('btn-cam-probe');
-  const stat = document.getElementById('cam-probe-status');
-  btn.disabled = true;
-  btn.textContent = '⏳ Connexion en cours…';
-  stat.textContent = 'Connexion USB…';
-  stat.style.color = 'var(--text-dim)';
-
-  try {
-    const r = await fetch('/api/camera/probe', { method: 'POST' });
-    const d = await r.json();
-    if (d.error) {
-      stat.textContent = '❌ ' + d.error;
-      stat.style.color = 'var(--red)';
-      document.getElementById('cam-brand').textContent  = '--';
-      document.getElementById('cam-model').textContent  = '--';
-      document.getElementById('cam-battery-probe').textContent = '--';
-    } else {
-      document.getElementById('cam-brand').textContent  = d.brand  || '--';
-      document.getElementById('cam-model').textContent  = d.model  || '--';
-      document.getElementById('cam-battery-probe').textContent = d.battery || '--';
-      stat.textContent = '✅ Détecté — connexion USB coupée';
-      stat.style.color = 'var(--green)';
-    }
-  } catch(e) {
-    stat.textContent = '❌ Erreur réseau';
-    stat.style.color = 'var(--red)';
-  }
-
-  btn.disabled = false;
-  btn.textContent = '🔌 Tester la connexion USB';
 }
 
 function _formatUtcOffset(minutes) {
