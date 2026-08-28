@@ -691,8 +691,8 @@ header {
           <div class="card rig-column" id="rig-column-4" data-rig-id="4"><div class="rig-header"><div class="card-title">RIG 4</div><input class="rig-switch" id="rig-switch-4" type="checkbox" role="switch" aria-label="RIG 4 ON/OFF"></div><div class="rig-body" id="rig-body-4"></div></div>
         </div>
       </section>
-      <button class="btn btn-primary btn-full" id="devices-rescan" onclick="rescanDevices()">
-        ↻ Rescan devices
+      <button class="btn btn-primary btn-full" id="devices-rescan" onclick="refreshRigDevices()">
+        ↻ Rafraîchir les périphériques
       </button>
     </div>
 
@@ -1248,6 +1248,7 @@ const DEFAULT_RIGS = Array.from({length: 4}, (_, index) => ({
   rig_id: index + 1, name: `RIG ${index + 1}`, enabled: false
 }));
 const RIG_DEVICE_CATEGORIES = ['camera', 'mount', 'focuser'];
+let rigDevicesState = {rigs: DEFAULT_RIGS, inventory: {camera: [], mount: [], focuser: []}};
 
 function escapeDeviceText(value) {
   return String(value).replace(/[&<>"']/g, character => ({
@@ -1298,25 +1299,110 @@ function renderDevices(devices) {
     });
   });
 
-  DEFAULT_RIGS.forEach(({rig_id: rigId}) => {
+}
+
+function rigDeviceIdentity(device) {
+  if (!device) return null;
+  if (device.serial && !/^usb:\d+,\d+$/.test(device.serial)) return `serial:${device.serial}`;
+  if (device.fallback_physical_path) return `fallback:${device.fallback_physical_path}`;
+  return null;
+}
+
+function persistedRigBinding(device) {
+  if (!device) return null;
+  const runtimeFields = new Set(['present', 'display_label', 'transport_locator', 'busnum', 'devnum']);
+  return Object.fromEntries(Object.entries(device).filter(([key]) => !runtimeFields.has(key)));
+}
+
+function encodedRigBinding(device) {
+  return device ? encodeURIComponent(JSON.stringify(persistedRigBinding(device))) : '';
+}
+
+function renderRigDevices(payload, inventoryOverride) {
+  const rigs = Array.isArray(payload.rigs) ? payload.rigs : DEFAULT_RIGS;
+  const inventory = inventoryOverride || payload.inventory || rigDevicesState.inventory;
+  rigDevicesState = {rigs, inventory};
+
+  const assignments = {};
+  rigs.forEach(rig => RIG_DEVICE_CATEGORIES.forEach(category => {
+    const identity = rigDeviceIdentity(rig.devices && rig.devices[category]);
+    if (identity) assignments[`${category}:${identity}`] = Number(rig.rig_id);
+  }));
+
+  rigs.forEach(rig => {
+    const rigId = Number(rig.rig_id);
     const body = document.getElementById(`rig-body-${rigId}`);
     if (!body) return;
     body.innerHTML = RIG_DEVICE_CATEGORIES.map(category => {
-      const device = devices[category] || {plugin: 'none'};
+      const current = rig.devices && rig.devices[category];
+      const currentIdentity = rigDeviceIdentity(current);
+      const choices = [...(inventory[category] || [])];
+      if (current && !choices.some(choice => currentIdentity
+        ? rigDeviceIdentity(choice) === currentIdentity
+        : encodedRigBinding(choice) === encodedRigBinding(current))) choices.push(current);
+
+      const noneAllowed = category !== 'camera' || rig.enabled !== true;
+      const options = noneAllowed ? ['<option value="">Aucun</option>'] : [];
+      choices.forEach(choice => {
+        const identity = rigDeviceIdentity(choice);
+        const assignedRig = identity ? assignments[`${category}:${identity}`] : null;
+        const isCurrent = current && (identity ? identity === currentIdentity : encodedRigBinding(choice) === encodedRigBinding(current));
+        let label = choice.display_label || choice.model || choice.serial || choice.backend || 'Périphérique';
+        if (isCurrent && current.present === false) label += ' — attendu / non détecté';
+        if (assignedRig && assignedRig !== rigId) label += ` — affecté à RIG ${assignedRig}`;
+        const optionBinding = isCurrent ? current : choice;
+        options.push(`<option value="${escapeDeviceText(encodedRigBinding(optionBinding))}"${assignedRig && assignedRig !== rigId ? ' disabled' : ''}>${escapeDeviceText(label)}</option>`);
+      });
+      const persisted = encodedRigBinding(current);
       return `<div class="rig-device" data-rig-device="${category}">
         <div class="card-title">${DEVICE_LABELS[category]}</div>
-        <div class="field"><label for="rig-${rigId}-${category}-select">Plugin</label>
-          <div class="select-chev"><select id="rig-${rigId}-${category}-select">
-            ${deviceOptions(category, device)}
+        <div class="field"><label for="rig-${rigId}-${category}-select">Périphérique</label>
+          <div class="select-chev"><select id="rig-${rigId}-${category}-select" data-persisted-value="${escapeDeviceText(persisted)}" onchange="selectRigDevice(${rigId}, '${category}', this)">
+            ${options.join('')}
           </select></div>
         </div>
       </div>`;
     }).join('');
     RIG_DEVICE_CATEGORIES.forEach(category => {
       const select = document.getElementById(`rig-${rigId}-${category}-select`);
-      if (select) select.value = devices[category]?.plugin || 'none';
+      if (select) select.value = select.dataset.persistedValue;
     });
   });
+  updateRigs(rigs);
+}
+
+async function loadRigDevices(inventoryOverride) {
+  try {
+    const requests = [fetch('/api/rigs/devices')];
+    if (!inventoryOverride) requests.push(fetch('/api/rigs/devices/inventory'));
+    const responses = await Promise.all(requests);
+    const payload = await responses[0].json();
+    const inventory = inventoryOverride || await responses[1].json();
+    if (!responses[0].ok) throw new Error(payload.error || `Erreur HTTP ${responses[0].status}`);
+    if (!inventoryOverride && !responses[1].ok) throw new Error(inventory.error || `Erreur HTTP ${responses[1].status}`);
+    renderRigDevices(payload, inventory);
+  } catch (error) {
+    flash(`Périphériques RIG : ${error.message}`, 'red');
+  }
+}
+
+async function selectRigDevice(rigId, category, select) {
+  const persistedValue = select.dataset.persistedValue || '';
+  let binding = null;
+  try {
+    binding = select.value ? JSON.parse(decodeURIComponent(select.value)) : null;
+    const response = await fetch('/api/rigs/devices', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rigs: [{rig_id: rigId, devices: {[category]: binding}}]}),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `Erreur HTTP ${response.status}`);
+    await loadRigDevices();
+  } catch (error) {
+    select.value = persistedValue;
+    flash(`Périphériques RIG : ${error.message}`, 'red');
+  }
 }
 
 function updateRigs(rigs) {
@@ -1400,6 +1486,22 @@ async function rescanDevices() {
     renderDevices(devices);
     updateControlsVisibility(devices);
     flash('Détection des périphériques terminée', 'green');
+  } catch (error) {
+    flash(`Détection : ${error.message}`, 'red');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function refreshRigDevices() {
+  const button = document.getElementById('devices-rescan');
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch('/api/rigs/devices/refresh', {method: 'POST'});
+    const inventory = await response.json();
+    if (!response.ok) throw new Error(inventory.error || `Erreur HTTP ${response.status}`);
+    await loadRigDevices(inventory);
+    flash('Inventaire des périphériques rafraîchi', 'green');
   } catch (error) {
     flash(`Détection : ${error.message}`, 'red');
   } finally {
@@ -3602,6 +3704,7 @@ setInterval(loadCameraStatus, 10000);
 
 // Init
 updateRigs(DEFAULT_RIGS);
+loadRigDevices();
 loadEclipseData();
 loadCameraStatus();
 
