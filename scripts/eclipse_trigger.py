@@ -77,6 +77,9 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 import threading
+from copy import deepcopy
+from dataclasses import replace
+from types import MappingProxyType
 
 _print_lock = threading.Lock()
 
@@ -123,6 +126,7 @@ from services.camera_service import _normalized_speed_plan as _norm_plan
 from scripts.camera_ipc_client import CameraIpcClient
 from scripts.fanout_camera_adapter import FanoutCameraAdapter
 from backend.atmo import facteur_atmospherique, interpolate_altitude
+from backend.rig_runtime import load_rig_configuration
 from backend import audio_service
 
 _runtime_clock = RuntimeClock()
@@ -575,6 +579,46 @@ if args.dry_run:
     _timeline = rebase_timeline(_timeline, now() + timedelta(seconds=float(args.dry_run_delay)))
     _log(f"🧪 DRY-RUN ×1 — même moteur et même caméra, timeline translatée, TSTART dans {args.dry_run_delay:g}s")
 
+try:
+    _rig_configuration = load_rig_configuration()
+except Exception as exc:
+    _log(
+        f"{Colors.YELLOW}Configuration RIG indisponible : "
+        f"Atmos par RIG désactivé ({exc}){Colors.RESET}"
+    )
+    _rig_configuration = {}
+_atmos_enabled_by_rig = MappingProxyType(deepcopy({
+    rig["rig_id"]: bool(
+        isinstance(rig.get("photo"), dict)
+        and rig["photo"].get("atmos_enabled") is True
+    )
+    for rig in _rig_configuration.get("rigs", ())
+    if (
+        isinstance(rig, dict)
+        and rig.get("enabled") is True
+        and isinstance(rig.get("rig_id"), int)
+        and not isinstance(rig.get("rig_id"), bool)
+        and 1 <= rig["rig_id"] <= 4
+    )
+}))
+_atmos_timeline = MappingProxyType(deepcopy({
+    name: _timeline[name] for name in ("C1", "C2", "TMAX", "C3", "C4")
+}))
+_atmos_altitudes = MappingProxyType(deepcopy({
+    name: astronomy(name) if circumstances else cfg.get(name)
+    for name in (
+        "C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg",
+        "C3_alt_deg", "C4_alt_deg",
+    )
+}))
+_atmos_location = _observer_location()
+_atmos_observer_altitude = (
+    _atmos_location.get("altitude_m")
+    if isinstance(_atmos_location, dict)
+    else None
+)
+_per_rig_atmo_active = any(_atmos_enabled_by_rig.values())
+
 TSTART = _timeline["TSTART"]
 C1 = _timeline["C1"]
 C2 = _timeline["C2"]
@@ -914,6 +958,36 @@ def _extend_regular_ev_for_atmosphere(
             shutter_min = _format_seconds_as_speed(next_exposure)
 
     return updated_speeds, (shutter_min, shutter_max, step_ev), added
+
+
+def atmos_intent_transformer(rig_id, intent):
+    """Apply this run's frozen atmospheric context to one rig intent."""
+    del rig_id  # The adapter has already selected an Atmos-enabled rig.
+    intent_speeds = None if intent.speeds is None else list(intent.speeds)
+    if intent_speeds is not None:
+        fastest, slowest, step_ev, regular = _norm_plan(intent_speeds)
+        if not regular:
+            return intent, False
+    else:
+        fastest = str(intent.shutter_max)
+        slowest = str(intent.shutter_min)
+        step_ev = float(intent.step_ev if intent.step_ev is not None else 1.0)
+
+    updated_speeds, bounds, added = _extend_regular_ev_for_atmosphere(
+        intent_speeds,
+        slowest,
+        fastest,
+        step_ev,
+        intent.target_time,
+        _atmos_timeline,
+        _atmos_altitudes,
+        _atmos_observer_altitude,
+    )
+    if intent_speeds is not None:
+        return replace(intent, speeds=updated_speeds), added
+    if added:
+        return replace(intent, shutter_min=bounds[0]), True
+    return intent, False
 
 def _capture_intent(speeds, phase, target_time, deadline=None):
     """Build the brand-neutral intent for one absolute scheduler slot."""
@@ -1622,7 +1696,12 @@ def main():
                 f"{Colors.GREEN}### CAMERA IPC RIGS "
                 f"{rig_snapshot['rig_ids']}{Colors.RESET}"
             )
-            ipc_adapter = FanoutCameraAdapter(ipc_client, log_fn=_log)
+            ipc_adapter = FanoutCameraAdapter(
+                ipc_client,
+                log_fn=_log,
+                atmos_enabled_by_rig=_atmos_enabled_by_rig,
+                atmos_intent_transformer=atmos_intent_transformer,
+            )
             camera_service = ipc_adapter
             camera_service.initialize(
                 aperture=aperture_partial,
