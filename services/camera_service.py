@@ -29,6 +29,8 @@ class CaptureIntent:
     target_time: datetime
     deadline: Optional[datetime]
     overflow_policy: Optional[str]
+    origin: Optional[str] = None
+    request_id: Optional[str] = None
 
 
 @dataclass
@@ -40,6 +42,7 @@ class PreparedCapture:
     exposures_s: Optional[List[float]]
     planned_count: Optional[int]
     plugin_name: str
+    materialized: Optional[list] = None
 
 
 def _parse_speed(value):

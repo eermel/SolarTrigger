@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Iterable
 
+from backend.exposure_model import MaterializedExposure
 from plugins.camera.base import CaptureResult
 from scripts.camera_ipc_client import CameraIpcError, _sanitized_log_value
 from services.camera_service import PreparedCapture
@@ -69,6 +70,7 @@ class FanoutCameraAdapter:
 
         prepared_rigs: list[_PreparedRig] = []
         successful: list[dict[str, Any]] = []
+        materialized: list[MaterializedExposure] = []
         for rig_id, result in results:
             token_id = result.get("token_id") if isinstance(result, dict) else None
             if not isinstance(token_id, str):
@@ -78,6 +80,31 @@ class FanoutCameraAdapter:
                 continue
             prepared_rigs.append(_PreparedRig(rig_id, token_id))
             successful.append(result)
+            plugin_name = result.get("plugin_name")
+            exposures_s = result.get("exposures_s")
+            request_id = result.get("request_id")
+            if isinstance(plugin_name, str):
+                materialized.append(
+                    MaterializedExposure(
+                        rig_id=rig_id,
+                        plugin_name=plugin_name,
+                        exposures_s=(
+                            exposures_s
+                            if isinstance(exposures_s, list)
+                            and all(
+                                isinstance(exposure, (int, float))
+                                for exposure in exposures_s
+                            )
+                            else None
+                        ),
+                        iso_applied=None,
+                        corrections=[],
+                        warnings=[],
+                        logical_request_id=(
+                            request_id if isinstance(request_id, str) else None
+                        ),
+                    )
+                )
 
         estimates = [
             result["estimated_total_s"]
@@ -100,6 +127,7 @@ class FanoutCameraAdapter:
             exposures_s=representative.get("exposures_s"),
             planned_count=max(planned_counts, default=None),
             plugin_name="fanout",
+            materialized=materialized,
         )
 
     def trigger_prepared(

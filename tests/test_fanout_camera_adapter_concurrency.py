@@ -75,6 +75,20 @@ class CoordinatedRigClient:
             self.calls.append((state, operation, rig_id))
 
 
+class MaterializedRigClient:
+    def list_active_camera_rigs(self) -> dict[str, tuple[int, int]]:
+        return {"rig_ids": (1, 2)}
+
+    def prepare_capture(self, rig_id: int, _intent: Any) -> dict[str, Any]:
+        exposures_by_rig = {1: [0.25, 0.5], 2: [1.0, 2.0]}
+        return {
+            "token_id": f"prepared-{rig_id}",
+            "plugin_name": f"camera-{rig_id}",
+            "exposures_s": exposures_by_rig[rig_id],
+            "request_id": "logical-request-1",
+        }
+
+
 def _invoke_prepare(adapter: FanoutCameraAdapter, rig_count: int) -> Any:
     return adapter.prepare_capture(object())
 
@@ -95,6 +109,32 @@ def _invoke_trigger(adapter: FanoutCameraAdapter, rig_count: int) -> Any:
 
 def _invoke_shoot(adapter: FanoutCameraAdapter, rig_count: int) -> Any:
     return adapter.shoot_speed_list(["1/100"])
+
+
+def test_prepare_capture_materializes_each_successful_rig() -> None:
+    adapter = FanoutCameraAdapter(
+        MaterializedRigClient(), log_fn=lambda _message: None
+    )
+
+    try:
+        prepared = adapter.prepare_capture(object())
+    finally:
+        adapter.close()
+
+    assert prepared.materialized is not None
+    assert len(prepared.materialized) == 2
+    assert [
+        (
+            exposure.rig_id,
+            exposure.plugin_name,
+            exposure.exposures_s,
+            exposure.logical_request_id,
+        )
+        for exposure in prepared.materialized
+    ] == [
+        (1, "camera-1", [0.25, 0.5], "logical-request-1"),
+        (2, "camera-2", [1.0, 2.0], "logical-request-1"),
+    ]
 
 
 @pytest.mark.parametrize("rig_count", range(1, 5))

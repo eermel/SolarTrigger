@@ -25,7 +25,7 @@ MAX_WORKERS = 8
 
 _ENVELOPE_KEYS = {"operation", "params", "session_id"}
 _REQUIRED_ENVELOPE_KEYS = {"operation"}
-_INTENT_KEYS = {
+_REQUIRED_INTENT_KEYS = {
     "shutter_min",
     "shutter_max",
     "step_ev",
@@ -35,6 +35,7 @@ _INTENT_KEYS = {
     "deadline",
     "overflow_policy",
 }
+_ALLOWED_INTENT_KEYS = _REQUIRED_INTENT_KEYS | {"origin", "request_id"}
 _PARAM_KEYS = {
     "ping": set(),
     "list_active_camera_rigs": set(),
@@ -354,8 +355,12 @@ class CameraIpcServer:
             if not isinstance(intent_data, dict):
                 raise IpcError("INVALID_REQUEST", "intent must be an object")
             self._validate_intent(intent_data)
+            origin = intent_data.get("origin")
+            request_id = intent_data.get("request_id")
             try:
                 intent_values = dict(intent_data)
+                intent_values["origin"] = origin
+                intent_values["request_id"] = request_id
                 intent_values["target_time"] = self._intent_datetime(
                     intent_values.get("target_time"), "target_time", required=True
                 )
@@ -376,6 +381,7 @@ class CameraIpcServer:
                 "exposures_s": prepared.exposures_s,
                 "planned_count": prepared.planned_count,
                 "plugin_name": prepared.plugin_name,
+                "request_id": request_id,
             }
         if operation == "trigger_prepared":
             token_id = params.get("token_id")
@@ -455,7 +461,9 @@ class CameraIpcServer:
 
     @classmethod
     def _validate_intent(cls, intent: dict[str, Any]) -> None:
-        cls._validate_keys(intent, _INTENT_KEYS, _INTENT_KEYS, "intent")
+        cls._validate_keys(
+            intent, _ALLOWED_INTENT_KEYS, _REQUIRED_INTENT_KEYS, "intent"
+        )
         for field in ("shutter_min", "shutter_max", "overflow_policy"):
             if intent[field] is not None and not isinstance(intent[field], str):
                 raise IpcError("INVALID_REQUEST", f"{field} must be a string or null")
