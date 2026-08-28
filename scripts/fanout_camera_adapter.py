@@ -1,0 +1,193 @@
+"""Camera-service adapter which fans IPC operations out across active rigs."""
+
+from __future__ import annotations
+
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Callable, Iterable
+
+from plugins.camera.base import CaptureResult
+from services.camera_service import PreparedCapture
+
+
+@dataclass(frozen=True)
+class _PreparedRig:
+    rig_id: int
+    token_id: str
+
+
+class FanoutCameraAdapter:
+    """Present the camera-service interface for all currently active IPC rigs."""
+
+    def __init__(self, ipc_client: Any, log_fn: Callable[[str], None] = print) -> None:
+        self._ipc = ipc_client
+        self._log = log_fn
+        # Keep the pool alive: creating one per operation adds avoidable latency at
+        # precisely the point where the trigger is preparing or firing cameras.
+        self._executor = ThreadPoolExecutor(max_workers=4)
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=True)
+
+    def initialize(
+        self,
+        *,
+        aperture: str | None = None,
+        iso: str | None = None,
+        image_format: str = "RAW",
+        white_balance: str = "Daylight",
+    ) -> None:
+        rig_ids = self._active_rig_ids()
+        futures = self._submit_all(
+            rig_ids,
+            self._ipc.initialize,
+            aperture=aperture,
+            iso=iso,
+            image_format=image_format,
+            white_balance=white_balance,
+        )
+        self._collect("initialize", futures)
+
+    def apply_phase_settings(
+        self, aperture: str | None = None, iso: str | None = None
+    ) -> None:
+        rig_ids = self._active_rig_ids()
+        futures = self._submit_all(
+            rig_ids,
+            self._ipc.apply_phase_settings,
+            aperture=aperture,
+            iso=iso,
+        )
+        self._collect("apply_phase_settings", futures)
+
+    def prepare_capture(self, intent: Any) -> PreparedCapture:
+        rig_ids = self._active_rig_ids()
+        futures = self._submit_all(rig_ids, self._ipc.prepare_capture, intent)
+        results = self._collect("prepare_capture", futures)
+
+        prepared_rigs: list[_PreparedRig] = []
+        successful: list[dict[str, Any]] = []
+        for rig_id, result in results:
+            token_id = result.get("token_id") if isinstance(result, dict) else None
+            if not isinstance(token_id, str):
+                self._log_failure(
+                    "prepare_capture", rig_id, ValueError("missing prepared token_id")
+                )
+                continue
+            prepared_rigs.append(_PreparedRig(rig_id, token_id))
+            successful.append(result)
+
+        estimates = [
+            result["estimated_total_s"]
+            for result in successful
+            if isinstance(result.get("estimated_total_s"), (int, float))
+        ]
+        planned_counts = [
+            result["planned_count"]
+            for result in successful
+            if isinstance(result.get("planned_count"), int)
+        ]
+        representative = max(
+            successful,
+            key=lambda result: result.get("estimated_total_s") or 0.0,
+            default={},
+        )
+        return PreparedCapture(
+            token=tuple(prepared_rigs),
+            estimated_total_s=max(estimates, default=None),
+            exposures_s=representative.get("exposures_s"),
+            planned_count=max(planned_counts, default=None),
+            plugin_name="fanout",
+        )
+
+    def trigger_prepared(
+        self, prepared: PreparedCapture, deadline: datetime | None = None
+    ) -> CaptureResult:
+        prepared_rigs = tuple(prepared.token)
+        futures = {
+            item.rig_id: self._executor.submit(
+                self._ipc.trigger_prepared,
+                item.rig_id,
+                item.token_id,
+                deadline=deadline,
+            )
+            for item in prepared_rigs
+        }
+        return self._capture_result(
+            "trigger_prepared", self._collect("trigger_prepared", futures)
+        )
+
+    def shoot_speed_list(
+        self,
+        speeds: Iterable[str],
+        photo_num_start: int = 0,
+        deadline: datetime | None = None,
+        slowest_override_seconds: float | None = None,
+    ) -> CaptureResult:
+        rig_ids = self._active_rig_ids()
+        futures = self._submit_all(
+            rig_ids,
+            self._ipc.shoot_speed_list,
+            list(speeds),
+            photo_num_start=photo_num_start,
+            deadline=deadline,
+            slowest_override_seconds=slowest_override_seconds,
+        )
+        return self._capture_result(
+            "shoot_speed_list", self._collect("shoot_speed_list", futures)
+        )
+
+    def _active_rig_ids(self) -> tuple[int, ...]:
+        return tuple(self._ipc.list_active_camera_rigs()["rig_ids"])
+
+    def _submit_all(
+        self,
+        rig_ids: Iterable[int],
+        operation: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> dict[int, Future[Any]]:
+        return {
+            rig_id: self._executor.submit(operation, rig_id, *args, **kwargs)
+            for rig_id in rig_ids
+        }
+
+    def _collect(
+        self, operation: str, futures: dict[int, Future[Any]]
+    ) -> list[tuple[int, Any]]:
+        results = []
+        for rig_id, future in futures.items():
+            try:
+                results.append((rig_id, future.result()))
+            except Exception as exc:
+                self._log_failure(operation, rig_id, exc)
+        return results
+
+    def _capture_result(
+        self, operation: str, results: list[tuple[int, Any]]
+    ) -> CaptureResult:
+        frames = []
+        planned = []
+        for rig_id, result in results:
+            if not isinstance(result, dict):
+                self._log_failure(operation, rig_id, ValueError("invalid capture result"))
+                continue
+            if isinstance(result.get("frames"), int):
+                frames.append(result["frames"])
+            if isinstance(result.get("planned"), int):
+                planned.append(result["planned"])
+        return CaptureResult(
+            frames=max(frames, default=0),
+            planned=max(planned, default=0),
+            detail="fanout",
+        )
+
+    def _log_failure(self, operation: str, rig_id: int, exc: Exception) -> None:
+        self._log(
+            f"CAMERA_FANOUT_FAILURE operation={operation} rig_id={rig_id} "
+            f"error={type(exc).__name__}: {exc}"
+        )
+
+
+__all__ = ["FanoutCameraAdapter"]
