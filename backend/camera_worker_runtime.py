@@ -5,13 +5,23 @@ from __future__ import annotations
 import threading
 
 from backend.camera_worker import CameraWorker
+from backend.trigger_runtime import RuntimeClock
 
 
 class CameraWorkerRuntime:
     """Own one persistent camera worker for each eligible rig."""
 
-    def __init__(self, log_fn=print) -> None:
+    def __init__(
+        self,
+        log_fn=print,
+        clock=None,
+        worker_factory=CameraWorker,
+        ipc_server_factory=None,
+    ) -> None:
         self._log = log_fn
+        self._clock = clock or RuntimeClock()
+        self._worker_factory = worker_factory
+        self._ipc_server_factory = ipc_server_factory
         self._registry: dict[int, CameraWorker] = {}
         self._lock = threading.RLock()
 
@@ -44,7 +54,11 @@ class CameraWorkerRuntime:
             created: dict[int, CameraWorker] = {}
             try:
                 for rig_id in desired - self._registry.keys():
-                    worker = CameraWorker(rig_id=rig_id, log_fn=self._log)
+                    worker = self._worker_factory(
+                        rig_id=rig_id,
+                        clock=self._clock,
+                        log_fn=self._log,
+                    )
                     created[rig_id] = worker
                     worker.start()
             except BaseException:
@@ -76,6 +90,12 @@ class CameraWorkerRuntime:
 
         with self._lock:
             return self._registry.get(rig_id)
+
+    def active_camera_rig_ids(self) -> tuple[int, ...]:
+        """Return an ascending snapshot of active camera rig identifiers."""
+
+        with self._lock:
+            return tuple(sorted(self._registry))
 
 
 _camera_worker_runtime: CameraWorkerRuntime | None = None
