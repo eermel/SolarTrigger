@@ -213,3 +213,41 @@ def test_runtime_inventory_fields_are_never_persisted(persistence_api, field, va
     assert config_path.read_bytes() == before
     assert reloads == []
     assert emitted == []
+
+
+def test_focuser_device_id_is_persisted_and_reloaded(persistence_api):
+    client, config_path, *_ = persistence_api
+
+    response = client.post(
+        "/api/rigs/devices",
+        json={
+            "rigs": [
+                {
+                    "rig_id": 1,
+                    "devices": {
+                        "focuser": {
+                            "backend": "zwo_eaf",
+                            "manufacturer": "ZWO",
+                            "model": "EAF",
+                            "serial": None,
+                            "device_id": "zwo_eaf:0",
+                            "fallback_physical_path": None,
+                        }
+                    },
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+
+    import json
+
+    with config_path.open("r", encoding="utf-8") as stream:
+        saved = json.load(stream)
+
+    focuser = saved["rigs"][0]["devices"]["focuser"]
+
+    assert focuser["backend"] == "zwo_eaf"
+    assert focuser["device_id"] == "zwo_eaf:0"
+    assert focuser["serial"] is None

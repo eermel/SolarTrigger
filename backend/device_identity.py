@@ -23,6 +23,10 @@ def identity_key(entry: dict[str, Any]) -> tuple[str, str] | None:
     if serial and not is_usb_bus_device(serial):
         return "serial", serial
 
+    device_id = entry.get("device_id")
+    if isinstance(device_id, str) and device_id.strip():
+        return "device_id", device_id.strip()
+
     fallback = entry.get("fallback_physical_path")
     if fallback:
         return "fallback", fallback

@@ -132,7 +132,13 @@ def _discover_mounts() -> list[dict[str, Any]]:
 
 
 def _discover_focusers() -> list[dict[str, Any]]:
-    return _discover_legacy_category("focuser")
+    """Discover zero or more physical focusers through their plugin registry."""
+    try:
+        from plugins.focuser import inventory_focusers
+
+        return list(inventory_focusers(log_fn=lambda *_args: None))
+    except Exception:
+        return _discover_legacy_category("focuser")
 
 
 def _discover_legacy_category(category: str) -> list[dict[str, Any]]:
@@ -180,6 +186,7 @@ def _normalize_entries(
         serial = _first_text(source, "serial", "usb_serial")
         if serial and is_usb_bus_device(serial):
             serial = None
+        device_id = _first_text(source, "device_id", "sdk_id")
         physical_path = _first_text(
             source, "fallback_physical_path", "physical_path"
         )
@@ -190,6 +197,7 @@ def _normalize_entries(
             "manufacturer": _text(source.get("manufacturer")),
             "model": _text(source.get("model")),
             "serial": serial,
+            "device_id": device_id,
             "fallback_physical_path": physical_path,
             "present": True,
             "transport_locator": _text(source.get("transport_locator")),
@@ -201,6 +209,7 @@ def _normalize_entries(
             entry["alias"] = alias
         entry["bindable"] = (
             serial is not None
+            or device_id is not None
             or entry["fallback_physical_path"] is not None
             or device_name is not None
         )

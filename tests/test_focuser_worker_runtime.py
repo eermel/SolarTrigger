@@ -234,3 +234,45 @@ def test_singleton_accessor_sets_provider_once(monkeypatch):
 
     with pytest.raises(RuntimeError, match="already set"):
         runtime_module.get_focuser_worker_runtime(CapturingProvider())
+
+
+def test_two_zwo_device_ids_create_two_distinct_workers():
+    provider = CapturingProvider()
+    runtime = FocuserWorkerRuntime(provider, log_fn=lambda *_args: None)
+
+    runtime.reconcile(
+        focuser_config(
+            (
+                701,
+                {
+                    "backend": "zwo_eaf",
+                    "device_id": "zwo_eaf:0",
+                },
+                True,
+            ),
+            (
+                702,
+                {
+                    "backend": "zwo_eaf",
+                    "device_id": "zwo_eaf:7",
+                },
+                True,
+            ),
+        )
+    )
+
+    worker_0 = runtime.get_for_rig(701)
+    worker_7 = runtime.get_for_rig(702)
+
+    assert worker_0 is not None
+    assert worker_7 is not None
+    assert worker_0 is not worker_7
+
+    assert len(provider.bindings) == 2
+    assert {
+        binding.identity
+        for binding in provider.bindings
+    } == {
+        ("device_id", "zwo_eaf:0"),
+        ("device_id", "zwo_eaf:7"),
+    }
