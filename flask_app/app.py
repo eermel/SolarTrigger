@@ -198,6 +198,16 @@ from backend.device_inventory import (
     refresh_inventory,
 )
 from backend.eclipse_engine import loader as eclipse_loader
+from backend.preview_context import load_eclipse_context
+from backend.preview_materializer import (
+    PreviewMaterializationError,
+    apply_atmos_if_enabled,
+    assemble_exposures_s,
+    compute_iso_and_corrections,
+    normalize_intent_plan,
+    resolve_policy,
+)
+from backend.preview_request import validate_and_normalize as validate_preview_request
 from backend.rig_config import save as save_rig_config, validate as validate_rig_config
 from backend.rig_manager import RigManager
 from backend.rig_runtime import (
@@ -645,6 +655,78 @@ def _validate_positive_number(value, field, *, integer=False, nullable=False):
     ):
         kind = "integer" if integer else "number"
         raise ValueError(f"{field} must be a {kind} strictly greater than 0")
+
+
+def _preview_datetime(value):
+    return value.isoformat(timespec="microseconds") + "Z" if value is not None else None
+
+
+@app.route("/api/rigs/preview", methods=["POST"])
+def api_rigs_preview():
+    """Materialize exposure intents from configuration without touching runtime state."""
+    payload = request.get_json(silent=True)
+    try:
+        config = load_rig_configuration()
+    except (OSError, json.JSONDecodeError, ValueError):
+        return jsonify({"error": "rig configuration could not be loaded"}), 500
+    try:
+        intents = validate_preview_request(payload, config)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    eclipse_context = load_eclipse_context(JSON_FILE)
+    materializer_context = {
+        **eclipse_context,
+        "altitude_m": eclipse_context.get("observer_alt_m"),
+    }
+    rigs = sorted(
+        (
+            rig for rig in config.get("rigs", [])
+            if isinstance(rig, dict) and rig.get("enabled") is True
+        ),
+        key=lambda rig: rig.get("rig_id"),
+    )
+    response = []
+    for rig in rigs:
+        items = []
+        for intent in intents:
+            item = {
+                "phase": intent["phase"],
+                "target_time": _preview_datetime(intent["target_time"]),
+                "deadline": _preview_datetime(intent["deadline"]),
+                "origin": intent["origin"],
+                "request_id": intent["request_id"],
+            }
+            try:
+                plan = normalize_intent_plan(intent)
+                plan, atmos_applied = apply_atmos_if_enabled(
+                    rig, plan, intent["target_time"], materializer_context
+                )
+                iso_applied, corrections, warnings = compute_iso_and_corrections(
+                    intent["iso_target"], plan[2], rig.get("photo", {})
+                )
+                item.update({
+                    "exposures_s": assemble_exposures_s(plan),
+                    "iso_applied": iso_applied,
+                    "corrections": corrections,
+                    "warnings": warnings,
+                    "atmos_applied": atmos_applied,
+                    "motion_policy": resolve_policy(rig),
+                    "error": None,
+                })
+            except (
+                PreviewMaterializationError,
+                ArithmeticError,
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as exc:
+                code = getattr(exc, "code", "MATERIALIZATION_ERROR")
+                item["error"] = {"code": code, "message": str(exc)}
+            items.append(item)
+        response.append({"rig_id": rig["rig_id"], "items": items})
+
+    return jsonify({"rigs": response})
 
 
 @app.route("/api/rigs/devices", methods=["POST"])
