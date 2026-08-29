@@ -50,16 +50,19 @@ class ZwoFocuser(FocuserPlugin):
     @staticmethod
     def probe(config=None):
         try:
-            e = ZwoEaf()
-            info = e.connect()
-            e.disconnect()
-            return info is not None
+            return bool(ZwoEaf().enumerate_devices())
         except Exception:
             return False
 
+    @staticmethod
+    def inventory(config=None):
+        """Retourne tous les ZWO EAF visibles par le SDK."""
+        return ZwoEaf().enumerate_devices()
+
     # -- connexion --------------------------------------------------------- #
     def connect(self):
-        info = self.eaf.connect()
+        device_id = self.config.get("device_id")
+        info = self.eaf.connect(device_id=device_id)
         # Protection butee : reposer la limite haute a CHAQUE demarrage
         # (systeme autonome -> ne pas dependre de la memoire de l'EAF).
         if self.max_step_limit is not None:

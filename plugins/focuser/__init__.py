@@ -8,6 +8,8 @@ Selection explicite par id (future page d'equipement) + entree 'none'.
 Imports paresseux : lister les plugins ne charge ni le SDK ni le materiel.
 """
 
+from collections.abc import Mapping
+
 from .base import FocuserPlugin
 
 # id -> (module, classe, nom_affichage)
@@ -66,5 +68,52 @@ def detect_focuser(candidates=None, log_fn=print, config_by_id=None):
     return None
 
 
+
+def inventory_focusers(candidates=None, log_fn=print, config_by_id=None):
+    """Enumere les instances physiques exposees par les plugins focuser."""
+    config_by_id = config_by_id or {}
+    ids = candidates or list(_PLUGIN_CLASSES.keys())
+    devices = []
+
+    for pid in ids:
+        entry = _PLUGIN_CLASSES.get(pid)
+        if not entry:
+            continue
+
+        try:
+            import importlib
+
+            mod = importlib.import_module(f".{entry[0]}", __package__)
+            cls = getattr(mod, entry[1])
+            config = config_by_id.get(pid)
+
+            inventory = getattr(cls, "inventory", None)
+
+            if callable(inventory):
+                for physical in inventory(config) or ():
+                    if not isinstance(physical, Mapping):
+                        continue
+
+                    normalized = dict(physical)
+                    normalized.setdefault("category", "focuser")
+                    normalized.setdefault("backend", pid)
+                    devices.append(normalized)
+
+                continue
+
+            # Compatibilite avec les anciens plugins single-instance.
+            if cls.probe(config):
+                devices.append({
+                    "category": "focuser",
+                    "backend": pid,
+                    "model": pid,
+                })
+
+        except Exception as exc:
+            log_fn(f"inventory {pid} : {exc}")
+
+    return devices
+
+
 __all__ = ["FocuserPlugin", "available_plugins", "load_focuser",
-           "detect_focuser", "NONE_ID"]
+           "detect_focuser", "inventory_focusers", "NONE_ID"]

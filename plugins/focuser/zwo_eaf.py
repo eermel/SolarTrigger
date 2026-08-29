@@ -23,6 +23,7 @@ import time
 
 LIB_NAME = "libEAFFocuser.so"
 EAF_SUCCESS = 0
+EAF_ERROR_NOT_SUPPORTED = 8
 
 
 # --- structures C (EAF_focuser.h) ------------------------------------------ #
@@ -31,6 +32,12 @@ class EAF_INFO(ctypes.Structure):
         ("ID", ctypes.c_int),
         ("Name", ctypes.c_char * 64),
         ("MaxStep", ctypes.c_int),
+    ]
+
+
+class EAF_SN(ctypes.Structure):
+    _fields_ = [
+        ("id", ctypes.c_ubyte * 8),
     ]
 
 
@@ -98,6 +105,12 @@ class ZwoEaf:
         L.EAFStepRange.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
         L.EAFStepRange.restype = ctypes.c_int
         L.EAFGetSDKVersion.restype = ctypes.c_char_p
+        if hasattr(L, "EAFGetSerialNumber"):
+            L.EAFGetSerialNumber.argtypes = [
+                ctypes.c_int,
+                ctypes.POINTER(EAF_SN),
+            ]
+            L.EAFGetSerialNumber.restype = ctypes.c_int
 
     def _check(self, code, what):
         if code != EAF_SUCCESS:
@@ -110,24 +123,143 @@ class ZwoEaf:
         v = self.lib.EAFGetSDKVersion()
         return v.decode("ascii", "replace") if v else "?"
 
-    def connect(self, index=0):
-        """Detecte, ouvre le focuseur `index` et lit ses proprietes."""
+    @staticmethod
+    def _sdk_id_from_device_id(device_id):
+        """Convertit 'zwo_eaf:N' ou N vers l'ID SDK entier."""
+        if isinstance(device_id, int) and not isinstance(device_id, bool):
+            value = device_id
+        else:
+            text = str(device_id or "").strip()
+            if text.startswith("zwo_eaf:"):
+                text = text.split(":", 1)[1]
+            if not text:
+                raise EafError(msg="device_id EAF vide")
+            try:
+                value = int(text)
+            except ValueError as exc:
+                raise EafError(
+                    msg=f"device_id EAF invalide : {device_id}"
+                ) from exc
+
+        if not 0 <= value <= 127:
+            raise EafError(msg=f"device_id EAF hors bornes : {value}")
+        return value
+
+    def _serial_number(self, sdk_id):
+        """Lit le serial matériel s'il est supporté par le firmware."""
+        getter = getattr(self.lib, "EAFGetSerialNumber", None)
+        if getter is None:
+            return None
+
+        serial = EAF_SN()
+        code = getter(int(sdk_id), ctypes.byref(serial))
+
+        if code == EAF_ERROR_NOT_SUPPORTED:
+            return None
+
+        self._check(code, "EAFGetSerialNumber")
+
+        raw = bytes(serial.id)
+        if not any(raw):
+            return None
+
+        return raw.hex().upper()
+
+    def enumerate_devices(self):
+        """Enumère tous les EAF sans envoyer aucune commande de mouvement."""
+        count = self.lib.EAFGetNum()
+        if count <= 0:
+            return []
+
+        devices = []
+
+        for index in range(count):
+            cid = ctypes.c_int(0)
+
+            try:
+                self._check(
+                    self.lib.EAFGetID(index, ctypes.byref(cid)),
+                    "EAFGetID",
+                )
+                sdk_id = cid.value
+
+                self._check(self.lib.EAFOpen(sdk_id), "EAFOpen")
+                try:
+                    info = EAF_INFO()
+                    self._check(
+                        self.lib.EAFGetProperty(
+                            sdk_id, ctypes.byref(info)
+                        ),
+                        "EAFGetProperty",
+                    )
+
+                    name = (
+                        info.Name.decode("ascii", "replace")
+                        .rstrip("\x00")
+                        .strip()
+                    )
+
+                    devices.append({
+                        "category": "focuser",
+                        "backend": "zwo_eaf",
+                        "manufacturer": "ZWO",
+                        "model": name or "EAF",
+                        "serial": self._serial_number(sdk_id),
+                        "device_id": f"zwo_eaf:{sdk_id}",
+                        "sdk_id": sdk_id,
+                        "max_step": info.MaxStep,
+                    })
+                finally:
+                    self.lib.EAFClose(sdk_id)
+
+            except EafError:
+                continue
+
+        return devices
+
+    def connect(self, index=0, device_id=None):
+        """Ouvre un EAF par device_id explicite ou, en legacy, par index."""
         n = self.lib.EAFGetNum()
         if n <= 0:
-            raise EafError(msg="Aucun EAF detecte (branche ? alimente 12V ?)")
-        if index >= n:
-            raise EafError(msg=f"Index {index} hors bornes (n={n})")
-        cid = ctypes.c_int(0)
-        self._check(self.lib.EAFGetID(index, ctypes.byref(cid)),
-                    "EAFGetID")
-        self.id = cid.value
+            raise EafError(
+                msg="Aucun EAF detecte (branche ? alimente 12V ?)"
+            )
+
+        if device_id is None:
+            if index >= n:
+                raise EafError(msg=f"Index {index} hors bornes (n={n})")
+
+            cid = ctypes.c_int(0)
+            self._check(
+                self.lib.EAFGetID(index, ctypes.byref(cid)),
+                "EAFGetID",
+            )
+            self.id = cid.value
+        else:
+            self.id = self._sdk_id_from_device_id(device_id)
+
         self._check(self.lib.EAFOpen(self.id), "EAFOpen")
+
         info = EAF_INFO()
-        self._check(self.lib.EAFGetProperty(self.id, ctypes.byref(info)),
-                    "EAFGetProperty")
-        self.name = info.Name.decode("ascii", "replace")
+        self._check(
+            self.lib.EAFGetProperty(self.id, ctypes.byref(info)),
+            "EAFGetProperty",
+        )
+
+        self.name = (
+            info.Name.decode("ascii", "replace")
+            .rstrip("\x00")
+            .strip()
+        )
         self.max_step = info.MaxStep
-        return {"id": self.id, "name": self.name, "max_step": self.max_step}
+
+        return {
+            "id": self.id,
+            "device_id": f"zwo_eaf:{self.id}",
+            "serial": self._serial_number(self.id),
+            "name": self.name,
+            "max_step": self.max_step,
+        }
 
     def disconnect(self):
         if self.id is not None:

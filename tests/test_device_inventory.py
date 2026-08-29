@@ -215,14 +215,18 @@ def test_mount_and_focuser_identities_are_normalized_and_separated(monkeypatch):
             ],
         },
     )
+    from plugins import focuser as focuser_registry
+
     monkeypatch.setattr(
-        devices,
-        "detect_focuser",
-        lambda: {
-            "detected": True,
-            "suggested_plugin": "indi_focuser",
-            "detected_info": {"device_name": "MoonLite Focuser"},
-        },
+        focuser_registry,
+        "inventory_focusers",
+        lambda log_fn=None: [
+            {
+                "category": "focuser",
+                "backend": "indi_focuser",
+                "device_name": "MoonLite Focuser",
+            }
+        ],
     )
 
     inventory = device_inventory.refresh_inventory()
@@ -250,14 +254,18 @@ def test_non_mapping_provider_value_and_transient_usb_are_not_stable(monkeypatch
             "suggested_plugin": None,
         },
     )
+    from plugins import focuser as focuser_registry
+
     monkeypatch.setattr(
-        devices,
-        "detect_focuser",
-        lambda: {
-            "detected": True,
-            "detected_info": {"usb_serial": "usb:002,009"},
-            "suggested_plugin": "indi_focuser",
-        },
+        focuser_registry,
+        "inventory_focusers",
+        lambda log_fn=None: [
+            {
+                "category": "focuser",
+                "backend": "indi_focuser",
+                "usb_serial": "usb:002,009",
+            }
+        ],
     )
 
     inventory = device_inventory.refresh_inventory()
@@ -267,3 +275,25 @@ def test_non_mapping_provider_value_and_transient_usb_are_not_stable(monkeypatch
     assert inventory["mount"][0]["bindable"] is False
     assert inventory["focuser"][0]["serial"] is None
     assert inventory["focuser"][0]["bindable"] is False
+
+
+def test_focuser_device_id_is_normalized_and_bindable(monkeypatch):
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(device_inventory, "_discover_mounts", lambda: [])
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_focusers",
+        lambda: [{
+            "backend": "zwo_eaf",
+            "manufacturer": "ZWO",
+            "model": "EAF",
+            "device_id": "zwo_eaf:0",
+        }],
+    )
+
+    inventory = device_inventory.refresh_inventory()
+
+    focuser = inventory["focuser"][0]
+    assert focuser["device_id"] == "zwo_eaf:0"
+    assert focuser["serial"] is None
+    assert focuser["bindable"] is True
