@@ -160,6 +160,7 @@ class CameraWorkerRuntime:
                     "photo": {
                         key: photo.get(key) if isinstance(photo, dict) else None
                         for key in (
+                            "atmos_enabled",
                             "anti_trailing_enabled",
                             "motion_tolerance_px",
                             "iso_max",

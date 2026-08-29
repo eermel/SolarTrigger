@@ -35,6 +35,7 @@ def test_reconcile_exposes_policy_snapshot_for_active_rig():
                 },
                 "optics": {"focal_length_mm": 400},
                 "photo": {
+                    "atmos_enabled": False,
                     "anti_trailing_enabled": True,
                     "motion_tolerance_px": 1.5,
                     "iso_max": 3200,
@@ -67,6 +68,7 @@ def test_reconcile_exposes_policy_snapshot_for_active_rig():
         },
         "optics": {"focal_length_mm": 400},
         "photo": {
+            "atmos_enabled": False,
             "anti_trailing_enabled": True,
             "motion_tolerance_px": 1.5,
             "iso_max": 3200,
