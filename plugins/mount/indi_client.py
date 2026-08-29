@@ -123,6 +123,8 @@ class IndiSubprocessClient:
                 "-oL",
                 "indi_getprop",
                 "-m",
+                "-t",
+                "0",
                 "-h",
                 self.host,
                 "-p",
