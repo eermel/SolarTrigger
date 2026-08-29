@@ -63,6 +63,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime, timezone, timedelta
+from functools import wraps
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -192,6 +193,8 @@ from backend.gps_controller import GpsController
 from backend.devices import CATEGORIES as DEVICE_CATEGORIES
 from backend.devices import detect_all, normalize_selection, ttl_expired
 from backend.device_identity import identity_key
+from backend import rig_trace
+from backend.rig_trace_log import get_default_log
 from backend.device_inventory import (
     build_display_labels,
     get_cached_inventory,
@@ -964,6 +967,62 @@ def api_status():
 # API — FOCUSER
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _trace_rig_stop(device_type, fixed_rig_id=None):
+    """Trace one STOP request at its Flask route boundary."""
+    def decorator(route):
+        @wraps(route)
+        def traced(*args, **kwargs):
+            if fixed_rig_id is None:
+                rig_id = kwargs.get("rig_id", args[0] if args else None)
+            else:
+                rig_id = fixed_rig_id
+            start_utc = datetime.now(timezone.utc)
+            try:
+                result = route(*args, **kwargs)
+            except Exception as exc:
+                end_utc = datetime.now(timezone.utc)
+                rig_trace.trace_event(f"{device_type}.stop", {
+                    "rig_id": rig_id,
+                    "device_type": device_type,
+                    "action": "stop",
+                    "start_utc": start_utc.isoformat(),
+                    "end_utc": end_utc.isoformat(),
+                    "duration_ms": (
+                        end_utc - start_utc
+                    ).total_seconds() * 1000.0,
+                    "status": "error",
+                    "code": getattr(exc, "code", type(exc).__name__),
+                    "message": str(exc),
+                })
+                raise
+
+            end_utc = datetime.now(timezone.utc)
+            response = app.make_response(result)
+            trace_payload = {
+                "rig_id": rig_id,
+                "device_type": device_type,
+                "action": "stop",
+                "start_utc": start_utc.isoformat(),
+                "end_utc": end_utc.isoformat(),
+                "duration_ms": (
+                    end_utc - start_utc
+                ).total_seconds() * 1000.0,
+                "status": "success" if response.status_code < 400 else "error",
+            }
+            if response.status_code >= 400:
+                body = response.get_json(silent=True) or {}
+                trace_payload["code"] = body.get(
+                    "code", f"HTTP_{response.status_code}"
+                )
+                trace_payload["message"] = body.get(
+                    "message", body.get("error", response.status)
+                )
+            rig_trace.trace_event(f"{device_type}.stop", trace_payload)
+            return result
+
+        return traced
+    return decorator
+
 @app.route("/api/focuser/status")
 def api_focuser_status():
     inactive = require_device_active("focuser")
@@ -1000,6 +1059,7 @@ def api_focuser_home():
 
 
 @app.route("/api/focuser/stop", methods=["POST"])
+@_trace_rig_stop("focuser", fixed_rig_id=1)
 def api_focuser_stop():
     guarded = _focuser_post_guard()
     if guarded is not None:
@@ -1210,6 +1270,7 @@ def api_rig_focuser_home(rig_id):
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/stop", methods=["POST"])
+@_trace_rig_stop("focuser")
 def api_rig_focuser_stop(rig_id):
     worker, error = _rig_focuser_guard(rig_id)
     if error is not None:
@@ -1300,6 +1361,7 @@ def api_rig_focuser_jog_start(rig_id):
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/jog/stop", methods=["POST"])
+@_trace_rig_stop("focuser")
 def api_rig_focuser_jog_stop(rig_id):
     worker, error = _rig_focuser_guard(rig_id)
     if error is not None:
@@ -1455,6 +1517,7 @@ def api_rig_mount_tracking_start(rig_id):
 
 
 @app.route("/api/rigs/<int:rig_id>/mount/tracking/stop", methods=["POST"])
+@_trace_rig_stop("mount")
 def api_rig_mount_tracking_stop(rig_id):
     worker, error = _rig_mount_tracking_guard(rig_id)
     if error is not None:
@@ -1528,6 +1591,7 @@ def api_rig_mount_home(rig_id):
 
 
 @app.route("/api/rigs/<int:rig_id>/mount/slew/stop", methods=["POST"])
+@_trace_rig_stop("mount")
 def api_rig_mount_slew_stop(rig_id):
     worker, error = _rig_mount_worker(rig_id)
     if error is not None:
@@ -1604,6 +1668,7 @@ def api_mount_tracking_start():
 
 
 @app.route("/api/mount/tracking/stop", methods=["POST"])
+@_trace_rig_stop("mount", fixed_rig_id=1)
 def api_mount_tracking_stop():
     guarded = _mount_tracking_guard()
     if guarded is not None:
@@ -1681,6 +1746,7 @@ def api_mount_home():
 
 
 @app.route("/api/mount/slew/stop", methods=["POST"])
+@_trace_rig_stop("mount", fixed_rig_id=1)
 def api_mount_slew_stop():
     inactive = require_device_active("mount")
     if inactive is not None:
@@ -1893,6 +1959,13 @@ def api_rig_camera_read_info(rig_id):
     if rig.enabled is not True:
         return jsonify({"error": f"rig {rig_id} is disabled"}), 409
 
+    camera_identity = rig.devices.get("camera", {})
+    trace_identity = {
+        field: camera_identity[field]
+        for field in ("serial", "fallback_physical_path")
+        if isinstance(camera_identity, dict) and camera_identity.get(field)
+    }
+
     runtime = get_camera_worker_runtime(log_fn=log.info)
     runtime.reconcile(load_rig_configuration())
     worker = runtime.get_for_rig(rig_id)
@@ -1904,14 +1977,56 @@ def api_rig_camera_read_info(rig_id):
             "device_type": "camera",
         }), 409
 
+    start_utc = datetime.now(timezone.utc)
     try:
         result = worker.read_info()
     except BusyDeviceError as exc:
+        end_utc = datetime.now(timezone.utc)
+        get_default_log().append({
+            "kind": "camera.read_info",
+            "rig_id": rig_id,
+            **trace_identity,
+            "start_utc": start_utc.isoformat(),
+            "end_utc": end_utc.isoformat(),
+            "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+            "status": "error",
+            "error": str(exc),
+            "code": "CAMERA_BUSY",
+        })
         return jsonify({
             "error": str(exc),
             "code": "CAMERA_BUSY",
             "rig_id": rig_id,
         }), 409
+    except Exception as exc:
+        end_utc = datetime.now(timezone.utc)
+        get_default_log().append({
+            "kind": "camera.read_info",
+            "rig_id": rig_id,
+            **trace_identity,
+            "start_utc": start_utc.isoformat(),
+            "end_utc": end_utc.isoformat(),
+            "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+            "status": "error",
+            "error": str(exc),
+        })
+        raise
+
+    end_utc = datetime.now(timezone.utc)
+    trace_payload = {
+        "rig_id": rig_id,
+        **trace_identity,
+        "start_utc": start_utc.isoformat(),
+        "end_utc": end_utc.isoformat(),
+        "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+        "status": "success",
+    }
+    if isinstance(result, dict):
+        for field in ("model", "battery"):
+            if result.get(field) is not None:
+                trace_payload[field] = result[field]
+    trace_payload["kind"] = "camera.read_info"
+    get_default_log().append(trace_payload)
 
     _state_store.update_section(
         "camera_info",
@@ -1952,6 +2067,13 @@ def api_rig_camera_test_photo(rig_id):
     if rig.enabled is not True:
         return jsonify({"error": f"rig {rig_id} is disabled"}), 409
 
+    camera_identity = rig.devices.get("camera", {})
+    trace_identity = {
+        field: camera_identity[field]
+        for field in ("serial", "fallback_physical_path")
+        if isinstance(camera_identity, dict) and camera_identity.get(field)
+    }
+
     runtime = get_camera_worker_runtime(log_fn=log.info)
     runtime.reconcile(load_rig_configuration())
     worker = runtime.get_for_rig(rig_id)
@@ -1963,19 +2085,44 @@ def api_rig_camera_test_photo(rig_id):
             "device_type": "camera",
         }), 409
 
-    started_at = datetime.now(timezone.utc).isoformat()
+    start_utc = datetime.now(timezone.utc)
+    started_at = start_utc.isoformat()
     t0 = time.monotonic()
     try:
         result = worker.test_photo_diagnostic(
             [speed], photo_num_start=0, deadline=None
         )
     except BusyDeviceError as exc:
+        end_utc = datetime.now(timezone.utc)
+        get_default_log().append({
+            "kind": "camera.test_photo",
+            "rig_id": rig_id,
+            **trace_identity,
+            "start_utc": start_utc.isoformat(),
+            "end_utc": end_utc.isoformat(),
+            "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+            "status": "error",
+            "error": str(exc),
+            "code": "CAMERA_BUSY",
+        })
         return jsonify({
             "error": str(exc),
             "code": "CAMERA_BUSY",
             "rig_id": rig_id,
         }), 409
     except Exception as exc:
+        end_utc = datetime.now(timezone.utc)
+        get_default_log().append({
+            "kind": "camera.test_photo",
+            "rig_id": rig_id,
+            **trace_identity,
+            "start_utc": start_utc.isoformat(),
+            "end_utc": end_utc.isoformat(),
+            "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+            "status": "error",
+            "error": str(exc),
+            "code": "CAMERA_UNAVAILABLE",
+        })
         log.warning("Camera test photo unavailable for rig %s: %s", rig_id, exc)
         return jsonify({
             "error": "camera unavailable",
@@ -1983,6 +2130,21 @@ def api_rig_camera_test_photo(rig_id):
             "rig_id": rig_id,
         }), 404
     t1 = time.monotonic()
+
+    end_utc = datetime.now(timezone.utc)
+    trace_payload = {
+        "rig_id": rig_id,
+        **trace_identity,
+        "start_utc": start_utc.isoformat(),
+        "end_utc": end_utc.isoformat(),
+        "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+        "status": "success",
+    }
+    for field in ("frames", "planned", "detail"):
+        if hasattr(result, field):
+            trace_payload[field] = getattr(result, field)
+    trace_payload["kind"] = "camera.test_photo"
+    get_default_log().append(trace_payload)
 
     response = {
         "status": "ok",

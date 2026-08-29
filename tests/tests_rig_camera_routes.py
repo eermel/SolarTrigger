@@ -24,13 +24,23 @@ def _rig_config(*, rig_2_enabled=True):
                 "rig_id": 1,
                 "name": "Wide field",
                 "enabled": True,
-                "devices": {"camera": {"backend": "camera-backend-1"}},
+                "devices": {
+                    "camera": {
+                        "backend": "camera-backend-1",
+                        "serial": "CAMERA-1",
+                    }
+                },
             },
             {
                 "rig_id": 2,
                 "name": "Telephoto",
                 "enabled": rig_2_enabled,
-                "devices": {"camera": {"backend": "camera-backend-2"}},
+                "devices": {
+                    "camera": {
+                        "backend": "camera-backend-2",
+                        "serial": "CAMERA-2",
+                    }
+                },
             },
         ],
     }
@@ -149,6 +159,12 @@ def test_probe_returns_camera_unavailable_contract(monkeypatch, worker):
 
 def test_read_info_updates_runtime_cache_without_persistence(monkeypatch, tmp_path):
     expected = {"model": "Sony ILCE-7M5", "battery": "81%"}
+    events = []
+    monkeypatch.setattr(
+        flask_module.rig_trace,
+        "trace_event",
+        lambda kind, payload: events.append((kind, payload)),
+    )
     client, runtime = _client(
         monkeypatch, _rig_config(), {1: FakeCameraWorker(expected)}
     )
@@ -165,6 +181,15 @@ def test_read_info_updates_runtime_cache_without_persistence(monkeypatch, tmp_pa
     assert cached["data"] == expected
     datetime.fromisoformat(cached["last_read"])
     assert not state_path.exists()
+    assert len(events) == 1
+    kind, trace = events[0]
+    assert kind == "camera.read_info"
+    assert trace["rig_id"] == 1
+    assert trace["serial"] == "CAMERA-1"
+    assert trace["duration_ms"] >= 0
+    assert trace["status"] == "success"
+    datetime.fromisoformat(trace["start_utc"])
+    datetime.fromisoformat(trace["end_utc"])
 
 
 def test_read_info_rejects_disabled_rig(monkeypatch):
