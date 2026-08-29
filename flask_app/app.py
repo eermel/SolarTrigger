@@ -2248,6 +2248,12 @@ def api_camera_sync_time():
             camera_service.close()
         _camera_sync_lock.release()
 
+@app.route("/api/eclipse/supported")
+def api_eclipse_supported():
+    """Liste des dates d'éclipse présentes dans le registre canonique."""
+    return jsonify({"dates": eclipse_loader.list_supported_eclipses()})
+
+
 @app.route("/api/eclipse/calculate", methods=["POST"])
 def api_eclipse_calculate():
     global _calc_proc

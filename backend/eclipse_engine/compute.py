@@ -188,6 +188,62 @@ class _Calculator:
         return int(mid[39]), events
 
 
+
+def solar_obscuration_percent(
+    magnitude: float,
+    moon_sun_ratio: float,
+) -> float:
+    """Percentage of the apparent solar disc covered by the Moon."""
+
+    magnitude = float(magnitude)
+    ratio = float(moon_sun_ratio)
+
+    if not math.isfinite(magnitude) or not math.isfinite(ratio) or ratio <= 0:
+        return 0.0
+
+    # Normalisation : rayon apparent du Soleil = 1.
+    sun_radius = 1.0
+    moon_radius = ratio
+
+    # Définition de la magnitude d'une éclipse :
+    # magnitude = (Rsun + Rmoon - distance_centres) / (2 * Rsun)
+    distance = sun_radius + moon_radius - 2.0 * magnitude
+    distance = max(0.0, distance)
+
+    if distance >= sun_radius + moon_radius:
+        overlap = 0.0
+
+    elif distance <= abs(sun_radius - moon_radius):
+        overlap = math.pi * min(sun_radius, moon_radius) ** 2
+
+    else:
+        sun_cos = (
+            distance**2 + sun_radius**2 - moon_radius**2
+        ) / (2.0 * distance * sun_radius)
+
+        moon_cos = (
+            distance**2 + moon_radius**2 - sun_radius**2
+        ) / (2.0 * distance * moon_radius)
+
+        sun_cos = max(-1.0, min(1.0, sun_cos))
+        moon_cos = max(-1.0, min(1.0, moon_cos))
+
+        radical = (
+            (-distance + sun_radius + moon_radius)
+            * (distance + sun_radius - moon_radius)
+            * (distance - sun_radius + moon_radius)
+            * (distance + sun_radius + moon_radius)
+        )
+
+        overlap = (
+            sun_radius**2 * math.acos(sun_cos)
+            + moon_radius**2 * math.acos(moon_cos)
+            - 0.5 * math.sqrt(max(0.0, radical))
+        )
+
+    percent = overlap / (math.pi * sun_radius**2) * 100.0
+    return round(max(0.0, min(100.0, percent)), 5)
+
 def compute_local_circumstances(
     dataset: Mapping[str, Any],
     latitude_deg: float,
@@ -212,10 +268,18 @@ def compute_local_circumstances(
     present = eclipse_type >= 1
     central = eclipse_type >= 2
     duration = abs(events["C3"][1] - events["C2"][1]) * 3600.0 if central else 0.0  # type: ignore[index]
+
+    magnitude = math.floor(mid[37] * 100000.0 + 0.5) / 100000.0
+    moon_sun_ratio = math.floor(mid[38] * 100000.0 + 0.5) / 100000.0
+
     result: dict[str, Any] = {
         "eclipse_type": _TYPE_NAMES[eclipse_type],
-        "magnitude": math.floor(mid[37] * 100000.0 + 0.5) / 100000.0,
-        "moon_sun_ratio": math.floor(mid[38] * 100000.0 + 0.5) / 100000.0,
+        "magnitude": magnitude,
+        "moon_sun_ratio": moon_sun_ratio,
+        "obscuration_percent": solar_obscuration_percent(
+            magnitude,
+            moon_sun_ratio,
+        ),
         "duration_str": f"{math.floor(duration / 60.0)}m {math.floor(duration % 60.0 + 0.5)}s",
         "duration_sec": math.floor(duration + 0.5),
         "sun_alt_tmax": f"{mid[45] * _R2D:.1f}\N{DEGREE SIGN}",
