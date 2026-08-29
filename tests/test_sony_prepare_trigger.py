@@ -122,3 +122,20 @@ def test_trigger_prepared_executes_sequence_with_service_monotonic_deadline(
     assert result.frames == prepared.planned_count
     assert result.planned == prepared.planned_count
     assert 0 <= result.frames <= result.planned
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        ("Sony ILCE-7M5 (PC Control)", True),
+        ("Sony Corporation ILCE-7M5", True),
+        ("ILCE-7M5", True),
+        ("Sony Alpha-A6600 (PC Control)", False),
+        ("Sony Corporation ILCE-6600", False),
+        ("Nikon DSC D850", False),
+        (None, False),
+        ("", False),
+    ],
+)
+def test_sony_plugin_matches_only_a7v(model, expected):
+    assert SonyPlugin.matches(model) is expected

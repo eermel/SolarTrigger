@@ -46,7 +46,7 @@ class SonyPlugin(CameraPlugin):
     @staticmethod
     def matches(model_string):
         m = (model_string or "").lower()
-        return "sony" in m or "ilce" in m
+        return "ilce-7m5" in m
 
     # ------------------------------------------------------------------ #
     # Reglage bas niveau
