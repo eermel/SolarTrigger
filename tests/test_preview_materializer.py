@@ -25,10 +25,20 @@ def test_atmos_is_per_rig_and_requires_complete_context(monkeypatch):
     plan = (True, "1/1000", "1/125", 1.0, None)
     monkeypatch.setattr(materializer, "facteur_atmospherique", lambda _h, _alt: 4.0)
 
-    assert materializer.apply_atmos_if_enabled({"photo": {"atmos_enabled": False}}, plan, target, {}) == (plan, False)
-    updated, added = materializer.apply_atmos_if_enabled({"photo": {"atmos_enabled": True}}, plan, target, lambda: context)
+    assert materializer.apply_atmos_if_enabled(
+        {"photo": {"atmos_enabled": False}}, plan, target, {}
+    ) == (plan, False, None)
+
+    updated, added, theoretical = materializer.apply_atmos_if_enabled(
+        {"photo": {"atmos_enabled": True}},
+        plan,
+        target,
+        lambda: context,
+    )
+
     assert added is True
-    assert updated[2] == "0.032"
+    assert theoretical == "0.032"
+    assert updated[2] == "1/60"
     with pytest.raises(materializer.PreviewMaterializationError, match="incomplete") as error:
         materializer.apply_atmos_if_enabled({"photo": {"atmos_enabled": True}}, plan, target, {})
     assert error.value.code == "CONFIG_INVALID"
@@ -50,3 +60,50 @@ def test_policy_mapping_and_exposure_assembly():
     assert materializer.resolve_policy(rig) == "field_rotation"
     assert materializer.assemble_exposures_s((True, "1/8", "1/2", 1.0, None)) == [0.125, 0.25, 0.5]
     assert materializer.assemble_exposures_s((False, "1/1000", "1/60", 2.0, ["1/1000", "1/500", "1/60"])) == pytest.approx([0.001, 0.002, 1 / 60])
+
+
+def test_atmospheric_rounding_uses_supported_shutter_and_compensates_iso(monkeypatch):
+    target = datetime(2026, 8, 12, 12)
+    timeline = {
+        "C1": target - timedelta(hours=2),
+        "C2": target - timedelta(hours=1),
+        "TMAX": target,
+        "C3": target + timedelta(hours=1),
+        "C4": target + timedelta(hours=2),
+    }
+    context = {
+        "timeline": timeline,
+        "altitudes": {f"{key}_alt_deg": 20 for key in timeline},
+        "location": {"altitude_m": 0},
+    }
+    plan = (True, "1/1000", "1/125", 1.0, None)
+
+    monkeypatch.setattr(
+        materializer,
+        "facteur_atmospherique",
+        lambda _h, _alt: 4.0,
+    )
+
+    updated, applied, theoretical = materializer.apply_atmos_if_enabled(
+        {"photo": {"atmos_enabled": True}},
+        plan,
+        target,
+        context,
+    )
+
+    assert applied is True
+    assert theoretical == "0.032"
+    assert updated[2] == "1/60"
+
+    iso, corrections, warnings = materializer.compute_iso_and_corrections(
+        200,
+        updated[2],
+        {},
+        theoretical_slowest=theoretical,
+    )
+
+    assert iso == "400"
+    assert "shutter_limited" in corrections
+    assert "iso_compensated" in corrections
+    assert "iso_rounded" in corrections
+    assert warnings == []

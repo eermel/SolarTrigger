@@ -702,11 +702,14 @@ def api_rigs_preview():
             }
             try:
                 plan = normalize_intent_plan(intent)
-                plan, atmos_applied = apply_atmos_if_enabled(
+                plan, atmos_applied, theoretical_slowest = apply_atmos_if_enabled(
                     rig, plan, intent["target_time"], materializer_context
                 )
                 iso_applied, corrections, warnings = compute_iso_and_corrections(
-                    intent["iso_target"], plan[2], rig.get("photo", {})
+                    intent["iso_target"],
+                    plan[2],
+                    rig.get("photo", {}),
+                    theoretical_slowest=theoretical_slowest,
                 )
                 item.update({
                     "exposures_s": assemble_exposures_s(plan),
