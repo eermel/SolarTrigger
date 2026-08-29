@@ -815,16 +815,12 @@ header {
             </div>
           </div>
           <div class="field">
-            <label>Eclipse</label>
-            <select id="inp-eclipse">
-              <option value="auto">Auto (next)</option>
-              <option value="2026-08-12">2026-08-12 — Spain</option>
-              <option value="2027-08-02">2027-08-02 — Egypt / Luxor</option>
-              <option value="2028-07-22">2028-07-22</option>
-              <option value="2030-11-25">2030-11-25</option>
-              <option value="2034-03-20">2034-03-20</option>
-              <option value="2035-09-02">2035-09-02</option>
-            </select>
+            <label for="inp-eclipse">Eclipse</label>
+            <div class="select-chev">
+              <select id="inp-eclipse" onchange="handleEclipseSelectionChange()">
+                <option value="auto">Auto (next)</option>
+              </select>
+            </div>
           </div>
           <div style="display:flex;gap:8px;margin-top:4px">
             <button class="btn btn-accent btn-full" id="btn-calc" onclick="calculateEclipse()">
@@ -839,7 +835,7 @@ header {
         <div class="card-title">Circumstances</div>
         <div class="contacts" id="contacts-list"></div>
         <div class="sep" style="margin:10px 0"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px">
           <div class="stat">
             <div class="stat-label">Totality duration</div>
             <div class="stat-value green" id="eclipse-duration">--</div>
@@ -852,6 +848,10 @@ header {
             <div class="stat-label">GPS position type</div>
             <div class="stat-value" id="eclipse-type-gps" style="color:var(--orange)">--</div>
           </div>
+          <div class="stat">
+            <div class="stat-label">Solar occultation</div>
+            <div class="stat-value" id="eclipse-obscuration" style="color:var(--accent)">--</div>
+          </div>
         </div>
       </div>
 
@@ -859,8 +859,10 @@ header {
 <!-- Journal Calculateur -->
   <div class="card" style="flex-shrink:0">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-      <span>Journal Calculateur</span>
-      <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('calculator')">effacer</span>
+      <span>Journal</span>
+      <button class="btn btn-secondary" type="button"
+        style="font-size:10px;padding:4px 9px"
+        onclick="clearLog('calculator')">EFFACER</button>
     </div>
     <div id="log-container-calculator" style="height:320px"></div>
   </div>
@@ -1915,6 +1917,54 @@ function updateEclipseSaveFilename(eclipseData) {
   _eclipseSavePrefix = newPrefix;
 }
 
+function handleEclipseSelectionChange() {
+  const select = document.getElementById('inp-eclipse');
+  if (!select) return;
+
+  const eclipseDate = select.value;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(eclipseDate)) {
+    updateEclipseSaveFilename({_date: eclipseDate});
+  }
+}
+
+async function loadSupportedEclipses() {
+  const select = document.getElementById('inp-eclipse');
+  if (!select) return;
+
+  const previous = select.value || 'auto';
+
+  try {
+    const response = await fetch('/api/eclipse/supported');
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+
+    const dates = Array.isArray(payload.dates) ? payload.dates : [];
+
+    select.innerHTML = '<option value="auto">Auto (next)</option>';
+
+    dates.forEach(date => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+
+      const option = document.createElement('option');
+      option.value = date;
+      option.textContent = date;
+      select.appendChild(option);
+    });
+
+    if ([...select.options].some(option => option.value === previous)) {
+      select.value = previous;
+    } else {
+      select.value = 'auto';
+    }
+  } catch (error) {
+    console.warn('Impossible de charger la liste des éclipses:', error);
+  }
+}
+
 async function _reanchorClockFromStatus() {
   try {
     const response = await fetch('/api/status');
@@ -2928,6 +2978,14 @@ function renderContacts(data) {
   if (elTypeGps) {
     elTypeGps.textContent = `${lsty.icon} ${typeGps}`;
     elTypeGps.style.color = lsty.color;
+  }
+
+  const obscurationEl = document.getElementById('eclipse-obscuration');
+  if (obscurationEl) {
+    const obscuration = Number(data._obscuration_percent);
+    obscurationEl.textContent = Number.isFinite(obscuration)
+      ? `${obscuration.toFixed(2)} %`
+      : '--';
   }
 
   // Compatibilité — champ eclipse-type (non visible mais utilisé ailleurs)
@@ -3982,6 +4040,10 @@ async function saveEclipseConfig() {
 }
 
 async function cleanCircumstances() {
+  if (!confirm('Supprimer tous les fichiers de circonstances sauvegardés ?')) {
+    return;
+  }
+
   try {
     const cleanResponse = await fetch('/api/configs/circumstances/clean', { method: 'POST' });
     if (!cleanResponse.ok) {
@@ -4230,6 +4292,7 @@ renderDevices({
 
 fetchDevices();
 refreshRigDevices(true);
+loadSupportedEclipses();
 loadEclipseData();
 loadCameraStatus();
 

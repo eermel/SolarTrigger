@@ -105,6 +105,7 @@ def build_trigger_config(
         "_type": local_type,
         "_magnitude": circumstances["magnitude"],
         "_moon_sun_ratio": circumstances["moon_sun_ratio"],
+        "_obscuration_percent": circumstances["obscuration_percent"],
         "_duration": circumstances["duration_str"],
         "_sun_alt_tmax": circumstances["sun_alt_tmax"],
         "_generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
