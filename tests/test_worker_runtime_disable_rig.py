@@ -49,7 +49,7 @@ def _service_factory_provider(_binding):
     return object
 
 
-def test_mount_runtime_disables_only_target_rig_workers(monkeypatch):
+def test_mount_runtime_keeps_configured_workers_when_trigger_disabled(monkeypatch):
     StubWorker.instances = []
     monkeypatch.setattr(mount_runtime_module, "MountWorker", StubWorker)
     runtime = MountWorkerRuntime(_service_factory_provider)
@@ -62,15 +62,15 @@ def test_mount_runtime_disables_only_target_rig_workers(monkeypatch):
 
     assert rig_1_worker is not None
     assert rig_1_worker.start_calls == 1
-    assert rig_1_worker.shutdown_calls == 1
-    assert runtime.get_for_rig(1) is None
+    assert rig_1_worker.shutdown_calls == 0
+    assert runtime.get_for_rig(1) is rig_1_worker
     assert runtime.get_for_rig(2) is rig_2_worker
     assert rig_2_worker is not None
     assert rig_2_worker.start_calls == 1
     assert rig_2_worker.shutdown_calls == 0
 
 
-def test_focuser_runtime_disables_only_target_rig_workers(monkeypatch):
+def test_focuser_runtime_keeps_configured_worker_when_trigger_disabled(monkeypatch):
     StubWorker.instances = []
     monkeypatch.setattr(focuser_runtime_module, "FocuserWorker", StubWorker)
     runtime = FocuserWorkerRuntime(_service_factory_provider)
@@ -82,7 +82,7 @@ def test_focuser_runtime_disables_only_target_rig_workers(monkeypatch):
 
     assert rig_1_worker is not None
     assert rig_1_worker.start_calls == 1
-    assert rig_1_worker.shutdown_calls == 1
-    assert runtime.get_for_rig(1) is None
+    assert rig_1_worker.shutdown_calls == 0
+    assert runtime.get_for_rig(1) is rig_1_worker
     assert runtime.get_for_rig(2) is None
     assert StubWorker.instances == [rig_1_worker]

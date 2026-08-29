@@ -685,7 +685,7 @@ def api_rigs_preview():
     rigs = sorted(
         (
             rig for rig in config.get("rigs", [])
-            if isinstance(rig, dict) and rig.get("enabled") is True
+            if isinstance(rig, dict)
         ),
         key=lambda rig: rig.get("rig_id"),
     )
@@ -1194,8 +1194,6 @@ def _rig_focuser_worker(rig_id):
         rig = get_rig_manager().get_rig(rig_id)
     except ValueError as exc:
         return None, (jsonify({"error": str(exc)}), 400)
-    if rig.enabled is not True:
-        return None, (jsonify({"error": f"rig {rig_id} is disabled"}), 409)
     runtime = get_focuser_worker_runtime(
         service_factory_provider=_focuser_service_factory_provider,
         log_fn=log.info,
@@ -1411,8 +1409,6 @@ def _rig_mount_worker(rig_id):
         rig = get_rig_manager().get_rig(rig_id)
     except ValueError as exc:
         return None, (jsonify({"error": str(exc)}), 400)
-    if rig.enabled is not True:
-        return None, (jsonify({"error": f"rig {rig_id} is disabled"}), 409)
 
     runtime = get_mount_worker_runtime(
         service_factory_provider=_mount_service_factory_provider,
@@ -1913,9 +1909,6 @@ def api_rig_camera_probe(rig_id):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    if rig.enabled is not True:
-        return jsonify({"error": f"rig {rig_id} is disabled"}), 409
-
     try:
         runtime = get_camera_worker_runtime(log_fn=log.info)
         runtime.reconcile(load_rig_configuration())
@@ -1946,9 +1939,6 @@ def api_rig_camera_read_info(rig_id):
         rig = get_rig_manager().get_rig(rig_id)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-
-    if rig.enabled is not True:
-        return jsonify({"error": f"rig {rig_id} is disabled"}), 409
 
     camera_identity = rig.devices.get("camera", {})
     trace_identity = {
@@ -2055,9 +2045,6 @@ def api_rig_camera_test_photo(rig_id):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    if rig.enabled is not True:
-        return jsonify({"error": f"rig {rig_id} is disabled"}), 409
-
     camera_identity = rig.devices.get("camera", {})
     trace_identity = {
         field: camera_identity[field]
@@ -2157,9 +2144,6 @@ def api_rig_camera_sync_time(rig_id):
         rig = get_rig_manager().get_rig(rig_id)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-
-    if rig.enabled is not True:
-        return jsonify({"error": f"rig {rig_id} is disabled"}), 409
 
     gps_state = _state_store.snapshot("gps") or {}
     utc_offset_minutes = gps_state.get("utc_offset_minutes")

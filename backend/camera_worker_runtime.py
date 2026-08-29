@@ -44,7 +44,7 @@ class CameraWorkerRuntime:
     def _eligible_rig_ids(config: dict) -> set[int]:
         rig_ids: set[int] = set()
         for rig in config.get("rigs", []):
-            if not isinstance(rig, dict) or rig.get("enabled") is not True:
+            if not isinstance(rig, dict):
                 continue
             devices = rig.get("devices")
             camera = devices.get("camera") if isinstance(devices, dict) else None
@@ -176,12 +176,42 @@ class CameraWorkerRuntime:
         with self._lock:
             return tuple(sorted(self._registry))
 
-    def open_ipc_session(self) -> CameraIpcSession:
-        """Start IPC lazily and return a lease for the active camera workers."""
+    def open_ipc_session(self, rig_ids=None) -> CameraIpcSession:
+        """Start IPC for an explicit subset of configured camera workers.
+
+        Without ``rig_ids`` the historical behaviour is preserved and every
+        configured camera worker is exposed. Trigger execution passes an
+        explicit allowlist so disabled secondary RIGs remain Controls-only.
+        """
 
         with self._lock:
-            if not self._registry:
+            available = set(self._registry)
+            if not available:
                 raise RuntimeError("cannot open camera IPC without active camera rigs")
+
+            if rig_ids is None:
+                allowed = tuple(sorted(available))
+            else:
+                try:
+                    requested = tuple(rig_ids)
+                except TypeError as exc:
+                    raise ValueError("rig_ids must be iterable") from exc
+                if any(
+                    not isinstance(rig_id, int)
+                    or isinstance(rig_id, bool)
+                    or not 1 <= rig_id <= 4
+                    for rig_id in requested
+                ):
+                    raise ValueError("rig_ids must contain integers from 1 to 4")
+                allowed = tuple(sorted(set(requested)))
+                if not allowed:
+                    raise ValueError("rig_ids must not be empty")
+                missing = set(allowed) - available
+                if missing:
+                    raise RuntimeError(
+                        "camera worker unavailable for RIG(s): "
+                        + ", ".join(str(rig_id) for rig_id in sorted(missing))
+                    )
 
             server = self._ipc_server
             if server is None:
@@ -195,7 +225,10 @@ class CameraWorkerRuntime:
 
             session_id = secrets.token_urlsafe(24)
             try:
-                server.activate_session(session_id)
+                if rig_ids is None:
+                    server.activate_session(session_id)
+                else:
+                    server.activate_session(session_id, allowed)
             except BaseException:
                 if not self._ipc_session_ids:
                     server.stop()

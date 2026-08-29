@@ -54,6 +54,7 @@ class LifecycleServer:
         self._clock = clock
         self.socket_path = Path(endpoint_dir) / f"camera-ipc-{parent_pid}.sock"
         self._active_session = None
+        self._active_rig_ids = None
 
     def start(self):
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,13 +63,17 @@ class LifecycleServer:
     def stop(self):
         self.socket_path.unlink(missing_ok=True)
 
-    def activate_session(self, session_id):
+    def activate_session(self, session_id, rig_ids=None):
         self._active_session = session_id
+        self._active_rig_ids = (
+            None if rig_ids is None else tuple(sorted(set(rig_ids)))
+        )
         return session_id
 
     def revoke_session(self, session_id):
         assert session_id == self._active_session
         self._active_session = None
+        self._active_rig_ids = None
 
 
 def _rig_config():
@@ -354,3 +359,42 @@ def test_forced_stop_terminates_then_kills_and_closes_session(tmp_path, monkeypa
     assert runtime._ipc_server is None
     assert runtime._ipc_session_ids == set()
     assert not socket_path.exists()
+
+def test_simulation_bypasses_rig_camera_validation_and_runtime(tmp_path, monkeypatch):
+    runtime, _servers = _make_runtime(tmp_path)
+    service = _make_service(tmp_path, runtime)
+
+    def forbidden_validation(_config):
+        raise AssertionError(
+            "validate_execution_rigs must not run in simulation"
+        )
+
+    def forbidden_reconcile(_config):
+        raise AssertionError(
+            "camera runtime reconcile must not run in simulation"
+        )
+
+    def forbidden_ipc(*_args, **_kwargs):
+        raise AssertionError(
+            "camera IPC must not open in simulation"
+        )
+
+    class NoRunThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(
+        "backend.trigger_service.validate_execution_rigs",
+        forbidden_validation,
+    )
+    monkeypatch.setattr(runtime, "reconcile", forbidden_reconcile)
+    monkeypatch.setattr(runtime, "open_ipc_session", forbidden_ipc)
+    monkeypatch.setattr(
+        "backend.trigger_service.threading.Thread",
+        NoRunThread,
+    )
+
+    assert service.start(simulate=True) is True

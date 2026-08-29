@@ -76,18 +76,6 @@ class RigManager:
             if not isinstance(devices, dict):
                 raise ValueError(f"{prefix}.devices must be an object")
 
-            if enabled:
-                camera = devices.get("camera")
-                backend = camera.get("backend") if isinstance(camera, dict) else None
-                if (
-                    not isinstance(backend, str)
-                    or not backend.strip()
-                    or backend == "none"
-                ):
-                    raise ValueError(
-                        f"enabled rig {rig_id} requires a configured camera backend"
-                    )
-
             rigs[rig_id] = Rig(
                 rig_id=rig_id,
                 enabled=enabled,

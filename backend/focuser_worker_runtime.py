@@ -90,7 +90,7 @@ class FocuserWorkerRuntime:
     ) -> dict[tuple[str, tuple[str, str]], FocuserBinding]:
         desired: dict[tuple[str, tuple[str, str]], FocuserBinding] = {}
         for rig in config.get("rigs", []):
-            if not isinstance(rig, dict) or rig.get("enabled") is not True:
+            if not isinstance(rig, dict):
                 continue
             devices = rig.get("devices")
             focuser = devices.get("focuser") if isinstance(devices, dict) else None

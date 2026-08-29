@@ -67,19 +67,24 @@ def test_preview_buttons_exist_once_per_rig_and_start_disabled():
         assert "Prévisualiser" in label
 
 
-def test_preview_buttons_are_exposed_and_enabled_only_for_enabled_rigs():
+def test_preview_buttons_remain_available_independently_of_trigger_enabled():
     body = _function_body("updateRigs", r"\(rigs\)")
 
-    assert "const enabled = rig.enabled === true" in body
+    assert (
+        "const triggerEnabled = "
+        "defaultRig.rig_id === 1 || rig.enabled === true"
+        in body
+    )
     assert re.search(
         r"if\s*\(cameraColumn\)\s*\{.*?"
-        r"cameraColumn\.hidden\s*=\s*!enabled\s*;.*?"
+        r"cameraColumn\.classList\.toggle\("
+        r"'enabled',\s*triggerEnabled\)\s*;.*?"
+        r"cameraColumn\.hidden\s*=\s*false\s*;.*?"
         r"querySelector\('\.rig-preview-button'\).*?"
-        r"previewButton\.disabled\s*=\s*!enabled\s*;",
+        r"previewButton\.disabled\s*=\s*false\s*;",
         body,
         re.DOTALL,
     )
-
 
 def test_preview_intents_uses_expected_fields_and_contacts():
     body = _preview_intents_body()

@@ -310,11 +310,36 @@ def test_rig_devices_post_null_unbinds_optional_device(persisted_rig_api):
 
 
 @pytest.mark.parametrize(
+    "payload",
+    [
+        {"rigs": [{"rig_id": 3, "devices": {"camera": None}}]},
+        {"rigs": [{"rig_id": 1, "enabled": True, "devices": {"camera": None}}]},
+        {
+            "rigs": [{
+                "rig_id": 1,
+                "enabled": True,
+                "devices": {"camera": {"backend": "none"}},
+            }]
+        },
+    ],
+)
+def test_rig_devices_post_accepts_camera_absent_before_trigger(
+    persisted_rig_api, payload
+):
+    client, config_path, _original, emitted, reloads = persisted_rig_api
+    before = config_path.read_bytes()
+
+    response = client.post("/api/rigs/devices", json=payload)
+
+    assert response.status_code == 200
+    assert config_path.read_bytes() != before
+    assert reloads
+    assert emitted
+
+
+@pytest.mark.parametrize(
     "payload, expected_status",
     [
-        ({"rigs": [{"rig_id": 3, "devices": {"camera": None}}]}, 400),
-        ({"rigs": [{"rig_id": 1, "enabled": True, "devices": {"camera": None}}]}, 400),
-        ({"rigs": [{"rig_id": 1, "enabled": True, "devices": {"camera": {"backend": "none"}}}]}, 400),
         ({"rigs": "not-an-array"}, 400),
         ({"rigs": [None]}, 400),
         ({"rigs": [{"rig_id": 5}]}, 400),

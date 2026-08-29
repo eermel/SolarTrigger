@@ -136,7 +136,7 @@ def test_missing_identity_raises_and_preserves_existing_worker():
     assert len(provider.bindings) == 2
 
 
-def test_provider_is_required_only_for_eligible_focuser():
+def test_provider_is_required_for_configured_focuser_independently_of_trigger_enabled():
     runtime = FocuserWorkerRuntime()
 
     with pytest.raises(RuntimeError, match="provider is not set"):
@@ -144,9 +144,17 @@ def test_provider_is_required_only_for_eligible_focuser():
             focuser_config((701, {"backend": "indi", "serial": "eligible"}, True))
         )
 
+    with pytest.raises(RuntimeError, match="provider is not set"):
+        runtime.reconcile(
+            focuser_config(
+                (701, {"backend": "indi", "serial": "disabled"}, False),
+                (702, {"backend": "none"}, True),
+                (703, {"backend": "external"}, True),
+            )
+        )
+
     runtime.reconcile(
         focuser_config(
-            (701, {"backend": "indi", "serial": "disabled"}, False),
             (702, {"backend": "none"}, True),
             (703, {"backend": "external"}, True),
         )

@@ -696,7 +696,7 @@ header {
           <div id="devices-list"></div>
         </div>
         <div class="devices-rigs-row" id="devices-rigs-row">
-          <div class="card rig-column" id="rig-column-1" data-rig-id="1"><div class="rig-header"><div class="card-title">RIG 1</div><input class="rig-switch" id="rig-switch-1" type="checkbox" role="switch" aria-label="RIG 1 ON/OFF"></div><div class="rig-body" id="rig-body-1"></div></div>
+          <div class="card rig-column" id="rig-column-1" data-rig-id="1"><div class="rig-header"><div class="card-title">RIG 1</div><span class="rig-trigger-required" title="RIG 1 participe toujours au trigger" style="font-family:var(--mono);font-size:9px;color:var(--accent)">REQUIS</span></div><div class="rig-body" id="rig-body-1"></div></div>
           <div class="card rig-column" id="rig-column-2" data-rig-id="2"><div class="rig-header"><div class="card-title">RIG 2</div><input class="rig-switch" id="rig-switch-2" type="checkbox" role="switch" aria-label="RIG 2 ON/OFF"></div><div class="rig-body" id="rig-body-2"></div></div>
           <div class="card rig-column" id="rig-column-3" data-rig-id="3"><div class="rig-header"><div class="card-title">RIG 3</div><input class="rig-switch" id="rig-switch-3" type="checkbox" role="switch" aria-label="RIG 3 ON/OFF"></div><div class="rig-body" id="rig-body-3"></div></div>
           <div class="card rig-column" id="rig-column-4" data-rig-id="4"><div class="rig-header"><div class="card-title">RIG 4</div><input class="rig-switch" id="rig-switch-4" type="checkbox" role="switch" aria-label="RIG 4 ON/OFF"></div><div class="rig-body" id="rig-body-4"></div></div>
@@ -1129,7 +1129,7 @@ header {
       <div class="controls-target-label" id="controls-target-label" aria-live="polite">Aucun RIG sélectionné</div>
 
       <!-- ── FOCUSEUR ── -->
-      <div id="focuser-section" style="display:none">
+      <div id="focuser-section" hidden>
         <div class="card">
           <div class="card-title">Focuseur</div>
           <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
@@ -1354,10 +1354,11 @@ const DEFAULT_RIGS = Array.from({length: 4}, (_, index) => ({
 }));
 const RIG_DEVICE_CATEGORIES = ['camera', 'mount', 'focuser'];
 let rigDevicesState = {rigs: DEFAULT_RIGS, inventory: {camera: [], mount: [], focuser: []}};
+let globalDevicesState = null;
 let selectedRigId = null;
 
 function selectedControlsRig() {
-  return rigDevicesState.rigs.find(rig => Number(rig.rig_id) === selectedRigId && rig.enabled === true) || null;
+  return rigDevicesState.rigs.find(rig => Number(rig.rig_id) === selectedRigId) || null;
 }
 
 function selectedPilotableMountRig() {
@@ -1401,13 +1402,13 @@ function renderControlsRigSelection() {
 
   DEFAULT_RIGS.forEach(defaultRig => {
     const rig = rigDevicesState.rigs.find(candidate => Number(candidate.rig_id) === defaultRig.rig_id);
-    const enabled = Boolean(rig && rig.enabled === true);
+    const available = Boolean(rig);
     const button = document.getElementById(`controls-rig-${defaultRig.rig_id}`);
     if (!button) return;
-    button.hidden = !enabled;
-    button.disabled = !enabled;
-    button.classList.toggle('active', enabled && selectedRigId === defaultRig.rig_id);
-    button.setAttribute('aria-pressed', enabled && selectedRigId === defaultRig.rig_id ? 'true' : 'false');
+    button.hidden = !available;
+    button.disabled = !available;
+    button.classList.toggle('active', available && selectedRigId === defaultRig.rig_id);
+    button.setAttribute('aria-pressed', available && selectedRigId === defaultRig.rig_id ? 'true' : 'false');
   });
   document.dispatchEvent(new CustomEvent('controlsrigchange'));
   renderSelectedMountAvailability();
@@ -1430,7 +1431,7 @@ function renderControlsRigSelection() {
 function selectControlsRig(rigId) {
   const numericRigId = Number(rigId);
   const rig = rigDevicesState.rigs.find(candidate => Number(candidate.rig_id) === numericRigId);
-  if (!rig || rig.enabled !== true) return;
+  if (!rig) return;
   selectedRigId = numericRigId;
   renderControlsRigSelection();
 }
@@ -1526,8 +1527,7 @@ function renderRigDevices(payload, inventoryOverride) {
         ? rigDeviceIdentity(choice) === currentIdentity
         : encodedRigBinding(choice) === encodedRigBinding(current))) choices.push(current);
 
-      const noneAllowed = category !== 'camera' || rig.enabled !== true;
-      const options = noneAllowed ? ['<option value="">Aucun</option>'] : [];
+      const options = ['<option value="">Aucun</option>'];
       choices.forEach(choice => {
         const identity = rigDeviceIdentity(choice);
         const assignedRig = identity ? assignments[`${category}:${identity}`] : null;
@@ -1554,6 +1554,7 @@ function renderRigDevices(payload, inventoryOverride) {
     });
   });
   updateRigs(rigs);
+  updateControlsVisibility();
 }
 
 async function loadRigDevices(inventoryOverride) {
@@ -1600,51 +1601,95 @@ function updateRigs(rigs) {
   const byId = new Map(updatedRigs.map(rig => [Number(rig.rig_id), rig]));
   DEFAULT_RIGS.forEach(defaultRig => {
     const rig = byId.get(defaultRig.rig_id) || defaultRig;
-    const enabled = rig.enabled === true;
+    const triggerEnabled = defaultRig.rig_id === 1 || rig.enabled === true;
     const column = document.getElementById(`rig-column-${defaultRig.rig_id}`);
     const cameraColumn = document.getElementById(`camcfg-rig-column-${defaultRig.rig_id}`);
     const cameraRigColumn = document.getElementById(`cam-rig-column-${defaultRig.rig_id}`);
     const toggle = document.getElementById(`rig-switch-${defaultRig.rig_id}`);
-    if (column) column.classList.toggle('enabled', enabled);
+    if (column) column.classList.toggle('enabled', triggerEnabled);
     if (cameraColumn) {
-      cameraColumn.classList.toggle('enabled', enabled);
-      cameraColumn.hidden = !enabled;
+      cameraColumn.classList.toggle('enabled', triggerEnabled);
+      cameraColumn.hidden = false;
       const previewButton = cameraColumn.querySelector('.rig-preview-button');
-      if (previewButton) previewButton.disabled = !enabled;
+      if (previewButton) previewButton.disabled = false;
     }
     if (cameraRigColumn) {
-      cameraRigColumn.classList.toggle('enabled', enabled);
-      cameraRigColumn.hidden = !enabled;
+      cameraRigColumn.classList.toggle('enabled', triggerEnabled);
+      cameraRigColumn.hidden = false;
     }
-    if (toggle) toggle.checked = enabled;
-    if (column) column.querySelectorAll('.rig-body input, .rig-body select, .rig-body button').forEach(control => {
-      control.disabled = !enabled;
-    });
+    if (toggle) toggle.checked = rig.enabled === true;
   });
   renderControlsRigSelection();
 }
 
-document.addEventListener('change', event => {
+document.addEventListener('change', async event => {
   const toggle = event.target.closest('.rig-switch');
   if (!toggle) return;
+
   const column = toggle.closest('.rig-column');
-  if (column) column.classList.toggle('enabled', toggle.checked);
-  if (column) column.querySelectorAll('.rig-body input, .rig-body select, .rig-body button').forEach(control => {
-    control.disabled = !toggle.checked;
-  });
+  const rigId = Number(column && column.dataset.rigId);
+  if (!Number.isInteger(rigId) || rigId < 2 || rigId > 4) return;
+
+  const requestedEnabled = toggle.checked;
+  const previousEnabled = !requestedEnabled;
+
+  if (column) column.classList.toggle('enabled', requestedEnabled);
+  toggle.disabled = true;
+
+  try {
+    const response = await fetch('/api/rigs/devices', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        rigs: [{rig_id: rigId, enabled: requestedEnabled}],
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || `Erreur HTTP ${response.status}`);
+    }
+    await loadRigDevices();
+  } catch (error) {
+    toggle.checked = previousEnabled;
+    if (column) column.classList.toggle('enabled', previousEnabled);
+    flash(`Participation trigger RIG ${rigId} : ${error.message}`, 'red');
+  } finally {
+    toggle.disabled = false;
+  }
 });
 
 function updateControlsVisibility(devices) {
-  const focuserActive = Boolean(devices && devices.focuser && devices.focuser.active === true);
-  const mountActive = Boolean(devices && devices.mount && devices.mount.active === true);
-  const controlsActive = focuserActive || mountActive;
+  if (devices && typeof devices === 'object') {
+    globalDevicesState = devices;
+  }
+  const currentDevices = globalDevicesState;
+  const focuserActive = Boolean(currentDevices && currentDevices.focuser && currentDevices.focuser.active === true);
+  const mountActive = Boolean(currentDevices && currentDevices.mount && currentDevices.mount.active === true);
+
+  const rigControlsActive = rigDevicesState.rigs.some(rig => {
+    const rigDevices = rig && rig.devices ? rig.devices : {};
+    const mount = rigDevices.mount;
+    const mountBackend = mount && mount.backend;
+    const focuser = rigDevices.focuser;
+    const focuserBackend = focuser && (focuser.backend || focuser.plugin);
+
+    const pilotableMount = Boolean(
+      mount && ![null, '', 'none', 'external'].includes(mountBackend)
+    );
+    const pilotableFocuser = Boolean(
+      focuser && ![null, '', 'none'].includes(focuserBackend)
+    );
+
+    return pilotableMount || pilotableFocuser;
+  });
+
+  const controlsActive = focuserActive || mountActive || rigControlsActive;
   const controlsTab = document.getElementById('controls-tab');
   const controlsPanel = document.getElementById('controls-panel');
 
   const controlsWasSelected = controlsTab.classList.contains('active');
   controlsTab.hidden = !controlsActive;
   controlsPanel.hidden = !controlsActive;
-  document.getElementById('focuser-section').hidden = !focuserActive;
   renderControlsRigSelection();
 
   if (controlsWasSelected && !controlsActive) showTab(0);

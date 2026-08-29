@@ -90,7 +90,7 @@ class MountWorkerRuntime:
     ) -> dict[tuple[str, tuple[str, str]], MountBinding]:
         desired: dict[tuple[str, tuple[str, str]], MountBinding] = {}
         for rig in config.get("rigs", []):
-            if not isinstance(rig, dict) or rig.get("enabled") is not True:
+            if not isinstance(rig, dict):
                 continue
             devices = rig.get("devices")
             mount = devices.get("mount") if isinstance(devices, dict) else None

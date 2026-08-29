@@ -56,6 +56,6 @@ def test_active_camera_rig_ids_is_an_ascending_registry_snapshot():
 
     snapshot = runtime.active_camera_rig_ids()
 
-    assert snapshot == (2, 9)
+    assert snapshot == (2, 5, 9)
     assert isinstance(snapshot, tuple)
 

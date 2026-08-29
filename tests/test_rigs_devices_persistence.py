@@ -144,19 +144,20 @@ def test_mount_and_focuser_null_unbind_without_changing_camera(persistence_api):
     assert [event for event, _payload, _kwargs in emitted] == ["status_update"]
 
 
-def test_enabling_rig_without_camera_returns_400_without_side_effects(persistence_api):
+def test_enabling_rig_without_camera_is_valid_before_trigger(persistence_api):
     client, config_path, _original, reloads, emitted = persistence_api
-    before = config_path.read_bytes()
 
     response = client.post(
         "/api/rigs/devices",
         json={"rigs": [{"rig_id": 2, "enabled": True, "devices": {"camera": None}}]},
     )
 
-    assert response.status_code == 400
-    assert config_path.read_bytes() == before
-    assert reloads == []
-    assert emitted == []
+    assert response.status_code == 200
+    saved = __import__("json").loads(config_path.read_text(encoding="utf-8"))
+    assert saved["rigs"][1]["enabled"] is True
+    assert saved["rigs"][1]["devices"]["camera"] is None
+    assert reloads == [saved]
+    assert [event for event, _payload, _kwargs in emitted] == ["status_update"]
 
 
 def test_duplicate_device_identity_returns_409_without_side_effects(persistence_api):

@@ -98,7 +98,7 @@ def test_test_photo_rejects_invalid_speed(monkeypatch, payload):
     assert runtime.reconciled_config is None
 
 
-def test_test_photo_rejects_disabled_rig(monkeypatch):
+def test_test_photo_does_not_reject_trigger_disabled_rig(monkeypatch):
     client, runtime = _client(monkeypatch, _rig_config(rig_2_enabled=False), {})
 
     response = client.post(
@@ -106,8 +106,13 @@ def test_test_photo_rejects_disabled_rig(monkeypatch):
     )
 
     assert response.status_code == 409
-    assert "disabled" in response.get_json()["error"]
-    assert runtime.reconciled_config is None
+    assert response.get_json() == {
+        "error": "camera is not configured for rig 2",
+        "code": "DEVICE_NOT_CONFIGURED",
+        "rig_id": 2,
+        "device_type": "camera",
+    }
+    assert runtime.reconciled_config is not None
 
 
 def test_test_photo_returns_device_not_configured_without_worker(monkeypatch):
@@ -162,11 +167,12 @@ def test_test_photo_returns_camera_unavailable(monkeypatch):
 def test_test_photo_returns_capture_result_and_timing(monkeypatch):
     result = SimpleNamespace(frames=1, planned=1, detail="single")
     events = []
-    monkeypatch.setattr(
-        flask_module.rig_trace,
-        "trace_event",
-        lambda kind, payload: events.append((kind, payload)),
-    )
+    trace_log = type(
+        "TraceLog",
+        (),
+        {"append": lambda self, entry: events.append((entry["kind"], entry))},
+    )()
+    monkeypatch.setattr(flask_module, "get_default_log", lambda: trace_log)
     worker = FakeCameraWorker(result=result)
     client, runtime = _client(monkeypatch, _rig_config(), {1: worker})
     monotonic_values = iter((10.0, 10.125))

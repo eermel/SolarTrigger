@@ -63,28 +63,47 @@ def _worker_threads(rig_id: int) -> list[threading.Thread]:
 
 
 @pytest.mark.parametrize(
-    ("mount", "enabled"),
+    "mount",
     [
-        ({"backend": "indi", "serial": "mount-disabled"}, False),
-        (None, True),
-        ({"backend": "none", "serial": "mount-none"}, True),
-        ({"backend": "external", "serial": "mount-external"}, True),
+        None,
+        {"backend": "none", "serial": "mount-none"},
+        {"backend": "external", "serial": "mount-external"},
     ],
     ids=[
-        "disabled_rig_no_worker",
         "mount_null_no_worker",
         "backend_none_no_worker",
         "backend_external_no_worker",
     ],
 )
-def test_non_pilotable_mount_does_not_create_worker(mount, enabled):
+def test_non_pilotable_mount_does_not_create_worker(mount):
     provider = CapturingProvider()
     runtime = MountWorkerRuntime(provider, log_fn=lambda *_args: None)
 
-    runtime.reconcile(config_with_mount(mount, enabled=enabled))
+    runtime.reconcile(config_with_mount(mount, enabled=True))
 
     assert not _entries(runtime)
     assert provider.bindings == []
+
+
+def test_trigger_disabled_rig_with_pilotable_mount_still_creates_worker():
+    provider = CapturingProvider()
+    runtime = MountWorkerRuntime(provider, log_fn=lambda *_args: None)
+    try:
+        runtime.reconcile(
+            config_with_mount(
+                {"backend": "indi", "serial": "mount-disabled"},
+                enabled=False,
+            )
+        )
+
+        [entry] = _entries(runtime)
+        assert entry.binding.identity == ("serial", "mount-disabled")
+        assert entry.worker.running
+        assert len(_worker_threads(401)) == 1
+    finally:
+        runtime.stop_all(timeout=1.0)
+
+    assert not _worker_threads(401)
 
 
 def test_enabled_valid_backend_and_serial_creates_one_worker():
