@@ -108,9 +108,13 @@ def test_devices_assigned_to_another_rig_are_labelled_and_disabled(
     )
     assert "label += ` — affecté à RIG ${assignedRig}`" in renderer
     assert re.search(
-        r"assignedRig\s*&&\s*assignedRig\s*!==\s*rigId\s*\?\s*' disabled'\s*:\s*''",
+        r"const\s+disabled\s*=\s*\(.*?"
+        r"assignedRig\s*&&\s*assignedRig\s*!==\s*rigId.*?"
+        r"\)",
         renderer,
+        flags=re.DOTALL,
     )
+    assert "${disabled ? ' disabled' : ''}" in renderer
 
 
 def test_refresh_posts_once_then_rerenders_with_response(mocked_backend_responses):
@@ -144,3 +148,15 @@ def test_devices_tab_does_not_refresh_or_poll():
     )
     assert devices_logic, "Devices selector logic is missing"
     assert "setInterval" not in devices_logic.group("body")
+
+
+def test_non_pilotable_camera_is_visible_but_disabled():
+    renderer = _function("renderRigDevices")
+
+    assert "choice.pilotable === false" in renderer
+    assert " — non pilotable" in renderer
+    assert re.search(
+        r"choice\.pilotable\s*===\s*false.*?' disabled'",
+        renderer,
+        flags=re.DOTALL,
+    )

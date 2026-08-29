@@ -129,9 +129,11 @@ def _discover_cameras() -> list[dict[str, Any]]:
         protocol_serial = _text(protocol.get("serial"))
         serial = usb_serial or protocol_serial
 
+        backend = _camera_backend(model)
         entry = {
             "category": "camera",
-            "backend": _camera_backend(model),
+            "backend": backend,
+            "pilotable": backend != "gphoto2",
             "manufacturer": manufacturer,
             "model": model,
             "serial": serial,
@@ -246,6 +248,8 @@ def _normalize_entries(
             or device_id is not None
             or entry["fallback_physical_path"] is not None
         )
+        if category == "camera" and "pilotable" in source:
+            entry["pilotable"] = source.get("pilotable") is True
         normalized.append(entry)
     return normalized
 

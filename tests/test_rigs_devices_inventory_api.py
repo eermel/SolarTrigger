@@ -124,3 +124,59 @@ def test_refresh_returns_transport_locator_without_saving_it(
     assert response.get_json()["camera"][0]["transport_locator"] == "usb:004,021"
     assert config_path.read_bytes() == before
     assert "transport_locator" not in config_path.read_text(encoding="utf-8")
+
+
+def test_post_rejects_non_pilotable_inventory_device(
+    inventory_api, monkeypatch
+):
+    client, config_path = inventory_api
+    before = config_path.read_bytes()
+
+    monkeypatch.setattr(
+        flask_module,
+        "load_rig_configuration",
+        lambda: deepcopy(_config()),
+    )
+
+    inventory = {
+        "camera": [{
+            "category": "camera",
+            "backend": "gphoto2",
+            "manufacturer": "Sony",
+            "model": "Sony Alpha-A6600 (PC Control)",
+            "serial": "CFD1E04011A5",
+            "bindable": True,
+            "pilotable": False,
+            "present": True,
+            "transport_locator": "usb:001,015",
+        }],
+        "mount": [],
+        "focuser": [],
+    }
+    monkeypatch.setattr(
+        flask_module,
+        "get_cached_inventory",
+        lambda: deepcopy(inventory),
+    )
+
+    response = client.post(
+        "/api/rigs/devices",
+        json={
+            "rigs": [{
+                "rig_id": 3,
+                "devices": {
+                    "camera": {
+                        "category": "camera",
+                        "backend": "gphoto2",
+                        "manufacturer": "Sony",
+                        "model": "Sony Alpha-A6600 (PC Control)",
+                        "serial": "CFD1E04011A5",
+                    }
+                },
+            }]
+        },
+    )
+
+    assert response.status_code == 400
+    assert "not pilotable" in response.get_json()["error"].lower()
+    assert config_path.read_bytes() == before

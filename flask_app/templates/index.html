@@ -1496,7 +1496,7 @@ function rigDeviceIdentity(device) {
 
 function persistedRigBinding(device) {
   if (!device) return null;
-  const runtimeFields = new Set(['present', 'display_label', 'transport_locator', 'busnum', 'devnum']);
+  const runtimeFields = new Set(['present', 'pilotable', 'display_label', 'transport_locator', 'busnum', 'devnum']);
   return Object.fromEntries(Object.entries(device).filter(([key]) => !runtimeFields.has(key)));
 }
 
@@ -1534,9 +1534,14 @@ function renderRigDevices(payload, inventoryOverride) {
         const isCurrent = current && (identity ? identity === currentIdentity : encodedRigBinding(choice) === encodedRigBinding(current));
         let label = choice.display_label || choice.model || choice.serial || choice.backend || 'Périphérique';
         if (isCurrent && current.present === false) label += ' — attendu / non détecté';
+        if (choice.pilotable === false) label += ' — non pilotable';
         if (assignedRig && assignedRig !== rigId) label += ` — affecté à RIG ${assignedRig}`;
         const optionBinding = isCurrent ? current : choice;
-        options.push(`<option value="${escapeDeviceText(encodedRigBinding(optionBinding))}"${assignedRig && assignedRig !== rigId ? ' disabled' : ''}>${escapeDeviceText(label)}</option>`);
+        const disabled = (
+          choice.pilotable === false
+          || (assignedRig && assignedRig !== rigId)
+        );
+        options.push(`<option value="${escapeDeviceText(encodedRigBinding(optionBinding))}"${disabled ? ' disabled' : ''}>${escapeDeviceText(label)}</option>`);
       });
       const persisted = encodedRigBinding(current);
       return `<div class="rig-device" data-rig-device="${category}">
