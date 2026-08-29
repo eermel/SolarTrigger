@@ -132,7 +132,7 @@ def forbid_plugin_and_worker_access(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", guarded_import)
 
 
-def test_preview_is_deterministic_and_excludes_disabled_rigs(preview_api):
+def test_preview_is_deterministic_and_includes_trigger_disabled_rigs(preview_api):
     client = preview_api(atmos_enabled=False)
     payload = {"intents": [_regular_intent()]}
 
@@ -141,7 +141,7 @@ def test_preview_is_deterministic_and_excludes_disabled_rigs(preview_api):
 
     assert first.status_code == second.status_code == 200
     assert first.get_json() == second.get_json()
-    assert [rig["rig_id"] for rig in first.get_json()["rigs"]] == [1]
+    assert [rig["rig_id"] for rig in first.get_json()["rigs"]] == [1, 2]
 
 
 def test_preview_without_atmos_keeps_phase_origin_and_has_no_atmos_correction(
@@ -177,7 +177,7 @@ def test_missing_atmos_config_is_an_item_error_without_aborting_other_items(
     )
 
     assert response.status_code == 200
-    assert [rig["rig_id"] for rig in response.get_json()["rigs"]] == [1]
+    assert [rig["rig_id"] for rig in response.get_json()["rigs"]] == [1, 2]
     failed, successful = response.get_json()["rigs"][0]["items"]
     assert failed["request_id"] == "regular"
     assert failed["error"]["code"] == "CONFIG_INVALID"

@@ -88,8 +88,8 @@ def validate(obj: Any) -> None:
         _require(isinstance(devices, dict), f"{prefix}.devices must be an object")
         camera = devices.get("camera")
         _require(
-            isinstance(camera, dict) or (camera is None and not rig["enabled"]),
-            f"{prefix}.devices.camera must be an object when the rig is enabled",
+            camera is None or isinstance(camera, dict),
+            f"{prefix}.devices.camera must be an object or null",
         )
         for key in DEVICE_KEYS[1:]:
             _require(

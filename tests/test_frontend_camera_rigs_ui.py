@@ -54,8 +54,18 @@ def test_update_rigs_toggles_camera_column_visibility_and_enabled_class():
 
     body = update_rigs.group("body")
     assert re.search(
-        r"document\.getElementById\(`camcfg-rig-column-\$\{defaultRig\.rig_id\}`\)",
+        r"document\.getElementById\("
+        r"`camcfg-rig-column-\$\{defaultRig\.rig_id\}`\)",
         body,
     )
-    assert "cameraColumn.classList.toggle('enabled', enabled)" in body
-    assert "cameraColumn.hidden = !enabled" in body
+    assert (
+        "const triggerEnabled = "
+        "defaultRig.rig_id === 1 || rig.enabled === true"
+        in body
+    )
+    assert (
+        "cameraColumn.classList.toggle('enabled', triggerEnabled)"
+        in body
+    )
+    assert "cameraColumn.hidden = false" in body
+

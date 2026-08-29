@@ -595,10 +595,13 @@ _atmos_enabled_by_rig = MappingProxyType(deepcopy({
     for rig in _rig_configuration.get("rigs", ())
     if (
         isinstance(rig, dict)
-        and rig.get("enabled") is True
         and isinstance(rig.get("rig_id"), int)
         and not isinstance(rig.get("rig_id"), bool)
         and 1 <= rig["rig_id"] <= 4
+        and (
+            rig["rig_id"] == 1
+            or rig.get("enabled") is True
+        )
     )
 }))
 _atmos_timeline = MappingProxyType(deepcopy({

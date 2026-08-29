@@ -120,14 +120,14 @@ def test_probe_is_scoped_to_requested_rig(monkeypatch):
     assert runtime.reconciled_config is config
 
 
-def test_probe_rejects_disabled_rig(monkeypatch):
+def test_probe_does_not_reject_trigger_disabled_rig(monkeypatch):
     client, runtime = _client(monkeypatch, _rig_config(rig_2_enabled=False), {})
 
     response = client.post("/api/rigs/2/camera/probe")
 
-    assert response.status_code == 409
-    assert "disabled" in response.get_json()["error"]
-    assert runtime.reconciled_config is None
+    assert response.status_code == 404
+    assert response.get_json()["code"] == "CAMERA_UNAVAILABLE"
+    assert runtime.reconciled_config is not None
 
 
 def test_probe_rejects_invalid_rig_id(monkeypatch):
@@ -160,11 +160,12 @@ def test_probe_returns_camera_unavailable_contract(monkeypatch, worker):
 def test_read_info_updates_runtime_cache_without_persistence(monkeypatch, tmp_path):
     expected = {"model": "Sony ILCE-7M5", "battery": "81%"}
     events = []
-    monkeypatch.setattr(
-        flask_module.rig_trace,
-        "trace_event",
-        lambda kind, payload: events.append((kind, payload)),
-    )
+    trace_log = type(
+        "TraceLog",
+        (),
+        {"append": lambda self, entry: events.append((entry["kind"], entry))},
+    )()
+    monkeypatch.setattr(flask_module, "get_default_log", lambda: trace_log)
     client, runtime = _client(
         monkeypatch, _rig_config(), {1: FakeCameraWorker(expected)}
     )
@@ -192,14 +193,19 @@ def test_read_info_updates_runtime_cache_without_persistence(monkeypatch, tmp_pa
     datetime.fromisoformat(trace["end_utc"])
 
 
-def test_read_info_rejects_disabled_rig(monkeypatch):
+def test_read_info_does_not_reject_trigger_disabled_rig(monkeypatch):
     client, runtime = _client(monkeypatch, _rig_config(rig_2_enabled=False), {})
 
     response = client.post("/api/rigs/2/camera/read_info")
 
     assert response.status_code == 409
-    assert "disabled" in response.get_json()["error"]
-    assert runtime.reconciled_config is None
+    assert response.get_json() == {
+        "error": "camera is not configured for rig 2",
+        "code": "DEVICE_NOT_CONFIGURED",
+        "rig_id": 2,
+        "device_type": "camera",
+    }
+    assert runtime.reconciled_config is not None
 
 
 def test_read_info_rejects_invalid_rig_id(monkeypatch):

@@ -76,13 +76,14 @@ def test_four_enabled_rigs_construct_successfully():
 
 
 @pytest.mark.parametrize("camera_backend", ["none", ""])
-def test_enabled_rig_requires_configured_camera_backend(camera_backend):
+def test_enabled_rig_may_be_configured_without_pilotable_camera(camera_backend):
     config = _config(
         enabled_rig_ids={1}, rig_count=1, camera_backend=camera_backend
     )
 
-    with pytest.raises(ValueError, match=r"(?i)camera"):
-        RigManager.from_config(config)
+    manager = RigManager.from_config(config)
+
+    assert manager.get_rig(1).devices["camera"]["backend"] == camera_backend
 
 
 @pytest.mark.parametrize("rig_id", [0, 5, "x"])

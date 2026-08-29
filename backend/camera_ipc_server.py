@@ -140,6 +140,7 @@ class CameraIpcServer:
         self._stopping = threading.Event()
         self._state_lock = threading.RLock()
         self._active_session: str | None = None
+        self._active_rig_ids: frozenset[int] | None = None
         self._tokens: dict[
             str,
             tuple[str | None, int, Any]
@@ -180,16 +181,43 @@ class CameraIpcServer:
             path.mkdir(mode=0o700, parents=True)
         return path
 
-    def activate_session(self, session_id: str | None = None) -> str:
-        """Activate the sole client session, returning its opaque identifier."""
+    def activate_session(
+        self,
+        session_id: str | None = None,
+        rig_ids=None,
+    ) -> str:
+        """Activate the sole client session with an optional RIG allowlist."""
 
         candidate = session_id or secrets.token_urlsafe(24)
         if not isinstance(candidate, str) or not candidate:
             raise IpcError("INVALID_SESSION", "session_id must be a non-empty string")
+
+        allowed = None
+        if rig_ids is not None:
+            try:
+                requested = tuple(rig_ids)
+            except TypeError as exc:
+                raise IpcError(
+                    "INVALID_SESSION",
+                    "rig_ids must be iterable",
+                ) from exc
+            if any(
+                not isinstance(rig_id, int)
+                or isinstance(rig_id, bool)
+                or not 1 <= rig_id <= 4
+                for rig_id in requested
+            ):
+                raise IpcError(
+                    "INVALID_SESSION",
+                    "rig_ids must contain integers from 1 to 4",
+                )
+            allowed = frozenset(requested)
+
         with self._state_lock:
             if self._active_session not in (None, candidate):
                 raise IpcError("SESSION_ACTIVE", "another camera IPC session is active")
             self._active_session = candidate
+            self._active_rig_ids = allowed
         return candidate
 
     def revoke_session(self, session_id: str | None = None) -> None:
@@ -200,6 +228,7 @@ class CameraIpcServer:
             if target is None or target != self._active_session:
                 raise IpcError("INVALID_SESSION", "camera IPC session is not active")
             self._active_session = None
+            self._active_rig_ids = None
             self._tokens = {
                 key: value for key, value in self._tokens.items() if value[0] != target
             }
@@ -245,6 +274,7 @@ class CameraIpcServer:
         self._unlink_own_socket()
         with self._state_lock:
             self._active_session = None
+            self._active_rig_ids = None
             self._tokens.clear()
             self._rig_iso_targets.clear()
 
@@ -367,7 +397,14 @@ class CameraIpcServer:
         if operation == "ping":
             return {"ok": True}
         if operation == "list_active_camera_rigs":
-            return {"rig_ids": list(self._runtime.active_camera_rig_ids())}
+            with self._state_lock:
+                allowed = self._active_rig_ids
+            rig_ids = (
+                tuple(sorted(allowed))
+                if allowed is not None
+                else self._runtime.active_camera_rig_ids()
+            )
+            return {"rig_ids": list(rig_ids)}
         if operation == "camera.capabilities":
             rig_id, worker = self._worker(params)
             worker.connect()
@@ -1065,6 +1102,14 @@ class CameraIpcServer:
         rig_id = params.get("rig_id")
         if not isinstance(rig_id, int) or isinstance(rig_id, bool) or not 1 <= rig_id <= 4:
             raise IpcError("INVALID_RIG", "rig_id must be an integer from 1 to 4")
+        with self._state_lock:
+            allowed = self._active_rig_ids
+        if allowed is not None and rig_id not in allowed:
+            raise IpcError(
+                "UNKNOWN_RIG",
+                "camera rig is not active in this trigger session",
+            )
+
         worker = self._runtime.get_for_rig(rig_id)
         if worker is None:
             raise IpcError("UNKNOWN_RIG", "camera rig is not active")

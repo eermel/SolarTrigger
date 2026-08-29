@@ -19,6 +19,63 @@ def validate_eclipse(ecl):
         if te is not None and c4 >= te: errors.append(f"C4 ({ecl.get('C4')}) ≥ TEND ({ecl.get('TEND')})")
     if errors: raise TriggerValidationError("❌ JSON incohérent : " + " | ".join(errors), "JSON_INVALID")
 
+
+def validate_execution_rigs(config):
+    """Validate rig requirements only when real hardware execution starts."""
+    if not isinstance(config, dict):
+        raise TriggerValidationError(
+            "Configuration RIG invalide.",
+            "RIG_CONFIG_INVALID",
+        )
+
+    rigs = config.get("rigs")
+    if not isinstance(rigs, list):
+        raise TriggerValidationError(
+            "Configuration RIG invalide.",
+            "RIG_CONFIG_INVALID",
+        )
+
+    by_id = {}
+    for rig in rigs:
+        if not isinstance(rig, dict):
+            continue
+        rig_id = rig.get("rig_id")
+        if isinstance(rig_id, int) and not isinstance(rig_id, bool):
+            by_id[rig_id] = rig
+
+    # RIG 1 participe toujours, indépendamment de son ancien flag enabled.
+    rig1 = by_id.get(1)
+    if not isinstance(rig1, dict):
+        raise TriggerValidationError(
+            "RIG 1 est obligatoire pour exécuter le trigger.",
+            "RIG1_REQUIRED",
+        )
+
+    participating_ids = [1]
+    participating_ids.extend(
+        rig_id
+        for rig_id in range(2, 5)
+        if isinstance(by_id.get(rig_id), dict)
+        and by_id[rig_id].get("enabled") is True
+    )
+
+    for rig_id in participating_ids:
+        rig = by_id[rig_id]
+        devices = rig.get("devices")
+        camera = devices.get("camera") if isinstance(devices, dict) else None
+        backend = camera.get("backend") if isinstance(camera, dict) else None
+        backend = backend.strip().lower() if isinstance(backend, str) else ""
+
+        if not backend or backend in {"none", "external"}:
+            raise TriggerValidationError(
+                f"RIG {rig_id} nécessite une caméra configurée "
+                "pour exécuter le trigger.",
+                "RIG_CAMERA_REQUIRED",
+            )
+
+    return tuple(participating_ids)
+
+
 class TriggerService:
     """Owns trigger process lifecycle; Flask is only an HTTP adapter."""
     def __init__(self, state_store, trigger_script, json_file, events_file, configs_dir,
@@ -134,16 +191,16 @@ class TriggerService:
                 self._starting=False
                 raise
             ipc_session = None
-            if (
-                not simulate
-                and self.camera_runtime is not None
-                and self.rig_config_loader is not None
-            ):
+            if not simulate and self.rig_config_loader is not None:
                 try:
                     config = self.rig_config_loader()
-                    self.camera_runtime.reconcile(config)
-                    if self.camera_runtime.active_camera_rig_ids():
-                        ipc_session = self.camera_runtime.open_ipc_session()
+                    execution_rig_ids = validate_execution_rigs(config)
+
+                    if self.camera_runtime is not None:
+                        self.camera_runtime.reconcile(config)
+                        ipc_session = self.camera_runtime.open_ipc_session(
+                            execution_rig_ids
+                        )
                 except Exception:
                     self._starting = False
                     raise

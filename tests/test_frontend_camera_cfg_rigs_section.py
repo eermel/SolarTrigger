@@ -73,11 +73,22 @@ def test_updateRigs_toggles_camcfg_columns():
         r"getElementById\(`camcfg-rig-column-\$\{defaultRig\.rig_id\}`\)",
         body,
     )
-    assert re.search(r"cameraColumn\.classList\.toggle\('enabled',\s*enabled\)", body)
-    assert re.search(r"cameraColumn\.hidden\s*=\s*!enabled", body)
-    assert re.search(
-        r"cameraColumn\.querySelector\('\.rig-preview-button'\)", body
+
+    assert (
+        "const triggerEnabled = "
+        "defaultRig.rig_id === 1 || rig.enabled === true"
+        in body
     )
-    assert re.search(r"previewButton\.disabled\s*=\s*!enabled", body)
-    assert re.search(r"const enabled\s*=\s*rig\.enabled\s*===\s*true", body)
+    assert re.search(
+        r"cameraColumn\.classList\.toggle\("
+        r"'enabled',\s*triggerEnabled\)",
+        body,
+    )
+    assert re.search(r"cameraColumn\.hidden\s*=\s*false", body)
+    assert re.search(
+        r"cameraColumn\.querySelector\('\.rig-preview-button'\)",
+        body,
+    )
+    assert re.search(r"previewButton\.disabled\s*=\s*false", body)
     assert not re.search(r"\bset(?:Interval|Timeout)\s*\(", body)
+

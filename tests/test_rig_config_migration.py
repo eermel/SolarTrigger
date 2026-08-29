@@ -210,9 +210,8 @@ def test_minimal_v2_config_validates_and_round_trips(tmp_path):
     assert load(path) == config
 
 
-def test_validate_rejects_non_object_camera_config():
+def test_validate_accepts_null_camera_config_before_trigger_execution():
     config = _minimal_config()
     config["rigs"][0]["devices"]["camera"] = None
 
-    with pytest.raises(ValueError, match=r"devices\.camera must be an object"):
-        validate(config)
+    assert validate(config) is None

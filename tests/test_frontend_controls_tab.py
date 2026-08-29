@@ -126,22 +126,25 @@ def test_controls_panel_has_four_exclusive_rig_buttons_and_target_label():
     assert re.search(r"let\s+selectedRigId\s*=\s*null\s*;", INDEX)
 
 
-def test_controls_rig_rendering_hides_and_disables_unavailable_rigs():
+def test_controls_rig_rendering_depends_on_rig_existence_not_trigger_enabled():
     source = _function_source("renderControlsRigSelection")
 
-    assert re.search(r"button\.hidden\s*=\s*!enabled", source)
-    assert re.search(r"button\.disabled\s*=\s*!enabled", source)
+    assert re.search(r"const\s+available\s*=\s*Boolean\(rig\)", source)
+    assert re.search(r"button\.hidden\s*=\s*!available", source)
+    assert re.search(r"button\.disabled\s*=\s*!available", source)
     assert re.search(
         r"button\.classList\.toggle\(['\"]active['\"],\s*"
-        r"enabled\s*&&\s*selectedRigId\s*===\s*defaultRig\.rig_id\)",
+        r"available\s*&&\s*selectedRigId\s*===\s*defaultRig\.rig_id\)",
         source,
     )
+    assert "rig.enabled" not in source
 
 
-def test_controls_rig_selection_rejects_disabled_rigs_and_has_no_network_calls():
+def test_controls_rig_selection_accepts_disabled_configured_rigs_and_has_no_network_calls():
     source = _function_source("selectControlsRig")
 
-    assert re.search(r"if\s*\(!rig\s*\|\|\s*rig\.enabled\s*!==\s*true\)\s*return", source)
+    assert re.search(r"if\s*\(!rig\)\s*return", source)
+    assert "rig.enabled" not in source
     assert re.search(r"selectedRigId\s*=\s*numericRigId", source)
     assert "fetch(" not in source
     assert not re.search(r"/api/", source)
@@ -284,37 +287,50 @@ def _function_source(name, *, asynchronous=False):
     return match.group("body")
 
 
-@pytest.mark.parametrize(
-    ("devices", "controls_hidden", "focuser_hidden", "mount_hidden"),
-    (
-        ({"focuser": {"active": False}, "mount": {"active": False}}, True, True, True),
-        ({"focuser": {"active": True}, "mount": {"active": False}}, False, False, True),
-        ({"focuser": {"active": False}, "mount": {"active": True}}, False, True, False),
-        ({"focuser": {"active": True}, "mount": {"active": True}}, False, False, False),
-    ),
-)
-def test_controls_visibility_for_all_device_states(
-    devices, controls_hidden, focuser_hidden, mount_hidden
-):
+def test_controls_visibility_combines_global_and_per_rig_devices():
     source = _controls_visibility_source()
-    focuser_active = devices.get("focuser", {}).get("active") is True
-    mount_active = devices.get("mount", {}).get("active") is True
 
-    assert (not (focuser_active or mount_active)) is controls_hidden
-    assert (not focuser_active) is focuser_hidden
-    assert (not mount_active) is mount_hidden
+    assert "globalDevicesState = devices" in source
+    assert "const currentDevices = globalDevicesState" in source
+
+    assert re.search(
+        r"currentDevices\s*&&\s*currentDevices\.focuser\s*&&\s*"
+        r"currentDevices\.focuser\.active\s*===\s*true",
+        source,
+    )
+    assert re.search(
+        r"currentDevices\s*&&\s*currentDevices\.mount\s*&&\s*"
+        r"currentDevices\.mount\.active\s*===\s*true",
+        source,
+    )
+
+    assert "rigDevicesState.rigs.some" in source
+    assert "pilotableMount" in source
+    assert "pilotableFocuser" in source
+    assert (
+        "const controlsActive = "
+        "focuserActive || mountActive || rigControlsActive"
+    ) in source
+
     assert re.search(r"controlsTab\.hidden\s*=\s*!controlsActive", source)
     assert re.search(r"controlsPanel\.hidden\s*=\s*!controlsActive", source)
-    assert re.search(r"getElementById\(['\"]focuser-section['\"]\)\.hidden\s*=\s*!focuserActive", source)
+
+    # La section affichée dépend du RIG sélectionné, pas de l'ancien
+    # état global focuser/mount.
     assert "renderControlsRigSelection()" in source
+    assert "focuser-section').hidden = !focuserActive" not in source
 
-
-def test_missing_devices_are_inactive_and_hidden():
+def test_missing_global_devices_do_not_erase_per_rig_controls_state():
     source = _controls_visibility_source()
 
-    assert re.search(r"devices\s*&&\s*devices\.focuser\s*&&\s*devices\.focuser\.active\s*===\s*true", source)
-    assert re.search(r"devices\s*&&\s*devices\.mount\s*&&\s*devices\.mount\.active\s*===\s*true", source)
-
+    assert "if (devices && typeof devices === 'object')" in source
+    assert "globalDevicesState = devices" in source
+    assert "const currentDevices = globalDevicesState" in source
+    assert "rigControlsActive" in source
+    assert (
+        "focuserActive || mountActive || rigControlsActive"
+        in source
+    )
 
 def test_active_controls_falls_back_to_devices_when_controls_become_hidden():
     source = _controls_visibility_source()
