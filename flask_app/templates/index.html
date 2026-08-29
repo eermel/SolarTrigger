@@ -886,19 +886,27 @@ header {
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
           <div class="card camcfg-rig-column" id="camcfg-rig-column-1" data-rig-id="1">
             <div class="card-title">RIG 1</div>
-            <div class="camcfg-rig-body"></div>
+            <button class="btn btn-secondary btn-full rig-preview-button" type="button" data-rig-id="1" disabled
+              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
+            <div class="camcfg-rig-body rig-preview" id="rig-preview-1"></div>
           </div>
           <div class="card camcfg-rig-column" id="camcfg-rig-column-2" data-rig-id="2">
             <div class="card-title">RIG 2</div>
-            <div class="camcfg-rig-body"></div>
+            <button class="btn btn-secondary btn-full rig-preview-button" type="button" data-rig-id="2" disabled
+              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
+            <div class="camcfg-rig-body rig-preview" id="rig-preview-2"></div>
           </div>
           <div class="card camcfg-rig-column" id="camcfg-rig-column-3" data-rig-id="3">
             <div class="card-title">RIG 3</div>
-            <div class="camcfg-rig-body"></div>
+            <button class="btn btn-secondary btn-full rig-preview-button" type="button" data-rig-id="3" disabled
+              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
+            <div class="camcfg-rig-body rig-preview" id="rig-preview-3"></div>
           </div>
           <div class="card camcfg-rig-column" id="camcfg-rig-column-4" data-rig-id="4">
             <div class="card-title">RIG 4</div>
-            <div class="camcfg-rig-body"></div>
+            <button class="btn btn-secondary btn-full rig-preview-button" type="button" data-rig-id="4" disabled
+              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
+            <div class="camcfg-rig-body rig-preview" id="rig-preview-4"></div>
           </div>
         </div>
       </section>
@@ -1601,6 +1609,8 @@ function updateRigs(rigs) {
     if (cameraColumn) {
       cameraColumn.classList.toggle('enabled', enabled);
       cameraColumn.hidden = !enabled;
+      const previewButton = cameraColumn.querySelector('.rig-preview-button');
+      if (previewButton) previewButton.disabled = !enabled;
     }
     if (cameraRigColumn) {
       cameraRigColumn.classList.toggle('enabled', enabled);
@@ -3603,6 +3613,153 @@ function _readCameraConfig() {
   };
 }
 
+function buildPreviewIntents() {
+  const cameraConfig = _readCameraConfig();
+  const phases = cameraConfig && cameraConfig.phases;
+  const eclipse = state.eclipse;
+  const eclipseDate = eclipse && (eclipse._date || eclipse._date_utc);
+  if (!phases || !eclipse || !eclipseDate) return null;
+
+  const phaseTargets = [
+    { phase: 'partial', contact: eclipse.C1 || eclipse.TMAX, request_id: 'preview-partial' }
+  ];
+  if (eclipse.C2 || eclipse.C3) {
+    phaseTargets.push(
+      { phase: 'diamond_ring', contact: eclipse.C2 || eclipse.C3, request_id: 'preview-diamond-ring' }
+    );
+  }
+  if (eclipse.TMAX) {
+    phaseTargets.push(
+      { phase: 'totality', contact: eclipse.TMAX, request_id: 'preview-totality' }
+    );
+  }
+
+  const intents = [];
+  for (const target of phaseTargets) {
+    const phaseConfig = phases[target.phase];
+    if (!phaseConfig || !target.contact
+        || phaseConfig.shutter_min == null || phaseConfig.shutter_min === ''
+        || phaseConfig.shutter_max == null || phaseConfig.shutter_max === ''
+        || phaseConfig.iso == null || Number.isNaN(phaseConfig.iso)) {
+      return null;
+    }
+    intents.push({
+      phase: target.phase,
+      origin: target.phase,
+      request_id: target.request_id,
+      target_time: `${eclipseDate}T${target.contact}Z`,
+      deadline: null,
+      shutter_min: phaseConfig.shutter_min,
+      shutter_max: phaseConfig.shutter_max,
+      step_ev: phaseConfig.step_ev ?? 1.0,
+      iso_target: phaseConfig.iso
+    });
+  }
+  return intents;
+}
+
+let rigPreviewInFlight = false;
+
+function renderRigPreviews(responseJson) {
+  const rawNumberPrefix = '\u0000RAW_JSON_NUMBER:';
+  const numberPattern = /("(?:\\.|[^"\\])*")|(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+  const protectedJson = responseJson.replace(
+    numberPattern,
+    (token, stringToken, numberToken) => stringToken || `"\\u0000RAW_JSON_NUMBER:${numberToken}"`
+  );
+  const payload = JSON.parse(protectedJson);
+  const rigs = Array.isArray(payload && payload.rigs) ? payload.rigs : [];
+  document.querySelectorAll('.rig-preview').forEach(body => body.replaceChildren());
+
+  const displayValue = value => {
+    if (typeof value === 'string' && value.startsWith(rawNumberPrefix)) {
+      return value.slice(rawNumberPrefix.length);
+    }
+    if (Array.isArray(value)) {
+      return `[${value.map(entry => (
+        typeof entry === 'string' && !entry.startsWith(rawNumberPrefix)
+          ? JSON.stringify(entry)
+          : displayValue(entry)
+      )).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+      return `{${Object.entries(value).map(([key, entry]) => (
+        `${JSON.stringify(key)}:${displayValue(entry)}`
+      )).join(',')}}`;
+    }
+    return value;
+  };
+
+  rigs.forEach(rig => {
+    let body = null;
+    try {
+      body = document.getElementById(`rig-preview-${displayValue(rig && rig.rig_id)}`);
+      if (!body) return;
+
+      const items = Array.isArray(rig.items) ? rig.items : [];
+      items.forEach(item => {
+        const preview = document.createElement('div');
+        preview.className = 'rig-preview-intent';
+
+        const appendField = (label, value) => {
+          const line = document.createElement('div');
+          const displayed = displayValue(value);
+          line.textContent = `${label}: ${displayed == null || displayed === '' ? '—' : displayed}`;
+          preview.appendChild(line);
+        };
+
+        appendField('phase', item && item.phase);
+        appendField('target_time', item && item.target_time);
+        appendField('iso_applied', item && item.iso_applied);
+        appendField('exposures_s', item && item.exposures_s);
+        appendField('corrections', item && item.corrections);
+        appendField('warnings', item && item.warnings);
+        appendField('motion_policy', item && item.motion_policy);
+        if (item && item.error) {
+          appendField('error.code', item.error.code);
+          appendField('error.message', item.error.message);
+        }
+        body.appendChild(preview);
+      });
+    } catch (error) {
+      if (!body) return;
+      const message = document.createElement('div');
+      message.textContent = `error: RENDER_ERROR: ${error.message}`;
+      body.appendChild(message);
+    }
+  });
+}
+
+async function requestRigPreviews(intents) {
+  if (rigPreviewInFlight) return;
+  if (!Array.isArray(intents) || intents.length === 0) {
+    flash('configuration/circumstances incomplete', 'red');
+    return;
+  }
+
+  const previewButtons = Array.from(document.querySelectorAll('.rig-preview-button'));
+  const previousDisabledStates = previewButtons.map(button => button.disabled);
+  rigPreviewInFlight = true;
+  previewButtons.forEach(button => { button.disabled = true; });
+  try {
+    try {
+      const response = await fetch('/api/rigs/preview', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({intents})
+      });
+      const responseJson = await response.text();
+      renderRigPreviews(responseJson);
+    } finally {
+      rigPreviewInFlight = false;
+    }
+  } finally {
+    previewButtons.forEach((button, index) => {
+      button.disabled = previousDisabledStates[index];
+    });
+  }
+}
+
 async function saveCameraConfig() {
   const sel = document.getElementById('camera-config-select');
   const current = sel && sel.value
@@ -3620,7 +3777,11 @@ async function saveCameraConfig() {
       body: JSON.stringify({ filename: name, data })
     });
     const d = await r.json();
-    if (d.status === 'ok') { flash('Sauvegardé : ' + d.filename, 'green'); loadCameraConfigList(); }
+    if (d.status === 'ok') {
+      flash('Sauvegardé : ' + d.filename, 'green');
+      loadCameraConfigList();
+      requestRigPreviews(buildPreviewIntents());
+    }
     else flash(d.error || 'Erreur', 'red');
   } catch(e) { flash('Erreur réseau', 'red'); }
 }
