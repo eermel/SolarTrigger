@@ -938,7 +938,7 @@ def api_rig_device_inventory_refresh():
 
 @app.route("/api/status")
 def api_status():
-    camera_info = _get_camera_status()
+    camera_info = _state_store.snapshot("camera") or {}
     try:
         rigs = normalize_rigs_for_ui(get_rig_manager())
     except Exception as exc:
