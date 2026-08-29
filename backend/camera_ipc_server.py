@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend import rig_trace
 from backend.camera_model_resolution import resolve_sensor_entry
 from backend.exposure_selection import (
     DEFAULT_SUPPORTED_ISOS,
@@ -594,10 +595,38 @@ class CameraIpcServer:
                     )
                 del self._tokens[token_id]
             prepared_token = token[2]
-            _metadata = token[3] if len(token) > 3 else None
-            return self._call_worker(
-                worker.trigger_prepared, prepared_token, deadline=deadline
-            )
+            metadata = token[3] if len(token) > 3 else {"rig_id": rig_id}
+            start_utc = datetime.now(timezone.utc)
+            try:
+                result = self._call_worker(
+                    worker.trigger_prepared, prepared_token, deadline=deadline
+                )
+            except IpcError as exc:
+                end_utc = datetime.now(timezone.utc)
+                payload = self._trigger_trace_payload(
+                    metadata, start_utc, end_utc
+                )
+                payload.update(
+                    status="expired" if exc.code == "EXPIRED" else "error",
+                    code=exc.code,
+                    message=exc.message,
+                )
+                rig_trace.trace_event("camera.trigger_prepared", payload)
+                raise
+
+            end_utc = datetime.now(timezone.utc)
+            payload = self._trigger_trace_payload(metadata, start_utc, end_utc)
+            payload["status"] = "success"
+            for field in ("frames", "planned"):
+                value = (
+                    result.get(field)
+                    if isinstance(result, dict)
+                    else getattr(result, field, None)
+                )
+                if value is not None:
+                    payload[field] = value
+            rig_trace.trace_event("camera.trigger_prepared", payload)
+            return result
         if operation == "shoot_speed_list":
             speeds = params.get("speeds")
             if not isinstance(speeds, list) or any(
@@ -629,6 +658,29 @@ class CameraIpcServer:
             return method(*args, **kwargs)
         except ExpiredJobError as exc:
             raise IpcError("EXPIRED", "camera worker job expired") from exc
+
+    @staticmethod
+    def _trigger_trace_payload(metadata, start_utc, end_utc):
+        payload = dict(metadata)
+        target_time = payload.get("target_time")
+        target_utc = (
+            datetime.fromisoformat(target_time)
+            if isinstance(target_time, str)
+            else None
+        )
+        if target_utc is not None and target_utc.tzinfo is None:
+            target_utc = target_utc.replace(tzinfo=timezone.utc)
+        return {
+            **payload,
+            "start_utc": start_utc.isoformat(),
+            "end_utc": end_utc.isoformat(),
+            "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+            "latency_ms": (
+                (start_utc - target_utc).total_seconds() * 1000.0
+                if target_utc is not None
+                else None
+            ),
+        }
 
     @staticmethod
     def _valid_iso_string(value: Any) -> bool:
