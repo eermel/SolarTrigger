@@ -27,8 +27,13 @@ class CameraWorker:
         max_queue_size: int | None = None,
     ) -> None:
         self._clock = clock
+        self._camera_entry: dict | None = None
         self._service_factory = service_factory or (
-            lambda: CameraService(log_fn=log_fn, clock=clock)
+            lambda: CameraService(
+                log_fn=log_fn,
+                clock=clock,
+                camera_identity=self._camera_entry,
+            )
         )
         self._service: CameraService | None = None
         self._worker = GenericWorker(
@@ -43,6 +48,12 @@ class CameraWorker:
     @property
     def running(self) -> bool:
         return self._worker.running
+
+    def configure_camera(self, camera_entry: dict) -> None:
+        """Bind this worker to one immutable camera configuration snapshot."""
+        if self._service is not None:
+            raise RuntimeError("camera worker is already initialized")
+        self._camera_entry = dict(camera_entry)
 
     def start(self) -> None:
         self._worker.start()

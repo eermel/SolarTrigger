@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 import secrets
@@ -37,12 +38,13 @@ class CameraWorkerRuntime:
         self._ipc_server = None
         self._ipc_session_ids: set[str] = set()
         self._registry: dict[int, CameraWorker] = {}
+        self._camera_entries: dict[int, dict] = {}
         self._config: dict | None = None
         self._lock = threading.RLock()
 
     @staticmethod
-    def _eligible_rig_ids(config: dict) -> set[int]:
-        rig_ids: set[int] = set()
+    def _eligible_camera_entries(config: dict) -> dict[int, dict]:
+        entries: dict[int, dict] = {}
         for rig in config.get("rigs", []):
             if not isinstance(rig, dict):
                 continue
@@ -58,22 +60,40 @@ class CameraWorkerRuntime:
                 continue
             rig_id = rig.get("rig_id")
             if isinstance(rig_id, int) and not isinstance(rig_id, bool):
-                rig_ids.add(rig_id)
-        return rig_ids
+                entries[rig_id] = deepcopy(camera)
+        return entries
+
+    @classmethod
+    def _eligible_rig_ids(cls, config: dict) -> set[int]:
+        return set(cls._eligible_camera_entries(config))
 
     def reconcile(self, config: dict) -> None:
         """Reconcile persistent workers against the current rig configuration."""
 
-        desired = self._eligible_rig_ids(config)
+        desired_entries = self._eligible_camera_entries(config)
+        desired = set(desired_entries)
+
         with self._lock:
+            unchanged = {
+                rig_id
+                for rig_id in desired
+                if (
+                    rig_id in self._registry
+                    and self._camera_entries.get(rig_id) == desired_entries[rig_id]
+                )
+            }
+
             created: dict[int, CameraWorker] = {}
             try:
-                for rig_id in desired - self._registry.keys():
+                for rig_id in desired - unchanged:
                     worker = self._worker_factory(
                         rig_id=rig_id,
                         clock=self._clock,
                         log_fn=self._log,
                     )
+                    configure_camera = getattr(worker, "configure_camera", None)
+                    if callable(configure_camera):
+                        configure_camera(desired_entries[rig_id])
                     created[rig_id] = worker
                     worker.start()
             except BaseException:
@@ -84,20 +104,24 @@ class CameraWorkerRuntime:
                         pass
                 raise
 
+            previous = self._registry
             obsolete = [
                 worker
-                for rig_id, worker in self._registry.items()
-                if rig_id not in desired
+                for rig_id, worker in previous.items()
+                if rig_id not in unchanged
             ]
+
             self._registry = {
                 rig_id: (
-                    self._registry[rig_id]
-                    if rig_id in self._registry
+                    previous[rig_id]
+                    if rig_id in unchanged
                     else created[rig_id]
                 )
                 for rig_id in desired
             }
+            self._camera_entries = deepcopy(desired_entries)
             self._config = config
+
             for worker in obsolete:
                 worker.stop()
 
