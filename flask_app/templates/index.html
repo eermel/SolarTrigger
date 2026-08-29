@@ -886,19 +886,19 @@ header {
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
           <div class="card camcfg-rig-column" id="camcfg-rig-column-1" data-rig-id="1">
             <div class="card-title">RIG 1</div>
-            <div class="camcfg-rig-body"></div>
+            <div class="camcfg-rig-body" id="rig-preview-1"></div>
           </div>
           <div class="card camcfg-rig-column" id="camcfg-rig-column-2" data-rig-id="2">
             <div class="card-title">RIG 2</div>
-            <div class="camcfg-rig-body"></div>
+            <div class="camcfg-rig-body" id="rig-preview-2"></div>
           </div>
           <div class="card camcfg-rig-column" id="camcfg-rig-column-3" data-rig-id="3">
             <div class="card-title">RIG 3</div>
-            <div class="camcfg-rig-body"></div>
+            <div class="camcfg-rig-body" id="rig-preview-3"></div>
           </div>
           <div class="card camcfg-rig-column" id="camcfg-rig-column-4" data-rig-id="4">
             <div class="card-title">RIG 4</div>
-            <div class="camcfg-rig-body"></div>
+            <div class="camcfg-rig-body" id="rig-preview-4"></div>
           </div>
         </div>
       </section>
@@ -3652,11 +3652,44 @@ let rigPreviewInFlight = false;
 
 function renderRigPreviews(payload) {
   const rigs = Array.isArray(payload && payload.rigs) ? payload.rigs : [];
-  const previewsByRig = new Map(rigs.map(rig => [Number(rig.rig_id), rig.items]));
-  document.querySelectorAll('.camcfg-rig-column').forEach(column => {
-    const body = column.querySelector('.camcfg-rig-body');
-    const items = previewsByRig.get(Number(column.dataset.rigId));
-    if (body) body.textContent = items === undefined ? '' : JSON.stringify(items);
+  document.querySelectorAll('.camcfg-rig-body').forEach(body => body.replaceChildren());
+
+  rigs.forEach(rig => {
+    const rigId = Number(rig && rig.rig_id);
+    const body = document.getElementById(`rig-preview-${rigId}`);
+    if (!body) return;
+
+    try {
+      const items = Array.isArray(rig.items) ? rig.items : [];
+      items.forEach(item => {
+        const preview = document.createElement('div');
+        preview.className = 'rig-preview-intent';
+
+        const appendField = (label, value) => {
+          const line = document.createElement('div');
+          const displayed = Array.isArray(value) ? value.join(', ') : value;
+          line.textContent = `${label}: ${displayed == null || displayed === '' ? '—' : String(displayed)}`;
+          preview.appendChild(line);
+        };
+
+        appendField('phase', item && item.phase);
+        appendField('target_time', item && item.target_time);
+        appendField('exposures_s', item && item.exposures_s);
+        appendField('iso_applied', item && item.iso_applied);
+        appendField('corrections', item && item.corrections);
+        appendField('warnings', item && item.warnings);
+        appendField('atmos_applied', item && item.atmos_applied);
+        appendField('motion_policy', item && item.motion_policy);
+        if (item && item.error) {
+          appendField('error', `${item.error.code || 'ERROR'}: ${item.error.message || ''}`);
+        }
+        body.appendChild(preview);
+      });
+    } catch (error) {
+      const message = document.createElement('div');
+      message.textContent = `error: RENDER_ERROR: ${error.message}`;
+      body.appendChild(message);
+    }
   });
 }
 
