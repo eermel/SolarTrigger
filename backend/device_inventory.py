@@ -108,18 +108,36 @@ def _discover_cameras() -> list[dict[str, Any]]:
 
     entries = []
     for detected_model, port in detected:
-        protocol = _read_gphoto_metadata(gp, port)
         sysfs = _usb_identity(port)
+        usb_serial = _text(sysfs.get("serial"))
+
+        # The USB/sysfs serial is the canonical physical identity.  Unlike
+        # protocol metadata it remains available while a persistent worker
+        # already owns the camera.  Avoid opening the camera during refresh
+        # when that stable identity is available.
+        protocol = (
+            {}
+            if usb_serial
+            else _read_gphoto_metadata(gp, port)
+        )
+
         model = _text(protocol.get("model")) or _text(detected_model)
-        manufacturer = _text(protocol.get("manufacturer")) or _manufacturer(model)
-        serial = _text(protocol.get("serial")) or sysfs.get("serial")
+        manufacturer = (
+            _text(protocol.get("manufacturer"))
+            or _manufacturer(model)
+        )
+        protocol_serial = _text(protocol.get("serial"))
+        serial = usb_serial or protocol_serial
+
         entry = {
             "category": "camera",
             "backend": _camera_backend(model),
             "manufacturer": manufacturer,
             "model": model,
             "serial": serial,
-            "fallback_physical_path": None if serial else sysfs.get("physical_path"),
+            "fallback_physical_path": (
+                None if serial else sysfs.get("physical_path")
+            ),
             "present": True,
             "transport_locator": _text(port),
         }
