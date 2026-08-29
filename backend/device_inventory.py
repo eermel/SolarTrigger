@@ -128,6 +128,20 @@ def _discover_cameras() -> list[dict[str, Any]]:
 
 
 def _discover_mounts() -> list[dict[str, Any]]:
+    """Discover physical mounts through the plugin inventory registry.
+
+    Fall back to the historical single-instance detector while older plugins
+    are still being migrated.
+    """
+    try:
+        from plugins.mount import inventory_mounts
+
+        discovered = list(inventory_mounts(log_fn=lambda *_args: None))
+        if discovered:
+            return discovered
+    except Exception:
+        pass
+
     return _discover_legacy_category("mount")
 
 
@@ -207,11 +221,12 @@ def _normalize_entries(
         alias = _text(source.get("alias"))
         if alias:
             entry["alias"] = alias
+        # ``device_name`` is useful display/connection metadata but is not
+        # a physical identity: two INDI servers can expose the same device name.
         entry["bindable"] = (
             serial is not None
             or device_id is not None
             or entry["fallback_physical_path"] is not None
-            or device_name is not None
         )
         normalized.append(entry)
     return normalized

@@ -14,6 +14,8 @@ rattache au contrat commun pour que le moteur puisse traiter OnStep, ZWO,
 SynScan... de facon uniforme.
 """
 
+from pathlib import Path
+
 from .base import MountPlugin, RATE_SIDEREAL, RATE_SOLAR, RATE_LUNAR
 
 # onstep.py est fourni tel quel a cote (module non modifie).
@@ -43,8 +45,11 @@ class OnStepMount(MountPlugin):
         super().__init__(log_fn, config)
         # parametres de connexion depuis la config (sinon defauts d'onstep.py)
         kwargs = {}
-        if "port" in self.config:
-            kwargs["port"] = self.config["port"]
+        port = self.config.get("port") or self.config.get(
+            "fallback_physical_path"
+        )
+        if port:
+            kwargs["port"] = port
         if "baudrate" in self.config:
             kwargs["baudrate"] = self.config["baudrate"]
         if "timeout" in self.config:
@@ -71,6 +76,42 @@ class OnStepMount(MountPlugin):
                 m.disconnect()
             except Exception:
                 pass
+
+    @classmethod
+    def inventory(cls, config=None):
+        """Enumerate OnStep controllers on stable serial-by-id paths."""
+        cfg = dict(config or {})
+        configured_port = cfg.get("port") or cfg.get(
+            "fallback_physical_path"
+        )
+
+        if configured_port:
+            ports = [str(configured_port)]
+        else:
+            try:
+                ports = [
+                    str(path)
+                    for path in sorted(Path("/dev/serial/by-id").glob("*"))
+                ]
+            except OSError:
+                ports = []
+
+        devices = []
+        for port in ports:
+            probe_cfg = dict(cfg)
+            probe_cfg["port"] = port
+            if not cls.probe(probe_cfg):
+                continue
+
+            devices.append({
+                "category": "mount",
+                "backend": cls.plugin_id,
+                "manufacturer": "OnStep",
+                "model": "OnStep",
+                "fallback_physical_path": port,
+            })
+
+        return devices
 
     # -- connexion --------------------------------------------------------- #
     def connect(self):

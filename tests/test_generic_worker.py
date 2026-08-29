@@ -67,26 +67,30 @@ def test_two_workers_do_not_block_each_other():
     w2 = GenericWorker(rig_id=104, device_kind="concurrency-short")
     w1.start()
     w2.start()
+    release_long = threading.Event()
     try:
         long_started = threading.Event()
 
         def long_job():
             long_started.set()
-            time.sleep(0.5)
+            assert release_long.wait(5.0)
             return "long"
 
         long_future = w1.submit(long_job)
-        assert long_started.wait(1.0)
+        assert long_started.wait(2.0)
 
-        started_at = time.monotonic()
-        short_future = w2.submit(lambda: (time.sleep(0.05), "short")[1])
-        assert short_future.result(0.2) == "short"
-        assert time.monotonic() - started_at < 0.2
+        # Worker 1 reste volontairement bloque. Worker 2 doit quand meme
+        # pouvoir executer et terminer son travail independamment.
+        short_future = w2.submit(lambda: "short")
+        assert short_future.result(2.0) == "short"
         assert not long_future.done()
-        assert long_future.result(1.0) == "long"
+
+        release_long.set()
+        assert long_future.result(2.0) == "long"
     finally:
-        w1.stop(timeout=1.0)
-        w2.stop(timeout=1.0)
+        release_long.set()
+        w1.stop(timeout=2.0)
+        w2.stop(timeout=2.0)
 
 
 def test_shutdown_policy_cancel_pending():

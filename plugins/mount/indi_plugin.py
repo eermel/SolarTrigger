@@ -44,7 +44,7 @@ class IndiMount(MountPlugin):
             host=self.config.get("host", "127.0.0.1"),
             port=int(self.config.get("port", 7624)),
             device=self.device_name,
-            timeout_s=float(self.config.get("client_timeout", 1.5)),
+            timeout_s=float(self.config.get("client_timeout", 4.0)),
         )
         self._connected = False
         self._move_rate = None
@@ -56,6 +56,7 @@ class IndiMount(MountPlugin):
             host=cfg.get("host", "127.0.0.1"),
             port=int(cfg.get("port", 7624)),
             device=cfg.get("device", "EQMod Mount"),
+            timeout_s=float(cfg.get("client_timeout", 4.0)),
         )
         try:
             client.ensure_device_present(cfg.get("device", "EQMod Mount"))
@@ -63,8 +64,75 @@ class IndiMount(MountPlugin):
         except Exception:
             return False
 
+    @staticmethod
+    def _stable_serial_path(serial_port):
+        """Resolve a serial device to its stable /dev/serial/by-id alias."""
+        raw = str(serial_port or "").strip()
+        if not raw:
+            return None
+
+        prefix = "/dev/serial/by-id/"
+        if raw.startswith(prefix):
+            return raw
+
+        target = os.path.realpath(raw)
+        root = "/dev/serial/by-id"
+        try:
+            names = sorted(os.listdir(root))
+        except OSError:
+            return None
+
+        for name in names:
+            candidate = os.path.join(root, name)
+            try:
+                if os.path.realpath(candidate) == target:
+                    return candidate
+            except OSError:
+                continue
+
+        return None
+
+    @classmethod
+    def inventory(cls, config=None):
+        """Describe the configured INDI mount with a physical serial identity."""
+        cfg = dict(config or {})
+        device_name = cfg.get("device", "EQMod Mount")
+        client = IndiSubprocessClient(
+            host=cfg.get("host", "127.0.0.1"),
+            port=int(cfg.get("port", 7624)),
+            device=device_name,
+            timeout_s=float(cfg.get("client_timeout", 4.0)),
+        )
+
+        try:
+            client.ensure_device_present(device_name)
+            props = client.get_props([
+                "DEVICE_PORT.PORT",
+                "DRIVER_INFO.*",
+            ])
+        except Exception:
+            return []
+
+        serial_port = (
+            props.get("DEVICE_PORT", {}).get("PORT")
+            if isinstance(props, dict)
+            else None
+        )
+        stable_path = cls._stable_serial_path(serial_port)
+
+        return [{
+            "category": "mount",
+            "backend": cls.plugin_id,
+            "model": device_name,
+            "device_name": device_name,
+            "fallback_physical_path": stable_path,
+        }]
+
     def connect(self):
-        serial_port = self.config.get("serial_port")
+        serial_port = (
+            self.config.get("serial_port")
+            or self.config.get("fallback_physical_path")
+        )
         if not serial_port:
             raise IndiClientError("SERIAL_PORT_MISSING", "Serial port is required")
         if not os.path.exists(serial_port):
