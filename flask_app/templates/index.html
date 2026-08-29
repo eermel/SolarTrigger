@@ -726,7 +726,7 @@ header {
             <span style="color:var(--text-dim);font-size:14px">UTC:</span>
             <span class="stat-value blue" id="sys-time-utc">--:--:--</span>
             <span style="color:var(--text-dim);font-size:14px">Timezone:</span>
-            <span class="stat-value blue" id="sys-timezone" style="font-size:14px">UTC+1</span>
+            <span class="stat-value blue" id="sys-timezone" style="font-size:14px">UTC</span>
             <span style="color:var(--text-dim);font-size:14px">Local time:</span>
             <span class="stat-value orange" id="sys-time-local">--:--:--</span>
           </div>
@@ -1459,6 +1459,9 @@ function deviceOptions(category, device) {
 function renderDevices(devices) {
   const list = document.getElementById('devices-list');
   if (!list) return;
+
+  const gpsDevice = devices.gps || {};
+  state.gpsDeviceDetected = gpsDevice.detected === true;
   list.innerHTML = ['gps'].map(category => {
     const device = devices[category] || {plugin: 'none', active: false};
     const active = device.active === true;
@@ -1488,6 +1491,9 @@ function renderDevices(devices) {
     });
   });
 
+  // La carte Sync GPS doit refléter immédiatement la détection faite
+  // dans l'onglet Devices, sans attendre une opération de synchronisation.
+  if (state.gps) updateGPS(state.gps);
 }
 
 function rigDeviceIdentity(device) {
@@ -1918,6 +1924,7 @@ async function _reanchorClockFromStatus() {
       updateTime(status.time);
       updateEclipseSaveFilename(status.eclipse);
       renderDevices(payload.devices || {});
+      if (status.gps) updateGPS(status.gps);
       updateRigs(payload.rigs || DEFAULT_RIGS);
     }
   } catch (e) {
@@ -1935,6 +1942,7 @@ socket.on('connect', async () => {
       updateTime(status.time);
       updateEclipseSaveFilename(status.eclipse);
       renderDevices(payload.devices || {});
+      if (status.gps) updateGPS(status.gps);
       updateRigs(payload.rigs || DEFAULT_RIGS);
     }
   } catch (e) {
@@ -1944,13 +1952,24 @@ socket.on('connect', async () => {
 socket.io.on('reconnect', _reanchorClockFromStatus);
 socket.on('disconnect', () => flash('Déconnecté', 'red'));
 
-socket.on('gps_sync_done', d => {
+socket.on('gps_sync_done', async d => {
   resetGpsActionButtons();
 
-  // L'état de synchronisation est explicitement fourni par le backend.
   _updateGpsBadge(d && d.synced === true);
 
-  // Rafraîchir également l'état complet du GPS affiché dans l'IHM.
+  // Toujours relire le snapshot GPS complet :
+  // TIME, LOCATION et TIME+LOCATION doivent tous rafraîchir l'IHM.
+  try {
+    const response = await fetch('/api/gps/state');
+    if (response.ok) {
+      const gps = await response.json();
+      updateGPS(gps);
+    }
+  } catch (e) {
+    console.warn('Impossible de rafraîchir l\'état GPS:', e);
+  }
+
+  // Si l'heure système a été modifiée, recaler également l'horloge Pi.
   if (d && d.synced === true) {
     _reanchorClockFromStatus();
   }
@@ -2690,31 +2709,41 @@ function updateGPS(gps) {
   const status = document.getElementById('gps-status-text');
   const dotGps = document.getElementById('dot-gps');
 
+  const deviceDetected = state.gpsDeviceDetected === true;
+
   if (gps.connected && gps.synced) {
-    icon.textContent   = '🟢';
-    status.textContent = 'Connecté — synchronisé ✓';
-    dotGps.className   = 'dot on';
+    if (icon) icon.textContent = '🟢';
+    if (status) status.textContent = 'Connecté — synchronisé ✓';
+    if (dotGps) dotGps.className = 'dot on';
   } else if (gps.connected) {
-    icon.textContent   = '🟡';
-    status.textContent = 'Connecté — en attente de fix…';
-    dotGps.className   = 'dot warn';
+    if (icon) icon.textContent = '🟡';
+    if (status) status.textContent = 'Connecté — en attente de fix…';
+    if (dotGps) dotGps.className = 'dot warn';
   } else if (gps.synced) {
     const t = gps.sync_time ? _isoUtcToConfiguredLocalTime(gps.sync_time) : '';
-    icon.textContent   = '🟢';
-    status.textContent = `Synchronisé ✓${t ? ' — ' + t : ''}`;
-    dotGps.className   = 'dot on';
+    if (icon) icon.textContent = '🟢';
+    if (status) status.textContent = `Synchronisé ✓${t ? ' — ' + t : ''}`;
+    if (dotGps) dotGps.className = 'dot on';
+  } else if (deviceDetected) {
+    if (icon) icon.textContent = '🟡';
+    if (status) status.textContent = 'Détecté — non synchronisé';
+    if (dotGps) dotGps.className = 'dot warn';
   } else {
-    icon.textContent   = '⚫';
-    status.textContent = 'Non détecté';
-    dotGps.className   = 'dot off';
+    if (icon) icon.textContent = '⚫';
+    if (status) status.textContent = 'Non détecté';
+    if (dotGps) dotGps.className = 'dot off';
   }
 
   // Badge GPS sync dans le header
   _updateGpsBadge(gps.synced);
 
-  document.getElementById('gps-lat').textContent  = gps.lat  != null ? gps.lat.toFixed(5)  : '--';
-  document.getElementById('gps-lon').textContent  = gps.lon  != null ? gps.lon.toFixed(5)  : '--';
-  document.getElementById('gps-alt').textContent  = gps.alt  != null ? gps.alt.toFixed(0) + ' m' : '--';
+  const gpsLat = document.getElementById('gps-lat');
+  const gpsLon = document.getElementById('gps-lon');
+  const gpsAlt = document.getElementById('gps-alt');
+
+  if (gpsLat) gpsLat.textContent = gps.lat != null ? Number(gps.lat).toFixed(5) : '--';
+  if (gpsLon) gpsLon.textContent = gps.lon != null ? Number(gps.lon).toFixed(5) : '--';
+  if (gpsAlt) gpsAlt.textContent = gps.alt != null ? Number(gps.alt).toFixed(0) + ' m' : '--';
 
   // Mettre à jour le timezone si disponible
   const sysTz = document.getElementById('sys-timezone');
