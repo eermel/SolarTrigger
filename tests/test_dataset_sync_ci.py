@@ -13,7 +13,7 @@ import sys
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DATASETS_SYNC = REPOSITORY_ROOT / "install" / "datasets_sync.sh"
 UPDATE_FILES = REPOSITORY_ROOT / "install" / "update_files.sh"
-KNOWN_DATASET = "2024-04-08.json"
+KNOWN_DATASET = "2025-03-29.json"
 
 
 def run_dataset_sync(package_dir: Path, trigger_dir: Path) -> subprocess.CompletedProcess[str]:
@@ -79,8 +79,8 @@ sys.path.insert(0, str(runtime))
 from backend.eclipse_engine import loader
 
 assert pathlib.Path(loader.__file__).resolve().is_relative_to(runtime)
-assert "2024-04-08" in loader.list_supported_eclipses()
-assert isinstance(loader.load_eclipse("2024-04-08"), dict)
+assert "2025-03-29" in loader.list_supported_eclipses()
+assert isinstance(loader.load_eclipse("2025-03-29"), dict)
 print(json.dumps({"loader": loader.__file__}))
 """,
             str(trigger_dir),
