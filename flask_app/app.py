@@ -63,6 +63,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime, timezone, timedelta
+from functools import wraps
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1175,6 +1176,59 @@ def _rig_focuser_service_call(worker, method, *args):
     return worker._call(method, *args)
 
 
+def _trace_rig_stop(device_type):
+    """Trace one RIG-scoped STOP request at its Flask route boundary."""
+    def decorator(route):
+        @wraps(route)
+        def traced(rig_id, *args, **kwargs):
+            start_utc = datetime.now(timezone.utc)
+            try:
+                result = route(rig_id, *args, **kwargs)
+            except Exception as exc:
+                end_utc = datetime.now(timezone.utc)
+                rig_trace.trace_event(f"{device_type}.stop", {
+                    "rig_id": rig_id,
+                    "device_type": device_type,
+                    "action": "stop",
+                    "start_utc": start_utc.isoformat(),
+                    "end_utc": end_utc.isoformat(),
+                    "duration_ms": (
+                        end_utc - start_utc
+                    ).total_seconds() * 1000.0,
+                    "status": "error",
+                    "code": getattr(exc, "code", type(exc).__name__),
+                    "message": str(exc),
+                })
+                raise
+
+            end_utc = datetime.now(timezone.utc)
+            response = app.make_response(result)
+            trace_payload = {
+                "rig_id": rig_id,
+                "device_type": device_type,
+                "action": "stop",
+                "start_utc": start_utc.isoformat(),
+                "end_utc": end_utc.isoformat(),
+                "duration_ms": (
+                    end_utc - start_utc
+                ).total_seconds() * 1000.0,
+                "status": "success" if response.status_code < 400 else "error",
+            }
+            if response.status_code >= 400:
+                body = response.get_json(silent=True) or {}
+                trace_payload["code"] = body.get(
+                    "code", f"HTTP_{response.status_code}"
+                )
+                trace_payload["message"] = body.get(
+                    "message", body.get("error", response.status)
+                )
+            rig_trace.trace_event(f"{device_type}.stop", trace_payload)
+            return result
+
+        return traced
+    return decorator
+
+
 @app.route("/api/rigs/<int:rig_id>/focuser/status")
 def api_rig_focuser_status(rig_id):
     worker, error = _rig_focuser_worker(rig_id)
@@ -1211,6 +1265,7 @@ def api_rig_focuser_home(rig_id):
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/stop", methods=["POST"])
+@_trace_rig_stop("focuser")
 def api_rig_focuser_stop(rig_id):
     worker, error = _rig_focuser_guard(rig_id)
     if error is not None:
@@ -1301,6 +1356,7 @@ def api_rig_focuser_jog_start(rig_id):
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/jog/stop", methods=["POST"])
+@_trace_rig_stop("focuser")
 def api_rig_focuser_jog_stop(rig_id):
     worker, error = _rig_focuser_guard(rig_id)
     if error is not None:
@@ -1456,6 +1512,7 @@ def api_rig_mount_tracking_start(rig_id):
 
 
 @app.route("/api/rigs/<int:rig_id>/mount/tracking/stop", methods=["POST"])
+@_trace_rig_stop("mount")
 def api_rig_mount_tracking_stop(rig_id):
     worker, error = _rig_mount_tracking_guard(rig_id)
     if error is not None:
@@ -1529,6 +1586,7 @@ def api_rig_mount_home(rig_id):
 
 
 @app.route("/api/rigs/<int:rig_id>/mount/slew/stop", methods=["POST"])
+@_trace_rig_stop("mount")
 def api_rig_mount_slew_stop(rig_id):
     worker, error = _rig_mount_worker(rig_id)
     if error is not None:
