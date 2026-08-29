@@ -192,6 +192,7 @@ from backend.gps_controller import GpsController
 from backend.devices import CATEGORIES as DEVICE_CATEGORIES
 from backend.devices import detect_all, normalize_selection, ttl_expired
 from backend.device_identity import identity_key
+from backend import rig_trace
 from backend.device_inventory import (
     build_display_labels,
     get_cached_inventory,
@@ -1893,6 +1894,13 @@ def api_rig_camera_read_info(rig_id):
     if rig.enabled is not True:
         return jsonify({"error": f"rig {rig_id} is disabled"}), 409
 
+    camera_identity = rig.devices.get("camera", {})
+    trace_identity = {
+        field: camera_identity[field]
+        for field in ("serial", "fallback_physical_path")
+        if isinstance(camera_identity, dict) and camera_identity.get(field)
+    }
+
     runtime = get_camera_worker_runtime(log_fn=log.info)
     runtime.reconcile(load_rig_configuration())
     worker = runtime.get_for_rig(rig_id)
@@ -1904,14 +1912,52 @@ def api_rig_camera_read_info(rig_id):
             "device_type": "camera",
         }), 409
 
+    start_utc = datetime.now(timezone.utc)
     try:
         result = worker.read_info()
     except BusyDeviceError as exc:
+        end_utc = datetime.now(timezone.utc)
+        rig_trace.trace_event("camera.read_info", {
+            "rig_id": rig_id,
+            **trace_identity,
+            "start_utc": start_utc.isoformat(),
+            "end_utc": end_utc.isoformat(),
+            "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+            "status": "error",
+            "error": str(exc),
+        })
         return jsonify({
             "error": str(exc),
             "code": "CAMERA_BUSY",
             "rig_id": rig_id,
         }), 409
+    except Exception as exc:
+        end_utc = datetime.now(timezone.utc)
+        rig_trace.trace_event("camera.read_info", {
+            "rig_id": rig_id,
+            **trace_identity,
+            "start_utc": start_utc.isoformat(),
+            "end_utc": end_utc.isoformat(),
+            "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+            "status": "error",
+            "error": str(exc),
+        })
+        raise
+
+    end_utc = datetime.now(timezone.utc)
+    trace_payload = {
+        "rig_id": rig_id,
+        **trace_identity,
+        "start_utc": start_utc.isoformat(),
+        "end_utc": end_utc.isoformat(),
+        "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+        "status": "success",
+    }
+    if isinstance(result, dict):
+        for field in ("model", "battery"):
+            if result.get(field) is not None:
+                trace_payload[field] = result[field]
+    rig_trace.trace_event("camera.read_info", trace_payload)
 
     _state_store.update_section(
         "camera_info",
@@ -1952,6 +1998,13 @@ def api_rig_camera_test_photo(rig_id):
     if rig.enabled is not True:
         return jsonify({"error": f"rig {rig_id} is disabled"}), 409
 
+    camera_identity = rig.devices.get("camera", {})
+    trace_identity = {
+        field: camera_identity[field]
+        for field in ("serial", "fallback_physical_path")
+        if isinstance(camera_identity, dict) and camera_identity.get(field)
+    }
+
     runtime = get_camera_worker_runtime(log_fn=log.info)
     runtime.reconcile(load_rig_configuration())
     worker = runtime.get_for_rig(rig_id)
@@ -1963,19 +2016,40 @@ def api_rig_camera_test_photo(rig_id):
             "device_type": "camera",
         }), 409
 
-    started_at = datetime.now(timezone.utc).isoformat()
+    start_utc = datetime.now(timezone.utc)
+    started_at = start_utc.isoformat()
     t0 = time.monotonic()
     try:
         result = worker.test_photo_diagnostic(
             [speed], photo_num_start=0, deadline=None
         )
     except BusyDeviceError as exc:
+        end_utc = datetime.now(timezone.utc)
+        rig_trace.trace_event("camera.test_photo", {
+            "rig_id": rig_id,
+            **trace_identity,
+            "start_utc": start_utc.isoformat(),
+            "end_utc": end_utc.isoformat(),
+            "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+            "status": "error",
+            "error": str(exc),
+        })
         return jsonify({
             "error": str(exc),
             "code": "CAMERA_BUSY",
             "rig_id": rig_id,
         }), 409
     except Exception as exc:
+        end_utc = datetime.now(timezone.utc)
+        rig_trace.trace_event("camera.test_photo", {
+            "rig_id": rig_id,
+            **trace_identity,
+            "start_utc": start_utc.isoformat(),
+            "end_utc": end_utc.isoformat(),
+            "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+            "status": "error",
+            "error": str(exc),
+        })
         log.warning("Camera test photo unavailable for rig %s: %s", rig_id, exc)
         return jsonify({
             "error": "camera unavailable",
@@ -1983,6 +2057,20 @@ def api_rig_camera_test_photo(rig_id):
             "rig_id": rig_id,
         }), 404
     t1 = time.monotonic()
+
+    end_utc = datetime.now(timezone.utc)
+    trace_payload = {
+        "rig_id": rig_id,
+        **trace_identity,
+        "start_utc": start_utc.isoformat(),
+        "end_utc": end_utc.isoformat(),
+        "duration_ms": (end_utc - start_utc).total_seconds() * 1000.0,
+        "status": "success",
+    }
+    for field in ("frames", "planned", "detail"):
+        if hasattr(result, field):
+            trace_payload[field] = getattr(result, field)
+    rig_trace.trace_event("camera.test_photo", trace_payload)
 
     response = {
         "status": "ok",

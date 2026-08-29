@@ -23,13 +23,23 @@ def _rig_config(*, rig_2_enabled=True):
                 "rig_id": 1,
                 "name": "Wide field",
                 "enabled": True,
-                "devices": {"camera": {"backend": "camera-backend-1"}},
+                "devices": {
+                    "camera": {
+                        "backend": "camera-backend-1",
+                        "serial": "CAMERA-1",
+                    }
+                },
             },
             {
                 "rig_id": 2,
                 "name": "Telephoto",
                 "enabled": rig_2_enabled,
-                "devices": {"camera": {"backend": "camera-backend-2"}},
+                "devices": {
+                    "camera": {
+                        "backend": "camera-backend-2",
+                        "serial": "CAMERA-2",
+                    }
+                },
             },
         ],
     }
@@ -151,6 +161,12 @@ def test_test_photo_returns_camera_unavailable(monkeypatch):
 
 def test_test_photo_returns_capture_result_and_timing(monkeypatch):
     result = SimpleNamespace(frames=1, planned=1, detail="single")
+    events = []
+    monkeypatch.setattr(
+        flask_module.rig_trace,
+        "trace_event",
+        lambda kind, payload: events.append((kind, payload)),
+    )
     worker = FakeCameraWorker(result=result)
     client, runtime = _client(monkeypatch, _rig_config(), {1: worker})
     monotonic_values = iter((10.0, 10.125))
@@ -176,3 +192,13 @@ def test_test_photo_returns_capture_result_and_timing(monkeypatch):
     assert payload["duration_s"] > 0
     assert worker.calls == [(["1/125"], 0, None)]
     assert runtime.reconciled_config is not None
+    assert len(events) == 1
+    kind, trace = events[0]
+    assert kind == "camera.test_photo"
+    assert trace["rig_id"] == 1
+    assert trace["serial"] == "CAMERA-1"
+    assert trace["duration_ms"] >= 0
+    assert trace["status"] == "success"
+    assert trace["frames"] == 1
+    datetime.fromisoformat(trace["start_utc"])
+    datetime.fromisoformat(trace["end_utc"])
