@@ -642,14 +642,49 @@ class CameraIpcServer:
                     "INVALID_REQUEST", "slowest_override_seconds must be a number"
                 )
             deadline = self._deadline(params.get("deadline"))
-            _, worker = self._worker(params)
-            return self._call_worker(
-                worker.shoot_speed_list,
-                speeds,
-                photo_num_start=photo_num_start,
-                deadline=deadline,
-                slowest_override_seconds=override,
-            )
+            rig_id, worker = self._worker(params)
+            metadata = {
+                "rig_id": rig_id,
+                "speeds": speeds,
+                "photo_num_start": photo_num_start,
+                "phase": None,
+                "target_time": None,
+            }
+            if deadline is not None:
+                metadata["deadline"] = deadline.isoformat()
+            start_utc = datetime.now(timezone.utc)
+            try:
+                result = self._call_worker(
+                    worker.shoot_speed_list,
+                    speeds,
+                    photo_num_start=photo_num_start,
+                    deadline=deadline,
+                    slowest_override_seconds=override,
+                )
+            except IpcError as exc:
+                end_utc = datetime.now(timezone.utc)
+                payload = self._trigger_trace_payload(metadata, start_utc, end_utc)
+                payload.update(
+                    status="expired" if exc.code == "EXPIRED" else "error",
+                    code=exc.code,
+                    message=exc.message,
+                )
+                rig_trace.trace_event("camera.shoot_speed_list", payload)
+                raise
+
+            end_utc = datetime.now(timezone.utc)
+            payload = self._trigger_trace_payload(metadata, start_utc, end_utc)
+            payload["status"] = "success"
+            for field in ("frames", "planned"):
+                value = (
+                    result.get(field)
+                    if isinstance(result, dict)
+                    else getattr(result, field, None)
+                )
+                if value is not None:
+                    payload[field] = value
+            rig_trace.trace_event("camera.shoot_speed_list", payload)
+            return result
         raise AssertionError("validated operation was not dispatched")
 
     @staticmethod

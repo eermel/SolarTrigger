@@ -1,6 +1,11 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from backend.camera_ipc_server import CameraIpcServer
+import pytest
+
+from backend import camera_ipc_server
+from backend.camera_ipc_server import CameraIpcServer, IpcError
+from backend.generic_worker import ExpiredJobError
 
 
 class FakeWorker:
@@ -20,6 +25,15 @@ class FakeWorker:
     def trigger_prepared(self, token, deadline=None):
         self.triggered_token = token
         return {"triggered": True}
+
+    def shoot_speed_list(
+        self,
+        speeds,
+        photo_num_start=0,
+        deadline=None,
+        slowest_override_seconds=None,
+    ):
+        return {"frames": len(speeds), "planned": len(speeds)}
 
 
 class FakeRuntime:
@@ -99,3 +113,137 @@ def test_prepare_capture_persists_logical_intent_metadata(tmp_path):
         }
     ) == {"triggered": True}
     assert worker.triggered_token is legacy_token
+
+
+def _shoot_request(session, **params):
+    return {
+        "operation": "shoot_speed_list",
+        "session_id": session,
+        "params": {"rig_id": 3, **params},
+    }
+
+
+def _capture_trace(monkeypatch):
+    events = []
+    start = datetime(2026, 8, 12, 18, 0, tzinfo=timezone.utc)
+    timestamps = iter((start, start + timedelta(milliseconds=5)))
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = next(timestamps)
+            return value if tz is not None else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(camera_ipc_server, "datetime", FixedDatetime)
+    monkeypatch.setattr(
+        camera_ipc_server.rig_trace,
+        "trace_event",
+        lambda kind, payload: events.append((kind, payload)),
+    )
+    return events
+
+
+def test_shoot_speed_list_traces_success_with_deadline(monkeypatch, tmp_path):
+    events = _capture_trace(monkeypatch)
+    server = CameraIpcServer(
+        FakeRuntime(FakeWorker()),
+        endpoint_dir=tmp_path / "ipc",
+        parent_pid=4321,
+        log_fn=lambda _message: None,
+    )
+    session = server.activate_session("trace-session")
+    speeds = ["1/1000", "1/500"]
+
+    result = server.handle_request(
+        _shoot_request(
+            session,
+            speeds=speeds,
+            photo_num_start=7,
+            deadline="2026-08-12T18:00:01Z",
+        )
+    )
+
+    assert result == {"frames": 2, "planned": 2}
+    assert len(events) == 1
+    kind, payload = events[0]
+    assert kind == "camera.shoot_speed_list"
+    assert payload == {
+        "rig_id": 3,
+        "speeds": speeds,
+        "photo_num_start": 7,
+        "phase": None,
+        "target_time": None,
+        "deadline": "2026-08-12T18:00:01",
+        "start_utc": "2026-08-12T18:00:00+00:00",
+        "end_utc": "2026-08-12T18:00:00.005000+00:00",
+        "duration_ms": 5.0,
+        "latency_ms": None,
+        "status": "success",
+        "frames": 2,
+        "planned": 2,
+    }
+
+
+@pytest.mark.parametrize(
+    ("worker_error", "expected_status", "expected_code", "expected_message"),
+    [
+        (
+            ExpiredJobError(),
+            "expired",
+            "EXPIRED",
+            "camera worker job expired",
+        ),
+        (
+            IpcError("CAMERA_ERROR", "capture failed"),
+            "error",
+            "CAMERA_ERROR",
+            "capture failed",
+        ),
+    ],
+)
+def test_shoot_speed_list_traces_errors_without_deadline(
+    monkeypatch,
+    tmp_path,
+    worker_error,
+    expected_status,
+    expected_code,
+    expected_message,
+):
+    class FailingWorker(FakeWorker):
+        def shoot_speed_list(self, *args, **kwargs):
+            raise worker_error
+
+    events = _capture_trace(monkeypatch)
+    server = CameraIpcServer(
+        FakeRuntime(FailingWorker()),
+        endpoint_dir=tmp_path / "ipc",
+        parent_pid=4321,
+        log_fn=lambda _message: None,
+    )
+    session = server.activate_session("trace-session")
+
+    with pytest.raises(IpcError) as caught:
+        server.handle_request(
+            _shoot_request(session, speeds=["1/250"], photo_num_start=4)
+        )
+
+    assert (caught.value.code, caught.value.message) == (
+        expected_code,
+        expected_message,
+    )
+    assert len(events) == 1
+    kind, payload = events[0]
+    assert kind == "camera.shoot_speed_list"
+    assert payload["rig_id"] == 3
+    assert payload["speeds"] == ["1/250"]
+    assert payload["photo_num_start"] == 4
+    assert payload["phase"] is None
+    assert payload["target_time"] is None
+    assert "deadline" not in payload
+    assert payload["start_utc"] == "2026-08-12T18:00:00+00:00"
+    assert payload["end_utc"] == "2026-08-12T18:00:00.005000+00:00"
+    assert payload["duration_ms"] == 5.0
+    assert payload["latency_ms"] is None
+    assert payload["status"] == expected_status
+    assert payload["code"] == expected_code
+    assert payload["message"] == expected_message
