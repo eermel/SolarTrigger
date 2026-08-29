@@ -3704,23 +3704,32 @@ function renderRigPreviews(payload) {
 }
 
 async function requestRigPreviews(intents) {
+  if (rigPreviewInFlight) return;
   if (!Array.isArray(intents) || intents.length === 0) {
     flash('configuration/circumstances incomplete', 'red');
     return;
   }
-  if (rigPreviewInFlight) return;
 
+  const previewButtons = Array.from(document.querySelectorAll('.rig-preview-button'));
+  const previousDisabledStates = previewButtons.map(button => button.disabled);
   rigPreviewInFlight = true;
+  previewButtons.forEach(button => { button.disabled = true; });
   try {
-    const response = await fetch('/api/rigs/preview', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({intents})
-    });
-    const payload = await response.json();
-    renderRigPreviews(payload);
+    try {
+      const response = await fetch('/api/rigs/preview', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({intents})
+      });
+      const payload = await response.json();
+      renderRigPreviews(payload);
+    } finally {
+      rigPreviewInFlight = false;
+    }
   } finally {
-    rigPreviewInFlight = false;
+    previewButtons.forEach((button, index) => {
+      button.disabled = previousDisabledStates[index];
+    });
   }
 }
 
