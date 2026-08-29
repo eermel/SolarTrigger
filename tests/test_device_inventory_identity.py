@@ -177,3 +177,30 @@ def test_reconnect_at_new_usb_address_keeps_camera_identity(monkeypatch, tmp_pat
     assert {**deepcopy(first), "transport_locator": None} == {
         **deepcopy(second), "transport_locator": None
     }
+
+
+def test_camera_without_supported_plugin_is_not_bindable():
+    cameras = device_inventory._normalize_entries(
+        "camera",
+        [
+            {
+                "backend": "sony",
+                "model": "Sony ILCE-7M5 (PC Control)",
+                "serial": "A7V-SERIAL",
+            },
+            {
+                "backend": "nikon-dslr",
+                "model": "Nikon DSC D850",
+                "serial": "D850-SERIAL",
+            },
+            {
+                "backend": "gphoto2",
+                "model": "Sony Alpha-A6600 (PC Control)",
+                "serial": "A6600-SERIAL",
+            },
+        ],
+    )
+
+    assert cameras[0]["bindable"] is True
+    assert cameras[1]["bindable"] is True
+    assert cameras[2]["bindable"] is False

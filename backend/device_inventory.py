@@ -241,10 +241,17 @@ def _normalize_entries(
             entry["alias"] = alias
         # ``device_name`` is useful display/connection metadata but is not
         # a physical identity: two INDI servers can expose the same device name.
-        entry["bindable"] = (
+        has_stable_identity = (
             serial is not None
             or device_id is not None
             or entry["fallback_physical_path"] is not None
+        )
+        entry["bindable"] = (
+            has_stable_identity
+            and not (
+                category == "camera"
+                and entry["backend"] == "gphoto2"
+            )
         )
         normalized.append(entry)
     return normalized
