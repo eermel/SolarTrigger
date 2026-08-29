@@ -292,7 +292,7 @@ def test_stop_times_out_when_hardware_lock_is_held(tmp_path):
     def hold_hardware_lock():
         with service._plugin_access_lock:
             lock_held.set()
-            release_lock.wait(timeout=2)
+            release_lock.wait()
 
     service._log = messages.append
     holder = threading.Thread(target=hold_hardware_lock)
