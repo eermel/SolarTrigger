@@ -12,6 +12,7 @@ from backend.exposure_selection import (
     DEFAULT_SUPPORTED_SHUTTERS,
     parse_speed,
     safe_shutter_and_iso,
+    select_supported_shutter_at_or_below,
 )
 from backend.motion_constraint_resolver import resolve_motion_constraint
 from services.camera_service import _normalized_speed_plan
@@ -68,44 +69,94 @@ def apply_atmos_if_enabled(
     plan: tuple[bool, str, str, float, list[str] | None],
     target_time: Any,
     eclipse_ctx: Mapping[str, Any] | Callable[[], Mapping[str, Any]],
-) -> tuple[tuple[bool, str, str, float, list[str] | None], bool]:
-    """Extend a regular bracket for atmospheric attenuation when enabled."""
+) -> tuple[
+    tuple[bool, str, str, float, list[str] | None],
+    bool,
+    str | None,
+]:
+    """Extend a regular bracket for atmospheric attenuation when enabled.
+
+    The atmospheric calculation can produce an arbitrary shutter duration.
+    The returned plan must however contain only a shutter supported by the
+    canonical camera grid.  The theoretical duration is returned separately
+    so ISO materialization can compensate for the rounding.
+    """
 
     photo = rig_snapshot.get("photo")
     enabled = isinstance(photo, Mapping) and photo.get("atmos_enabled") is True
     if not enabled:
-        return plan, False
+        return plan, False, None
+
     regular, fastest, slowest, step, speeds = plan
     if not regular or speeds is not None:
-        return plan, False
+        return plan, False, None
 
     context = _context(eclipse_ctx)
     timeline = context.get("timeline")
     altitudes = context.get("altitudes", context)
     location = context.get("location", context.get("_circumstances_location"))
-    altitude_m = location.get("altitude_m") if isinstance(location, Mapping) else context.get("altitude_m")
+    altitude_m = (
+        location.get("altitude_m")
+        if isinstance(location, Mapping)
+        else context.get("altitude_m")
+    )
+
     if not isinstance(timeline, Mapping) or altitude_m is None:
-        raise PreviewMaterializationError("atmospheric eclipse context is incomplete")
+        raise PreviewMaterializationError(
+            "atmospheric eclipse context is incomplete"
+        )
+
     try:
-        solar_altitude = interpolate_altitude(target_time, dict(timeline), dict(altitudes))
+        solar_altitude = interpolate_altitude(
+            target_time,
+            dict(timeline),
+            dict(altitudes),
+        )
         factor = facteur_atmospherique(solar_altitude, altitude_m)
     except (TypeError, ValueError, KeyError) as exc:
-        raise PreviewMaterializationError("atmospheric eclipse context is invalid") from exc
-    extended = parse_speed(slowest) * factor
-    return (regular, fastest, format(extended, ".15g"), step, speeds), extended > parse_speed(slowest)
+        raise PreviewMaterializationError(
+            "atmospheric eclipse context is invalid"
+        ) from exc
+
+    original_slowest = parse_speed(slowest)
+    extended = original_slowest * factor
+
+    if extended <= original_slowest:
+        return plan, False, None
+
+    theoretical_slowest = format(extended, ".15g")
+
+    # Do not put an impossible arbitrary duration in the preview plan.
+    # Use the longest supported shutter which does not exceed the
+    # atmospheric exposure target; ISO compensation preserves exposure.
+    supported_slowest = select_supported_shutter_at_or_below(
+        extended,
+        DEFAULT_SUPPORTED_SHUTTERS,
+    )
+
+    return (
+        (regular, fastest, supported_slowest, step, speeds),
+        True,
+        theoretical_slowest,
+    )
 
 
 def compute_iso_and_corrections(
     requested_iso: int | str | None,
     final_slowest: str,
     rig_photo_cfg: Mapping[str, Any],
+    *,
+    theoretical_slowest: str | None = None,
 ) -> tuple[str | None, list[str], list[str]]:
     """Normalize preview ISO and return stable, de-duplicated diagnostics."""
 
     if requested_iso is None:
         return None, [], []
+
+    requested_slowest = theoretical_slowest or final_slowest
+
     result = safe_shutter_and_iso(
-        final_slowest,
+        requested_slowest,
         requested_iso,
         final_slowest,
         supported_shutters=DEFAULT_SUPPORTED_SHUTTERS,
