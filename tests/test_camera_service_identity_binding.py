@@ -173,3 +173,53 @@ def test_camera_worker_builds_default_service_with_bound_identity(monkeypatch):
 
     assert captured["camera_identity"] == camera
     assert captured["clock"] == "CLOCK"
+
+
+def test_connect_selects_camera_by_canonical_usb_serial_when_ptp_serial_differs(
+    monkeypatch,
+):
+    import services.camera_service as camera_service_module
+
+    FakeCamera.serials = {
+        "usb:001,028": "D850-PTP-SERIAL",
+        "usb:001,027": "A7V-PTP-LONG-SERIAL",
+    }
+
+    monkeypatch.setitem(__import__("sys").modules, "gphoto2", FakeGp)
+    monkeypatch.setattr(
+        camera_service_module,
+        "get_camera_model",
+        lambda camera: {
+            port: model for model, port in FakeCamera.autodetected
+        }[camera.port],
+    )
+
+    usb_serials = {
+        "usb:001,028": "USB-D850",
+        "usb:001,027": "CFB2A01F8D19",
+    }
+
+    monkeypatch.setattr(
+        camera_service_module,
+        "_usb_identity",
+        lambda port: {
+            "serial": usb_serials.get(port),
+            "physical_path": None,
+        },
+        raising=False,
+    )
+
+    service = CameraService(
+        camera_identity={
+            "backend": "sony",
+            "model": "ILCE-7M5",
+            "serial": "CFB2A01F8D19",
+        },
+        plugin_loader=lambda camera, log: FakePlugin(),
+        log_fn=lambda *_args: None,
+    )
+
+    service.connect()
+
+    assert service.camera.port == "usb:001,027"
+    assert service.model == "Sony Corporation ILCE-7M5"

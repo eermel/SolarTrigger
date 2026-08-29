@@ -13,6 +13,7 @@ from datetime import datetime
 from statistics import median
 from typing import Any, List, Optional
 
+from backend.device_inventory import _usb_identity
 from plugins.camera import load_plugin, get_camera_model
 from plugins.camera.base import CaptureResult
 
@@ -111,7 +112,12 @@ class CameraService:
         return None
 
     def _open_camera_by_serial(self, gp, serial):
-        """Open exactly the gphoto2 camera whose stable serial is requested."""
+        """Open exactly the physical camera matching the configured identity.
+
+        USB/sysfs serial is the canonical identity.  Protocol serial matching
+        remains as a compatibility fallback for configurations persisted by
+        older releases.
+        """
         expected = str(serial).strip()
         if not expected:
             raise RuntimeError("camera serial is empty")
@@ -127,6 +133,28 @@ class CameraService:
         port_list.load()
 
         for _model, port in detected:
+            usb_serial = str(
+                (_usb_identity(port).get("serial") or "")
+            ).strip()
+
+            # Canonical path: identify the physical USB device without
+            # touching any other camera.
+            if usb_serial == expected:
+                camera = gp.Camera()
+                try:
+                    camera.set_port_info(
+                        port_list[port_list.lookup_path(port)]
+                    )
+                    camera.init()
+                    return camera
+                except Exception:
+                    try:
+                        camera.exit()
+                    except Exception:
+                        pass
+                    raise
+
+            # Compatibility path for old persisted PTP/protocol serials.
             camera = gp.Camera()
             keep = False
             try:
@@ -135,13 +163,13 @@ class CameraService:
                 )
                 camera.init()
                 config = camera.get_config()
-                actual = self._config_value(
+                protocol_serial = self._config_value(
                     config,
                     "serialnumber",
                     "serial",
                     "serial_number",
                 )
-                if actual == expected:
+                if protocol_serial == expected:
                     keep = True
                     return camera
             except Exception:

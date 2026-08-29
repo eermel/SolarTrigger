@@ -95,7 +95,7 @@ def _config_for_camera(camera):
     }
 
 
-def test_protocol_serial_is_preferred_over_usb_serial(monkeypatch, tmp_path):
+def test_usb_serial_is_preferred_over_protocol_serial(monkeypatch, tmp_path):
     _write_usb_device(tmp_path, "1-2", 1, 6, "USB-A")
     _mock_gphoto(monkeypatch, tmp_path, {
         "usb:001,006": {"cameramodel": "Nikon D850", "serialnumber": "PROTO-A"}
@@ -103,7 +103,7 @@ def test_protocol_serial_is_preferred_over_usb_serial(monkeypatch, tmp_path):
 
     camera = device_inventory.refresh_inventory()["camera"][0]
 
-    assert camera["serial"] == "PROTO-A"
+    assert camera["serial"] == "USB-A"
     assert camera["transport_locator"] == "usb:001,006"
 
 

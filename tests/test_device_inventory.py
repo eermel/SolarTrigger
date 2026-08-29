@@ -120,7 +120,7 @@ def _write_usb_device(root: Path, topology: str, bus: int, device: int, serial=N
         (usb_device / "serial").write_text(f"{serial}\n", encoding="utf-8")
 
 
-def test_camera_protocol_serial_precedes_sysfs_serial(monkeypatch, tmp_path):
+def test_camera_usb_serial_precedes_protocol_serial(monkeypatch, tmp_path):
     _write_usb_device(tmp_path, "1-2", 1, 6, "USB-SERIAL-A")
     _write_usb_device(tmp_path, "1-3", 1, 7, "USB-SERIAL-B")
     _MockCamera.metadata_by_port = {
@@ -143,7 +143,10 @@ def test_camera_protocol_serial_precedes_sysfs_serial(monkeypatch, tmp_path):
 
     cameras = device_inventory.refresh_inventory()["camera"]
 
-    assert [camera["serial"] for camera in cameras] == ["SDK-A", "SDK-B"]
+    assert [camera["serial"] for camera in cameras] == [
+        "USB-SERIAL-A",
+        "USB-SERIAL-B",
+    ]
     assert [camera["transport_locator"] for camera in cameras] == [
         "usb:001,006",
         "usb:001,007",
@@ -297,3 +300,40 @@ def test_focuser_device_id_is_normalized_and_bindable(monkeypatch):
     assert focuser["device_id"] == "zwo_eaf:0"
     assert focuser["serial"] is None
     assert focuser["bindable"] is True
+
+
+def test_refresh_with_usb_serial_does_not_probe_camera_protocol(
+    monkeypatch, tmp_path
+):
+    _write_usb_device(tmp_path, "1-2", 1, 6, "USB-STABLE")
+
+    gp = SimpleNamespace(
+        Camera=SimpleNamespace(
+            autodetect=lambda: [
+                ("Sony ILCE-7M5 (PC Control)", "usb:001,006"),
+            ]
+        )
+    )
+
+    monkeypatch.setitem(__import__("sys").modules, "gphoto2", gp)
+    monkeypatch.setattr(device_inventory, "SYSFS_USB_DEVICES", tmp_path)
+    monkeypatch.setattr(
+        device_inventory,
+        "_read_gphoto_metadata",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("protocol metadata must not be probed")
+        ),
+    )
+    monkeypatch.setattr(
+        device_inventory,
+        "_camera_backend",
+        lambda _model: "sony",
+    )
+    monkeypatch.setattr(device_inventory, "_discover_mounts", lambda: [])
+    monkeypatch.setattr(device_inventory, "_discover_focusers", lambda: [])
+
+    camera = device_inventory.refresh_inventory()["camera"][0]
+
+    assert camera["serial"] == "USB-STABLE"
+    assert camera["model"] == "Sony ILCE-7M5 (PC Control)"
+    assert camera["transport_locator"] == "usb:001,006"
