@@ -685,6 +685,18 @@ class CameraIpcServer:
                 )
                 rig_trace.trace_event("camera.shoot_speed_list", payload)
                 raise
+            except Exception as exc:
+                end_utc = datetime.now(timezone.utc)
+                payload = self._trigger_trace_payload(metadata, start_utc, end_utc)
+                payload.update(
+                    status="error",
+                    code="INTERNAL_ERROR",
+                    message="camera operation failed",
+                )
+                rig_trace.trace_event("camera.shoot_speed_list", payload)
+                raise IpcError(
+                    "INTERNAL_ERROR", "camera operation failed"
+                ) from exc
 
             end_utc = datetime.now(timezone.utc)
             payload = self._trigger_trace_payload(metadata, start_utc, end_utc)
