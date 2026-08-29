@@ -111,3 +111,23 @@ def test_current_binding_and_inventory_binding_are_not_merged_only_by_identity()
         "encodedRigBinding(choice) === encodedRigBinding(current)"
         in renderer
     )
+
+
+def test_all_rig_device_fields_are_rendered_immediately_at_startup():
+    init = HTML[HTML.rindex("// Init") :]
+
+    assert "renderRigDevices({" in init
+    assert "rigs: DEFAULT_RIGS" in init
+    assert "camera: []" in init
+    assert "focuser: []" in init
+    assert "mount: []" in init
+
+    assert init.index("renderRigDevices({") < init.index("refreshRigDevices(true);")
+
+
+def test_disabled_rig_remains_visible_and_configurable():
+    assert ".rig-column:not(.enabled) .rig-body" not in HTML
+    assert "pointer-events: none" not in HTML[
+        HTML.index(".rig-column {") :
+        HTML.index("/* ── CONTACTS TABLE", HTML.index(".rig-column {"))
+    ]

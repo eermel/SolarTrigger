@@ -374,7 +374,6 @@ header {
 .rig-mode-switch { margin-left: auto; }
 .rig-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rig-body { display: flex; flex-direction: column; gap: 8px; transition: opacity .2s; }
-.rig-column:not(.enabled) .rig-body { opacity: .4; pointer-events: none; }
 .rig-device { padding: 8px; border-radius: 8px; background: var(--bg3); border: 1px solid var(--border); }
 @media (max-width: 900px) { .devices-rigs-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .devices-rigs-row { grid-template-columns: 1fr; } }
@@ -4178,7 +4177,17 @@ setInterval(() => { if (state.eclipse) updateCountdowns(state.eclipse); }, 1000)
 setInterval(loadCameraStatus, 10000);
 
 // Init
-updateRigs(DEFAULT_RIGS);
+
+// Tous les RIGs doivent être entièrement visibles immédiatement.
+// Le backend remplacera ensuite cet état provisoire par la configuration persistée.
+renderRigDevices({
+  rigs: DEFAULT_RIGS,
+  inventory: {
+    camera: [],
+    focuser: [],
+    mount: [],
+  },
+});
 
 // Le sélecteur GPS doit exister immédiatement, même avant toute réponse backend.
 renderDevices({
