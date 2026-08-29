@@ -369,7 +369,9 @@ header {
 .devices-rigs-row {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
 }
-.rig-column { min-width: 0; }
+.rig-column { min-width: 0; transition: border-color .2s, opacity .2s; }
+.rig-column.enabled { border-color: var(--green); }
+.rig-mode-switch { margin-left: auto; }
 .rig-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rig-body { display: flex; flex-direction: column; gap: 8px; transition: opacity .2s; }
 .rig-column:not(.enabled) .rig-body { opacity: .4; pointer-events: none; }
@@ -695,16 +697,18 @@ header {
           <div class="card-title">GPS</div>
           <div id="devices-list"></div>
         </div>
+
+        <button class="btn btn-primary btn-full" id="devices-rescan" onclick="refreshRigDevices()">
+          ↻ Rafraîchir les devices
+        </button>
+
         <div class="devices-rigs-row" id="devices-rigs-row">
           <div class="card rig-column" id="rig-column-1" data-rig-id="1"><div class="rig-header"><div class="card-title">RIG 1</div><span class="rig-trigger-required" title="RIG 1 participe toujours au trigger" style="font-family:var(--mono);font-size:9px;color:var(--accent)">REQUIS</span></div><div class="rig-body" id="rig-body-1"></div></div>
-          <div class="card rig-column" id="rig-column-2" data-rig-id="2"><div class="rig-header"><div class="card-title">RIG 2</div><input class="rig-switch" id="rig-switch-2" type="checkbox" role="switch" aria-label="RIG 2 ON/OFF"></div><div class="rig-body" id="rig-body-2"></div></div>
-          <div class="card rig-column" id="rig-column-3" data-rig-id="3"><div class="rig-header"><div class="card-title">RIG 3</div><input class="rig-switch" id="rig-switch-3" type="checkbox" role="switch" aria-label="RIG 3 ON/OFF"></div><div class="rig-body" id="rig-body-3"></div></div>
-          <div class="card rig-column" id="rig-column-4" data-rig-id="4"><div class="rig-header"><div class="card-title">RIG 4</div><input class="rig-switch" id="rig-switch-4" type="checkbox" role="switch" aria-label="RIG 4 ON/OFF"></div><div class="rig-body" id="rig-body-4"></div></div>
+          <div class="card rig-column" id="rig-column-2" data-rig-id="2"><div class="rig-header"><div class="card-title">RIG 2</div><div class="focuser-mode-switch rig-mode-switch"><label for="rig-switch-2">OFF</label><input class="rig-switch" id="rig-switch-2" type="checkbox" role="switch" aria-label="RIG 2 ON/OFF"><label for="rig-switch-2">ON</label></div></div><div class="rig-body" id="rig-body-2"></div></div>
+          <div class="card rig-column" id="rig-column-3" data-rig-id="3"><div class="rig-header"><div class="card-title">RIG 3</div><div class="focuser-mode-switch rig-mode-switch"><label for="rig-switch-3">OFF</label><input class="rig-switch" id="rig-switch-3" type="checkbox" role="switch" aria-label="RIG 3 ON/OFF"><label for="rig-switch-3">ON</label></div></div><div class="rig-body" id="rig-body-3"></div></div>
+          <div class="card rig-column" id="rig-column-4" data-rig-id="4"><div class="rig-header"><div class="card-title">RIG 4</div><div class="focuser-mode-switch rig-mode-switch"><label for="rig-switch-4">OFF</label><input class="rig-switch" id="rig-switch-4" type="checkbox" role="switch" aria-label="RIG 4 ON/OFF"><label for="rig-switch-4">ON</label></div></div><div class="rig-body" id="rig-body-4"></div></div>
         </div>
       </section>
-      <button class="btn btn-primary btn-full" id="devices-rescan" onclick="refreshRigDevices()">
-        ↻ Rafraîchir les périphériques
-      </button>
     </div>
 
     <!-- ═══════════════ PAGE 0 : STATUT ═══════════════ -->
@@ -1504,6 +1508,27 @@ function encodedRigBinding(device) {
   return device ? encodeURIComponent(JSON.stringify(persistedRigBinding(device))) : '';
 }
 
+function rigDeviceDisplayLabel(category, device) {
+  if (!device) return 'Inconnu';
+
+  let label =
+    device.display_label
+    || device.model
+    || device.serial
+    || device.backend
+    || 'Inconnu';
+
+  if (category === 'camera' && device.serial) {
+    const serial = String(device.serial);
+    const suffix = serial.slice(-3);
+    if (suffix && !String(label).includes(suffix)) {
+      label += ` · #${suffix}`;
+    }
+  }
+
+  return label;
+}
+
 function renderRigDevices(payload, inventoryOverride) {
   const rigs = Array.isArray(payload.rigs) ? payload.rigs : DEFAULT_RIGS;
   const inventory = inventoryOverride || payload.inventory || rigDevicesState.inventory;
@@ -1521,24 +1546,45 @@ function renderRigDevices(payload, inventoryOverride) {
     if (!body) return;
     body.innerHTML = RIG_DEVICE_CATEGORIES.map(category => {
       const current = rig.devices && rig.devices[category];
-      const currentIdentity = rigDeviceIdentity(current);
       const choices = [...(inventory[category] || [])];
-      if (current && !choices.some(choice => currentIdentity
-        ? rigDeviceIdentity(choice) === currentIdentity
-        : encodedRigBinding(choice) === encodedRigBinding(current))) choices.push(current);
+
+      if (category === 'mount') {
+        choices.unshift({
+          backend: 'external',
+          control: 'external',
+          geometry: 'altaz',
+          model: 'External Alt-Az',
+          display_label: 'External Alt-Az',
+          pilotable: false,
+        });
+      }
+
+      if (current && !choices.some(choice =>
+        encodedRigBinding(choice) === encodedRigBinding(current)
+      )) {
+        choices.push(current);
+      }
 
       const options = ['<option value="">Aucun</option>'];
       choices.forEach(choice => {
         const identity = rigDeviceIdentity(choice);
         const assignedRig = identity ? assignments[`${category}:${identity}`] : null;
-        const isCurrent = current && (identity ? identity === currentIdentity : encodedRigBinding(choice) === encodedRigBinding(current));
-        let label = choice.display_label || choice.model || choice.serial || choice.backend || 'Périphérique';
+        const isCurrent = current
+          && encodedRigBinding(choice) === encodedRigBinding(current);
+        const isExternalAltAz = (
+          category === 'mount'
+          && choice.backend === 'external'
+          && choice.geometry === 'altaz'
+        );
+
+        let label = rigDeviceDisplayLabel(category, choice);
         if (isCurrent && current.present === false) label += ' — attendu / non détecté';
-        if (choice.pilotable === false) label += ' — non pilotable';
+        if (choice.pilotable === false && !isExternalAltAz) label += ' — non pilotable';
         if (assignedRig && assignedRig !== rigId) label += ` — affecté à RIG ${assignedRig}`;
+
         const optionBinding = isCurrent ? current : choice;
         const disabled = (
-          choice.pilotable === false
+          (choice.pilotable === false && !isExternalAltAz)
           || (assignedRig && assignedRig !== rigId)
         );
         options.push(`<option value="${escapeDeviceText(encodedRigBinding(optionBinding))}"${disabled ? ' disabled' : ''}>${escapeDeviceText(label)}</option>`);
@@ -1546,8 +1592,8 @@ function renderRigDevices(payload, inventoryOverride) {
       const persisted = encodedRigBinding(current);
       return `<div class="rig-device" data-rig-device="${category}">
         <div class="card-title">${DEVICE_LABELS[category]}</div>
-        <div class="field"><label for="rig-${rigId}-${category}-select">Périphérique</label>
-          <div class="select-chev"><select id="rig-${rigId}-${category}-select" data-persisted-value="${escapeDeviceText(persisted)}" onchange="selectRigDevice(${rigId}, '${category}', this)">
+        <div class="field">
+          <div class="select-chev"><select id="rig-${rigId}-${category}-select" aria-label="${DEVICE_LABELS[category]} RIG ${rigId}" data-persisted-value="${escapeDeviceText(persisted)}" onchange="selectRigDevice(${rigId}, '${category}', this)">
             ${options.join('')}
           </select></div>
         </div>
@@ -1573,7 +1619,7 @@ async function loadRigDevices(inventoryOverride) {
     if (!inventoryOverride && !responses[1].ok) throw new Error(inventory.error || `Erreur HTTP ${responses[1].status}`);
     renderRigDevices(payload, inventory);
   } catch (error) {
-    flash(`Périphériques RIG : ${error.message}`, 'red');
+    flash(`Devices RIG : ${error.message}`, 'red');
   }
 }
 
@@ -1592,7 +1638,7 @@ async function selectRigDevice(rigId, category, select) {
     await loadRigDevices();
   } catch (error) {
     select.value = persistedValue;
-    flash(`Périphériques RIG : ${error.message}`, 'red');
+    flash(`Devices RIG : ${error.message}`, 'red');
   }
 }
 
@@ -1708,7 +1754,7 @@ async function fetchDevices() {
     renderDevices(devices);
     updateControlsVisibility(devices);
   } catch (error) {
-    flash(`Périphériques : ${error.message}`, 'red');
+    flash(`Devices : ${error.message}`, 'red');
   }
 }
 
@@ -1725,7 +1771,7 @@ async function selectDevice(category, plugin) {
     updateControlsVisibility(devices);
     flash(`${DEVICE_LABELS[category]} mis à jour`, 'green');
   } catch (error) {
-    flash(`Périphériques : ${error.message}`, 'red');
+    flash(`Devices : ${error.message}`, 'red');
     fetchDevices();
   }
 }
@@ -1747,7 +1793,7 @@ async function rescanDevices() {
   }
 }
 
-async function refreshRigDevices() {
+async function refreshRigDevices(silent = false) {
   const button = document.getElementById('devices-rescan');
   if (button) button.disabled = true;
   try {
@@ -1755,7 +1801,8 @@ async function refreshRigDevices() {
     const inventory = await response.json();
     if (!response.ok) throw new Error(inventory.error || `Erreur HTTP ${response.status}`);
     await loadRigDevices(inventory);
-    flash('Inventaire des périphériques rafraîchi', 'green');
+    await fetchDevices();
+    if (!silent) flash('Inventaire des devices rafraîchi', 'green');
   } catch (error) {
     flash(`Détection : ${error.message}`, 'red');
   } finally {
@@ -4132,7 +4179,19 @@ setInterval(loadCameraStatus, 10000);
 
 // Init
 updateRigs(DEFAULT_RIGS);
-loadRigDevices();
+
+// Le sélecteur GPS doit exister immédiatement, même avant toute réponse backend.
+renderDevices({
+  gps: {
+    plugin: 'none',
+    active: false,
+    detected: false,
+    suggested_plugin: null,
+  },
+});
+
+fetchDevices();
+refreshRigDevices(true);
 loadEclipseData();
 loadCameraStatus();
 

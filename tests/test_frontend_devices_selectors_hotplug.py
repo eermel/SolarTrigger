@@ -72,7 +72,11 @@ def test_two_identical_d850_are_separate_selectable_options(mocked_backend_respo
     assert re.search(r"choices\s*=\s*\[\.\.\.\(inventory\[category\]\s*\|\|\s*\[\]\)\]", renderer)
     assert "choices.forEach(choice =>" in renderer
     assert "encodedRigBinding(optionBinding)" in renderer
-    assert "choice.display_label || choice.model || choice.serial" in renderer
+    assert "rigDeviceDisplayLabel(category, choice)" in renderer
+    display_label = _function("rigDeviceDisplayLabel")
+    assert "device.display_label" in display_label
+    assert "device.model" in display_label
+    assert "device.serial" in display_label
 
 
 def test_absent_binding_is_kept_and_marked_not_detected(mocked_backend_responses):
@@ -81,7 +85,7 @@ def test_absent_binding_is_kept_and_marked_not_detected(mocked_backend_responses
 
     renderer = _function("renderRigDevices")
     assert re.search(
-        r"if\s*\(current\s*&&\s*!choices\.some\(.*?\)\)\s*choices\.push\(current\)",
+        r"if\s*\(current\s*&&\s*!choices\.some\(.*?\)\)\s*\{\s*choices\.push\(current\)",
         renderer,
         flags=re.DOTALL,
     )
