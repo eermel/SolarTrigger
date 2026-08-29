@@ -33,7 +33,7 @@ class IndiSubprocessClient:
         host: str = "127.0.0.1",
         port: int = 7624,
         device: str = "EQMod Mount",
-        timeout_s: float = 1.5,
+        timeout_s: float = 4.0,
     ) -> None:
         self.host = host
         self.port = port

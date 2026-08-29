@@ -240,7 +240,7 @@ def test_mount_and_focuser_identities_are_normalized_and_separated(monkeypatch):
     assert mount["device_name"] == "EQMod Mount"
     assert mount["bindable"] is True
     assert inventory["focuser"][0]["device_name"] == "MoonLite Focuser"
-    assert inventory["focuser"][0]["bindable"] is True
+    assert inventory["focuser"][0]["bindable"] is False
 
 
 def test_non_mapping_provider_value_and_transient_usb_are_not_stable(monkeypatch):

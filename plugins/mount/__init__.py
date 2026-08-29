@@ -17,6 +17,8 @@ car onstep_plugin importe pyserial via onstep.py. Ainsi lister les plugins
 disponibles pour l'UI ne necessite pas que le materiel/les libs soient presents.
 """
 
+from collections.abc import Mapping
+
 from .base import MountPlugin
 
 # identifiant -> (module, classe, nom_affichage). Module importe paresseusement.
@@ -91,5 +93,51 @@ def detect_mount(candidates=None, log_fn=print, config_by_id=None):
     return None
 
 
+def inventory_mounts(candidates=None, log_fn=print, config_by_id=None):
+    """Enumerate physical mount instances exposed by registered plugins.
+
+    Plugins implementing ``inventory()`` may return several physical devices.
+    Legacy single-instance plugins remain supported through ``probe()``.
+    """
+    config_by_id = config_by_id or {}
+    ids = candidates or list(_PLUGIN_CLASSES.keys())
+    devices = []
+
+    for pid in ids:
+        entry = _PLUGIN_CLASSES.get(pid)
+        if not entry:
+            continue
+
+        try:
+            import importlib
+
+            mod = importlib.import_module(f".{entry[0]}", __package__)
+            cls = getattr(mod, entry[1])
+            config = config_by_id.get(pid)
+
+            inventory = getattr(cls, "inventory", None)
+            if callable(inventory):
+                for physical in inventory(config) or ():
+                    if not isinstance(physical, Mapping):
+                        continue
+                    normalized = dict(physical)
+                    normalized.setdefault("category", "mount")
+                    normalized.setdefault("backend", pid)
+                    devices.append(normalized)
+                continue
+
+            if cls.probe(config):
+                devices.append({
+                    "category": "mount",
+                    "backend": pid,
+                    "model": pid,
+                })
+
+        except Exception as exc:
+            log_fn(f"inventory {pid} : {exc}")
+
+    return devices
+
+
 __all__ = ["MountPlugin", "available_plugins", "load_mount", "detect_mount",
-           "NONE_ID"]
+           "inventory_mounts", "NONE_ID"]
