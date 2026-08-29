@@ -179,28 +179,30 @@ def test_reconnect_at_new_usb_address_keeps_camera_identity(monkeypatch, tmp_pat
     }
 
 
-def test_camera_without_supported_plugin_is_not_bindable():
+def test_camera_without_supported_plugin_is_bindable_but_not_pilotable():
     cameras = device_inventory._normalize_entries(
         "camera",
         [
             {
                 "backend": "sony",
+                "pilotable": True,
                 "model": "Sony ILCE-7M5 (PC Control)",
                 "serial": "A7V-SERIAL",
             },
             {
                 "backend": "nikon-dslr",
+                "pilotable": True,
                 "model": "Nikon DSC D850",
                 "serial": "D850-SERIAL",
             },
             {
                 "backend": "gphoto2",
+                "pilotable": False,
                 "model": "Sony Alpha-A6600 (PC Control)",
                 "serial": "A6600-SERIAL",
             },
         ],
     )
 
-    assert cameras[0]["bindable"] is True
-    assert cameras[1]["bindable"] is True
-    assert cameras[2]["bindable"] is False
+    assert [camera["bindable"] for camera in cameras] == [True, True, True]
+    assert [camera["pilotable"] for camera in cameras] == [True, True, False]

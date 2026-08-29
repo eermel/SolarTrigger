@@ -126,7 +126,7 @@ def test_refresh_returns_transport_locator_without_saving_it(
     assert "transport_locator" not in config_path.read_text(encoding="utf-8")
 
 
-def test_post_rejects_non_bindable_inventory_device(
+def test_post_rejects_non_pilotable_inventory_device(
     inventory_api, monkeypatch
 ):
     client, config_path = inventory_api
@@ -145,7 +145,8 @@ def test_post_rejects_non_bindable_inventory_device(
             "manufacturer": "Sony",
             "model": "Sony Alpha-A6600 (PC Control)",
             "serial": "CFD1E04011A5",
-            "bindable": False,
+            "bindable": True,
+            "pilotable": False,
             "present": True,
             "transport_locator": "usb:001,015",
         }],
@@ -177,5 +178,5 @@ def test_post_rejects_non_bindable_inventory_device(
     )
 
     assert response.status_code == 400
-    assert "not bindable" in response.get_json()["error"].lower()
+    assert "not pilotable" in response.get_json()["error"].lower()
     assert config_path.read_bytes() == before

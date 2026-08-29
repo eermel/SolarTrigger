@@ -631,7 +631,7 @@ _RIG_PATCH_FIELDS = frozenset(("rig_id", "enabled", "name", "devices"))
 _RIG_PHOTO_PATCH_FIELDS = frozenset(("rig_id", "optics", "photo"))
 _RIG_DEVICE_CATEGORIES = frozenset(("camera", "mount", "focuser"))
 _RUNTIME_DEVICE_FIELDS = frozenset(
-    ("present", "transport_locator", "busnum", "devnum")
+    ("present", "pilotable", "transport_locator", "busnum", "devnum")
 )
 
 
@@ -753,11 +753,11 @@ def api_rig_devices_post():
             rigs_by_id.setdefault(rig_id, _new_rig_scaffold(rig_id))
 
         inventory = get_cached_inventory()
-        non_bindable_identities = {
+        non_pilotable_identities = {
             category: {
                 key
                 for entry in inventory.get(category, [])
-                if entry.get("bindable") is False
+                if entry.get("pilotable") is False
                 and (key := identity_key(entry)) is not None
             }
             for category in _RIG_DEVICE_CATEGORIES
@@ -810,10 +810,10 @@ def api_rig_devices_post():
                         if (
                             binding_identity is not None
                             and binding_identity
-                            in non_bindable_identities.get(category, set())
+                            in non_pilotable_identities.get(category, set())
                         ):
                             raise ValueError(
-                                f"rigs[{index}].devices.{category} device is not bindable"
+                                f"rigs[{index}].devices.{category} device is not pilotable"
                             )
                     target.setdefault("devices", {})[category] = deepcopy(binding)
 

@@ -129,9 +129,11 @@ def _discover_cameras() -> list[dict[str, Any]]:
         protocol_serial = _text(protocol.get("serial"))
         serial = usb_serial or protocol_serial
 
+        backend = _camera_backend(model)
         entry = {
             "category": "camera",
-            "backend": _camera_backend(model),
+            "backend": backend,
+            "pilotable": backend != "gphoto2",
             "manufacturer": manufacturer,
             "model": model,
             "serial": serial,
@@ -241,18 +243,13 @@ def _normalize_entries(
             entry["alias"] = alias
         # ``device_name`` is useful display/connection metadata but is not
         # a physical identity: two INDI servers can expose the same device name.
-        has_stable_identity = (
+        entry["bindable"] = (
             serial is not None
             or device_id is not None
             or entry["fallback_physical_path"] is not None
         )
-        entry["bindable"] = (
-            has_stable_identity
-            and not (
-                category == "camera"
-                and entry["backend"] == "gphoto2"
-            )
-        )
+        if category == "camera" and "pilotable" in source:
+            entry["pilotable"] = source.get("pilotable") is True
         normalized.append(entry)
     return normalized
 
