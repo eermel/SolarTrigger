@@ -76,28 +76,115 @@ def _normalized_speed_plan(speeds, tolerance_il=0.12):
 
 
 class CameraService:
-    def __init__(self, log_fn=print, camera_factory=None, plugin_loader=load_plugin, clock=None):
+    def __init__(
+        self,
+        log_fn=print,
+        camera_factory=None,
+        plugin_loader=load_plugin,
+        clock=None,
+        camera_identity=None,
+    ):
         self.log = log_fn
         self.camera_factory = camera_factory
         self.plugin_loader = plugin_loader
         self.clock = clock
+        self.camera_identity = (
+            dict(camera_identity)
+            if isinstance(camera_identity, dict)
+            else None
+        )
         self.camera = None
         self.plugin = None
         self.model = ""
         self._last_phase_settings = {}
+
+    @staticmethod
+    def _config_value(config, *names):
+        for name in names:
+            try:
+                value = config.get_child_by_name(name).get_value()
+            except Exception:
+                continue
+            text = str(value or "").strip()
+            if text:
+                return text
+        return None
+
+    def _open_camera_by_serial(self, gp, serial):
+        """Open exactly the gphoto2 camera whose stable serial is requested."""
+        expected = str(serial).strip()
+        if not expected:
+            raise RuntimeError("camera serial is empty")
+
+        try:
+            detected = list(gp.Camera.autodetect())
+        except Exception as exc:
+            raise RuntimeError(
+                f"unable to enumerate cameras for serial {expected}"
+            ) from exc
+
+        port_list = gp.PortInfoList()
+        port_list.load()
+
+        for _model, port in detected:
+            camera = gp.Camera()
+            keep = False
+            try:
+                camera.set_port_info(
+                    port_list[port_list.lookup_path(port)]
+                )
+                camera.init()
+                config = camera.get_config()
+                actual = self._config_value(
+                    config,
+                    "serialnumber",
+                    "serial",
+                    "serial_number",
+                )
+                if actual == expected:
+                    keep = True
+                    return camera
+            except Exception:
+                pass
+            finally:
+                if not keep:
+                    try:
+                        camera.exit()
+                    except Exception:
+                        pass
+
+        raise RuntimeError(
+            f"configured camera serial {expected} was not found"
+        )
 
     @property
     def connected(self):
         return self.camera is not None and self.plugin is not None
 
     def connect(self):
+        already_initialized = False
+
         if self.camera is None:
             if self.camera_factory is None:
                 import gphoto2 as gp
-                self.camera = gp.Camera()
+
+                serial = (
+                    self.camera_identity.get("serial")
+                    if isinstance(self.camera_identity, dict)
+                    else None
+                )
+                if serial:
+                    self.camera = self._open_camera_by_serial(gp, serial)
+                    already_initialized = True
+                else:
+                    # Backward-compatible standalone/unbound service.
+                    self.camera = gp.Camera()
             else:
                 self.camera = self.camera_factory()
-        self.camera.init()
+
+        if not already_initialized:
+            self.camera.init()
+
         self.model = get_camera_model(self.camera)
         self.plugin = self.plugin_loader(self.camera, self.log)
         if self.plugin is None:
