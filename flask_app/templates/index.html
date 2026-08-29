@@ -886,18 +886,26 @@ header {
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
           <div class="card camcfg-rig-column" id="camcfg-rig-column-1" data-rig-id="1">
             <div class="card-title">RIG 1</div>
+            <button class="btn btn-secondary btn-full rig-preview-button" type="button" disabled
+              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
             <div class="camcfg-rig-body" id="rig-preview-1"></div>
           </div>
           <div class="card camcfg-rig-column" id="camcfg-rig-column-2" data-rig-id="2">
             <div class="card-title">RIG 2</div>
+            <button class="btn btn-secondary btn-full rig-preview-button" type="button" disabled
+              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
             <div class="camcfg-rig-body" id="rig-preview-2"></div>
           </div>
           <div class="card camcfg-rig-column" id="camcfg-rig-column-3" data-rig-id="3">
             <div class="card-title">RIG 3</div>
+            <button class="btn btn-secondary btn-full rig-preview-button" type="button" disabled
+              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
             <div class="camcfg-rig-body" id="rig-preview-3"></div>
           </div>
           <div class="card camcfg-rig-column" id="camcfg-rig-column-4" data-rig-id="4">
             <div class="card-title">RIG 4</div>
+            <button class="btn btn-secondary btn-full rig-preview-button" type="button" disabled
+              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
             <div class="camcfg-rig-body" id="rig-preview-4"></div>
           </div>
         </div>
@@ -1601,6 +1609,8 @@ function updateRigs(rigs) {
     if (cameraColumn) {
       cameraColumn.classList.toggle('enabled', enabled);
       cameraColumn.hidden = !enabled;
+      const previewButton = cameraColumn.querySelector('.rig-preview-button');
+      if (previewButton) previewButton.disabled = !enabled;
     }
     if (cameraRigColumn) {
       cameraRigColumn.classList.toggle('enabled', enabled);
@@ -3731,7 +3741,11 @@ async function saveCameraConfig() {
       body: JSON.stringify({ filename: name, data })
     });
     const d = await r.json();
-    if (d.status === 'ok') { flash('Sauvegardé : ' + d.filename, 'green'); loadCameraConfigList(); }
+    if (d.status === 'ok') {
+      flash('Sauvegardé : ' + d.filename, 'green');
+      loadCameraConfigList();
+      requestRigPreviews(buildPreviewIntents());
+    }
     else flash(d.error || 'Erreur', 'red');
   } catch(e) { flash('Erreur réseau', 'red'); }
 }
