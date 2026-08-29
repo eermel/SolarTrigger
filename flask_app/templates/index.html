@@ -3603,6 +3603,51 @@ function _readCameraConfig() {
   };
 }
 
+function buildPreviewIntents() {
+  const cameraConfig = _readCameraConfig();
+  const phases = cameraConfig && cameraConfig.phases;
+  const eclipse = state.eclipse;
+  const eclipseDate = eclipse && (eclipse._date || eclipse._date_utc);
+  if (!phases || !eclipse || !eclipseDate) return null;
+
+  const phaseTargets = [
+    { phase: 'partial', contact: eclipse.C1 || eclipse.TMAX, request_id: 'preview-partial' }
+  ];
+  if (eclipse.C2 || eclipse.C3) {
+    phaseTargets.push(
+      { phase: 'diamond_ring', contact: eclipse.C2 || eclipse.C3, request_id: 'preview-diamond-ring' }
+    );
+  }
+  if (eclipse.TMAX) {
+    phaseTargets.push(
+      { phase: 'totality', contact: eclipse.TMAX, request_id: 'preview-totality' }
+    );
+  }
+
+  const intents = [];
+  for (const target of phaseTargets) {
+    const phaseConfig = phases[target.phase];
+    if (!phaseConfig || !target.contact
+        || phaseConfig.shutter_min == null || phaseConfig.shutter_min === ''
+        || phaseConfig.shutter_max == null || phaseConfig.shutter_max === ''
+        || phaseConfig.iso == null || Number.isNaN(phaseConfig.iso)) {
+      return null;
+    }
+    intents.push({
+      phase: target.phase,
+      origin: target.phase,
+      request_id: target.request_id,
+      target_time: `${eclipseDate}T${target.contact}Z`,
+      deadline: null,
+      shutter_min: phaseConfig.shutter_min,
+      shutter_max: phaseConfig.shutter_max,
+      step_ev: phaseConfig.step_ev ?? 1.0,
+      iso_target: phaseConfig.iso
+    });
+  }
+  return intents;
+}
+
 async function saveCameraConfig() {
   const sel = document.getElementById('camera-config-select');
   const current = sel && sel.value
