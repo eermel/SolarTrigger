@@ -544,7 +544,7 @@ class CameraIpcServer:
                     }
             prepared = self._call_worker(worker.prepare_capture, intent)
             token_id = secrets.token_urlsafe(24)
-            metadata = {
+            context = {
                 "rig_id": rig_id,
                 "phase": intent.phase,
                 "target_time": intent.target_time.isoformat(),
@@ -552,23 +552,18 @@ class CameraIpcServer:
                     intent.deadline.isoformat() if intent.deadline is not None else None
                 ),
                 "request_id": request_id,
+                "exposures_s": prepared.exposures_s,
                 "planned_count": prepared.planned_count,
                 "plugin_name": prepared.plugin_name,
-                "iso_applied": (
-                    augmented.get("iso_applied") if augmented is not None else None
-                ),
-                "corrections": (
-                    augmented.get("corrections") if augmented is not None else None
-                ),
-                "warnings": (
-                    augmented.get("warnings") if augmented is not None else None
-                ),
+                "iso_applied": None,
+                "corrections": None,
+                "warnings": None,
                 "plan_version": version,
             }
-            if prepared.exposures_s is not None:
-                metadata["exposures_s"] = prepared.exposures_s
+            if augmented is not None:
+                context.update(augmented)
             with self._state_lock:
-                self._tokens[token_id] = (session, rig_id, prepared.token, metadata)
+                self._tokens[token_id] = (session, rig_id, prepared.token, context)
             response = {
                 "token_id": token_id,
                 "estimated_total_s": prepared.estimated_total_s,
@@ -595,7 +590,8 @@ class CameraIpcServer:
                     )
                 del self._tokens[token_id]
             prepared_token = token[2]
-            metadata = token[3] if len(token) > 3 else {"rig_id": rig_id}
+            metadata = dict(token[3]) if len(token) > 3 else {}
+            metadata.setdefault("rig_id", rig_id)
             start_utc = datetime.now(timezone.utc)
             try:
                 result = self._call_worker(
