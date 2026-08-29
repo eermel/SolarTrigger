@@ -17,6 +17,17 @@ def _preview_intents_body():
     return match.group("body")
 
 
+def _request_rig_previews_body():
+    match = re.search(
+        r"async\s+function\s+requestRigPreviews\s*\(intents\)\s*\{"
+        r"(?P<body>.*?)\n\}",
+        INDEX,
+        re.DOTALL,
+    )
+    assert match
+    return match.group("body")
+
+
 def test_preview_intents_uses_expected_fields_and_contacts():
     body = _preview_intents_body()
 
@@ -50,6 +61,49 @@ def test_preview_phase_inclusion_conditions_are_independent():
     )
     assert re.search(
         r"if\s*\(eclipse\.TMAX\)\s*\{.*?phase:\s*'totality'.*?\n\s*\}",
+        body,
+        re.DOTALL,
+    )
+
+
+def test_request_rig_previews_posts_intents_and_forwards_raw_payload():
+    body = _request_rig_previews_body()
+
+    assert re.search(
+        r"fetch\(\s*'/api/rigs/preview'\s*,\s*\{.*?"
+        r"method:\s*'POST'.*?"
+        r"headers:\s*\{\s*'Content-Type'\s*:\s*'application/json'\s*\}.*?"
+        r"body:\s*JSON\.stringify\(\{\s*intents\s*\}\)",
+        body,
+        re.DOTALL,
+    )
+    assert re.search(r"const\s+payload\s*=\s*await\s+response\.json\(\)", body)
+    assert re.search(r"renderRigPreviews\(payload\)", body)
+    assert re.search(r"function\s+renderRigPreviews\s*\(payload\)", INDEX)
+
+
+def test_request_rig_previews_guards_missing_intents():
+    body = _request_rig_previews_body()
+
+    assert re.search(
+        r"if\s*\(\s*!Array\.isArray\(intents\)\s*\|\|\s*"
+        r"intents\.length\s*===\s*0\s*\)",
+        body,
+    )
+    assert "flash('configuration/circumstances incomplete', 'red')" in body
+    guard = body.index("configuration/circumstances incomplete")
+    request = body.index("fetch('/api/rigs/preview'")
+    assert "return;" in body[guard:request]
+
+
+def test_request_rig_previews_locks_until_finally():
+    body = _request_rig_previews_body()
+
+    assert re.search(r"let\s+rigPreviewInFlight\s*=\s*false\s*;", INDEX)
+    assert re.search(r"if\s*\(rigPreviewInFlight\)\s*return\s*;", body)
+    assert re.search(r"rigPreviewInFlight\s*=\s*true\s*;", body)
+    assert re.search(
+        r"finally\s*\{\s*rigPreviewInFlight\s*=\s*false\s*;\s*\}",
         body,
         re.DOTALL,
     )

@@ -3648,6 +3648,39 @@ function buildPreviewIntents() {
   return intents;
 }
 
+let rigPreviewInFlight = false;
+
+function renderRigPreviews(payload) {
+  const rigs = Array.isArray(payload && payload.rigs) ? payload.rigs : [];
+  const previewsByRig = new Map(rigs.map(rig => [Number(rig.rig_id), rig.items]));
+  document.querySelectorAll('.camcfg-rig-column').forEach(column => {
+    const body = column.querySelector('.camcfg-rig-body');
+    const items = previewsByRig.get(Number(column.dataset.rigId));
+    if (body) body.textContent = items === undefined ? '' : JSON.stringify(items);
+  });
+}
+
+async function requestRigPreviews(intents) {
+  if (!Array.isArray(intents) || intents.length === 0) {
+    flash('configuration/circumstances incomplete', 'red');
+    return;
+  }
+  if (rigPreviewInFlight) return;
+
+  rigPreviewInFlight = true;
+  try {
+    const response = await fetch('/api/rigs/preview', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({intents})
+    });
+    const payload = await response.json();
+    renderRigPreviews(payload);
+  } finally {
+    rigPreviewInFlight = false;
+  }
+}
+
 async function saveCameraConfig() {
   const sel = document.getElementById('camera-config-select');
   const current = sel && sel.value
