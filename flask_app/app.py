@@ -966,6 +966,62 @@ def api_status():
 # API — FOCUSER
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _trace_rig_stop(device_type, fixed_rig_id=None):
+    """Trace one STOP request at its Flask route boundary."""
+    def decorator(route):
+        @wraps(route)
+        def traced(*args, **kwargs):
+            if fixed_rig_id is None:
+                rig_id = kwargs.get("rig_id", args[0] if args else None)
+            else:
+                rig_id = fixed_rig_id
+            start_utc = datetime.now(timezone.utc)
+            try:
+                result = route(*args, **kwargs)
+            except Exception as exc:
+                end_utc = datetime.now(timezone.utc)
+                rig_trace.trace_event(f"{device_type}.stop", {
+                    "rig_id": rig_id,
+                    "device_type": device_type,
+                    "action": "stop",
+                    "start_utc": start_utc.isoformat(),
+                    "end_utc": end_utc.isoformat(),
+                    "duration_ms": (
+                        end_utc - start_utc
+                    ).total_seconds() * 1000.0,
+                    "status": "error",
+                    "code": getattr(exc, "code", type(exc).__name__),
+                    "message": str(exc),
+                })
+                raise
+
+            end_utc = datetime.now(timezone.utc)
+            response = app.make_response(result)
+            trace_payload = {
+                "rig_id": rig_id,
+                "device_type": device_type,
+                "action": "stop",
+                "start_utc": start_utc.isoformat(),
+                "end_utc": end_utc.isoformat(),
+                "duration_ms": (
+                    end_utc - start_utc
+                ).total_seconds() * 1000.0,
+                "status": "success" if response.status_code < 400 else "error",
+            }
+            if response.status_code >= 400:
+                body = response.get_json(silent=True) or {}
+                trace_payload["code"] = body.get(
+                    "code", f"HTTP_{response.status_code}"
+                )
+                trace_payload["message"] = body.get(
+                    "message", body.get("error", response.status)
+                )
+            rig_trace.trace_event(f"{device_type}.stop", trace_payload)
+            return result
+
+        return traced
+    return decorator
+
 @app.route("/api/focuser/status")
 def api_focuser_status():
     inactive = require_device_active("focuser")
@@ -1002,6 +1058,7 @@ def api_focuser_home():
 
 
 @app.route("/api/focuser/stop", methods=["POST"])
+@_trace_rig_stop("focuser", fixed_rig_id=1)
 def api_focuser_stop():
     guarded = _focuser_post_guard()
     if guarded is not None:
@@ -1174,59 +1231,6 @@ def _rig_focuser_service_call(worker, method, *args):
     if callable(operation):
         return operation(*args)
     return worker._call(method, *args)
-
-
-def _trace_rig_stop(device_type):
-    """Trace one RIG-scoped STOP request at its Flask route boundary."""
-    def decorator(route):
-        @wraps(route)
-        def traced(rig_id, *args, **kwargs):
-            start_utc = datetime.now(timezone.utc)
-            try:
-                result = route(rig_id, *args, **kwargs)
-            except Exception as exc:
-                end_utc = datetime.now(timezone.utc)
-                rig_trace.trace_event(f"{device_type}.stop", {
-                    "rig_id": rig_id,
-                    "device_type": device_type,
-                    "action": "stop",
-                    "start_utc": start_utc.isoformat(),
-                    "end_utc": end_utc.isoformat(),
-                    "duration_ms": (
-                        end_utc - start_utc
-                    ).total_seconds() * 1000.0,
-                    "status": "error",
-                    "code": getattr(exc, "code", type(exc).__name__),
-                    "message": str(exc),
-                })
-                raise
-
-            end_utc = datetime.now(timezone.utc)
-            response = app.make_response(result)
-            trace_payload = {
-                "rig_id": rig_id,
-                "device_type": device_type,
-                "action": "stop",
-                "start_utc": start_utc.isoformat(),
-                "end_utc": end_utc.isoformat(),
-                "duration_ms": (
-                    end_utc - start_utc
-                ).total_seconds() * 1000.0,
-                "status": "success" if response.status_code < 400 else "error",
-            }
-            if response.status_code >= 400:
-                body = response.get_json(silent=True) or {}
-                trace_payload["code"] = body.get(
-                    "code", f"HTTP_{response.status_code}"
-                )
-                trace_payload["message"] = body.get(
-                    "message", body.get("error", response.status)
-                )
-            rig_trace.trace_event(f"{device_type}.stop", trace_payload)
-            return result
-
-        return traced
-    return decorator
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/status")
@@ -1663,6 +1667,7 @@ def api_mount_tracking_start():
 
 
 @app.route("/api/mount/tracking/stop", methods=["POST"])
+@_trace_rig_stop("mount", fixed_rig_id=1)
 def api_mount_tracking_stop():
     guarded = _mount_tracking_guard()
     if guarded is not None:
@@ -1740,6 +1745,7 @@ def api_mount_home():
 
 
 @app.route("/api/mount/slew/stop", methods=["POST"])
+@_trace_rig_stop("mount", fixed_rig_id=1)
 def api_mount_slew_stop():
     inactive = require_device_active("mount")
     if inactive is not None:

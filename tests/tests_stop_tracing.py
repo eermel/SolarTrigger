@@ -104,6 +104,27 @@ def test_rig_stop_route_traces_success(
     assert payload["start_utc"] <= payload["end_utc"]
 
 
+def test_legacy_focuser_stop_route_traces_rig_one(monkeypatch):
+    client, events = _client(monkeypatch, FakeWorker())
+    monkeypatch.setattr(flask_module, "_focuser_service", FakeWorker())
+    monkeypatch.setattr(
+        flask_module, "require_device_active", lambda _device_type: None
+    )
+
+    response = client.post("/api/focuser/stop")
+
+    assert response.status_code == 200
+    assert len(events) == 1
+    event_kind, payload = events[0]
+    assert event_kind == "focuser.stop"
+    assert payload["rig_id"] == 1
+    assert payload["device_type"] == "focuser"
+    assert payload["action"] == "stop"
+    assert payload["status"] == "success"
+    assert payload["duration_ms"] >= 0
+    assert payload["start_utc"] <= payload["end_utc"]
+
+
 @pytest.mark.parametrize(
     ("path", "kind", "device_type"),
     [
