@@ -76,6 +76,8 @@ def test_monitor_uses_existing_snapshot_without_relaunching_getprop(monkeypatch)
         "-oL",
         "indi_getprop",
         "-m",
+        "-t",
+        "0",
         "-h",
         "127.0.0.1",
         "-p",
