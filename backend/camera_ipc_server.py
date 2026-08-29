@@ -30,6 +30,7 @@ from backend.field_rotation import (
 )
 from backend.generic_worker import ExpiredJobError
 from backend.motion_constraint_resolver import resolve_motion_constraint
+from backend.plan_cache import RigPlanCache, rig_plan_version
 from backend.sensor_db import load_sensor_db
 from backend.solar_position import (
     greenwich_sidereal_deg_utc,
@@ -39,6 +40,7 @@ from backend.solar_position import (
 )
 from backend.solar_trailing import max_exposure_time_fixed_mount
 from backend.trigger_runtime import RuntimeClock
+from services import camera_service
 from services.camera_service import CaptureIntent
 
 
@@ -139,6 +141,7 @@ class CameraIpcServer:
         self._active_session: str | None = None
         self._tokens: dict[str, tuple[str | None, int, Any]] = {}
         self._rig_iso_targets: dict[int, int] = {}
+        self._rig_plan_cache = RigPlanCache()
 
     @property
     def socket_path(self) -> Path:
@@ -460,16 +463,70 @@ class CameraIpcServer:
             rig_id, worker = self._worker(params)
             policy_getter = getattr(self._runtime, "get_policy_config_for_rig", None)
             policy = policy_getter(rig_id) if policy_getter is not None else None
+            version = rig_plan_version(policy if isinstance(policy, dict) else {})
+            with self._state_lock:
+                self._rig_plan_cache.set_version_and_clear_if_changed(
+                    rig_id, version
+                )
+
+            if intent.speeds is not None:
+                fastest, slowest, step, regular = (
+                    camera_service._normalized_speed_plan(intent.speeds)
+                )
+                if regular:
+                    logical_intent_key = (
+                        "range",
+                        fastest,
+                        slowest,
+                        float(step),
+                    )
+                else:
+                    ordered_speeds = tuple(
+                        sorted(
+                            dict.fromkeys(str(speed) for speed in intent.speeds),
+                            key=camera_service._parse_speed,
+                        )
+                    )
+                    logical_intent_key = ("list", ordered_speeds)
+            else:
+                bounds = [
+                    speed
+                    for speed in (intent.shutter_min, intent.shutter_max)
+                    if speed is not None
+                ]
+                fastest, slowest, _, _ = camera_service._normalized_speed_plan(
+                    bounds
+                )
+                logical_intent_key = (
+                    "range",
+                    fastest,
+                    slowest,
+                    float(intent.step_ev if intent.step_ev is not None else 1.0),
+                )
+            logical_intent_key += ("phase", intent.phase)
+
             augmented = None
             if isinstance(policy, dict):
                 constraint = resolve_motion_constraint(policy)
                 materialized = None
-                if constraint == "fixed_trailing":
-                    materialized = self._policy_intent(rig_id, intent, policy)
-                elif constraint == "field_rotation":
-                    materialized = self._field_rotation_policy_intent(
-                        rig_id, intent, policy
-                    )
+                if constraint in ("fixed_trailing", "field_rotation"):
+                    with self._state_lock:
+                        materialized = self._rig_plan_cache.get(
+                            rig_id, logical_intent_key
+                        )
+                        if materialized is None:
+                            if constraint == "fixed_trailing":
+                                materialized = self._policy_intent(
+                                    rig_id, intent, policy
+                                )
+                            else:
+                                materialized = self._field_rotation_policy_intent(
+                                    rig_id, intent, policy
+                                )
+                            if materialized is not None:
+                                self._rig_plan_cache.put(
+                                    rig_id, logical_intent_key, materialized
+                                )
                 if materialized is not None:
                     intent, iso_applied, corrections, warnings = materialized
                     self._call_worker(worker.apply_phase_settings, iso=str(iso_applied))
@@ -491,6 +548,7 @@ class CameraIpcServer:
                 "planned_count": prepared.planned_count,
                 "plugin_name": prepared.plugin_name,
                 "request_id": request_id,
+                "plan_version": version,
             }
             if augmented is not None:
                 response.update(augmented)
