@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from types import SimpleNamespace
@@ -14,16 +13,17 @@ from services.camera_service import CameraService, CaptureIntent
 class DummyService:
     def __init__(self) -> None:
         self.close_calls = 0
+        self.capture_started = threading.Event()
+        self.release_capture = threading.Event()
 
     def close(self) -> None:
         self.close_calls += 1
 
-    def do_sleep(self, result, seconds):
-        time.sleep(seconds)
-        return result
-
     def shoot_speed_list(self, speeds, **_kwargs):
-        return self.do_sleep(*speeds)
+        result = speeds[0]
+        self.capture_started.set()
+        self.release_capture.wait()
+        return result
 
 
 class FakeCamera:
@@ -96,17 +96,37 @@ def test_two_camera_workers_do_not_block_each_other():
 
     try:
         with ThreadPoolExecutor(max_workers=2) as callers:
-            long_future = callers.submit(worker_a.test_photo, ("long", 0.5))
-            time.sleep(0.05)
+            future_a = callers.submit(
+                worker_a.test_photo,
+                ("A complete",),
+            )
 
-            started_at = time.monotonic()
-            short_future = callers.submit(worker_b.test_photo, ("short", 0.01))
+            assert services[0].capture_started.wait(timeout=1.0)
+            assert not future_a.done()
 
-            assert short_future.result(timeout=0.2) == "short"
-            assert time.monotonic() - started_at < 0.2
-            assert not long_future.done()
-            assert long_future.result(timeout=1.0) == "long"
+            future_b = callers.submit(
+                worker_b.test_photo,
+                ("B complete",),
+            )
+
+            assert services[1].capture_started.wait(timeout=1.0)
+
+            # B doit pouvoir terminer alors que A reste volontairement bloqué.
+            services[1].release_capture.set()
+
+            assert future_b.result(timeout=1.0) == "B complete"
+            assert not future_a.done()
+
+            # A n'est libéré qu'après démonstration de l'indépendance.
+            services[0].release_capture.set()
+
+            assert future_a.result(timeout=1.0) == "A complete"
+
     finally:
+        # Empêche tout worker de rester bloqué en cas d'échec intermédiaire.
+        services[0].release_capture.set()
+        services[1].release_capture.set()
+
         worker_a.stop(timeout=1.0)
         worker_b.stop(timeout=1.0)
 
@@ -115,7 +135,6 @@ def test_two_camera_workers_do_not_block_each_other():
     assert not _camera_worker_threads(201)
     assert not _camera_worker_threads(202)
     assert [service.close_calls for service in services] == [1, 1]
-
 
 def test_single_camera_prepare_then_trigger_via_worker_stops_cleanly():
     camera = FakeCamera()

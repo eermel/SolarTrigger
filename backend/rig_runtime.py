@@ -12,6 +12,16 @@ from backend.state_store import StateStore
 
 TRIGGER_DIR = Path(__file__).resolve().parent.parent
 
+def _resolve_state_file(trigger_dir: Path) -> Path:
+    """Resolve StateStore path for source and installed PROD layouts."""
+    root_app = trigger_dir / "app.py"
+    source_app = trigger_dir / "flask_app" / "app.py"
+
+    if root_app.is_file() and not source_app.is_file():
+        return trigger_dir / "state.json"
+
+    return trigger_dir / "flask_app" / "state.json"
+
 _rig_manager: RigManager | None = None
 _rig_manager_lock = threading.Lock()
 
@@ -23,7 +33,7 @@ def load_rig_configuration() -> dict:
     if rig_config_path.exists():
         return load(rig_config_path)
 
-    state_store = StateStore(TRIGGER_DIR / "flask_app" / "state.json")
+    state_store = StateStore(_resolve_state_file(TRIGGER_DIR))
     return migrate_legacy(state_store, TRIGGER_DIR / "configs")
 
 
