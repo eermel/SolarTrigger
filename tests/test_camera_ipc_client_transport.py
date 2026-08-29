@@ -1,7 +1,6 @@
 import json
 import socket
 import threading
-import time
 
 import pytest
 
@@ -119,30 +118,58 @@ def test_server_error_preserves_invalid_session_and_logs_once(tmp_path):
     assert "invalid-secret" not in logs[0]
 
 
-@pytest.mark.parametrize(
-    ("handler", "timeout_s", "expected_code"),
-    [
-        (lambda _connection: None, 1.0, "IPC_UNAVAILABLE"),
-        (lambda _connection: time.sleep(0.1), 0.01, "TIMEOUT"),
-    ],
-)
-def test_connection_loss_and_timeout_have_stable_errors_and_one_log(
-    tmp_path, handler, timeout_s, expected_code
-):
+def test_connection_loss_has_stable_error_and_one_log(tmp_path):
     socket_path = tmp_path / "camera.sock"
     logs = []
-    with StubServer(socket_path, [handler]):
-        client = CameraIpcClient(socket_path, "session-123", log_fn=logs.append)
-        with pytest.raises(CameraIpcError) as caught:
-            client.ping(timeout_s=timeout_s)
 
-    assert caught.value.code == expected_code
+    with StubServer(socket_path, [lambda _connection: None]):
+        client = CameraIpcClient(
+            socket_path,
+            "session-123",
+            log_fn=logs.append,
+        )
+        with pytest.raises(CameraIpcError) as caught:
+            client.ping(timeout_s=1.0)
+
+    assert caught.value.code == "IPC_UNAVAILABLE"
     assert caught.value.operation == "ping"
-    expected_message = {
-        "IPC_UNAVAILABLE": "camera IPC is unavailable",
-        "TIMEOUT": "camera IPC request timed out",
-    }[expected_code]
     assert logs == [
-        f"CAMERA_IPC_ERROR code={expected_code} operation=ping "
-        f"rig_id=none message={expected_message}"
+        "CAMERA_IPC_ERROR code=IPC_UNAVAILABLE operation=ping "
+        "rig_id=none message=camera IPC is unavailable"
+    ]
+
+
+def test_timeout_has_stable_error_and_one_log(tmp_path):
+    socket_path = tmp_path / "camera.sock"
+    logs = []
+
+    request_received = threading.Event()
+    release_server = threading.Event()
+
+    def hold_connection(_connection):
+        request_received.set()
+        release_server.wait()
+
+    with StubServer(socket_path, [hold_connection]):
+        client = CameraIpcClient(
+            socket_path,
+            "session-123",
+            log_fn=logs.append,
+        )
+
+        try:
+            with pytest.raises(CameraIpcError) as caught:
+                client.ping(timeout_s=0.01)
+
+            assert request_received.wait(timeout=1.0)
+        finally:
+            # Le serveur est libéré explicitement : aucun sleep n'est utilisé
+            # comme mécanisme de synchronisation du test.
+            release_server.set()
+
+    assert caught.value.code == "TIMEOUT"
+    assert caught.value.operation == "ping"
+    assert logs == [
+        "CAMERA_IPC_ERROR code=TIMEOUT operation=ping "
+        "rig_id=none message=camera IPC request timed out"
     ]

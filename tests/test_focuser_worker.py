@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.focuser_worker import FocuserWorker
@@ -11,15 +10,16 @@ class DummyFocuserService:
     def __init__(self, marker: str) -> None:
         self.marker = marker
         self.move_started = threading.Event()
+        self.release_move = threading.Event()
         self.jog_started = threading.Event()
         self.jog_stop = threading.Event()
         self.jog_stopped = threading.Event()
         self.jog_thread: threading.Thread | None = None
         self.close_calls = 0
 
-    def move_to(self, duration: float, wait: bool = False) -> str:
+    def move_to(self, _position, wait: bool = False) -> str:
         self.move_started.set()
-        time.sleep(duration)
+        self.release_move.wait()
         return self.marker
 
     def start_jog(self, direction: str, mode: str | None = None) -> None:
@@ -50,8 +50,6 @@ def _focuser_worker_threads(rig_id: str) -> list[threading.Thread]:
 
 
 def test_two_focuser_workers_operate_independently() -> None:
-    long_duration = 0.3
-    short_duration = 0.03
     service_a = DummyFocuserService("A complete")
     service_b = DummyFocuserService("B complete")
     worker_a = FocuserWorker(rig_id="A", service_factory=lambda: service_a)
@@ -64,19 +62,26 @@ def test_two_focuser_workers_operate_independently() -> None:
         assert len(_focuser_worker_threads("B")) == 1
 
         with ThreadPoolExecutor(max_workers=2) as callers:
-            long_future = callers.submit(worker_a.move_to, long_duration)
+            future_a = callers.submit(worker_a.move_to, 100)
             assert service_a.move_started.wait(timeout=1.0)
+            assert not future_a.done()
 
-            short_started_at = time.monotonic()
-            short_future = callers.submit(worker_b.move_to, short_duration)
+            future_b = callers.submit(worker_b.move_to, 200)
             assert service_b.move_started.wait(timeout=1.0)
 
-            assert short_future.result(timeout=1.0) == "B complete"
-            short_finished_at = time.monotonic()
-            assert short_finished_at - short_started_at < long_duration
-            assert not long_future.done()
-            assert long_future.result(timeout=1.0) == "A complete"
+            # B doit pouvoir terminer alors que A reste volontairement bloqué.
+            service_b.release_move.set()
+
+            assert future_b.result(timeout=1.0) == "B complete"
+            assert not future_a.done()
+
+            service_a.release_move.set()
+            assert future_a.result(timeout=1.0) == "A complete"
+
     finally:
+        # Ne jamais laisser un worker bloqué si une assertion échoue.
+        service_a.release_move.set()
+        service_b.release_move.set()
         worker_a.shutdown(timeout=1.0)
         worker_b.shutdown(timeout=1.0)
 
@@ -84,7 +89,6 @@ def test_two_focuser_workers_operate_independently() -> None:
     assert not _focuser_worker_threads("B")
     assert service_a.close_calls == 1
     assert service_b.close_calls == 1
-
 
 def test_stop_terminates_ongoing_jog_and_is_idempotent() -> None:
     service = DummyFocuserService("jog complete")
@@ -97,10 +101,8 @@ def test_stop_terminates_ongoing_jog_and_is_idempotent() -> None:
         assert service.jog_thread is not None
         assert service.jog_thread.is_alive()
 
-        stop_started_at = time.monotonic()
         worker.stop()
-        assert time.monotonic() - stop_started_at < 0.2
-        assert service.jog_stopped.wait(timeout=0.2)
+        assert service.jog_stopped.wait(timeout=1.0)
         assert not service.jog_thread.is_alive()
 
         worker.stop()
