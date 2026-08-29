@@ -3660,16 +3660,42 @@ function buildPreviewIntents() {
 
 let rigPreviewInFlight = false;
 
-function renderRigPreviews(payload) {
+function renderRigPreviews(responseJson) {
+  const rawNumberPrefix = '\u0000RAW_JSON_NUMBER:';
+  const numberPattern = /("(?:\\.|[^"\\])*")|(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+  const protectedJson = responseJson.replace(
+    numberPattern,
+    (token, stringToken, numberToken) => stringToken || `"\\u0000RAW_JSON_NUMBER:${numberToken}"`
+  );
+  const payload = JSON.parse(protectedJson);
   const rigs = Array.isArray(payload && payload.rigs) ? payload.rigs : [];
-  document.querySelectorAll('.camcfg-rig-body').forEach(body => body.replaceChildren());
+  document.querySelectorAll('.rig-preview').forEach(body => body.replaceChildren());
+
+  const displayValue = value => {
+    if (typeof value === 'string' && value.startsWith(rawNumberPrefix)) {
+      return value.slice(rawNumberPrefix.length);
+    }
+    if (Array.isArray(value)) {
+      return `[${value.map(entry => (
+        typeof entry === 'string' && !entry.startsWith(rawNumberPrefix)
+          ? JSON.stringify(entry)
+          : displayValue(entry)
+      )).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+      return `{${Object.entries(value).map(([key, entry]) => (
+        `${JSON.stringify(key)}:${displayValue(entry)}`
+      )).join(',')}}`;
+    }
+    return value;
+  };
 
   rigs.forEach(rig => {
-    const rigId = Number(rig && rig.rig_id);
-    const body = document.getElementById(`rig-preview-${rigId}`);
-    if (!body) return;
-
+    let body = null;
     try {
+      body = document.getElementById(`rig-preview-${displayValue(rig && rig.rig_id)}`);
+      if (!body) return;
+
       const items = Array.isArray(rig.items) ? rig.items : [];
       items.forEach(item => {
         const preview = document.createElement('div');
@@ -3677,25 +3703,26 @@ function renderRigPreviews(payload) {
 
         const appendField = (label, value) => {
           const line = document.createElement('div');
-          const displayed = Array.isArray(value) ? value.join(', ') : value;
-          line.textContent = `${label}: ${displayed == null || displayed === '' ? '—' : String(displayed)}`;
+          const displayed = displayValue(value);
+          line.textContent = `${label}: ${displayed == null || displayed === '' ? '—' : displayed}`;
           preview.appendChild(line);
         };
 
         appendField('phase', item && item.phase);
         appendField('target_time', item && item.target_time);
-        appendField('exposures_s', item && item.exposures_s);
         appendField('iso_applied', item && item.iso_applied);
+        appendField('exposures_s', item && item.exposures_s);
         appendField('corrections', item && item.corrections);
         appendField('warnings', item && item.warnings);
-        appendField('atmos_applied', item && item.atmos_applied);
         appendField('motion_policy', item && item.motion_policy);
         if (item && item.error) {
-          appendField('error', `${item.error.code || 'ERROR'}: ${item.error.message || ''}`);
+          appendField('error.code', item.error.code);
+          appendField('error.message', item.error.message);
         }
         body.appendChild(preview);
       });
     } catch (error) {
+      if (!body) return;
       const message = document.createElement('div');
       message.textContent = `error: RENDER_ERROR: ${error.message}`;
       body.appendChild(message);
@@ -3721,8 +3748,8 @@ async function requestRigPreviews(intents) {
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({intents})
       });
-      const payload = await response.json();
-      renderRigPreviews(payload);
+      const responseJson = await response.text();
+      renderRigPreviews(responseJson);
     } finally {
       rigPreviewInFlight = false;
     }

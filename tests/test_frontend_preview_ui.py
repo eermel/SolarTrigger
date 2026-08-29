@@ -28,6 +28,17 @@ def _request_rig_previews_body():
     return match.group("body")
 
 
+def _render_rig_previews_body():
+    match = re.search(
+        r"function\s+renderRigPreviews\s*\(responseJson\)\s*\{"
+        r"(?P<body>.*?)\n\}",
+        INDEX,
+        re.DOTALL,
+    )
+    assert match
+    return match.group("body")
+
+
 def test_preview_intents_uses_expected_fields_and_contacts():
     body = _preview_intents_body()
 
@@ -77,9 +88,43 @@ def test_request_rig_previews_posts_intents_and_forwards_raw_payload():
         body,
         re.DOTALL,
     )
-    assert re.search(r"const\s+payload\s*=\s*await\s+response\.json\(\)", body)
-    assert re.search(r"renderRigPreviews\(payload\)", body)
-    assert re.search(r"function\s+renderRigPreviews\s*\(payload\)", INDEX)
+    assert re.search(r"const\s+responseJson\s*=\s*await\s+response\.text\(\)", body)
+    assert re.search(r"renderRigPreviews\(responseJson\)", body)
+    assert re.search(r"function\s+renderRigPreviews\s*\(responseJson\)", INDEX)
+
+
+def test_render_rig_previews_distributes_escaped_raw_values_without_conversion():
+    body = _render_rig_previews_body()
+
+    assert re.search(r"rigs\.forEach\(rig\s*=>\s*\{\s*let\s+body\s*=\s*null\s*;\s*try\s*\{", body)
+    assert re.search(
+        r"getElementById\(`rig-preview-\$\{displayValue\(rig\s*&&\s*rig\.rig_id\)\}`\)",
+        body,
+    )
+    assert "document.querySelectorAll('.rig-preview')" in body
+    assert "line.textContent" in body
+    assert "message.textContent" in body
+    assert "innerHTML" not in body
+
+    for field in (
+        "phase",
+        "target_time",
+        "iso_applied",
+        "exposures_s",
+        "corrections",
+        "warnings",
+        "motion_policy",
+        "error.code",
+        "error.message",
+    ):
+        assert f"appendField('{field}'" in body
+
+    assert "RAW_JSON_NUMBER:" in body
+    assert "numberPattern" in body
+    assert ".sort(" not in body
+    assert "parseFloat(" not in body
+    assert "parseInt(" not in body
+    assert "Number(" not in body
 
 
 def test_request_rig_previews_guards_missing_intents():
