@@ -143,22 +143,37 @@ def test_stop_keeps_last_position_but_makes_it_unusable():
 
 def test_initialize_is_oneshot_and_stops_plugin():
     p = FakeGps()
-    svc = GpsService(p, poll_interval=0.01, stale_after=1.0, log_fn=lambda *_: None)
 
-    def feed():
-        import time
-        time.sleep(0.03)
-        now = datetime.now(timezone.utc)
-        p.position = GpsPosition(48.0, 2.0, 100.0, now, 8, 0.8, 0.0)
-        p.gps_time = now
-        p.satellites = 8
+    now = datetime.now(timezone.utc)
+    p.position = GpsPosition(
+        48.0,
+        2.0,
+        100.0,
+        now,
+        8,
+        0.8,
+        0.0,
+    )
+    p.gps_time = now
+    p.satellites = 8
 
-    import threading
-    t = threading.Thread(target=feed)
-    t.start()
-    snap = svc.initialize(timeout_s=0.5, require_gga=True)
-    t.join()
+    svc = GpsService(
+        p,
+        poll_interval=0.01,
+        stale_after=1.0,
+        log_fn=lambda *_: None,
+    )
+
+    snap = svc.initialize(
+        timeout_s=1.0,
+        require_gga=True,
+    )
+
     assert snap.state == GpsServiceState.READY
     assert snap.position.latitude == 48.0
+    assert snap.position.altitude_m == 100.0
+    assert snap.position.satellites == 8
+    assert snap.position.hdop == 0.8
+
     assert svc.running is False
     assert p.connected is False
