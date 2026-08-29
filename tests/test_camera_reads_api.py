@@ -57,20 +57,17 @@ def camera_reads_api(tmp_path, monkeypatch):
     return flask_module.app.test_client(), camera, state_store
 
 
-def test_status_triggers_auto_camera_probe_once(camera_reads_api):
-    client, camera, _state_store = camera_reads_api
+def test_status_returns_cached_camera_without_auto_probe(camera_reads_api):
+    client, camera, state_store = camera_reads_api
+    cached = state_store.snapshot("camera")
 
     response = client.get("/api/status")
 
     assert response.status_code == 200
-    assert response.get_json()["camera"] == {
-        "connected": True,
-        "brand": "SONY",
-        "model": "Sony ILCE-7M5 (PC Control)",
-        "battery": "85%",
-    }
-    assert camera.init_calls == 1
-    assert camera.exit_calls == 1
+    assert response.get_json()["camera"] == cached
+    assert state_store.snapshot("camera") == cached
+    assert camera.init_calls == 0
+    assert camera.exit_calls == 0
 
 
 def test_camera_probe_is_manual_and_disconnects(camera_reads_api):

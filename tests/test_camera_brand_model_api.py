@@ -88,21 +88,24 @@ def _assert_separated(camera, brand, model, *, connected=None):
     assert model in camera["model"]
 
 
-@pytest.mark.parametrize(
-    ("model", "source"),
-    [
-        ("ILCE-7M5 (PC Control)", "abilities"),
-        ("Sony ILCE-7M5 (PC Control)", "config"),
-    ],
-)
-def test_camera_status_sony_brand_model_separation(camera_api, model, source):
+def test_camera_status_does_not_probe_and_returns_empty_cache(camera_api):
     client, monkeypatch = camera_api
-    _install_camera(monkeypatch, model, source)
+    monkeypatch.setattr(
+        flask_module.gp,
+        "Camera",
+        lambda: pytest.fail("GET /api/status must not access gp.Camera"),
+        raising=False,
+    )
 
     response = client.get("/api/status")
 
     assert response.status_code == 200
-    _assert_separated(response.get_json()["camera"], "SONY", model, connected=True)
+    assert response.get_json()["camera"] == {
+        "connected": False,
+        "brand": None,
+        "model": None,
+        "battery": None,
+    }
 
 
 @pytest.mark.parametrize(
@@ -122,17 +125,6 @@ def test_camera_probe_sony_brand_model_separation(camera_api, model, source):
     _assert_separated(response.get_json(), "SONY", model)
 
 
-def test_camera_status_nikon_brand_model_separation(camera_api):
-    client, monkeypatch = camera_api
-    model = "NIKON D850"
-    _install_camera(monkeypatch, model)
-
-    response = client.get("/api/status")
-
-    assert response.status_code == 200
-    _assert_separated(response.get_json()["camera"], "NIKON", model, connected=True)
-
-
 def test_camera_probe_nikon_brand_model_separation(camera_api):
     client, monkeypatch = camera_api
     model = "NIKON D850"
@@ -144,20 +136,30 @@ def test_camera_probe_nikon_brand_model_separation(camera_api):
     _assert_separated(response.get_json(), "NIKON", model)
 
 
-def test_camera_status_idempotent_brand_model(camera_api):
+def test_camera_status_returns_cached_camera_without_mutation(camera_api):
     client, monkeypatch = camera_api
     model = "Sony ILCE-7M5 (PC Control)"
-    _install_camera(monkeypatch, model)
+    cached = {
+        "connected": False,
+        "brand": "SONY",
+        "model": model,
+        "battery": "87%",
+    }
+    flask_module._state_store.set("camera", cached)
+    monkeypatch.setattr(
+        flask_module.gp,
+        "Camera",
+        lambda: pytest.fail("GET /api/status must not access gp.Camera"),
+        raising=False,
+    )
 
     first = client.get("/api/status")
     second = client.get("/api/status")
 
     assert first.status_code == second.status_code == 200
-    first_camera = first.get_json()["camera"]
-    second_camera = second.get_json()["camera"]
-    _assert_separated(first_camera, "SONY", model, connected=True)
-    _assert_separated(second_camera, "SONY", model, connected=True)
-    assert second_camera == first_camera
+    assert first.get_json()["camera"] == cached
+    assert second.get_json()["camera"] == cached
+    assert flask_module._state_store.snapshot("camera") == cached
 
 
 def test_camera_brand_model_persist_across_status_and_probe_calls(camera_api):
@@ -166,50 +168,21 @@ def test_camera_brand_model_persist_across_status_and_probe_calls(camera_api):
     _install_camera(monkeypatch, model)
 
     for _reconnection in range(2):
-        status_before_probe = client.get("/api/status")
-        assert status_before_probe.status_code == 200
-        _assert_separated(
-            status_before_probe.get_json()["camera"],
-            "SONY",
-            model,
-            connected=True,
-        )
-        _assert_separated(
-            flask_module._state_store.snapshot("camera"),
-            "SONY",
-            model,
-            connected=True,
-        )
-
         probe = client.post("/api/camera/probe")
         assert probe.status_code == 200
         _assert_separated(probe.get_json(), "SONY", model)
-        _assert_separated(
-            flask_module._state_store.snapshot("camera"),
-            "SONY",
-            model,
-            connected=False,
-        )
+        cached = flask_module._state_store.snapshot("camera")
+        _assert_separated(cached, "SONY", model, connected=False)
 
-        status_after_probe = client.get("/api/status")
-        assert status_after_probe.status_code == 200
-        _assert_separated(
-            status_after_probe.get_json()["camera"],
-            "SONY",
-            model,
-            connected=True,
-        )
-        _assert_separated(
-            flask_module._state_store.snapshot("camera"),
-            "SONY",
-            model,
-            connected=True,
-        )
+        status = client.get("/api/status")
+        assert status.status_code == 200
+        assert status.get_json()["camera"] == cached
+        assert flask_module._state_store.snapshot("camera") == cached
 
     persisted_store = StateStore(flask_module._state_store.path)
     _assert_separated(
         persisted_store.snapshot("camera"),
         "SONY",
         model,
-        connected=True,
+        connected=False,
     )

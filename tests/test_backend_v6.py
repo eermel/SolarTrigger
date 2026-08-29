@@ -130,7 +130,7 @@ def test_camera_status_preserves_existing_camera_subkeys(monkeypatch):
 
     assert status['time_sync'] == '2026-08-22T12:34:56Z'
     assert camera_state['camera']['time_sync'] == '2026-08-22T12:34:56Z'
-    assert status['connected'] is False
+    assert status == {'time_sync': '2026-08-22T12:34:56Z'}
 
 
 def test_state_store_has_circumstances_and_capture_defaults(tmp_path):

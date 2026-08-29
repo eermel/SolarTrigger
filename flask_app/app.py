@@ -938,7 +938,7 @@ def api_rig_device_inventory_refresh():
 
 @app.route("/api/status")
 def api_status():
-    camera_info = _get_camera_status()
+    camera_info = _state_store.snapshot("camera") or {}
     try:
         rigs = normalize_rigs_for_ui(get_rig_manager())
     except Exception as exc:
@@ -1793,19 +1793,10 @@ def _get_camera_model_info(camera):
     return brand, model, battery
 
 def _get_camera_status():
-    try:
-        camera = gp.Camera()
-        camera.init()
-        brand, model, battery = _get_camera_model_info(camera)
-        camera.exit()
-        info = {"connected": True, "brand": brand, "model": model, "battery": battery}
-    except Exception:
-        info = {"connected": False, "brand": None, "model": None, "battery": None}
+    """Return already-known camera state without touching camera hardware."""
     with _state_lock:
-        _state.setdefault("camera", {}).update(info)
-        info = dict(_state["camera"])
-    _save_state()
-    return info
+        camera = _state.get("camera")
+        return dict(camera) if isinstance(camera, dict) else {}
 
 def _load_eclipse_json():
     try:
