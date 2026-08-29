@@ -164,6 +164,15 @@ class IndiMount(MountPlugin):
                     name: "On" if name == "INDI_DISABLED" else "Off"
                     for name in auto_prop
                 }
+
+            # Runtime control uses one persistent INDI monitor. The initial
+            # one-shot _props() above primes its cache; subsequent reads are
+            # therefore memory-only while the monitor applies authoritative
+            # updates from indiserver.
+            start_monitor = getattr(self.client, "start_monitor", None)
+            if callable(start_monitor):
+                start_monitor()
+
             self.client.set_props(assignments)
             self.client.set_props({"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}})
             if not self._wait_for(lambda p: self._switch_on(p.get("CONNECTION", {}), "CONNECT")):
@@ -181,6 +190,9 @@ class IndiMount(MountPlugin):
         except Exception:
             pass
         finally:
+            stop_monitor = getattr(self.client, "stop_monitor", None)
+            if callable(stop_monitor):
+                stop_monitor()
             self._connected = False
 
     @property
