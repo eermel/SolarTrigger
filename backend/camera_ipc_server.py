@@ -139,7 +139,11 @@ class CameraIpcServer:
         self._stopping = threading.Event()
         self._state_lock = threading.RLock()
         self._active_session: str | None = None
-        self._tokens: dict[str, tuple[str | None, int, Any]] = {}
+        self._tokens: dict[
+            str,
+            tuple[str | None, int, Any]
+            | tuple[str | None, int, Any, dict[str, Any]],
+        ] = {}
         self._rig_iso_targets: dict[int, int] = {}
         self._rig_plan_cache = RigPlanCache()
 
@@ -539,8 +543,31 @@ class CameraIpcServer:
                     }
             prepared = self._call_worker(worker.prepare_capture, intent)
             token_id = secrets.token_urlsafe(24)
+            metadata = {
+                "rig_id": rig_id,
+                "phase": intent.phase,
+                "target_time": intent.target_time.isoformat(),
+                "deadline": (
+                    intent.deadline.isoformat() if intent.deadline is not None else None
+                ),
+                "request_id": request_id,
+                "planned_count": prepared.planned_count,
+                "plugin_name": prepared.plugin_name,
+                "iso_applied": (
+                    augmented.get("iso_applied") if augmented is not None else None
+                ),
+                "corrections": (
+                    augmented.get("corrections") if augmented is not None else None
+                ),
+                "warnings": (
+                    augmented.get("warnings") if augmented is not None else None
+                ),
+                "plan_version": version,
+            }
+            if prepared.exposures_s is not None:
+                metadata["exposures_s"] = prepared.exposures_s
             with self._state_lock:
-                self._tokens[token_id] = (session, rig_id, prepared.token)
+                self._tokens[token_id] = (session, rig_id, prepared.token, metadata)
             response = {
                 "token_id": token_id,
                 "estimated_total_s": prepared.estimated_total_s,
@@ -566,8 +593,10 @@ class CameraIpcServer:
                         "UNKNOWN_TOKEN", "prepared capture token is not valid"
                     )
                 del self._tokens[token_id]
+            prepared_token = token[2]
+            _metadata = token[3] if len(token) > 3 else None
             return self._call_worker(
-                worker.trigger_prepared, token[2], deadline=deadline
+                worker.trigger_prepared, prepared_token, deadline=deadline
             )
         if operation == "shoot_speed_list":
             speeds = params.get("speeds")
