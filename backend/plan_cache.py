@@ -11,6 +11,7 @@ _VERSION_FIELDS = {
     "optics": ("focal_length_mm",),
     "photo": (
         "motion_tolerance_px",
+        "iso_compensation_enabled",
         "iso_max",
         "anti_trailing_enabled",
         "atmos_enabled",

@@ -182,14 +182,20 @@ class CameraWorkerRuntime:
                         )
                     },
                     "photo": {
-                        key: photo.get(key) if isinstance(photo, dict) else None
-                        for key in (
-                            "atmos_enabled",
-                            "anti_trailing_enabled",
-                            "motion_tolerance_px",
-                            "iso_max",
-                            "field_rotation_radius_deg",
-                        )
+                        **{
+                            key: photo.get(key) if isinstance(photo, dict) else None
+                            for key in (
+                                "atmos_enabled",
+                                "anti_trailing_enabled",
+                                "motion_tolerance_px",
+                                "iso_max",
+                            )
+                        },
+                        "iso_compensation_enabled": (
+                            photo.get("iso_compensation_enabled", True)
+                            if isinstance(photo, dict)
+                            else True
+                        ),
                     },
                 }
             return None

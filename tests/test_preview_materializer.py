@@ -37,8 +37,8 @@ def test_atmos_is_per_rig_and_requires_complete_context(monkeypatch):
     )
 
     assert added is True
-    assert theoretical == "0.032"
-    assert updated[2] == "1/60"
+    assert theoretical is None
+    assert updated[2] == "1/31.25"
     with pytest.raises(materializer.PreviewMaterializationError, match="incomplete") as error:
         materializer.apply_atmos_if_enabled({"photo": {"atmos_enabled": True}}, plan, target, {})
     assert error.value.code == "CONFIG_INVALID"
@@ -62,7 +62,7 @@ def test_policy_mapping_and_exposure_assembly():
     assert materializer.assemble_exposures_s((False, "1/1000", "1/60", 2.0, ["1/1000", "1/500", "1/60"])) == pytest.approx([0.001, 0.002, 1 / 60])
 
 
-def test_atmospheric_rounding_uses_supported_shutter_and_compensates_iso(monkeypatch):
+def test_atmospheric_extension_adds_ev_steps_without_iso_compensation(monkeypatch):
     target = datetime(2026, 8, 12, 12)
     timeline = {
         "C1": target - timedelta(hours=2),
@@ -92,18 +92,165 @@ def test_atmospheric_rounding_uses_supported_shutter_and_compensates_iso(monkeyp
     )
 
     assert applied is True
-    assert theoretical == "0.032"
-    assert updated[2] == "1/60"
+    assert theoretical is None
 
-    iso, corrections, warnings = materializer.compute_iso_and_corrections(
-        200,
-        updated[2],
-        {},
-        theoretical_slowest=theoretical,
+    # Runtime parity:
+    # 1/125 -> 1/62.5 -> 1/31.25 for a 4x attenuation factor.
+    assert updated == (
+        True,
+        "1/1000",
+        "1/31.25",
+        1.0,
+        None,
     )
 
-    assert iso == "400"
-    assert "shutter_limited" in corrections
-    assert "iso_compensated" in corrections
-    assert "iso_rounded" in corrections
-    assert warnings == []
+    exposures = materializer.assemble_exposures_s(updated)
+
+    assert exposures == pytest.approx([
+        1 / 1000,
+        1 / 500,
+        1 / 250,
+        1 / 125,
+        1 / 62.5,
+        1 / 31.25,
+    ])
+
+
+def test_iso_compensation_switch_is_forwarded_to_safe_selection(monkeypatch):
+    calls = []
+
+    def fake_safe(*args, **kwargs):
+        calls.append(kwargs)
+        return {
+            "shutter": "1/125",
+            "iso": 200,
+            "corrections": [],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(
+        materializer,
+        "safe_shutter_and_iso",
+        fake_safe,
+    )
+
+    materializer.compute_iso_and_corrections(
+        200,
+        "1/125",
+        {
+            "iso_max": 6400,
+            "iso_compensation_enabled": False,
+        },
+    )
+
+    assert calls[0]["iso_compensation_enabled"] is False
+
+
+def test_exposure_diff_only_reports_actual_changes():
+    lines = materializer.build_exposure_diff_lines(
+        ["1/1000", "1/500", "1/250"],
+        100,
+        ["1/1000", "1/500", "1/250"],
+        100,
+    )
+
+    assert lines == []
+
+
+def test_exposure_diff_reports_iso_change_and_added_pose():
+    lines = materializer.build_exposure_diff_lines(
+        ["1/1000", "1/500"],
+        100,
+        ["1/1000", "1/500", "1/250"],
+        200,
+    )
+
+    assert lines == [
+        "(1/1000 ; 100) → (1/1000 ; 200)",
+        "(1/500 ; 100) → (1/500 ; 200)",
+        "+ (1/250 ; 200)",
+    ]
+
+
+def test_exposure_diff_reports_removed_slow_pose():
+    lines = materializer.build_exposure_diff_lines(
+        ["1/1000", "1/500", "1/250"],
+        100,
+        ["1/1000", "1/500"],
+        100,
+    )
+
+    assert lines == [
+        "- (1/250 ; 100)",
+    ]
+
+
+def test_photo_shutter_formatter_uses_fraction_for_half_second():
+    assert materializer.format_photo_shutter("0.5") == "1/2"
+    assert materializer.format_photo_shutter("1/60") == "1/60"
+    assert materializer.format_photo_shutter("4") == "4"
+
+
+def test_nikon_executable_preview_uses_real_nikon_grid():
+    plan = (
+        True,
+        "1/4000",
+        "4",
+        1.0,
+        None,
+    )
+    rig = {
+        "devices": {
+            "camera": {
+                "backend": "nikon-dslr",
+            }
+        }
+    }
+
+    shutters = materializer.expand_executable_shutters(
+        rig,
+        plan,
+    )
+
+    assert shutters[0] == "1/4000"
+    assert shutters[-1] == "4"
+    assert "1/60" in shutters
+
+
+def test_sony_executable_preview_uses_real_sony_planner():
+    plan = (
+        True,
+        "1/4000",
+        "1/15",
+        1.0,
+        None,
+    )
+    rig = {
+        "devices": {
+            "camera": {
+                "backend": "sony",
+            }
+        }
+    }
+
+    shutters = materializer.expand_executable_shutters(
+        rig,
+        plan,
+    )
+
+    _step, _count, sequence = materializer.sony_exposure_planner.plan(
+        "1/4000",
+        "1/15",
+        1.0,
+    )
+    expected = []
+    for item in sequence:
+        if isinstance(
+            item,
+            materializer.sony_exposure_planner.SinglePhoto,
+        ):
+            expected.append(str(item.speed))
+        else:
+            expected.extend(str(view) for view in item.views)
+
+    assert shutters == expected

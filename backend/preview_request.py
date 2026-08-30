@@ -7,10 +7,11 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
-from backend.exposure_selection import parse_speed
+from backend.exposure_selection import DEFAULT_SUPPORTED_ISOS, parse_speed
 
 
-_ROOT_KEYS = {"intents"}
+_ROOT_KEYS_LEGACY = {"intents"}
+_ROOT_KEYS_OVERRIDE = {"intents", "rig_id", "rig_override"}
 _INTENT_KEYS = {
     "shutter_min",
     "shutter_max",
@@ -72,6 +73,122 @@ def _speed(value: Any, field: str) -> str:
         raise ValueError(f"{field} must be a valid shutter string") from exc
     _require(math.isfinite(parsed) and parsed > 0, f"{field} must be a positive shutter")
     return value
+
+
+def _positive_number(value: Any, field: str) -> float:
+    _require(
+        isinstance(value, (int, float)) and not isinstance(value, bool),
+        f"{field} must be a positive number",
+    )
+    result = float(value)
+    _require(
+        math.isfinite(result) and result > 0,
+        f"{field} must be a positive finite number",
+    )
+    return result
+
+
+def _rig_override(payload: dict[str, Any]) -> tuple[int | None, dict[str, Any] | None]:
+    keys = set(payload)
+
+    if keys == _ROOT_KEYS_LEGACY:
+        return None, None
+
+    _require(
+        keys == _ROOT_KEYS_OVERRIDE,
+        "payload must contain intents only, or intents + rig_id + rig_override",
+    )
+
+    rig_id = payload.get("rig_id")
+    _require(
+        isinstance(rig_id, int)
+        and not isinstance(rig_id, bool)
+        and 1 <= rig_id <= 4,
+        "rig_id must be an integer from 1 to 4",
+    )
+
+    override = payload.get("rig_override")
+    _require(
+        isinstance(override, dict),
+        "rig_override must be an object",
+    )
+    _require(
+        set(override) == {"optics", "photo"},
+        "rig_override must contain exactly optics and photo",
+    )
+
+    optics = override.get("optics")
+    _require(
+        isinstance(optics, dict),
+        "rig_override.optics must be an object",
+    )
+    _require(
+        set(optics) == {"focal_length_mm"},
+        "rig_override.optics must contain exactly focal_length_mm",
+    )
+
+    focal = optics.get("focal_length_mm")
+    if focal is not None:
+        focal = _positive_number(
+            focal,
+            "rig_override.optics.focal_length_mm",
+        )
+
+    photo = override.get("photo")
+    _require(
+        isinstance(photo, dict),
+        "rig_override.photo must be an object",
+    )
+
+    expected_photo_keys = {
+        "anti_trailing_enabled",
+        "motion_tolerance_px",
+        "iso_compensation_enabled",
+        "iso_max",
+        "atmos_enabled",
+    }
+    _require(
+        set(photo) == expected_photo_keys,
+        "rig_override.photo contains invalid or missing fields",
+    )
+
+    for field in (
+        "anti_trailing_enabled",
+        "iso_compensation_enabled",
+        "atmos_enabled",
+    ):
+        _require(
+            isinstance(photo.get(field), bool),
+            f"rig_override.photo.{field} must be a boolean",
+        )
+
+    tolerance = _positive_number(
+        photo.get("motion_tolerance_px"),
+        "rig_override.photo.motion_tolerance_px",
+    )
+
+    iso_max = photo.get("iso_max")
+    _require(
+        isinstance(iso_max, int) and not isinstance(iso_max, bool),
+        "rig_override.photo.iso_max must be an integer",
+    )
+    _require(
+        iso_max in DEFAULT_SUPPORTED_ISOS,
+        "rig_override.photo.iso_max must be a supported ISO",
+    )
+
+    return rig_id, {
+        "optics": {
+            "focal_length_mm": focal,
+        },
+        "photo": {
+            "anti_trailing_enabled": photo["anti_trailing_enabled"],
+            "motion_tolerance_px": tolerance,
+            "iso_compensation_enabled": photo["iso_compensation_enabled"],
+            "iso_max": iso_max,
+            "atmos_enabled": photo["atmos_enabled"],
+        },
+    }
 
 
 def _phases(config: Any) -> Mapping[str, Any]:
@@ -153,20 +270,43 @@ def _intent(value: Any, index: int, phases: Mapping[str, Any]) -> dict[str, Any]
     }
 
 
-def validate_and_normalize(payload: Any, config: Any) -> list[dict[str, Any]]:
-    """Validate a preview payload and return UTC-naive normalized intents.
+def validate_payload(
+    payload: Any,
+    config: Any,
+) -> tuple[list[dict[str, Any]], int | None, dict[str, Any] | None]:
+    """Validate a complete preview request.
 
-    Every malformed request or unusable phase configuration raises ``ValueError``.
-    The input objects are never modified.
+    The optional RIG override is returned separately and is never persisted.
     """
 
     _require(isinstance(payload, dict), "payload must be an object")
-    _require(all(isinstance(key, str) for key in payload), "payload keys must be strings")
-    _require(set(payload) == _ROOT_KEYS, "payload must contain exactly the intents key")
-    intents = payload["intents"]
+    _require(
+        all(isinstance(key, str) for key in payload),
+        "payload keys must be strings",
+    )
+
+    rig_id, rig_override = _rig_override(payload)
+
+    intents = payload.get("intents")
     _require(isinstance(intents, list), "intents must be an array")
+
     phases = _phases(config)
-    return [_intent(intent, index, phases) for index, intent in enumerate(intents)]
+    normalized = [
+        _intent(intent, index, phases)
+        for index, intent in enumerate(intents)
+    ]
+
+    return normalized, rig_id, rig_override
 
 
-__all__ = ["validate_and_normalize"]
+def validate_and_normalize(payload: Any, config: Any) -> list[dict[str, Any]]:
+    """Backward-compatible intent-only validation API."""
+
+    intents, _rig_id, _rig_override_value = validate_payload(
+        payload,
+        config,
+    )
+    return intents
+
+
+__all__ = ["validate_and_normalize", "validate_payload"]

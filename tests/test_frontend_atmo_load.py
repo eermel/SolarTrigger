@@ -18,17 +18,23 @@ def test_load_camera_config_initializes_atmospheric_attenuation_switch():
     )
 
     assert function is not None
-
     body = function.group(1)
 
     assert "data.exposure_correction" in body
     assert "atmospheric_attenuation_enabled" in body
 
     assert re.search(
-        r"document\.getElementById\([\"']cfg-atmo-switch[\"']\)"
-        r"\.checked\s*=\s*Boolean\(\s*"
+        r"const\s+atmosEnabled\s*=\s*Boolean\(\s*"
         r"data\.exposure_correction\?\.atmospheric_attenuation_enabled"
         r"\s*\)",
         body,
         re.DOTALL,
     )
+
+    assert re.search(
+        r"document\.getElementById\([\"']cfg-atmo-switch[\"']\)"
+        r"\.checked\s*=\s*atmosEnabled",
+        body,
+    )
+
+    assert "await persistGlobalAtmos(atmosEnabled, false)" in body

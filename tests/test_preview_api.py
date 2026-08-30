@@ -184,3 +184,157 @@ def test_missing_atmos_config_is_an_item_error_without_aborting_other_items(
     assert successful["request_id"] == "irregular"
     assert successful["error"] is None
     assert successful["atmos_applied"] is False
+
+
+def test_preview_applies_same_fixed_trailing_ceiling_as_runtime(
+    preview_api,
+    monkeypatch,
+):
+    client = preview_api(atmos_enabled=False)
+
+    config = flask_module.load_rig_configuration()
+    config["rigs"][0]["devices"]["camera"] = {
+        "manufacturer": "Test Cameras",
+        "model": "Known Model",
+    }
+    config["rigs"][0]["optics"] = {
+        "focal_length_mm": 1000.0,
+    }
+    config["rigs"][0]["photo"].update({
+        "anti_trailing_enabled": True,
+        "motion_tolerance_px": 1.0,
+        "iso_compensation_enabled": False,
+        "iso_max": 6400,
+    })
+
+    monkeypatch.setattr(
+        flask_module,
+        "load_rig_configuration",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        flask_module,
+        "compute_motion_exposure_ceiling",
+        lambda *_args, **_kwargs: 0.25,
+    )
+
+    response = client.post(
+        "/api/rigs/preview",
+        json={
+            "intents": [
+                _regular_intent(
+                    shutter_min="1",
+                    shutter_max="1/1000",
+                    iso_target=200,
+                )
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    item = response.get_json()["rigs"][0]["items"][0]
+
+    assert item["error"] is None
+    assert item["motion_policy"] == "fixed_trailing"
+    assert max(item["exposures_s"]) == pytest.approx(0.25)
+    assert item["iso_applied"] == "200"
+    assert item["corrections"] == ["shutter_limited"]
+
+
+def test_preview_returns_visible_differential_lines(
+    preview_api,
+    monkeypatch,
+):
+    client = preview_api(atmos_enabled=False)
+
+    config = flask_module.load_rig_configuration()
+    config["rigs"][0]["devices"]["camera"] = {
+        "backend": "simulated",
+        "manufacturer": "Test Cameras",
+        "model": "Known Model",
+    }
+    config["rigs"][0]["optics"] = {
+        "focal_length_mm": 1000.0,
+    }
+    config["rigs"][0]["photo"].update({
+        "anti_trailing_enabled": True,
+        "motion_tolerance_px": 1.0,
+        "iso_compensation_enabled": False,
+        "iso_max": 6400,
+    })
+
+    monkeypatch.setattr(
+        flask_module,
+        "load_rig_configuration",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        flask_module,
+        "compute_motion_exposure_ceiling",
+        lambda *_args, **_kwargs: 0.25,
+    )
+
+    response = client.post(
+        "/api/rigs/preview",
+        json={
+            "intents": [
+                _regular_intent(
+                    shutter_min="1",
+                    shutter_max="1/1000",
+                    iso_target=200,
+                )
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+
+    item = response.get_json()["rigs"][0]["items"][0]
+
+    assert item["error"] is None
+    assert isinstance(item["diff_lines"], list)
+    assert item["diff_lines"]
+    assert all(
+        "motion_policy" not in line
+        and "corrections" not in line
+        and "warnings" not in line
+        for line in item["diff_lines"]
+    )
+
+
+def test_preview_rig_override_is_ephemeral(preview_api):
+    client = preview_api(atmos_enabled=False)
+
+    before = flask_module.load_rig_configuration()
+    assert before["rigs"][0]["optics"] == {}
+
+    response = client.post(
+        "/api/rigs/preview",
+        json={
+            "intents": [_regular_intent()],
+            "rig_id": 1,
+            "rig_override": {
+                "optics": {
+                    "focal_length_mm": 430.0,
+                },
+                "photo": {
+                    "anti_trailing_enabled": False,
+                    "motion_tolerance_px": 0.5,
+                    "iso_compensation_enabled": False,
+                    "iso_max": 3200,
+                    "atmos_enabled": False,
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+
+    assert [rig["rig_id"] for rig in payload["rigs"]] == [1]
+
+    after = flask_module.load_rig_configuration()
+
+    # Preview must never modify the persisted RIG configuration.
+    assert after == before
+    assert after["rigs"][0]["optics"] == {}

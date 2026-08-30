@@ -39,7 +39,6 @@ def test_reconcile_exposes_policy_snapshot_for_active_rig():
                     "anti_trailing_enabled": True,
                     "motion_tolerance_px": 1.5,
                     "iso_max": 3200,
-                    "field_rotation_radius_deg": 3.25,
                 },
             }
         ]
@@ -71,7 +70,42 @@ def test_reconcile_exposes_policy_snapshot_for_active_rig():
             "atmos_enabled": False,
             "anti_trailing_enabled": True,
             "motion_tolerance_px": 1.5,
+            "iso_compensation_enabled": True,
             "iso_max": 3200,
-            "field_rotation_radius_deg": 3.25,
         },
     }
+
+
+def test_policy_snapshot_preserves_explicit_iso_compensation_off():
+    runtime = CameraWorkerRuntime(clock=object(), worker_factory=FakeWorker)
+    config = {
+        "rigs": [
+            {
+                "rig_id": 1,
+                "enabled": True,
+                "devices": {
+                    "camera": {
+                        "backend": "gphoto2",
+                        "manufacturer": "Nikon",
+                        "model": "D850",
+                    }
+                },
+                "optics": {"focal_length_mm": 430},
+                "photo": {
+                    "anti_trailing_enabled": True,
+                    "motion_tolerance_px": 1.0,
+                    "iso_compensation_enabled": False,
+                    "iso_max": 6400,
+                },
+            }
+        ]
+    }
+
+    runtime.reconcile(config)
+
+    assert (
+        runtime.get_policy_config_for_rig(1)["photo"][
+            "iso_compensation_enabled"
+        ]
+        is False
+    )

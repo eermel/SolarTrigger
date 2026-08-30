@@ -39,14 +39,7 @@ class FakeRuntime:
         return self.policy if rig_id == 1 else None
 
 
-def field_rotation_policy(*, radius=1.0):
-    photo = {
-        "anti_trailing_enabled": True,
-        "motion_tolerance_px": 1.0,
-        "iso_max": 800,
-    }
-    if radius is not None:
-        photo["field_rotation_radius_deg"] = radius
+def field_rotation_policy():
     return {
         "devices": {
             "camera": {
@@ -61,7 +54,11 @@ def field_rotation_policy(*, radius=1.0):
         },
         "eclipse": {"reference_site": {"lat": 44.0, "lon": 2.0}},
         "optics": {"focal_length_mm": 1000.0},
-        "photo": photo,
+        "photo": {
+            "anti_trailing_enabled": True,
+            "motion_tolerance_px": 1.0,
+            "iso_max": 800,
+        },
     }
 
 
@@ -134,8 +131,8 @@ def prepare(server):
     )
 
 
-def test_positive_radius_applies_field_rotation_shutter_and_iso(make_server):
-    server, worker = make_server(field_rotation_policy(radius=1.0))
+def test_sensor_corner_applies_field_rotation_shutter_and_iso(make_server):
+    server, worker = make_server(field_rotation_policy())
 
     response = prepare(server)
 
@@ -147,25 +144,25 @@ def test_positive_radius_applies_field_rotation_shutter_and_iso(make_server):
     assert worker.apply_calls[-1] == {"iso": "800"}
 
 
-def test_zero_radius_leaves_capture_and_iso_unchanged(make_server):
-    server, worker = make_server(field_rotation_policy(radius=0.0))
+def test_field_rotation_requires_no_radius_configuration(make_server):
+    policy = field_rotation_policy()
 
+    assert "field_rotation_radius_deg" not in policy["photo"]
+
+    server, worker = make_server(policy)
     response = prepare(server)
 
-    assert worker.prepared_intents[0].speeds == ["4"]
-    assert worker.apply_calls == [{"aperture": None, "iso": "200"}]
-    assert "iso_applied" not in response
-    assert "corrections" not in response
-    assert "warnings" not in response
+    assert response["iso_applied"] == "800"
+    assert worker.prepared_intents
+    assert worker.apply_calls[-1] == {"iso": "800"}
 
 
-def test_missing_radius_is_policy_invalid_before_worker_prepare(make_server):
-    server, worker = make_server(field_rotation_policy(radius=None))
+def test_field_rotation_does_not_depend_on_focal_length(make_server):
+    policy = field_rotation_policy()
+    policy["optics"] = {}
 
-    with pytest.raises(IpcError) as error:
-        prepare(server)
+    server, worker = make_server(policy)
+    response = prepare(server)
 
-    assert error.value.code == "POLICY_INVALID"
-    assert "field_rotation_radius_deg" in error.value.message
-    assert worker.prepared_intents == []
-    assert worker.apply_calls == [{"aperture": None, "iso": "200"}]
+    assert response["iso_applied"] == "800"
+    assert worker.prepared_intents[0].speeds != ["4"]

@@ -21,63 +21,24 @@ Strategie de capture : PHOTO PAR PHOTO -- une vue par vitesse.
 """
 
 import time
-import math
 
 import gphoto2 as gp
 
 from .base import CameraPlugin, CaptureResult, seconds_until_deadline
 
-NIKON_SPEEDS = [
-    ("30", 30), ("25", 25), ("20", 20), ("15", 15), ("13", 13), ("10", 10),
-    ("8", 8), ("6", 6), ("5", 5), ("4", 4), ("3", 3), ("2.5", 2.5), ("2", 2),
-    ("1.6", 1.6), ("1.3", 1.3), ("1", 1), ("0.8", 0.8), ("0.6", 0.6),
-    ("0.5", 0.5), ("0.4", 0.4), ("1/3", 1/3), ("1/4", 1/4), ("1/5", 1/5),
-    ("1/6", 1/6), ("1/8", 1/8), ("1/10", 1/10), ("1/13", 1/13), ("1/15", 1/15),
-    ("1/20", 1/20), ("1/25", 1/25), ("1/30", 1/30), ("1/40", 1/40),
-    ("1/50", 1/50), ("1/60", 1/60), ("1/80", 1/80), ("1/100", 1/100),
-    ("1/125", 1/125), ("1/160", 1/160), ("1/200", 1/200), ("1/250", 1/250),
-    ("1/320", 1/320), ("1/400", 1/400), ("1/500", 1/500), ("1/640", 1/640),
-    ("1/800", 1/800), ("1/1000", 1/1000), ("1/1250", 1/1250),
-    ("1/1600", 1/1600), ("1/2000", 1/2000), ("1/2500", 1/2500),
-    ("1/3200", 1/3200), ("1/4000", 1/4000), ("1/5000", 1/5000),
-    ("1/6400", 1/6400), ("1/8000", 1/8000),
-]
+from backend.nikon_exposure_planner import (
+    NIKON_SPEEDS,
+    _ev,
+    _parse,
+    _speeds_between,
+)
+
 
 Z_MODEL_PATTERNS = ("z8", "z9", "z6", "z7", "z5", "z50", "zf", "zfc", "z30")
 
 
-def _ev(sec):
-    return math.log2(sec)
-
-
-def _parse(s):
-    s = str(s).strip()
-    if "/" in s:
-        a, b = s.split("/")
-        return float(a) / float(b)
-    return float(s)
-
-
 def _norm(model):
     return (model or "").lower().replace(" ", "").replace("-", "")
-
-
-def _speeds_between(v_max, v_min, step_il):
-    vmax_s, vmin_s = _parse(v_max), _parse(v_min)
-    if vmax_s > vmin_s:
-        vmax_s, vmin_s = vmin_s, vmax_s
-    ev_fast, ev_slow = _ev(vmax_s), _ev(vmin_s)
-    n = round((ev_slow - ev_fast) / step_il) + 1
-    if n < 1:
-        n = 1
-    out, prev = [], None
-    for k in range(n):
-        target = ev_fast + k * step_il
-        b = min(NIKON_SPEEDS, key=lambda x: abs(_ev(x[1]) - target))
-        if b[0] != prev:
-            out.append(b[0])
-        prev = b[0]
-    return out
 
 
 class NikonBasePlugin(CameraPlugin):
