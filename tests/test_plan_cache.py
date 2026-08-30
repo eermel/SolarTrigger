@@ -58,3 +58,20 @@ def test_clear_removes_rig_version_and_entries():
 
     assert cache.get("rig-1", "intent-1") is None
     assert cache.get_version("rig-1") is None
+
+
+def test_camera_backend_changes_rig_plan_version():
+    nikon = {
+        "devices": {
+            "camera": {"backend": "nikon-dslr"},
+        },
+        "photo": {"iso_max": 6400},
+    }
+    sony = {
+        "devices": {
+            "camera": {"backend": "sony"},
+        },
+        "photo": {"iso_max": 6400},
+    }
+
+    assert rig_plan_version(nikon) != rig_plan_version(sony)

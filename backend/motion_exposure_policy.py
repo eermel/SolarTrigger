@@ -125,7 +125,8 @@ def materialize_exposure_plan(
     """Apply one motion ceiling without ever lengthening the exposure plan.
 
     ``shutter_min`` is the slowest bound and ``shutter_max`` the fastest.
-    Explicit speed lists preserve their order and length.
+    ``exposure_plan`` preserves one shutter/ISO pair per logical exposure.
+    Historical aggregate fields remain available for compatibility.
     """
 
     if isinstance(t_max, bool):
@@ -154,7 +155,75 @@ def materialize_exposure_plan(
             "iso_compensation_enabled must be a boolean"
         )
 
-    results = []
+    def materialize_one(speed: str) -> dict:
+        requested_seconds = parse_speed(speed)
+
+        # Anti-blur is a ceiling only. A speed already short enough
+        # remains exactly as requested and keeps the requested ISO.
+        if requested_seconds <= ceiling:
+            return {
+                "shutter": speed,
+                "iso": iso_requested,
+                "corrections": [],
+                "warnings": [],
+            }
+
+        return safe_shutter_and_iso(
+            t_requested=speed,
+            iso_requested=iso_requested,
+            t_max=str(ceiling),
+            supported_shutters=DEFAULT_SUPPORTED_SHUTTERS,
+            supported_isos=DEFAULT_SUPPORTED_ISOS,
+            iso_max=iso_max,
+            iso_compensation_enabled=iso_compensation_enabled,
+        )
+
+    def regular_requested_speeds(
+        fastest: str,
+        slowest: str,
+        step: float,
+    ) -> list[str]:
+        fastest_s = parse_speed(fastest)
+        slowest_s = parse_speed(slowest)
+
+        if fastest_s > slowest_s:
+            fastest_s, slowest_s = slowest_s, fastest_s
+
+        if not math.isfinite(step) or step <= 0:
+            raise ValueError("EV step must be finite and positive")
+
+        supported = [
+            (str(speed), parse_speed(speed))
+            for speed in DEFAULT_SUPPORTED_SHUTTERS
+        ]
+
+        result: list[str] = []
+        target = fastest_s
+        ratio = 2.0 ** step
+
+        while target <= slowest_s * (1.0 + 1e-12):
+            selected = min(
+                supported,
+                key=lambda item: abs(
+                    math.log2(item[1]) - math.log2(target)
+                ),
+            )[0]
+            if not result or selected != result[-1]:
+                result.append(selected)
+            target *= ratio
+
+        final_selected = min(
+            supported,
+            key=lambda item: abs(
+                math.log2(item[1]) - math.log2(slowest_s)
+            ),
+        )[0]
+        if not result or final_selected != result[-1]:
+            result.append(final_selected)
+
+        return result
+
+    results: list[dict] = []
 
     if speeds is not None:
         if not speeds:
@@ -162,36 +231,17 @@ def materialize_exposure_plan(
                 "explicit shutter list must not be empty"
             )
 
-        applied_speeds = []
-        for speed in [str(value) for value in speeds]:
-            requested_seconds = parse_speed(speed)
-
-            # Anti-blur is a ceiling only. A speed already short enough
-            # must remain exactly as requested.
-            if requested_seconds <= ceiling:
-                applied_speeds.append(speed)
-                results.append({
-                    "shutter": speed,
-                    "iso": iso_requested,
-                    "corrections": [],
-                    "warnings": [],
-                })
-                continue
-
-            result = safe_shutter_and_iso(
-                t_requested=speed,
-                iso_requested=iso_requested,
-                t_max=str(ceiling),
-                supported_shutters=DEFAULT_SUPPORTED_SHUTTERS,
-                supported_isos=DEFAULT_SUPPORTED_ISOS,
-                iso_max=iso_max,
-                iso_compensation_enabled=iso_compensation_enabled,
-            )
-            applied_speeds.append(result["shutter"])
-            results.append(result)
+        requested_speeds = [str(value) for value in speeds]
+        results = [
+            materialize_one(speed)
+            for speed in requested_speeds
+        ]
 
         output = {
-            "speeds": applied_speeds,
+            "speeds": [
+                result["shutter"]
+                for result in results
+            ],
             "shutter_min": None,
             "shutter_max": None,
             "step_ev": step_ev,
@@ -204,50 +254,47 @@ def materialize_exposure_plan(
             )
 
         requested_slowest = str(shutter_min)
+        requested_fastest = str(shutter_max)
+        step = (
+            float(step_ev)
+            if step_ev is not None
+            else 1.0
+        )
+
+        requested_speeds = regular_requested_speeds(
+            requested_fastest,
+            requested_slowest,
+            step,
+        )
+        results = [
+            materialize_one(speed)
+            for speed in requested_speeds
+        ]
+
         requested_seconds = parse_speed(requested_slowest)
 
-        # Crucial rule: Anti-blur never extends a bracket.
         if requested_seconds <= ceiling:
-            return {
-                "speeds": None,
-                "shutter_min": requested_slowest,
-                "shutter_max": str(shutter_max),
-                "step_ev": (
-                    float(step_ev)
-                    if step_ev is not None
-                    else 1.0
-                ),
-                "iso_applied": iso_requested,
-                "corrections": [],
-                "warnings": [],
-            }
-
-        applied_slowest = select_supported_shutter_at_or_below(
-            ceiling,
-            DEFAULT_SUPPORTED_SHUTTERS,
-        )
-
-        result = safe_shutter_and_iso(
-            t_requested=requested_slowest,
-            iso_requested=iso_requested,
-            t_max=applied_slowest,
-            supported_shutters=DEFAULT_SUPPORTED_SHUTTERS,
-            supported_isos=DEFAULT_SUPPORTED_ISOS,
-            iso_max=iso_max,
-            iso_compensation_enabled=iso_compensation_enabled,
-        )
-        results.append(result)
+            applied_slowest = requested_slowest
+        else:
+            applied_slowest = select_supported_shutter_at_or_below(
+                ceiling,
+                DEFAULT_SUPPORTED_SHUTTERS,
+            )
 
         output = {
             "speeds": None,
             "shutter_min": applied_slowest,
-            "shutter_max": str(shutter_max),
-            "step_ev": (
-                float(step_ev)
-                if step_ev is not None
-                else 1.0
-            ),
+            "shutter_max": requested_fastest,
+            "step_ev": step,
         }
+
+    output["exposure_plan"] = [
+        {
+            "shutter": str(result["shutter"]),
+            "iso": int(result["iso"]),
+        }
+        for result in results
+    ]
 
     output["iso_applied"] = max(
         result["iso"] for result in results
@@ -270,7 +317,6 @@ def materialize_exposure_plan(
     ]
 
     return output
-
 
 def compute_motion_exposure_ceiling(
     policy: dict,

@@ -779,18 +779,14 @@ def api_rigs_preview():
 
                     if t_max is not None:
                         regular, fastest, slowest, step, speeds = plan
+                        physical_shutters = expand_executable_shutters(
+                            rig,
+                            plan,
+                        )
                         materialized = materialize_exposure_plan(
-                            speeds=(
-                                list(speeds)
-                                if speeds is not None
-                                else None
-                            ),
-                            shutter_min=(
-                                None if speeds is not None else slowest
-                            ),
-                            shutter_max=(
-                                None if speeds is not None else fastest
-                            ),
+                            speeds=physical_shutters,
+                            shutter_min=None,
+                            shutter_max=None,
                             step_ev=step,
                             iso_requested=iso_requested,
                             iso_max=int(
@@ -805,22 +801,13 @@ def api_rigs_preview():
                             ),
                         )
 
-                        if materialized["speeds"] is not None:
-                            plan = (
-                                False,
-                                materialized["speeds"][0],
-                                materialized["speeds"][-1],
-                                step,
-                                materialized["speeds"],
-                            )
-                        else:
-                            plan = (
-                                True,
-                                materialized["shutter_max"],
-                                materialized["shutter_min"],
-                                materialized["step_ev"],
-                                None,
-                            )
+                        plan = (
+                            False,
+                            materialized["speeds"][0],
+                            materialized["speeds"][-1],
+                            step,
+                            materialized["speeds"],
+                        )
 
                         iso_applied = str(
                             materialized["iso_applied"]

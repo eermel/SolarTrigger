@@ -388,3 +388,30 @@ def test_preview_atmos_is_ignored_at_30_deg_and_above(monkeypatch):
     assert updated == plan
     assert applied is False
     assert theoretical is None
+
+
+def test_sony_physical_expansion_can_include_planner_overshoot():
+    plan = (
+        True,
+        "1/1000",
+        "1/125",
+        1.0,
+        None,
+    )
+    rig = {
+        "devices": {
+            "camera": {
+                "backend": "sony",
+            }
+        }
+    }
+
+    shutters = materializer.expand_executable_shutters(rig, plan)
+
+    assert shutters == [
+        "1/1000",
+        "1/500",
+        "1/250",
+        "1/125",
+        "1/60",
+    ]

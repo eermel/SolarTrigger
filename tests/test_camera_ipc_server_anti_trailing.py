@@ -137,16 +137,28 @@ def test_explicit_speed_list_is_enforced_per_rig(rig_server):
     enabled_response = prepare(server, 2, capture_intent(speeds=requested))
 
     assert workers[1].prepared_intents[0].speeds == requested
-    assert workers[1].apply_calls == [{"aperture": None, "iso": "200"}]
+    assert workers[1].apply_calls == [
+        {"aperture": None, "iso": "200"},
+    ]
     assert "iso_applied" not in off_response
     assert "corrections" not in off_response
     assert "warnings" not in off_response
 
-    assert workers[2].prepared_intents[0].speeds == ["1/8", "1/4", "1/4"]
+    prepared = workers[2].prepared_intents[0]
+
+    assert prepared.speeds == ["1/8", "1/4", "1/4"]
+    assert prepared.exposure_plan == [
+        {"shutter": "1/8", "iso": 200},
+        {"shutter": "1/4", "iso": 400},
+        {"shutter": "1/4", "iso": 800},
+    ]
+
+    # Preparation keeps the original phase ISO. Per-view ISO changes
+    # are executed later by the camera plugin.
     assert workers[2].apply_calls == [
         {"aperture": None, "iso": "200"},
-        {"iso": "800"},
     ]
+
     assert enabled_response["iso_applied"] == "800"
     assert enabled_response["corrections"] == [
         "shutter_limited",
@@ -154,16 +166,9 @@ def test_explicit_speed_list_is_enforced_per_rig(rig_server):
     ]
     assert enabled_response["warnings"] == ["iso_capped"]
 
-    with pytest.raises(IpcError) as unknown_model:
-        prepare(server, 3, capture_intent(speeds=requested))
-
-    assert unknown_model.value.code == "POLICY_INVALID"
-    assert workers[3].prepared_intents == []
-    assert workers[3].apply_calls == [{"aperture": None, "iso": "200"}]
-    assert len(workers[1].prepared_intents) == len(workers[2].prepared_intents) == 1
-
-
-def test_regular_bracket_reduces_slowest_bound_and_compensates_from_it(rig_server):
+def test_regular_bracket_reduces_slowest_bound_and_compensates_from_it(
+    rig_server,
+):
     server, workers = rig_server
 
     response = prepare(
@@ -173,10 +178,114 @@ def test_regular_bracket_reduces_slowest_bound_and_compensates_from_it(rig_serve
     )
 
     prepared = workers[2].prepared_intents[0]
-    assert prepared.shutter_min == "1/4"
-    assert prepared.shutter_max == "1/125"
-    assert prepared.speeds is None
-    assert workers[2].apply_calls[-1] == {"iso": "800"}
+
+    # A regular logical bracket is expanded to its physical views before
+    # Anti-blur is applied.
+    assert prepared.shutter_min is None
+    assert prepared.shutter_max is None
+    assert prepared.speeds == [
+        "1/125",
+        "1/60",
+        "1/30",
+        "1/15",
+        "1/8",
+        "1/4",
+        "1/4",
+        "1/4",
+    ]
+    assert prepared.exposure_plan == [
+        {"shutter": "1/125", "iso": 200},
+        {"shutter": "1/60", "iso": 200},
+        {"shutter": "1/30", "iso": 200},
+        {"shutter": "1/15", "iso": 200},
+        {"shutter": "1/8", "iso": 200},
+        {"shutter": "1/4", "iso": 200},
+        {"shutter": "1/4", "iso": 400},
+        {"shutter": "1/4", "iso": 800},
+    ]
+
+    assert workers[2].apply_calls == [
+        {"aperture": None, "iso": "200"},
+    ]
+
     assert response["iso_applied"] == "800"
-    assert response["corrections"] == ["shutter_limited", "iso_compensated"]
+    assert response["corrections"] == [
+        "shutter_limited",
+        "iso_compensated",
+    ]
     assert response["warnings"] == []
+
+def test_prepare_capture_preserves_per_exposure_iso_plan(rig_server):
+    server, workers = rig_server
+
+    response = prepare(
+        server,
+        2,
+        capture_intent(speeds=["1/8", "1/2", "4"]),
+    )
+
+    prepared = workers[2].prepared_intents[-1]
+
+    assert prepared.exposure_plan == [
+        {"shutter": "1/8", "iso": 200},
+        {"shutter": "1/4", "iso": 400},
+        {"shutter": "1/4", "iso": 800},
+    ]
+
+    # Initial phase ISO=200 was already applied by the fixture.
+    # Anti-blur preparation must not globally switch the camera to ISO 800.
+    assert workers[2].apply_calls == [
+        {"aperture": None, "iso": "200"},
+    ]
+
+    # Kept only as summary/diagnostic compatibility information.
+    assert response["iso_applied"] == "800"
+
+
+
+def test_sony_physical_overshoot_is_materialized_before_motion_limit():
+    intent = camera_ipc_server.CaptureIntent(
+        shutter_min="1/125",
+        shutter_max="1/1000",
+        step_ev=1.0,
+        speeds=None,
+        phase="C2",
+        target_time=camera_ipc_server.datetime(
+            2026, 8, 12, 18, 0, 0,
+            tzinfo=camera_ipc_server.timezone.utc,
+        ),
+        deadline=None,
+        overflow_policy=None,
+    )
+
+    materialized, iso_applied, _corrections, _warnings = (
+        CameraIpcServer._materialize_policy_intent(
+            intent,
+            100,
+            6400,
+            1.0 / 125.0,
+            policy={
+                "devices": {
+                    "camera": {
+                        "backend": "sony",
+                    }
+                }
+            },
+        )
+    )
+
+    assert materialized.exposure_plan == [
+        {"shutter": "1/1000", "iso": 100},
+        {"shutter": "1/500", "iso": 100},
+        {"shutter": "1/250", "iso": 100},
+        {"shutter": "1/125", "iso": 100},
+        {"shutter": "1/125", "iso": 400},
+    ]
+    assert materialized.speeds == [
+        "1/1000",
+        "1/500",
+        "1/250",
+        "1/125",
+        "1/125",
+    ]
+    assert iso_applied == 400

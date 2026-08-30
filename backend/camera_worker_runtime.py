@@ -167,7 +167,7 @@ class CameraWorkerRuntime:
                     "devices": {
                         "camera": {
                             key: camera.get(key) if isinstance(camera, dict) else None
-                            for key in ("manufacturer", "model", "alias")
+                            for key in ("backend", "manufacturer", "model", "alias")
                         },
                         "mount": {
                             key: mount.get(key) if isinstance(mount, dict) else None
