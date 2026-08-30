@@ -329,3 +329,62 @@ def test_preview_atmos_accepts_partial_eclipse_context(monkeypatch):
 
     assert applied is True
     assert updated[2] == "1/125"
+
+
+
+def test_preview_atmos_is_ignored_at_30_deg_and_above(monkeypatch):
+    target = datetime(2027, 8, 2, 10, 12, 58)
+
+    timeline = {
+        "C1": target - timedelta(hours=2),
+        "C2": target - timedelta(minutes=3),
+        "TMAX": target,
+        "C3": target + timedelta(minutes=3),
+        "C4": target + timedelta(hours=1),
+    }
+
+    context = {
+        "timeline": timeline,
+        "altitudes": {
+            "C1_alt_deg": 30.0,
+            "C2_alt_deg": 30.0,
+            "TMAX_alt_deg": 30.0,
+            "C3_alt_deg": 30.0,
+            "C4_alt_deg": 30.0,
+        },
+        "location": {
+            "altitude_m": 4.0,
+        },
+    }
+
+    plan = (
+        True,
+        "1/4000",
+        "4",
+        1.0,
+        None,
+    )
+
+    def must_not_be_called(*_args, **_kwargs):
+        raise AssertionError(
+            "facteur_atmospherique must not be called for Sun >= 30 deg"
+        )
+
+    monkeypatch.setattr(
+        materializer,
+        "facteur_atmospherique",
+        must_not_be_called,
+    )
+
+    updated, applied, theoretical = (
+        materializer.apply_atmos_if_enabled(
+            {"photo": {"atmos_enabled": True}},
+            plan,
+            target,
+            context,
+        )
+    )
+
+    assert updated == plan
+    assert applied is False
+    assert theoretical is None

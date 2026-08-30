@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from backend.atmo import atmospheric_compensation_active
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -125,6 +126,12 @@ def apply_atmos_if_enabled(
             atmospheric_timeline,
             dict(altitudes),
         )
+
+        # Product policy: atmospheric exposure correction is negligible
+        # for this application when the Sun is at or above 30 degrees.
+        if not atmospheric_compensation_active(solar_altitude):
+            return plan, False, None
+
         factor = facteur_atmospherique(solar_altitude, altitude_m)
     except (TypeError, ValueError, KeyError) as exc:
         raise PreviewMaterializationError(

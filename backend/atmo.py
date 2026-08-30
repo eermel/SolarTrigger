@@ -10,6 +10,28 @@ import math
 from datetime import datetime
 
 
+ATMOS_ACTIVE_BELOW_DEG = 30.0
+
+
+def atmospheric_compensation_active(h_deg: float) -> bool:
+    """Return whether exposure compensation should be applied.
+
+    The physical extinction model remains available at every altitude, but
+    exposure compensation is intentionally ignored when the Sun is at or
+    above 30 degrees.
+    """
+    try:
+        altitude = float(h_deg)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("h_deg doit etre numerique") from exc
+
+    if not math.isfinite(altitude):
+        raise ValueError("h_deg doit etre fini")
+
+    return altitude < ATMOS_ACTIVE_BELOW_DEG
+
+
+
 def facteur_atmospherique(h_deg: float, H_m: float) -> float:
     """Return unitless atmospheric compensation factor using Jubier's model.
 

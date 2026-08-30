@@ -1103,7 +1103,10 @@ header {
 
       <div class="card">
         <div class="card-title">Atmospheric Attenuation</div>
-        <div class="focuser-mode-switch"><label for="cfg-atmo-switch">OFF</label><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation" onchange="persistGlobalAtmosFromUi()"><label for="cfg-atmo-switch">ON</label></div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div class="focuser-mode-switch"><label for="cfg-atmo-switch">OFF</label><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation" onchange="persistGlobalAtmosFromUi()"><label for="cfg-atmo-switch">ON</label></div>
+          <span style="font-size:11px;color:var(--text-dim)">Active only if Sun &lt; 30°</span>
+        </div>
       </div>
 
       <!-- ── CARD 2 : Phase Partielle ── -->
