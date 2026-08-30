@@ -53,3 +53,21 @@ def test_manual_fallback():
 
     assert "manual" in fallback["sources"]
     assert fallback["pixel_pitch_um"] == pytest.approx(36.0 * 1000 / 6000)
+
+
+def test_production_db_resolves_gphoto2_d850_model_without_serial():
+    db_path = (
+        Path(__file__).resolve().parents[1]
+        / "data"
+        / "camera_sensors"
+        / "camera_sensors_2017plus_zwo.json"
+    )
+    db = load_sensor_db(db_path)
+
+    canonical = lookup_model(db, "Nikon", "D850")
+    gphoto2 = lookup_model(db, "Nikon", "Nikon DSC D850")
+
+    assert gphoto2["model"] == "D850"
+    assert gphoto2["pixel_pitch_um"] == pytest.approx(
+        canonical["pixel_pitch_um"]
+    )
