@@ -546,3 +546,58 @@ def test_runtime_partial_atmos_does_not_require_c2_c3(monkeypatch):
     assert updated is None
     assert added is True
     assert bounds[0] == "1/125"
+
+
+
+def test_atmos_application_threshold_is_strictly_below_30_deg():
+    from backend.atmo import atmospheric_compensation_active
+
+    assert atmospheric_compensation_active(29.9) is True
+    assert atmospheric_compensation_active(30.0) is False
+    assert atmospheric_compensation_active(80.0) is False
+
+
+def test_runtime_atmos_is_ignored_at_or_above_30_deg(monkeypatch):
+    target = datetime(2027, 8, 2, 10, 12, 58)
+
+    timeline = {
+        "C1": target - timedelta(hours=2),
+        "C2": target - timedelta(minutes=3),
+        "TMAX": target,
+        "C3": target + timedelta(minutes=3),
+        "C4": target + timedelta(hours=1),
+    }
+
+    altitudes = {
+        "C1_alt_deg": 80.0,
+        "C2_alt_deg": 80.0,
+        "TMAX_alt_deg": 80.0,
+        "C3_alt_deg": 80.0,
+        "C4_alt_deg": 80.0,
+    }
+
+    def must_not_be_called(*_args, **_kwargs):
+        raise AssertionError(
+            "facteur_atmospherique must not be called for Sun >= 30 deg"
+        )
+
+    monkeypatch.setattr(
+        trig,
+        "facteur_atmospherique",
+        must_not_be_called,
+    )
+
+    updated, bounds, applied = trig._extend_regular_ev_for_atmosphere(
+        None,
+        "4",
+        "1/4000",
+        1.0,
+        target,
+        timeline,
+        altitudes,
+        4.0,
+    )
+
+    assert updated is None
+    assert bounds == ("4", "1/4000", 1.0)
+    assert applied is False

@@ -126,6 +126,7 @@ from services.camera_service import _normalized_speed_plan as _norm_plan
 from scripts.camera_ipc_client import CameraIpcClient
 from scripts.fanout_camera_adapter import FanoutCameraAdapter
 from backend.atmo import (
+    atmospheric_compensation_active,
     facteur_atmospherique,
     interpolate_altitude,
     validate_atmospheric_timeline,
@@ -946,12 +947,21 @@ def _extend_regular_ev_for_atmosphere(
             f"atmo_compensation actif : {exc}"
         ) from exc
 
+    updated_speeds = None if speeds is None else list(speeds)
+
+    # Product policy: atmospheric exposure compensation is ignored when
+    # the Sun is at or above 30 degrees.
+    if not atmospheric_compensation_active(h):
+        return (
+            updated_speeds,
+            (shutter_min, shutter_max, step_ev),
+            False,
+        )
+
     facteur = facteur_atmospherique(
         h,
         float(observer_altitude),
     )
-
-    updated_speeds = None if speeds is None else list(speeds)
     slowest = shutter_min
     slowest_seconds = parse_shutterspeed(slowest)
     target_slowest = slowest_seconds * float(facteur)
@@ -1463,10 +1473,14 @@ def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, 
                 _timeline,
                 alts,
             )
-            slowest_override_seconds = (
-                parse_shutterspeed(slowest)
-                * facteur_atmospherique(altitude, float(loc["altitude_m"]))
-            )
+            if atmospheric_compensation_active(altitude):
+                slowest_override_seconds = (
+                    parse_shutterspeed(slowest)
+                    * facteur_atmospherique(
+                        altitude,
+                        float(loc["altitude_m"]),
+                    )
+                )
         result = camera_service.shoot_speed_list(
             speeds, photo_num_start=photo_num_start, deadline=deadline,
             slowest_override_seconds=slowest_override_seconds,
