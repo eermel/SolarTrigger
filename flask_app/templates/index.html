@@ -889,36 +889,221 @@ header {
 
       <section class="camera-rigs-section">
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
+
           <div class="card camcfg-rig-column" id="camcfg-rig-column-1" data-rig-id="1">
             <div class="card-title">RIG 1</div>
-            <button class="btn btn-secondary btn-full rig-preview-button" type="button" data-rig-id="1" disabled
-              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
+
+            <div class="field">
+              <label>ANTI-BLUR</label>
+              <div class="focuser-mode-switch">
+                <label for="rig-1-antiblur-switch">OFF</label>
+                <input type="checkbox" id="rig-1-antiblur-switch" role="switch"
+                  aria-label="Anti-blur RIG 1" onchange="persistRigPhoto(1)">
+                <label for="rig-1-antiblur-switch">ON</label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>FOCALE (MM)</label>
+              <input type="number" id="rig-1-focal" min="0.1" step="0.1"
+                placeholder="—" onblur="persistRigPhoto(1)">
+            </div>
+
+            <div class="field">
+              <label>PIXEL TOLERANCE</label>
+              <input type="number" id="rig-1-pixel-tolerance" min="0.1" step="0.1"
+                value="1.0" onblur="persistRigPhoto(1)">
+            </div>
+
+            <div class="field">
+              <label>ISO COMPENSATION</label>
+              <div class="focuser-mode-switch">
+                <label for="rig-1-iso-comp-switch">OFF</label>
+                <input type="checkbox" id="rig-1-iso-comp-switch" role="switch"
+                  aria-label="ISO Compensation RIG 1" onchange="persistRigPhoto(1)">
+                <label for="rig-1-iso-comp-switch">ON</label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>ISO MAX</label>
+              <div class="select-chev">
+                <select id="rig-1-iso-max" onchange="persistRigPhoto(1)">
+                  <option>100</option><option>200</option><option>400</option>
+                  <option>800</option><option>1600</option><option>3200</option>
+                  <option selected>6400</option>
+                </select>
+              </div>
+            </div>
+
+            <button class="btn btn-secondary btn-full rig-preview-button"
+              type="button" data-rig-id="1" disabled
+              onclick="requestRigPreviews(1, buildPreviewIntents())">Prévisualiser</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-1"></div>
           </div>
+
           <div class="card camcfg-rig-column" id="camcfg-rig-column-2" data-rig-id="2">
             <div class="card-title">RIG 2</div>
-            <button class="btn btn-secondary btn-full rig-preview-button" type="button" data-rig-id="2" disabled
-              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
+
+            <div class="field">
+              <label>ANTI-BLUR</label>
+              <div class="focuser-mode-switch">
+                <label for="rig-2-antiblur-switch">OFF</label>
+                <input type="checkbox" id="rig-2-antiblur-switch" role="switch"
+                  aria-label="Anti-blur RIG 2" onchange="persistRigPhoto(2)">
+                <label for="rig-2-antiblur-switch">ON</label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>FOCALE (MM)</label>
+              <input type="number" id="rig-2-focal" min="0.1" step="0.1"
+                placeholder="—" onblur="persistRigPhoto(2)">
+            </div>
+
+            <div class="field">
+              <label>PIXEL TOLERANCE</label>
+              <input type="number" id="rig-2-pixel-tolerance" min="0.1" step="0.1"
+                value="1.0" onblur="persistRigPhoto(2)">
+            </div>
+
+            <div class="field">
+              <label>ISO COMPENSATION</label>
+              <div class="focuser-mode-switch">
+                <label for="rig-2-iso-comp-switch">OFF</label>
+                <input type="checkbox" id="rig-2-iso-comp-switch" role="switch"
+                  aria-label="ISO Compensation RIG 2" onchange="persistRigPhoto(2)">
+                <label for="rig-2-iso-comp-switch">ON</label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>ISO MAX</label>
+              <div class="select-chev">
+                <select id="rig-2-iso-max" onchange="persistRigPhoto(2)">
+                  <option>100</option><option>200</option><option>400</option>
+                  <option>800</option><option>1600</option><option>3200</option>
+                  <option selected>6400</option>
+                </select>
+              </div>
+            </div>
+
+            <button class="btn btn-secondary btn-full rig-preview-button"
+              type="button" data-rig-id="2" disabled
+              onclick="requestRigPreviews(2, buildPreviewIntents())">Prévisualiser</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-2"></div>
           </div>
+
           <div class="card camcfg-rig-column" id="camcfg-rig-column-3" data-rig-id="3">
             <div class="card-title">RIG 3</div>
-            <button class="btn btn-secondary btn-full rig-preview-button" type="button" data-rig-id="3" disabled
-              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
+
+            <div class="field">
+              <label>ANTI-BLUR</label>
+              <div class="focuser-mode-switch">
+                <label for="rig-3-antiblur-switch">OFF</label>
+                <input type="checkbox" id="rig-3-antiblur-switch" role="switch"
+                  aria-label="Anti-blur RIG 3" onchange="persistRigPhoto(3)">
+                <label for="rig-3-antiblur-switch">ON</label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>FOCALE (MM)</label>
+              <input type="number" id="rig-3-focal" min="0.1" step="0.1"
+                placeholder="—" onblur="persistRigPhoto(3)">
+            </div>
+
+            <div class="field">
+              <label>PIXEL TOLERANCE</label>
+              <input type="number" id="rig-3-pixel-tolerance" min="0.1" step="0.1"
+                value="1.0" onblur="persistRigPhoto(3)">
+            </div>
+
+            <div class="field">
+              <label>ISO COMPENSATION</label>
+              <div class="focuser-mode-switch">
+                <label for="rig-3-iso-comp-switch">OFF</label>
+                <input type="checkbox" id="rig-3-iso-comp-switch" role="switch"
+                  aria-label="ISO Compensation RIG 3" onchange="persistRigPhoto(3)">
+                <label for="rig-3-iso-comp-switch">ON</label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>ISO MAX</label>
+              <div class="select-chev">
+                <select id="rig-3-iso-max" onchange="persistRigPhoto(3)">
+                  <option>100</option><option>200</option><option>400</option>
+                  <option>800</option><option>1600</option><option>3200</option>
+                  <option selected>6400</option>
+                </select>
+              </div>
+            </div>
+
+            <button class="btn btn-secondary btn-full rig-preview-button"
+              type="button" data-rig-id="3" disabled
+              onclick="requestRigPreviews(3, buildPreviewIntents())">Prévisualiser</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-3"></div>
           </div>
+
           <div class="card camcfg-rig-column" id="camcfg-rig-column-4" data-rig-id="4">
             <div class="card-title">RIG 4</div>
-            <button class="btn btn-secondary btn-full rig-preview-button" type="button" data-rig-id="4" disabled
-              onclick="requestRigPreviews(buildPreviewIntents())">Prévisualiser</button>
+
+            <div class="field">
+              <label>ANTI-BLUR</label>
+              <div class="focuser-mode-switch">
+                <label for="rig-4-antiblur-switch">OFF</label>
+                <input type="checkbox" id="rig-4-antiblur-switch" role="switch"
+                  aria-label="Anti-blur RIG 4" onchange="persistRigPhoto(4)">
+                <label for="rig-4-antiblur-switch">ON</label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>FOCALE (MM)</label>
+              <input type="number" id="rig-4-focal" min="0.1" step="0.1"
+                placeholder="—" onblur="persistRigPhoto(4)">
+            </div>
+
+            <div class="field">
+              <label>PIXEL TOLERANCE</label>
+              <input type="number" id="rig-4-pixel-tolerance" min="0.1" step="0.1"
+                value="1.0" onblur="persistRigPhoto(4)">
+            </div>
+
+            <div class="field">
+              <label>ISO COMPENSATION</label>
+              <div class="focuser-mode-switch">
+                <label for="rig-4-iso-comp-switch">OFF</label>
+                <input type="checkbox" id="rig-4-iso-comp-switch" role="switch"
+                  aria-label="ISO Compensation RIG 4" onchange="persistRigPhoto(4)">
+                <label for="rig-4-iso-comp-switch">ON</label>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>ISO MAX</label>
+              <div class="select-chev">
+                <select id="rig-4-iso-max" onchange="persistRigPhoto(4)">
+                  <option>100</option><option>200</option><option>400</option>
+                  <option>800</option><option>1600</option><option>3200</option>
+                  <option selected>6400</option>
+                </select>
+              </div>
+            </div>
+
+            <button class="btn btn-secondary btn-full rig-preview-button"
+              type="button" data-rig-id="4" disabled
+              onclick="requestRigPreviews(4, buildPreviewIntents())">Prévisualiser</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-4"></div>
           </div>
+
         </div>
       </section>
 
       <div class="card">
         <div class="card-title">Atmospheric Attenuation</div>
-        <div class="focuser-mode-switch"><label for="cfg-atmo-switch">OFF</label><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation"><label for="cfg-atmo-switch">ON</label></div>
+        <div class="focuser-mode-switch"><label for="cfg-atmo-switch">OFF</label><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation" onchange="persistGlobalAtmosFromUi()"><label for="cfg-atmo-switch">ON</label></div>
       </div>
 
       <!-- ── CARD 2 : Phase Partielle ── -->
@@ -1359,7 +1544,157 @@ const DEFAULT_RIGS = Array.from({length: 4}, (_, index) => ({
 }));
 const RIG_DEVICE_CATEGORIES = ['camera', 'mount', 'focuser'];
 let rigDevicesState = {rigs: DEFAULT_RIGS, inventory: {camera: [], mount: [], focuser: []}};
+let rigPhotoState = {rigs: []};
 let globalDevicesState = null;
+
+function renderRigPhotoConfig(payload) {
+  const rigs = Array.isArray(payload && payload.rigs) ? payload.rigs : [];
+  rigPhotoState = {rigs};
+
+  rigs.forEach(rig => {
+    const rigId = Number(rig.rig_id);
+    if (!Number.isInteger(rigId) || rigId < 1 || rigId > 4) return;
+
+    const optics = rig.optics || {};
+    const photo = rig.photo || {};
+
+    const antiBlur = document.getElementById(`rig-${rigId}-antiblur-switch`);
+    const focal = document.getElementById(`rig-${rigId}-focal`);
+    const tolerance = document.getElementById(`rig-${rigId}-pixel-tolerance`);
+    const isoComp = document.getElementById(`rig-${rigId}-iso-comp-switch`);
+    const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
+
+    if (antiBlur) antiBlur.checked = photo.anti_trailing_enabled === true;
+    if (focal) {
+      focal.value = optics.focal_length_mm == null
+        ? ''
+        : String(optics.focal_length_mm);
+    }
+    if (tolerance) {
+      tolerance.value = photo.motion_tolerance_px == null
+        ? '1.0'
+        : String(photo.motion_tolerance_px);
+    }
+    if (isoComp) {
+      isoComp.checked = photo.iso_compensation_enabled !== false;
+    }
+    if (isoMax) {
+      isoMax.value = String(photo.iso_max == null ? 6400 : photo.iso_max);
+    }
+  });
+
+  const firstRig = rigs.find(rig => Number(rig.rig_id) === 1);
+  const atmo = document.getElementById('cfg-atmo-switch');
+  if (atmo && firstRig) {
+    atmo.checked = Boolean(firstRig.photo && firstRig.photo.atmos_enabled === true);
+  }
+}
+
+async function loadRigPhotoConfig() {
+  try {
+    const response = await fetch('/api/rigs/photo');
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `Erreur HTTP ${response.status}`);
+    }
+    renderRigPhotoConfig(payload);
+  } catch (error) {
+    flash(`CFG PHOTO RIG : ${error.message}`, 'red');
+  }
+}
+
+function readRigPhotoConfig(rigId) {
+  const antiBlur = document.getElementById(`rig-${rigId}-antiblur-switch`);
+  const focal = document.getElementById(`rig-${rigId}-focal`);
+  const tolerance = document.getElementById(`rig-${rigId}-pixel-tolerance`);
+  const isoComp = document.getElementById(`rig-${rigId}-iso-comp-switch`);
+  const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
+  const atmo = document.getElementById('cfg-atmo-switch');
+
+  const focalValue = focal && focal.value.trim() !== ''
+    ? Number(focal.value)
+    : null;
+  const toleranceValue = Number(tolerance && tolerance.value);
+  const isoMaxValue = Number(isoMax && isoMax.value);
+
+  if (focalValue !== null && (!Number.isFinite(focalValue) || focalValue <= 0)) {
+    throw new Error('Focale doit être strictement positive');
+  }
+  if (!Number.isFinite(toleranceValue) || toleranceValue <= 0) {
+    throw new Error('Pixel Tolerance doit être strictement positif');
+  }
+  if (!Number.isInteger(isoMaxValue) || isoMaxValue <= 0) {
+    throw new Error('ISO Max invalide');
+  }
+
+  return {
+    rig_id: rigId,
+    optics: {
+      focal_length_mm: focalValue,
+    },
+    photo: {
+      anti_trailing_enabled: Boolean(antiBlur && antiBlur.checked),
+      motion_tolerance_px: toleranceValue,
+      iso_compensation_enabled: Boolean(isoComp && isoComp.checked),
+      iso_max: isoMaxValue,
+      atmos_enabled: Boolean(atmo && atmo.checked),
+    },
+  };
+}
+
+async function persistRigPhoto(rigId) {
+  try {
+    const patch = readRigPhotoConfig(rigId);
+    const response = await fetch('/api/rigs/photo', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rigs: [patch]}),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `Erreur HTTP ${response.status}`);
+    }
+    await loadRigPhotoConfig();
+  } catch (error) {
+    flash(`CFG PHOTO RIG ${rigId} : ${error.message}`, 'red');
+    await loadRigPhotoConfig();
+  }
+}
+
+async function persistGlobalAtmos(enabled, showFeedback = true) {
+  try {
+    const patches = [1, 2, 3, 4].map(rigId => ({
+      rig_id: rigId,
+      photo: {atmos_enabled: Boolean(enabled)},
+    }));
+
+    const response = await fetch('/api/rigs/photo', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rigs: patches}),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `Erreur HTTP ${response.status}`);
+    }
+
+    await loadRigPhotoConfig();
+    if (showFeedback) {
+      flash(
+        `Atmospheric Attenuation : ${enabled ? 'ON' : 'OFF'} pour tous les RIG`,
+        'green'
+      );
+    }
+  } catch (error) {
+    flash(`Atmospheric Attenuation : ${error.message}`, 'red');
+    await loadRigPhotoConfig();
+  }
+}
+
+async function persistGlobalAtmosFromUi() {
+  const control = document.getElementById('cfg-atmo-switch');
+  await persistGlobalAtmos(Boolean(control && control.checked));
+}
 let selectedRigId = null;
 
 function selectedControlsRig() {
@@ -1625,6 +1960,7 @@ async function loadRigDevices(inventoryOverride) {
     if (!responses[0].ok) throw new Error(payload.error || `Erreur HTTP ${responses[0].status}`);
     if (!inventoryOverride && !responses[1].ok) throw new Error(inventory.error || `Erreur HTTP ${responses[1].status}`);
     renderRigDevices(payload, inventory);
+    await loadRigPhotoConfig();
   } catch (error) {
     flash(`Devices RIG : ${error.message}`, 'red');
   }
@@ -3701,9 +4037,11 @@ async function loadCameraConfig(filename) {
     const r = await fetch('/api/configs/load_camera/' + encodeURIComponent(filename));
     if (!r.ok) { flash('Erreur chargement config appareil', 'red'); return; }
     const data = await r.json();
-    document.getElementById('cfg-atmo-switch').checked = Boolean(
+    const atmosEnabled = Boolean(
       data.exposure_correction?.atmospheric_attenuation_enabled
     );
+    document.getElementById('cfg-atmo-switch').checked = atmosEnabled;
+    await persistGlobalAtmos(atmosEnabled, false);
     _applyCameraConfig(data);
     flash('Config appareil chargée : ' + filename, 'green');
   } catch(e) { flash('Erreur réseau', 'red'); }
@@ -3843,100 +4181,113 @@ function buildPreviewIntents() {
 
 let rigPreviewInFlight = false;
 
-function renderRigPreviews(responseJson) {
-  const rawNumberPrefix = '\u0000RAW_JSON_NUMBER:';
-  const numberPattern = /("(?:\\.|[^"\\])*")|(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
-  const protectedJson = responseJson.replace(
-    numberPattern,
-    (token, stringToken, numberToken) => stringToken || `"\\u0000RAW_JSON_NUMBER:${numberToken}"`
-  );
-  const payload = JSON.parse(protectedJson);
-  const rigs = Array.isArray(payload && payload.rigs) ? payload.rigs : [];
-  document.querySelectorAll('.rig-preview').forEach(body => body.replaceChildren());
+function renderRigPreviews(responseJson, requestedRigId) {
+  const requestedBody = document.getElementById(`rig-preview-${requestedRigId}`);
+  if (!requestedBody) return;
+  requestedBody.replaceChildren();
 
-  const displayValue = value => {
-    if (typeof value === 'string' && value.startsWith(rawNumberPrefix)) {
-      return value.slice(rawNumberPrefix.length);
-    }
-    if (Array.isArray(value)) {
-      return `[${value.map(entry => (
-        typeof entry === 'string' && !entry.startsWith(rawNumberPrefix)
-          ? JSON.stringify(entry)
-          : displayValue(entry)
-      )).join(',')}]`;
-    }
-    if (value && typeof value === 'object') {
-      return `{${Object.entries(value).map(([key, entry]) => (
-        `${JSON.stringify(key)}:${displayValue(entry)}`
-      )).join(',')}}`;
-    }
-    return value;
+  const payload = JSON.parse(responseJson);
+  const rigs = Array.isArray(payload && payload.rigs) ? payload.rigs : [];
+
+  const phaseLabels = {
+    partial: 'Partial',
+    diamond_ring: 'Diamond Ring',
+    totality: 'Totality'
   };
 
   rigs.forEach(rig => {
-    let body = null;
-    try {
-      body = document.getElementById(`rig-preview-${displayValue(rig && rig.rig_id)}`);
-      if (!body) return;
+    if (Number(rig && rig.rig_id) !== Number(requestedRigId)) return;
 
-      const items = Array.isArray(rig.items) ? rig.items : [];
-      items.forEach(item => {
-        const preview = document.createElement('div');
-        preview.className = 'rig-preview-intent';
+    const body = document.getElementById(`rig-preview-${rig.rig_id}`);
+    if (!body) return;
 
-        const appendField = (label, value) => {
+    const items = Array.isArray(rig.items) ? rig.items : [];
+
+    items.forEach(item => {
+      const preview = document.createElement('div');
+      preview.className = 'rig-preview-intent';
+
+      const title = document.createElement('div');
+      title.className = 'rig-preview-phase';
+      title.textContent = phaseLabels[item && item.phase] || item.phase || 'Phase';
+      preview.appendChild(title);
+
+      if (item && item.error) {
+        const message = document.createElement('div');
+        message.className = 'rig-preview-error';
+        message.textContent = `Erreur : ${item.error.message || item.error.code || 'preview impossible'}`;
+        preview.appendChild(message);
+      } else {
+        const lines = Array.isArray(item && item.diff_lines)
+          ? item.diff_lines
+          : [];
+
+        if (lines.length === 0) {
           const line = document.createElement('div');
-          const displayed = displayValue(value);
-          line.textContent = `${label}: ${displayed == null || displayed === '' ? '—' : displayed}`;
+          line.textContent = 'Aucun impact';
           preview.appendChild(line);
-        };
-
-        appendField('phase', item && item.phase);
-        appendField('target_time', item && item.target_time);
-        appendField('iso_applied', item && item.iso_applied);
-        appendField('exposures_s', item && item.exposures_s);
-        appendField('corrections', item && item.corrections);
-        appendField('warnings', item && item.warnings);
-        appendField('motion_policy', item && item.motion_policy);
-        if (item && item.error) {
-          appendField('error.code', item.error.code);
-          appendField('error.message', item.error.message);
+        } else {
+          lines.forEach(value => {
+            const line = document.createElement('div');
+            line.textContent = String(value);
+            preview.appendChild(line);
+          });
         }
-        body.appendChild(preview);
-      });
-    } catch (error) {
-      if (!body) return;
-      const message = document.createElement('div');
-      message.textContent = `error: RENDER_ERROR: ${error.message}`;
-      body.appendChild(message);
-    }
+      }
+
+      body.appendChild(preview);
+    });
   });
 }
 
-async function requestRigPreviews(intents) {
+async function requestRigPreviews(rigId, intents) {
   if (rigPreviewInFlight) return;
   if (!Array.isArray(intents) || intents.length === 0) {
     flash('configuration/circumstances incomplete', 'red');
     return;
   }
 
-  const previewButtons = Array.from(document.querySelectorAll('.rig-preview-button'));
-  const previousDisabledStates = previewButtons.map(button => button.disabled);
+  const previewButtons = Array.from(
+    document.querySelectorAll('.rig-preview-button')
+  );
+  const previousDisabledStates = previewButtons.map(
+    button => button.disabled
+  );
+
   rigPreviewInFlight = true;
   previewButtons.forEach(button => { button.disabled = true; });
+
   try {
-    try {
-      const response = await fetch('/api/rigs/preview', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({intents})
-      });
-      const responseJson = await response.text();
-      renderRigPreviews(responseJson);
-    } finally {
-      rigPreviewInFlight = false;
+    // Preview the values currently visible in this RIG without persisting
+    // them through /api/rigs/photo.
+    const currentRigPhoto = readRigPhotoConfig(rigId);
+    const rigOverride = {
+      optics: currentRigPhoto.optics,
+      photo: currentRigPhoto.photo
+    };
+
+    const response = await fetch('/api/rigs/preview', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        intents,
+        rig_id: Number(rigId),
+        rig_override: rigOverride
+      })
+    });
+
+    const responseJson = await response.text();
+    renderRigPreviews(responseJson, rigId);
+  } catch (error) {
+    const body = document.getElementById(`rig-preview-${rigId}`);
+    if (body) {
+      body.replaceChildren();
+      const message = document.createElement('div');
+      message.textContent = `Erreur : ${error.message}`;
+      body.appendChild(message);
     }
   } finally {
+    rigPreviewInFlight = false;
     previewButtons.forEach((button, index) => {
       button.disabled = previousDisabledStates[index];
     });
@@ -3963,7 +4314,6 @@ async function saveCameraConfig() {
     if (d.status === 'ok') {
       flash('Sauvegardé : ' + d.filename, 'green');
       loadCameraConfigList();
-      requestRigPreviews(buildPreviewIntents());
     }
     else flash(d.error || 'Erreur', 'red');
   } catch(e) { flash('Erreur réseau', 'red'); }

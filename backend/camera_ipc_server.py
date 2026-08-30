@@ -31,6 +31,11 @@ from backend.field_rotation import (
 )
 from backend.generic_worker import ExpiredJobError
 from backend.motion_constraint_resolver import resolve_motion_constraint
+from backend.motion_exposure_policy import (
+    DEFAULT_SENSOR_DB_PATH,
+    compute_motion_exposure_ceiling,
+    materialize_exposure_plan,
+)
 from backend.plan_cache import RigPlanCache, rig_plan_version
 from backend.sensor_db import load_sensor_db
 from backend.solar_position import (
@@ -47,12 +52,7 @@ from services.camera_service import CaptureIntent
 
 MAX_MESSAGE_BYTES = 65536
 MAX_WORKERS = 8
-_SENSOR_DB_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "data"
-    / "camera_sensors"
-    / "camera_sensors.v1.json"
-)
+_SENSOR_DB_PATH = DEFAULT_SENSOR_DB_PATH
 _ISO_PATTERN = re.compile(r"[0-9]+")
 _CORRECTION_ORDER = ("shutter_limited", "iso_compensated", "iso_rounded")
 _WARNING_ORDER = ("iso_capped",)
@@ -806,146 +806,127 @@ class CameraIpcServer:
     def _policy_intent(
         self, rig_id: int, intent: CaptureIntent, policy: dict
     ) -> tuple[CaptureIntent, int, list[str], list[str]]:
-        optics = policy.get("optics")
         photo = policy.get("photo")
-        devices = policy.get("devices")
-        camera = devices.get("camera") if isinstance(devices, dict) else None
-        if not isinstance(optics, dict) or not isinstance(photo, dict):
-            raise IpcError("POLICY_INVALID", "RIG policy snapshot is incomplete")
+        if not isinstance(photo, dict):
+            raise IpcError(
+                "POLICY_INVALID",
+                "RIG policy snapshot is incomplete",
+            )
 
-        focal_length = self._positive_number(
-            optics.get("focal_length_mm"), "focal_length_mm"
+        iso_max = self._positive_integer(
+            photo.get("iso_max"),
+            "iso_max",
         )
-        tolerance = self._positive_number(
-            photo.get("motion_tolerance_px"), "motion_tolerance_px"
+        iso_compensation_enabled = photo.get(
+            "iso_compensation_enabled",
+            True,
         )
-        iso_max = self._positive_integer(photo.get("iso_max"), "iso_max")
+        if not isinstance(iso_compensation_enabled, bool):
+            raise IpcError(
+                "POLICY_INVALID",
+                "iso_compensation_enabled must be a boolean",
+            )
+
         with self._state_lock:
             iso_requested = self._rig_iso_targets.get(rig_id)
-        if iso_requested is None:
-            raise IpcError("POLICY_INVALID", "ISO target is missing for RIG")
 
-        manufacturer = camera.get("manufacturer") if isinstance(camera, dict) else None
-        model = camera.get("model") if isinstance(camera, dict) else None
-        alias = camera.get("alias") if isinstance(camera, dict) else None
-        model_or_alias = model if isinstance(model, str) and model.strip() else alias
-        if not isinstance(manufacturer, str) or not manufacturer.strip():
-            raise IpcError("POLICY_INVALID", "camera manufacturer is missing")
-        if not isinstance(model_or_alias, str) or not model_or_alias.strip():
-            raise IpcError("POLICY_INVALID", "camera model or alias is missing")
+        if iso_requested is None:
+            raise IpcError(
+                "POLICY_INVALID",
+                "ISO target is missing for RIG",
+            )
 
         try:
-            sensor_db = load_sensor_db(str(_SENSOR_DB_PATH))
-            sensor = resolve_sensor_entry(manufacturer, model_or_alias, sensor_db)
-            pixel_pitch = self._positive_number(
-                sensor.get("pixel_pitch_um"), "pixel_pitch_um"
+            t_max = compute_motion_exposure_ceiling(
+                policy,
+                intent.target_time,
+                sensor_db_path=_SENSOR_DB_PATH,
             )
-            declination = solar_declination_deg_utc(intent.target_time)
-            t_max = max_exposure_time_fixed_mount(
-                pixel_pitch, focal_length, tolerance, declination
-            )
+            if t_max is None:
+                raise ValueError(
+                    "fixed-trailing exposure ceiling is unavailable"
+                )
+
             return self._materialize_policy_intent(
-                intent, iso_requested, iso_max, t_max
+                intent,
+                iso_requested,
+                iso_max,
+                t_max,
+                iso_compensation_enabled=iso_compensation_enabled,
             )
         except IpcError:
             raise
-        except (KeyError, OSError, TypeError, ValueError) as exc:
-            raise IpcError("POLICY_INVALID", f"anti-trailing policy failed: {exc}") from exc
+        except (
+            KeyError,
+            OSError,
+            OverflowError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise IpcError(
+                "POLICY_INVALID",
+                f"anti-trailing policy failed: {exc}",
+            ) from exc
 
     def _field_rotation_policy_intent(
         self, rig_id: int, intent: CaptureIntent, policy: dict
     ) -> tuple[CaptureIntent, int, list[str], list[str]] | None:
         try:
-            optics = policy.get("optics")
             photo = policy.get("photo")
-            devices = policy.get("devices")
-            camera = devices.get("camera") if isinstance(devices, dict) else None
-            eclipse = policy.get("eclipse")
-            reference_site = (
-                eclipse.get("reference_site") if isinstance(eclipse, dict) else None
-            )
-            if not isinstance(optics, dict) or not isinstance(photo, dict):
-                raise ValueError("RIG policy snapshot is incomplete")
+            if not isinstance(photo, dict):
+                raise ValueError(
+                    "RIG policy snapshot is incomplete"
+                )
 
-            focal_length = self._positive_number(
-                optics.get("focal_length_mm"), "focal_length_mm"
+            iso_max = self._positive_integer(
+                photo.get("iso_max"),
+                "iso_max",
             )
-            tolerance = self._positive_number(
-                photo.get("motion_tolerance_px"), "motion_tolerance_px"
+            iso_compensation_enabled = photo.get(
+                "iso_compensation_enabled",
+                True,
             )
-            iso_max = self._positive_integer(photo.get("iso_max"), "iso_max")
-            radius = self._field_rotation_coordinate(
-                photo.get("field_rotation_radius_deg"),
-                "field_rotation_radius_deg",
-                minimum=0.0,
-                maximum=90.0,
-                maximum_inclusive=False,
-            )
-            latitude = self._field_rotation_coordinate(
-                reference_site.get("lat") if isinstance(reference_site, dict) else None,
-                "reference_site.lat",
-                minimum=-90.0,
-                maximum=90.0,
-                minimum_inclusive=False,
-                maximum_inclusive=False,
-            )
-            longitude = self._field_rotation_coordinate(
-                reference_site.get("lon") if isinstance(reference_site, dict) else None,
-                "reference_site.lon",
-                minimum=-180.0,
-                maximum=180.0,
-            )
+            if not isinstance(iso_compensation_enabled, bool):
+                raise ValueError(
+                    "iso_compensation_enabled must be a boolean"
+                )
+
             with self._state_lock:
                 iso_requested = self._rig_iso_targets.get(rig_id)
+
             if iso_requested is None:
-                raise ValueError("ISO target is missing for RIG")
+                raise ValueError(
+                    "ISO target is missing for RIG"
+                )
 
-            manufacturer = (
-                camera.get("manufacturer") if isinstance(camera, dict) else None
+            t_max = compute_motion_exposure_ceiling(
+                policy,
+                intent.target_time,
+                sensor_db_path=_SENSOR_DB_PATH,
+                # Preserve the existing test/runtime injection point.
+                field_rotation_rate_fn=field_rotation_rate_deg_s,
             )
-            model = camera.get("model") if isinstance(camera, dict) else None
-            alias = camera.get("alias") if isinstance(camera, dict) else None
-            model_or_alias = model if isinstance(model, str) and model.strip() else alias
-            if not isinstance(manufacturer, str) or not manufacturer.strip():
-                raise ValueError("camera manufacturer is missing")
-            if not isinstance(model_or_alias, str) or not model_or_alias.strip():
-                raise ValueError("camera model or alias is missing")
 
-            sensor_db = load_sensor_db(str(_SENSOR_DB_PATH))
-            sensor = resolve_sensor_entry(manufacturer, model_or_alias, sensor_db)
-            pixel_pitch = self._positive_number(
-                sensor.get("pixel_pitch_um"), "pixel_pitch_um"
-            )
-            alpha, declination = solar_apparent_ra_dec_deg_utc(intent.target_time)
-            sidereal = greenwich_sidereal_deg_utc(intent.target_time)
-            hour_angle = local_hour_angle_deg(alpha, sidereal, longitude)
-            omega = field_rotation_rate_deg_s(latitude, declination, hour_angle)
-            if not all(
-                math.isfinite(value)
-                for value in (alpha, declination, sidereal, hour_angle, omega)
-            ):
-                raise ValueError("field-rotation calculation must be finite")
-            if omega == 0.0 or radius == 0.0:
+            if t_max is None:
                 return None
 
-            radius_mm = focal_length * math.tan(math.radians(radius))
-            radius_px = radius_mm * 1000.0 / pixel_pitch
-            t_max = tolerance / (abs(omega) * math.pi / 180.0 * radius_px)
-            if not all(
-                math.isfinite(value) and value > 0
-                for value in (radius_mm, radius_px, t_max)
-            ):
-                raise ValueError(
-                    "field-rotation exposure ceiling must be finite and positive"
-                )
             return self._materialize_policy_intent(
-                intent, iso_requested, iso_max, t_max
+                intent,
+                iso_requested,
+                iso_max,
+                t_max,
+                iso_compensation_enabled=iso_compensation_enabled,
             )
+
         except IpcError as exc:
-            reason = exc.message.removeprefix("anti-trailing policy failed: ")
+            reason = exc.message.removeprefix(
+                "anti-trailing policy failed: "
+            )
             raise IpcError(
-                "POLICY_INVALID", f"anti-trailing policy failed: {reason}"
+                "POLICY_INVALID",
+                f"anti-trailing policy failed: {reason}",
             ) from exc
+
         except (
             FieldRotationSingularityError,
             KeyError,
@@ -955,7 +936,8 @@ class CameraIpcServer:
             ValueError,
         ) as exc:
             raise IpcError(
-                "POLICY_INVALID", f"anti-trailing policy failed: {exc}"
+                "POLICY_INVALID",
+                f"anti-trailing policy failed: {exc}",
             ) from exc
 
     @staticmethod
@@ -985,66 +967,60 @@ class CameraIpcServer:
 
     @staticmethod
     def _materialize_policy_intent(
-        intent: CaptureIntent, iso_requested: int, iso_max: int, t_max: float
+        intent: CaptureIntent,
+        iso_requested: int,
+        iso_max: int,
+        t_max: float,
+        *,
+        iso_compensation_enabled: bool = True,
     ) -> tuple[CaptureIntent, int, list[str], list[str]]:
-        results = []
-        if intent.speeds is not None:
-            speeds = [str(speed) for speed in intent.speeds]
-            if not speeds:
-                raise IpcError("POLICY_INVALID", "explicit shutter list must not be empty")
-            for speed in speeds:
-                results.append(
-                    safe_shutter_and_iso(
-                        t_requested=speed,
-                        iso_requested=iso_requested,
-                        t_max=str(t_max),
-                        supported_shutters=DEFAULT_SUPPORTED_SHUTTERS,
-                        supported_isos=DEFAULT_SUPPORTED_ISOS,
-                        iso_max=iso_max,
-                    )
-                )
-            replacement = dataclasses.replace(
-                intent,
-                shutter_min=None,
-                shutter_max=None,
-                speeds=[result["shutter"] for result in results],
+        try:
+            materialized = materialize_exposure_plan(
+                speeds=(
+                    [str(speed) for speed in intent.speeds]
+                    if intent.speeds is not None
+                    else None
+                ),
+                shutter_min=(
+                    str(intent.shutter_min)
+                    if intent.shutter_min is not None
+                    else None
+                ),
+                shutter_max=(
+                    str(intent.shutter_max)
+                    if intent.shutter_max is not None
+                    else None
+                ),
+                step_ev=intent.step_ev,
+                iso_requested=iso_requested,
+                iso_max=iso_max,
+                t_max=t_max,
+                iso_compensation_enabled=iso_compensation_enabled,
             )
-        else:
-            if intent.shutter_min is None:
-                raise IpcError("POLICY_INVALID", "slowest shutter bound is missing")
-            applied_slowest = select_supported_shutter_at_or_below(
-                t_max, DEFAULT_SUPPORTED_SHUTTERS
-            )
-            results.append(
-                safe_shutter_and_iso(
-                    t_requested=intent.shutter_min,
-                    iso_requested=iso_requested,
-                    t_max=applied_slowest,
-                    supported_shutters=DEFAULT_SUPPORTED_SHUTTERS,
-                    supported_isos=DEFAULT_SUPPORTED_ISOS,
-                    iso_max=iso_max,
-                )
-            )
-            replacement = dataclasses.replace(
-                intent,
-                shutter_min=applied_slowest,
-                shutter_max=intent.shutter_max,
-                step_ev=float(intent.step_ev) if intent.step_ev is not None else 1.0,
-                speeds=None,
-            )
+        except (
+            ArithmeticError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise IpcError(
+                "POLICY_INVALID",
+                f"anti-trailing policy failed: {exc}",
+            ) from exc
 
-        iso_applied = max(result["iso"] for result in results)
-        corrections = [
-            item
-            for item in _CORRECTION_ORDER
-            if any(item in result["corrections"] for result in results)
-        ]
-        warnings = [
-            item
-            for item in _WARNING_ORDER
-            if any(item in result["warnings"] for result in results)
-        ]
-        return replacement, iso_applied, corrections, warnings
+        replacement = dataclasses.replace(
+            intent,
+            shutter_min=materialized["shutter_min"],
+            shutter_max=materialized["shutter_max"],
+            step_ev=materialized["step_ev"],
+            speeds=materialized["speeds"],
+        )
+
+        return (
+            replacement,
+            materialized["iso_applied"],
+            materialized["corrections"],
+            materialized["warnings"],
+        )
 
     @staticmethod
     def _validate_keys(

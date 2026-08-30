@@ -80,6 +80,7 @@ def test_legacy_migration_initializes_photo_flags(tmp_path):
     assert migrated["rigs"][0]["photo"] == {
         "atmos_enabled": True,
         "anti_trailing_enabled": False,
+        "iso_compensation_enabled": True,
     }
 
 
@@ -172,3 +173,17 @@ def test_partial_atmos_patch_is_merged(photo_api):
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["rigs"][0]["photo"]["atmos_enabled"] is True
     assert saved["rigs"][0]["photo"]["format"] == "RAW"
+
+
+def test_photo_get_returns_four_persisted_rig_configs(photo_api):
+    client, _config_path, original, _reloads, _emitted = photo_api
+
+    response = client.get("/api/rigs/photo")
+
+    assert response.status_code == 200
+    rigs = response.get_json()["rigs"]
+    assert [rig["rig_id"] for rig in rigs] == [1, 2, 3, 4]
+    assert rigs[0]["optics"] == original["rigs"][0]["optics"]
+    assert rigs[0]["photo"] == original["rigs"][0]["photo"]
+    assert rigs[3]["optics"] == original["rigs"][3]["optics"]
+    assert rigs[3]["photo"] == original["rigs"][3]["photo"]

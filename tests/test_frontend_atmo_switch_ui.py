@@ -62,8 +62,17 @@ def test_load_camera_config_uses_atmospheric_attenuation_and_defaults_false():
     load_logic = _camera_config_function("loadCameraConfig")
 
     assert re.search(
-        r"document\.getElementById\('cfg-atmo-switch'\)\.checked\s*=\s*Boolean\(\s*"
-        r"data\.exposure_correction\?\.atmospheric_attenuation_enabled\s*\)",
+        r"const\s+atmosEnabled\s*=\s*Boolean\(\s*"
+        r"data\.exposure_correction\?\.atmospheric_attenuation_enabled"
+        r"\s*\)",
         load_logic,
         re.DOTALL,
     )
+
+    assert re.search(
+        r"document\.getElementById\('cfg-atmo-switch'\)"
+        r"\.checked\s*=\s*atmosEnabled",
+        load_logic,
+    )
+
+    assert "await persistGlobalAtmos(atmosEnabled, false)" in load_logic

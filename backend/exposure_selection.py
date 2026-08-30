@@ -111,6 +111,7 @@ def safe_shutter_and_iso(
     supported_shutters=None,
     supported_isos=None,
     iso_max=None,
+    iso_compensation_enabled=True,
 ) -> dict:
     """Apply a shutter ceiling and compensate exposure with supported ISO."""
     shutters = (DEFAULT_SUPPORTED_SHUTTERS if supported_shutters is None
@@ -142,26 +143,32 @@ def safe_shutter_and_iso(
             requested_seconds, shutters
         )
 
-    required_iso = requested_iso * requested_seconds / applied_seconds
-    if not math.isclose(required_iso, requested_iso):
-        corrections.append("iso_compensated")
-    normalized_iso = normalize_iso_up(required_iso, isos)
-    if not math.isclose(normalized_iso, required_iso):
-        corrections.append("iso_rounded")
+    if not isinstance(iso_compensation_enabled, bool):
+        raise ValueError("ISO compensation flag must be a boolean")
 
-    applied_iso = normalized_iso
-    if iso_max is not None:
-        if isinstance(iso_max, bool):
-            raise ValueError("maximum ISO must be a positive integer")
-        try:
-            maximum_iso = int(iso_max)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("maximum ISO must be a positive integer") from exc
-        if maximum_iso != iso_max or maximum_iso <= 0:
-            raise ValueError("maximum ISO must be a positive integer")
-        if normalized_iso > maximum_iso:
-            applied_iso = maximum_iso
-            warnings.append("iso_capped")
+    if iso_compensation_enabled:
+        required_iso = requested_iso * requested_seconds / applied_seconds
+        if not math.isclose(required_iso, requested_iso):
+            corrections.append("iso_compensated")
+        normalized_iso = normalize_iso_up(required_iso, isos)
+        if not math.isclose(normalized_iso, required_iso):
+            corrections.append("iso_rounded")
+
+        applied_iso = normalized_iso
+        if iso_max is not None:
+            if isinstance(iso_max, bool):
+                raise ValueError("maximum ISO must be a positive integer")
+            try:
+                maximum_iso = int(iso_max)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("maximum ISO must be a positive integer") from exc
+            if maximum_iso != iso_max or maximum_iso <= 0:
+                raise ValueError("maximum ISO must be a positive integer")
+            if normalized_iso > maximum_iso:
+                applied_iso = maximum_iso
+                warnings.append("iso_capped")
+    else:
+        applied_iso = requested_iso
 
     return {
         "shutter": applied_shutter,

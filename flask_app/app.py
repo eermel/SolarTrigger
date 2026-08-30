@@ -206,11 +206,17 @@ from backend.preview_materializer import (
     PreviewMaterializationError,
     apply_atmos_if_enabled,
     assemble_exposures_s,
+    build_exposure_diff_lines,
     compute_iso_and_corrections,
+    expand_executable_shutters,
     normalize_intent_plan,
     resolve_policy,
 )
-from backend.preview_request import validate_and_normalize as validate_preview_request
+from backend.motion_exposure_policy import (
+    compute_motion_exposure_ceiling,
+    materialize_exposure_plan,
+)
+from backend.preview_request import validate_payload as validate_preview_request
 from backend.rig_config import save as save_rig_config, validate as validate_rig_config
 from backend.rig_manager import RigManager
 from backend.rig_runtime import (
@@ -673,9 +679,38 @@ def api_rigs_preview():
     except (OSError, json.JSONDecodeError, ValueError):
         return jsonify({"error": "rig configuration could not be loaded"}), 500
     try:
-        intents = validate_preview_request(payload, config)
+        intents, preview_rig_id, rig_override = validate_preview_request(
+            payload,
+            config,
+        )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+
+    # Preview overrides are deliberately ephemeral. Never mutate the object
+    # returned by the configuration loader and never save this copy.
+    config = deepcopy(config)
+
+    if preview_rig_id is not None:
+        target_rig = next(
+            (
+                rig
+                for rig in config.get("rigs", [])
+                if isinstance(rig, dict)
+                and rig.get("rig_id") == preview_rig_id
+            ),
+            None,
+        )
+        if target_rig is None:
+            return jsonify({
+                "error": f"RIG {preview_rig_id} does not exist in configuration"
+            }), 400
+
+        target_rig.setdefault("optics", {}).update(
+            deepcopy(rig_override["optics"])
+        )
+        target_rig.setdefault("photo", {}).update(
+            deepcopy(rig_override["photo"])
+        )
 
     eclipse_context = load_eclipse_context(JSON_FILE)
     materializer_context = {
@@ -686,6 +721,10 @@ def api_rigs_preview():
         (
             rig for rig in config.get("rigs", [])
             if isinstance(rig, dict)
+            and (
+                preview_rig_id is None
+                or rig.get("rig_id") == preview_rig_id
+            )
         ),
         key=lambda rig: rig.get("rig_id"),
     )
@@ -701,23 +740,121 @@ def api_rigs_preview():
                 "request_id": intent["request_id"],
             }
             try:
-                plan = normalize_intent_plan(intent)
+                original_plan = normalize_intent_plan(intent)
+                plan = original_plan
                 plan, atmos_applied, theoretical_slowest = apply_atmos_if_enabled(
                     rig, plan, intent["target_time"], materializer_context
                 )
-                iso_applied, corrections, warnings = compute_iso_and_corrections(
-                    intent["iso_target"],
-                    plan[2],
-                    rig.get("photo", {}),
-                    theoretical_slowest=theoretical_slowest,
+                motion_policy = resolve_policy(rig)
+                iso_requested = (
+                    int(intent["iso_target"])
+                    if intent["iso_target"] is not None
+                    else None
                 )
+
+                iso_applied = (
+                    str(iso_requested)
+                    if iso_requested is not None
+                    else None
+                )
+                corrections = []
+                warnings = []
+
+                if motion_policy != "none":
+                    if iso_requested is None:
+                        raise PreviewMaterializationError(
+                            "ISO target is missing"
+                        )
+
+                    policy = deepcopy(rig)
+                    policy["eclipse"] = deepcopy(
+                        config.get("eclipse", {})
+                    )
+
+                    t_max = compute_motion_exposure_ceiling(
+                        policy,
+                        intent["target_time"],
+                    )
+
+                    if t_max is not None:
+                        regular, fastest, slowest, step, speeds = plan
+                        materialized = materialize_exposure_plan(
+                            speeds=(
+                                list(speeds)
+                                if speeds is not None
+                                else None
+                            ),
+                            shutter_min=(
+                                None if speeds is not None else slowest
+                            ),
+                            shutter_max=(
+                                None if speeds is not None else fastest
+                            ),
+                            step_ev=step,
+                            iso_requested=iso_requested,
+                            iso_max=int(
+                                rig.get("photo", {}).get("iso_max", 6400)
+                            ),
+                            t_max=t_max,
+                            iso_compensation_enabled=(
+                                rig.get("photo", {}).get(
+                                    "iso_compensation_enabled",
+                                    True,
+                                )
+                            ),
+                        )
+
+                        if materialized["speeds"] is not None:
+                            plan = (
+                                False,
+                                materialized["speeds"][0],
+                                materialized["speeds"][-1],
+                                step,
+                                materialized["speeds"],
+                            )
+                        else:
+                            plan = (
+                                True,
+                                materialized["shutter_max"],
+                                materialized["shutter_min"],
+                                materialized["step_ev"],
+                                None,
+                            )
+
+                        iso_applied = str(
+                            materialized["iso_applied"]
+                        )
+                        corrections = materialized["corrections"]
+                        warnings = materialized["warnings"]
+
+                original_shutters = expand_executable_shutters(
+                    rig,
+                    original_plan,
+                )
+                final_shutters = expand_executable_shutters(
+                    rig,
+                    plan,
+                )
+                final_iso = (
+                    int(iso_applied)
+                    if iso_applied is not None
+                    else iso_requested
+                )
+                diff_lines = build_exposure_diff_lines(
+                    original_shutters,
+                    iso_requested,
+                    final_shutters,
+                    final_iso,
+                )
+
                 item.update({
                     "exposures_s": assemble_exposures_s(plan),
                     "iso_applied": iso_applied,
                     "corrections": corrections,
                     "warnings": warnings,
                     "atmos_applied": atmos_applied,
-                    "motion_policy": resolve_policy(rig),
+                    "motion_policy": motion_policy,
+                    "diff_lines": diff_lines,
                     "error": None,
                 })
             except (
@@ -851,9 +988,32 @@ def api_rig_devices_post():
     })
 
 
-@app.route("/api/rigs/photo", methods=["POST"])
+@app.route("/api/rigs/photo", methods=["GET", "POST"])
 def api_rig_photo_post():
-    """Persist validated optics and photo patches without touching hardware."""
+    """Read or persist per-RIG optics/photo configuration without hardware access."""
+    if request.method == "GET":
+        try:
+            config = load_rig_configuration()
+        except (OSError, json.JSONDecodeError, ValueError):
+            return jsonify({"error": "rig configuration could not be loaded"}), 500
+
+        rigs_by_id = {
+            rig.get("rig_id"): rig
+            for rig in config.get("rigs", [])
+            if isinstance(rig, dict)
+        }
+
+        rigs = []
+        for rig_id in range(1, 5):
+            rig = rigs_by_id.get(rig_id) or _new_rig_scaffold(rig_id)
+            rigs.append({
+                "rig_id": rig_id,
+                "optics": deepcopy(rig.get("optics", {})),
+                "photo": deepcopy(rig.get("photo", {})),
+            })
+
+        return jsonify({"rigs": rigs})
+
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict) or set(payload) != {"rigs"}:
         return jsonify({"error": "payload must contain only a rigs array"}), 400
@@ -906,16 +1066,26 @@ def api_rig_photo_post():
                     f"{prefix}.optics.focal_length_mm",
                     nullable=True,
                 )
-            for field in ("atmos_enabled", "anti_trailing_enabled"):
+            for field in (
+                "atmos_enabled",
+                "anti_trailing_enabled",
+                "iso_compensation_enabled",
+            ):
                 if field in photo_patch and not isinstance(photo_patch[field], bool):
                     raise ValueError(f"{prefix}.photo.{field} must be a boolean")
-            for field in ("motion_tolerance_px", "iso_max"):
-                if field in photo_patch:
-                    _validate_positive_number(
-                        photo_patch[field],
-                        f"{prefix}.photo.{field}",
-                        integer=True,
-                    )
+
+            if "motion_tolerance_px" in photo_patch:
+                _validate_positive_number(
+                    photo_patch["motion_tolerance_px"],
+                    f"{prefix}.photo.motion_tolerance_px",
+                )
+
+            if "iso_max" in photo_patch:
+                _validate_positive_number(
+                    photo_patch["iso_max"],
+                    f"{prefix}.photo.iso_max",
+                    integer=True,
+                )
 
             target = rigs_by_id[rig_id]
             target.setdefault("optics", {}).update(deepcopy(optics_patch))
