@@ -21,7 +21,11 @@ if 'gphoto2' not in sys.modules:
 
 import math
 
-from backend.atmo import facteur_atmospherique, interpolate_altitude
+from backend.atmo import (
+    facteur_atmospherique,
+    interpolate_altitude,
+    validate_atmospheric_timeline,
+)
 from backend.timeline import build_timeline, rebase_timeline
 from scripts import eclipse_trigger as trig
 from scripts import eclipse_calculator_jubier as gen
@@ -43,6 +47,35 @@ def test_airmass_clamped_for_negative_altitude():
     f1 = facteur_atmospherique(-1.0, 0.0)
     f2 = facteur_atmospherique(-10.0, 0.0)
     assert abs(f1 - f2) < 1e-9
+
+
+def test_atmos_timeline_rejects_placeholder_equal_contacts():
+    t = datetime(2027, 2, 6, 0, 0, 0)
+    timeline = {
+        "C1": t,
+        "C2": t,
+        "TMAX": t,
+        "C3": t,
+        "C4": t,
+    }
+
+    with pytest.raises(ValueError, match="C1 < C2 < TMAX < C3 < C4"):
+        validate_atmospheric_timeline(timeline)
+
+
+def test_atmos_timeline_accepts_real_zero_degree_solar_altitude():
+    t = datetime(2027, 8, 2, 8, 0, 0)
+    timeline = {
+        "C1": t,
+        "C2": t + timedelta(hours=1),
+        "TMAX": t + timedelta(hours=1, minutes=1),
+        "C3": t + timedelta(hours=1, minutes=2),
+        "C4": t + timedelta(hours=2),
+    }
+
+    # Chronology validation is deliberately independent of solar altitude.
+    assert validate_atmospheric_timeline(timeline) is None
+    assert facteur_atmospherique(0.0, 0.0) > 1.0
 
 
 def test_linear_interpolation_midpoint():
@@ -125,6 +158,39 @@ def test_atmo_reference_is_always_sea_level():
     # Since normalization remains F(90°, 0 m), the factor must not stay 1.
     assert factor_3000m != pytest.approx(1.0, abs=1e-6)
     assert factor_3000m < 1.0
+
+def test_runtime_atmos_rejects_placeholder_equal_contacts():
+    t = datetime(2027, 2, 6, 0, 0, 0)
+    timeline = {
+        "C1": t,
+        "C2": t,
+        "TMAX": t,
+        "C3": t,
+        "C4": t,
+    }
+    altitudes = {
+        "C1_alt_deg": 0.0,
+        "C2_alt_deg": 0.0,
+        "TMAX_alt_deg": 0.0,
+        "C3_alt_deg": 0.0,
+        "C4_alt_deg": 0.0,
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match="C1 < C2 < TMAX < C3 < C4",
+    ):
+        trig._extend_regular_ev_for_atmosphere(
+            None,
+            "1/500",
+            "1/2000",
+            1.0,
+            t,
+            timeline,
+            altitudes,
+            79.0,
+        )
+
 
 def test_regular_bracket_extends_only_slowest_bound_with_atmo(monkeypatch):
     # Prepare trigger module globals

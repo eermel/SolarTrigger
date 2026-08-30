@@ -44,6 +44,40 @@ def test_atmos_is_per_rig_and_requires_complete_context(monkeypatch):
     assert error.value.code == "CONFIG_INVALID"
 
 
+def test_preview_atmos_rejects_placeholder_equal_contacts():
+    target = datetime(2027, 2, 6, 0, 0, 0)
+    timeline = {
+        "C1": target,
+        "C2": target,
+        "TMAX": target,
+        "C3": target,
+        "C4": target,
+    }
+    context = {
+        "timeline": timeline,
+        "altitudes": {
+            "C1_alt_deg": 0.0,
+            "C2_alt_deg": 0.0,
+            "TMAX_alt_deg": 0.0,
+            "C3_alt_deg": 0.0,
+            "C4_alt_deg": 0.0,
+        },
+        "location": {"altitude_m": 79.0},
+    }
+    plan = (True, "1/2000", "1/500", 1.0, None)
+
+    with pytest.raises(
+        materializer.PreviewMaterializationError,
+        match="invalid",
+    ):
+        materializer.apply_atmos_if_enabled(
+            {"photo": {"atmos_enabled": True}},
+            plan,
+            target,
+            context,
+        )
+
+
 def test_iso_diagnostics_are_ordered_and_deduplicated(monkeypatch):
     monkeypatch.setattr(materializer, "safe_shutter_and_iso", lambda *args, **kwargs: {
         "iso": 400,

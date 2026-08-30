@@ -6,7 +6,11 @@ import math
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from backend.atmo import facteur_atmospherique, interpolate_altitude
+from backend.atmo import (
+    facteur_atmospherique,
+    interpolate_altitude,
+    validate_atmospheric_timeline,
+)
 from backend.exposure_selection import (
     DEFAULT_SUPPORTED_ISOS,
     DEFAULT_SUPPORTED_SHUTTERS,
@@ -114,9 +118,11 @@ def apply_atmos_if_enabled(
         )
 
     try:
+        atmospheric_timeline = dict(timeline)
+        validate_atmospheric_timeline(atmospheric_timeline)
         solar_altitude = interpolate_altitude(
             target_time,
-            dict(timeline),
+            atmospheric_timeline,
             dict(altitudes),
         )
         factor = facteur_atmospherique(solar_altitude, altitude_m)
