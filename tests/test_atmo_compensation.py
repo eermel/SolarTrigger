@@ -474,3 +474,75 @@ def test_atmo_regular_bracket_keeps_monotonic_deadline(monkeypatch):
         1.0 / 31.25,
         abs=1e-12,
     )
+
+
+
+def test_partial_interpolation_uses_c1_tmax_c4():
+    c1 = datetime(2026, 8, 12, 17, 0, 0)
+    tmax = datetime(2026, 8, 12, 18, 0, 0)
+    c4 = datetime(2026, 8, 12, 19, 0, 0)
+
+    timeline = {
+        "C1": c1,
+        "TMAX": tmax,
+        "C4": c4,
+    }
+    altitudes = {
+        "C1_alt_deg": 20.0,
+        "C2_alt_deg": None,
+        "TMAX_alt_deg": 10.0,
+        "C3_alt_deg": None,
+        "C4_alt_deg": 0.0,
+    }
+
+    assert interpolate_altitude(
+        c1 + timedelta(minutes=30),
+        timeline,
+        altitudes,
+    ) == pytest.approx(15.0)
+
+    assert interpolate_altitude(
+        tmax + timedelta(minutes=30),
+        timeline,
+        altitudes,
+    ) == pytest.approx(5.0)
+
+
+def test_runtime_partial_atmos_does_not_require_c2_c3(monkeypatch):
+    c1 = datetime(2026, 8, 12, 17, 0, 0)
+    tmax = datetime(2026, 8, 12, 18, 0, 0)
+    c4 = datetime(2026, 8, 12, 19, 0, 0)
+
+    timeline = {
+        "C1": c1,
+        "TMAX": tmax,
+        "C4": c4,
+    }
+    altitudes = {
+        "C1_alt_deg": 20.0,
+        "C2_alt_deg": None,
+        "TMAX_alt_deg": 10.0,
+        "C3_alt_deg": None,
+        "C4_alt_deg": 5.0,
+    }
+
+    monkeypatch.setattr(
+        trig,
+        "facteur_atmospherique",
+        lambda _h, _H: 4.0,
+    )
+
+    updated, bounds, added = trig._extend_regular_ev_for_atmosphere(
+        None,
+        "1/500",
+        "1/2000",
+        1.0,
+        tmax,
+        timeline,
+        altitudes,
+        69.0,
+    )
+
+    assert updated is None
+    assert added is True
+    assert bounds[0] == "1/125"

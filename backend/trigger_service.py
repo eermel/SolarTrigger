@@ -2,23 +2,93 @@ from __future__ import annotations
 from pathlib import Path
 import json, os, subprocess, sys, threading, time
 from datetime import datetime, timezone
-from backend.timeline import parse_date_from_config, sequence_seconds
+from backend.timeline import build_timeline, parse_date_from_config, sequence_seconds
 
 class TriggerValidationError(RuntimeError):
     def __init__(self, message, code="TRIGGER_INVALID"):
         super().__init__(message); self.code = code
 
 def validate_eclipse(ecl):
-    ts,c1,c2,c3,c4,te=sequence_seconds(ecl); errors=[]
-    if c1 is None or c4 is None: errors.append("C1 ou C4 manquant")
-    else:
-        if ts is not None and ts >= c1: errors.append(f"TSTART ({ecl.get('TSTART')}) ≥ C1 ({ecl.get('C1')})")
-        if c2 is not None and c1 >= c2: errors.append(f"C1 ({ecl.get('C1')}) ≥ C2 ({ecl.get('C2')})")
-        if c2 is not None and c3 is not None and c2 > c3: errors.append(f"C2 ({ecl.get('C2')}) > C3 ({ecl.get('C3')})")
-        if c3 is not None and c3 >= c4: errors.append(f"C3 ({ecl.get('C3')}) ≥ C4 ({ecl.get('C4')})")
-        if te is not None and c4 >= te: errors.append(f"C4 ({ecl.get('C4')}) ≥ TEND ({ecl.get('TEND')})")
-    if errors: raise TriggerValidationError("❌ JSON incohérent : " + " | ".join(errors), "JSON_INVALID")
+    ts, c1, c2, c3, c4, te = sequence_seconds(ecl)
+    errors = []
 
+    if c1 is None or c4 is None:
+        errors.append("C1 ou C4 manquant")
+    else:
+        if ts is not None and ts >= c1:
+            errors.append(
+                f"TSTART ({ecl.get('TSTART')}) ≥ C1 ({ecl.get('C1')})"
+            )
+
+        if (c2 is None) != (c3 is None):
+            errors.append(
+                "C2 et C3 doivent être tous deux présents ou absents"
+            )
+
+        elif c2 is not None:
+            # Eclipse centrale. TMAX reste facultatif pour compatibilité
+            # avec les anciens fichiers.
+            if c1 >= c2:
+                errors.append(
+                    f"C1 ({ecl.get('C1')}) ≥ C2 ({ecl.get('C2')})"
+                )
+
+            if c2 > c3:
+                errors.append(
+                    f"C2 ({ecl.get('C2')}) > C3 ({ecl.get('C3')})"
+                )
+
+            if c3 >= c4:
+                errors.append(
+                    f"C3 ({ecl.get('C3')}) ≥ C4 ({ecl.get('C4')})"
+                )
+
+            if ecl.get("TMAX"):
+                try:
+                    tl = build_timeline(
+                        ecl,
+                        fallback_date=datetime.now().date(),
+                    )
+                    if not (
+                        tl["C2"]
+                        < tl["TMAX"]
+                        < tl["C3"]
+                    ):
+                        errors.append(
+                            "C2 < TMAX < C3 non respecté"
+                        )
+                except Exception as exc:
+                    errors.append(f"TMAX invalide: {exc}")
+
+        else:
+            # Eclipse partielle : C2 et C3 n'existent pas.
+            if ecl.get("TMAX"):
+                try:
+                    tl = build_timeline(
+                        ecl,
+                        fallback_date=datetime.now().date(),
+                    )
+                    if not (
+                        tl["C1"]
+                        < tl["TMAX"]
+                        < tl["C4"]
+                    ):
+                        errors.append(
+                            "C1 < TMAX < C4 non respecté"
+                        )
+                except Exception as exc:
+                    errors.append(f"TMAX invalide: {exc}")
+
+        if te is not None and c4 >= te:
+            errors.append(
+                f"C4 ({ecl.get('C4')}) ≥ TEND ({ecl.get('TEND')})"
+            )
+
+    if errors:
+        raise TriggerValidationError(
+            "❌ JSON incohérent : " + " | ".join(errors),
+            "JSON_INVALID",
+        )
 
 def validate_execution_rigs(config):
     """Validate rig requirements only when real hardware execution starts."""

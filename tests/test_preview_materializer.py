@@ -288,3 +288,44 @@ def test_sony_executable_preview_uses_real_sony_planner():
             expected.extend(str(view) for view in item.views)
 
     assert shutters == expected
+
+
+
+def test_preview_atmos_accepts_partial_eclipse_context(monkeypatch):
+    c1 = datetime(2026, 8, 12, 17, 0, 0)
+    tmax = datetime(2026, 8, 12, 18, 0, 0)
+    c4 = datetime(2026, 8, 12, 19, 0, 0)
+
+    context = {
+        "timeline": {
+            "C1": c1,
+            "TMAX": tmax,
+            "C4": c4,
+        },
+        "altitudes": {
+            "C1_alt_deg": 20.0,
+            "C2_alt_deg": None,
+            "TMAX_alt_deg": 10.0,
+            "C3_alt_deg": None,
+            "C4_alt_deg": 5.0,
+        },
+        "location": {"altitude_m": 69.0},
+    }
+
+    monkeypatch.setattr(
+        materializer,
+        "facteur_atmospherique",
+        lambda _h, _alt: 4.0,
+    )
+
+    plan = (True, "1/2000", "1/500", 1.0, None)
+
+    updated, applied, _ = materializer.apply_atmos_if_enabled(
+        {"photo": {"atmos_enabled": True}},
+        plan,
+        tmax,
+        context,
+    )
+
+    assert applied is True
+    assert updated[2] == "1/125"

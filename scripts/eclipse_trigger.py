@@ -609,7 +609,9 @@ _atmos_enabled_by_rig = MappingProxyType(deepcopy({
     )
 }))
 _atmos_timeline = MappingProxyType(deepcopy({
-    name: _timeline[name] for name in ("C1", "C2", "TMAX", "C3", "C4")
+    name: _timeline[name]
+    for name in ("C1", "C2", "TMAX", "C3", "C4")
+    if name in _timeline
 }))
 _atmos_altitudes = MappingProxyType(deepcopy({
     name: astronomy(name) if circumstances else cfg.get(name)
@@ -628,19 +630,20 @@ _per_rig_atmo_active = any(_atmos_enabled_by_rig.values())
 
 TSTART = _timeline["TSTART"]
 C1 = _timeline["C1"]
-C2 = _timeline["C2"]
+C2 = _timeline.get("C2")
 TMAX = _timeline["TMAX"]
-C3 = _timeline["C3"]
+C3 = _timeline.get("C3")
 C4 = _timeline["C4"]
 TEND = _timeline["TEND"]
 
-## Détecter si l'éclipse est partielle
-is_partial = False
-if cfg.get("_type") and "partielle" in cfg.get("_type", "").lower():
-    is_partial = True
-elif not cfg.get("C2") or not cfg.get("C3"):
-    # Si C2 ou C3 sont vides ou nuls, c'est une éclipse partielle
-    is_partial = True
+## Détecter la topologie locale de l'éclipse.
+if (C2 is None) != (C3 is None):
+    raise RuntimeError(
+        "circonstances invalides : C2 et C3 doivent être "
+        "tous deux présents ou absents"
+    )
+
+is_partial = C2 is None and C3 is None
 
 _log(f"{Colors.CYAN}Type d'éclipse : {'Partielle' if is_partial else 'Totale'}{Colors.RESET}")
 
@@ -918,41 +921,36 @@ def _extend_regular_ev_for_atmosphere(
     observer_altitude,
 ):
     """Extend a regular EV bracket for atmospheric attenuation."""
+
     if observer_altitude is None:
         raise RuntimeError(
             "atmo_compensation actif : altitude observateur manquante"
         )
-
-    if any(value is None for value in altitudes.values()):
-        raise RuntimeError(
-            "atmo_compensation actif : "
-            "altitude C1/C2/TMAX/C3/C4 manquante"
-        )
-
-    try:
-        tl = {
-            key: timeline[key]
-            for key in ("C1", "C2", "TMAX", "C3", "C4")
-        }
-    except KeyError as exc:
-        raise RuntimeError(
-            f"atmo_compensation actif : timestamp {exc.args[0]} manquant"
-        ) from exc
 
     if target_time is None:
         raise RuntimeError(
             "atmo_compensation actif : timestamp capture manquant"
         )
 
+    tl = {
+        key: timeline[key]
+        for key in ("C1", "C2", "TMAX", "C3", "C4")
+        if key in timeline and timeline[key] is not None
+    }
+
     try:
         validate_atmospheric_timeline(tl)
+        h = interpolate_altitude(target_time, tl, altitudes)
     except ValueError as exc:
         raise RuntimeError(
             f"atmo_compensation actif : {exc}"
         ) from exc
 
-    h = interpolate_altitude(target_time, tl, altitudes)
-    facteur = facteur_atmospherique(h, float(observer_altitude))
+    facteur = facteur_atmospherique(
+        h,
+        float(observer_altitude),
+    )
+
     updated_speeds = None if speeds is None else list(speeds)
     slowest = shutter_min
     slowest_seconds = parse_shutterspeed(slowest)
@@ -961,13 +959,17 @@ def _extend_regular_ev_for_atmosphere(
 
     while next_exposure < target_slowest:
         if updated_speeds is not None:
-            updated_speeds.append(_format_seconds_as_speed(next_exposure))
+            updated_speeds.append(
+                _format_seconds_as_speed(next_exposure)
+            )
         next_exposure *= 2.0 ** step_ev
 
     added = target_slowest > slowest_seconds
     if added:
         if updated_speeds is not None:
-            updated_speeds.append(_format_seconds_as_speed(next_exposure))
+            updated_speeds.append(
+                _format_seconds_as_speed(next_exposure)
+            )
         else:
             shutter_min = _format_seconds_as_speed(next_exposure)
 
@@ -1456,9 +1458,11 @@ def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, 
             alts = {name: astronomy(name) if circumstances else cfg.get(name) for name in (
                 "C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg", "C3_alt_deg", "C4_alt_deg"
             )}
-            if any(value is None for value in alts.values()):
-                raise RuntimeError("altitudes de contact manquantes")
-            altitude = interpolate_altitude(next_shot_time, _timeline, alts)
+            altitude = interpolate_altitude(
+                next_shot_time,
+                _timeline,
+                alts,
+            )
             slowest_override_seconds = (
                 parse_shutterspeed(slowest)
                 * facteur_atmospherique(altitude, float(loc["altitude_m"]))
@@ -1743,7 +1747,7 @@ def main():
         
         _log(f"{Colors.GREEN}### SETUP - CONTACTS{Colors.RESET}")
         _log(f"C1 : {format_hms_ms(C1)}")
-        if is_partial:
+        if not is_partial:
             _log(f"C2 : {format_hms_ms(C2)}")
             _log(f"C3 : {format_hms_ms(C3)}")
         _log(f"C4 : {format_hms_ms(C4)}")
