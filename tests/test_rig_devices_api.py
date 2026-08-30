@@ -9,6 +9,7 @@ def _with_photo_defaults(rig):
     photo = result.setdefault("photo", {})
     photo.setdefault("atmos_enabled", False)
     photo.setdefault("anti_trailing_enabled", False)
+    photo.setdefault("mechanical_vibration_enabled", False)
     photo.setdefault("motion_tolerance_px", 1.0)
     photo.setdefault("iso_compensation_enabled", True)
     photo.setdefault("iso_max", 6400)
@@ -297,6 +298,7 @@ def test_rig_devices_post_persists_single_rig_merge_and_reloads_manager(
         assert persisted["rigs"][0]["photo"][key] == value
     assert persisted["rigs"][0]["photo"]["atmos_enabled"] is False
     assert persisted["rigs"][0]["photo"]["anti_trailing_enabled"] is False
+    assert persisted["rigs"][0]["photo"]["mechanical_vibration_enabled"] is False
     assert persisted["rigs"][0]["photo"]["motion_tolerance_px"] == 1.0
     assert persisted["rigs"][0]["photo"]["iso_compensation_enabled"] is True
     assert persisted["rigs"][0]["photo"]["iso_max"] == 6400

@@ -62,6 +62,7 @@ def canonical_rig_defaults(
         "photo": {
             "atmos_enabled": bool(atmos_enabled),
             "anti_trailing_enabled": False,
+            "mechanical_vibration_enabled": False,
             "motion_tolerance_px": DEFAULT_MOTION_TOLERANCE_PX,
             "iso_compensation_enabled": True,
             "iso_max": DEFAULT_ISO_MAX,
@@ -92,6 +93,7 @@ def normalize_rig_defaults(obj: Any) -> Any:
         if isinstance(photo, dict):
             photo.setdefault("atmos_enabled", global_atmos)
             photo.setdefault("anti_trailing_enabled", False)
+            photo.setdefault("mechanical_vibration_enabled", False)
             photo.setdefault(
                 "motion_tolerance_px",
                 DEFAULT_MOTION_TOLERANCE_PX,
@@ -208,7 +210,14 @@ def validate(obj: Any) -> None:
                     )
 
         _require(isinstance(rig.get("optics"), dict), f"{prefix}.optics must be an object")
-        _require(isinstance(rig.get("photo"), dict), f"{prefix}.photo must be an object")
+
+        photo = rig.get("photo")
+        _require(isinstance(photo, dict), f"{prefix}.photo must be an object")
+        if "mechanical_vibration_enabled" in photo:
+            _require(
+                isinstance(photo["mechanical_vibration_enabled"], bool),
+                f"{prefix}.photo.mechanical_vibration_enabled must be a boolean",
+            )
 
 
 def load(path: str | PathLike[str]) -> Any:
