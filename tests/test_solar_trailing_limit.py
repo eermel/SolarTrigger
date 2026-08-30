@@ -7,9 +7,9 @@ from backend.solar_trailing import max_exposure_time_fixed_mount
 
 def test_baseline_numeric_zero_declination():
     expected_seconds = {
-        0.5: 68.57,
-        1.0: 137.13,
-        2.0: 274.27,
+        0.5: 0.06857,
+        1.0: 0.13713,
+        2.0: 0.27427,
     }
 
     for tolerance_pixels, expected in expected_seconds.items():
@@ -79,3 +79,29 @@ def test_invalid_inputs_raise_value_error(
             tolerance_pixels,
             declination_deg,
         )
+
+
+
+def test_egypt_2027_real_camera_pixel_scales():
+    # Solar declination corresponding to the 2027-08-02 TMAX test case.
+    declination_deg = 17.75807377
+
+    d850 = max_exposure_time_fixed_mount(
+        pixel_pitch_um=4.3484,
+        focal_length_mm=430.0,
+        tolerance_pixels=1.0,
+        solar_declination_deg=declination_deg,
+    )
+
+    a7v = max_exposure_time_fixed_mount(
+        pixel_pitch_um=5.1227,
+        focal_length_mm=430.0,
+        tolerance_pixels=1.0,
+        solar_declination_deg=declination_deg,
+    )
+
+    assert d850 == pytest.approx(0.145616, rel=1e-4)
+    assert a7v == pytest.approx(0.171545, rel=1e-4)
+
+    # Larger pixels tolerate a slightly longer exposure.
+    assert a7v > d850

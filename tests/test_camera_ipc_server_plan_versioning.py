@@ -57,7 +57,7 @@ def capture_intent():
         "shutter_min": None,
         "shutter_max": None,
         "step_ev": 1.0,
-        "speeds": ["4"],
+        "speeds": ["1/4"],
         "phase": "C2",
         "target_time": "2026-08-12T18:00:00Z",
         "deadline": None,
