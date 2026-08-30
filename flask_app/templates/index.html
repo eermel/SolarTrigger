@@ -2341,6 +2341,9 @@ socket.on('disconnect', () => flash('Déconnecté', 'red'));
 socket.on('gps_sync_done', async d => {
   resetGpsActionButtons();
 
+  const copyLocation = _pendingGpsLocationCopy;
+  _pendingGpsLocationCopy = false;
+
   _updateGpsBadge(d && d.synced === true);
 
   // Toujours relire le snapshot GPS complet :
@@ -2350,6 +2353,12 @@ socket.on('gps_sync_done', async d => {
     if (response.ok) {
       const gps = await response.json();
       updateGPS(gps);
+
+      // Copie ponctuelle uniquement si CETTE action opérateur demandait
+      // explicitement une acquisition de position.
+      if (copyLocation && d && d.synced === true) {
+        copyGpsLocationToEclipseForm(gps);
+      }
     }
   } catch (e) {
     console.warn('Impossible de rafraîchir l\'état GPS:', e);
@@ -3151,18 +3160,9 @@ function updateGPS(gps) {
     }
   }
 
-  // Pré-remplir le formulaire éclipse
-  if (gps.lat != null) document.getElementById('inp-lat').value = gps.lat.toFixed(5);
-  if (gps.lon != null) document.getElementById('inp-lon').value = gps.lon.toFixed(5);
-  if (gps.alt != null) document.getElementById('inp-alt').value = Math.round(gps.alt);
-  // Pré-remplir le fuseau UTC+ avec la timezone GPS actuelle
-  if (gps.timezone) {
-    const m = gps.timezone.match(/UTC([+-]?\d+(?:\.\d+)?)/);
-    if (m) {
-      const tzEl = document.getElementById('inp-tz');
-      if (tzEl) tzEl.value = parseFloat(m[1]);
-    }
-  }
+  // IMPORTANT :
+  // updateGPS() est appelé périodiquement par status_update/gps_update.
+  // Il ne doit jamais écraser les champs éditables de préparation d'éclipse.
 }
 
 const PHASE_LABELS = {
@@ -3531,6 +3531,29 @@ function fmt(n) { return String(n).padStart(2,'0'); }
 // ════════════════════════════════════════════════════════════════
 // ACTIONS
 // ════════════════════════════════════════════════════════════════
+// Copie ponctuelle de la dernière position GPS dans le formulaire Eclipse.
+// Cette fonction ne doit être appelée qu'après une action opérateur demandant
+// explicitement une acquisition de position.
+function copyGpsLocationToEclipseForm(gps) {
+  if (!gps) return;
+
+  const latEl = document.getElementById('inp-lat');
+  const lonEl = document.getElementById('inp-lon');
+  const altEl = document.getElementById('inp-alt');
+  const tzEl  = document.getElementById('inp-tz');
+
+  if (latEl && gps.lat != null) latEl.value = gps.lat.toFixed(5);
+  if (lonEl && gps.lon != null) lonEl.value = gps.lon.toFixed(5);
+  if (altEl && gps.alt != null) altEl.value = Math.round(gps.alt);
+
+  if (tzEl && gps.timezone) {
+    const m = gps.timezone.match(/UTC([+-]?\d+(?:\.\d+)?)/);
+    if (m) tzEl.value = parseFloat(m[1]);
+  }
+}
+
+let _pendingGpsLocationCopy = false;
+
 const GPS_ACTION_BUTTONS = {
   'btn-gps-sync-time-location': 'SYNC TIME & LOCATION',
   'btn-gps-sync-time': 'SYNC TIME',
@@ -3544,7 +3567,9 @@ function resetGpsActionButtons() {
   });
 }
 
-async function runGpsAction(buttonId, request, startedMessage) {
+async function runGpsAction(buttonId, request, startedMessage, copyLocation = false) {
+  _pendingGpsLocationCopy = copyLocation;
+
   const buttons = Object.keys(GPS_ACTION_BUTTONS).map(id => document.getElementById(id)).filter(Boolean);
   const btn = document.getElementById(buttonId);
   buttons.forEach(button => { button.disabled = true; });
@@ -3553,6 +3578,7 @@ async function runGpsAction(buttonId, request, startedMessage) {
     const r = await request;
     const d = await r.json();
     if (!r.ok || d.error) {
+      _pendingGpsLocationCopy = false;
       flash(d.error || `Erreur HTTP ${r.status}`, 'red');
       resetGpsActionButtons();
     } else {
@@ -3561,24 +3587,37 @@ async function runGpsAction(buttonId, request, startedMessage) {
       setTimeout(resetGpsActionButtons, 90000);
     }
   } catch(e) {
+    _pendingGpsLocationCopy = false;
     flash('Erreur réseau', 'red');
     resetGpsActionButtons();
   }
 }
 
 function syncGpsTimeLocation() {
-  return runGpsAction('btn-gps-sync-time-location',
-    fetch('/api/gps/sync_time_location', { method: 'POST' }), 'Synchronisation heure et position lancée…');
+  return runGpsAction(
+    'btn-gps-sync-time-location',
+    fetch('/api/gps/sync_time_location', { method: 'POST' }),
+    'Synchronisation heure et position lancée…',
+    true
+  );
 }
 
 function syncGpsTime() {
-  return runGpsAction('btn-gps-sync-time',
-    fetch('/api/gps/sync_time', { method: 'POST' }), 'Synchronisation heure lancée…');
+  return runGpsAction(
+    'btn-gps-sync-time',
+    fetch('/api/gps/sync_time', { method: 'POST' }),
+    'Synchronisation heure lancée…',
+    false
+  );
 }
 
 function getGpsLocation() {
-  return runGpsAction('btn-gps-get-location',
-    fetch('/api/gps/get_location', { method: 'POST' }), 'Acquisition de la position lancée…');
+  return runGpsAction(
+    'btn-gps-get-location',
+    fetch('/api/gps/get_location', { method: 'POST' }),
+    'Acquisition de la position lancée…',
+    true
+  );
 }
 
 async function calculateEclipse() {
