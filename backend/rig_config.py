@@ -19,6 +19,88 @@ DEVICE_KEYS = ("camera", "mount", "focuser")
 MIN_RIGS = 1
 MAX_RIGS = 4
 
+DEFAULT_MOTION_TOLERANCE_PX = 1.0
+DEFAULT_ISO_MAX = 6400
+
+
+def atmospheric_attenuation_enabled(obj: Any) -> bool:
+    """Return the global atmospheric attenuation setting from a RIG config."""
+
+    if not isinstance(obj, dict):
+        return False
+    sequence = obj.get("sequence")
+    if not isinstance(sequence, dict):
+        return False
+    common = sequence.get("common")
+    if not isinstance(common, dict):
+        return False
+    correction = common.get("exposure_correction")
+    if not isinstance(correction, dict):
+        return False
+    return bool(correction.get("atmospheric_attenuation_enabled", False))
+
+
+def canonical_rig_defaults(
+    rig_id: int,
+    *,
+    atmos_enabled: bool = False,
+) -> dict[str, Any]:
+    """Build one empty RIG with the canonical optics/photo defaults."""
+
+    return {
+        "rig_id": rig_id,
+        "name": f"RIG {rig_id}",
+        "enabled": False,
+        "devices": {
+            "camera": None,
+            "mount": None,
+            "focuser": None,
+        },
+        "optics": {
+            "focal_length_mm": None,
+        },
+        "photo": {
+            "atmos_enabled": bool(atmos_enabled),
+            "anti_trailing_enabled": False,
+            "motion_tolerance_px": DEFAULT_MOTION_TOLERANCE_PX,
+            "iso_compensation_enabled": True,
+            "iso_max": DEFAULT_ISO_MAX,
+        },
+    }
+
+
+def normalize_rig_defaults(obj: Any) -> Any:
+    """Fill missing optics/photo defaults without overwriting stored values."""
+
+    if not isinstance(obj, dict):
+        return obj
+
+    global_atmos = atmospheric_attenuation_enabled(obj)
+    rigs = obj.get("rigs")
+    if not isinstance(rigs, list):
+        return obj
+
+    for rig in rigs:
+        if not isinstance(rig, dict):
+            continue
+
+        optics = rig.get("optics")
+        if isinstance(optics, dict):
+            optics.setdefault("focal_length_mm", None)
+
+        photo = rig.get("photo")
+        if isinstance(photo, dict):
+            photo.setdefault("atmos_enabled", global_atmos)
+            photo.setdefault("anti_trailing_enabled", False)
+            photo.setdefault(
+                "motion_tolerance_px",
+                DEFAULT_MOTION_TOLERANCE_PX,
+            )
+            photo.setdefault("iso_compensation_enabled", True)
+            photo.setdefault("iso_max", DEFAULT_ISO_MAX)
+
+    return obj
+
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
@@ -121,6 +203,8 @@ def load(path: str | PathLike[str]) -> Any:
 
     with Path(path).open("r", encoding="utf-8") as stream:
         obj = json.load(stream)
+    validate(obj)
+    normalize_rig_defaults(obj)
     validate(obj)
     return obj
 
@@ -231,19 +315,15 @@ def migrate_legacy(state_store: Any, configs_dir: str | PathLike[str]) -> dict[s
         "sequence": {"common": common},
         "rigs": [
             {
-                "rig_id": 1,
-                "name": "RIG 1",
+                **canonical_rig_defaults(
+                    1,
+                    atmos_enabled=atmos_enabled,
+                ),
                 "enabled": enabled,
                 "devices": {
                     "camera": camera,
                     "mount": active_device("mount"),
                     "focuser": active_device("focuser"),
-                },
-                "optics": {"focal_length_mm": None},
-                "photo": {
-                    "atmos_enabled": atmos_enabled,
-                    "anti_trailing_enabled": False,
-                    "iso_compensation_enabled": True,
                 },
             }
         ],

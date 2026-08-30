@@ -217,7 +217,12 @@ from backend.motion_exposure_policy import (
     materialize_exposure_plan,
 )
 from backend.preview_request import validate_payload as validate_preview_request
-from backend.rig_config import save as save_rig_config, validate as validate_rig_config
+from backend.rig_config import (
+    atmospheric_attenuation_enabled,
+    canonical_rig_defaults,
+    save as save_rig_config,
+    validate as validate_rig_config,
+)
 from backend.rig_manager import RigManager
 from backend.rig_runtime import (
     get_rig_manager,
@@ -641,15 +646,11 @@ _RUNTIME_DEVICE_FIELDS = frozenset(
 )
 
 
-def _new_rig_scaffold(rig_id):
-    return {
-        "rig_id": rig_id,
-        "name": f"RIG {rig_id}",
-        "enabled": False,
-        "devices": {"camera": None, "mount": None, "focuser": None},
-        "optics": {},
-        "photo": {},
-    }
+def _new_rig_scaffold(rig_id, *, atmos_enabled=False):
+    return canonical_rig_defaults(
+        rig_id,
+        atmos_enabled=atmos_enabled,
+    )
 
 
 def _validate_positive_number(value, field, *, integer=False, nullable=False):
@@ -884,13 +885,20 @@ def api_rig_devices_post():
 
     try:
         config = deepcopy(load_rig_configuration())
+        global_atmos = atmospheric_attenuation_enabled(config)
         rigs_by_id = {
             rig.get("rig_id"): rig
             for rig in config.get("rigs", [])
             if isinstance(rig, dict)
         }
         for rig_id in range(1, 5):
-            rigs_by_id.setdefault(rig_id, _new_rig_scaffold(rig_id))
+            rigs_by_id.setdefault(
+                rig_id,
+                _new_rig_scaffold(
+                    rig_id,
+                    atmos_enabled=global_atmos,
+                ),
+            )
 
         inventory = get_cached_inventory()
         non_pilotable_identities = {
@@ -997,6 +1005,7 @@ def api_rig_photo_post():
         except (OSError, json.JSONDecodeError, ValueError):
             return jsonify({"error": "rig configuration could not be loaded"}), 500
 
+        global_atmos = atmospheric_attenuation_enabled(config)
         rigs_by_id = {
             rig.get("rig_id"): rig
             for rig in config.get("rigs", [])
@@ -1005,7 +1014,10 @@ def api_rig_photo_post():
 
         rigs = []
         for rig_id in range(1, 5):
-            rig = rigs_by_id.get(rig_id) or _new_rig_scaffold(rig_id)
+            rig = rigs_by_id.get(rig_id) or _new_rig_scaffold(
+                rig_id,
+                atmos_enabled=global_atmos,
+            )
             rigs.append({
                 "rig_id": rig_id,
                 "optics": deepcopy(rig.get("optics", {})),

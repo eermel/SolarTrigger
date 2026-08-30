@@ -46,6 +46,18 @@ def _configuration():
     }
 
 
+def _normalized_rig(rig, *, atmos_enabled=False):
+    result = deepcopy(rig)
+    result.setdefault("optics", {}).setdefault("focal_length_mm", None)
+    photo = result.setdefault("photo", {})
+    photo.setdefault("atmos_enabled", atmos_enabled)
+    photo.setdefault("anti_trailing_enabled", False)
+    photo.setdefault("motion_tolerance_px", 1.0)
+    photo.setdefault("iso_compensation_enabled", True)
+    photo.setdefault("iso_max", 6400)
+    return result
+
+
 def test_legacy_migration_initializes_photo_flags(tmp_path):
     configs_dir = tmp_path / "configs"
     circumstances_dir = configs_dir / "circumstances"
@@ -80,7 +92,9 @@ def test_legacy_migration_initializes_photo_flags(tmp_path):
     assert migrated["rigs"][0]["photo"] == {
         "atmos_enabled": True,
         "anti_trailing_enabled": False,
+        "motion_tolerance_px": 1.0,
         "iso_compensation_enabled": True,
+        "iso_max": 6400,
     }
 
 
@@ -130,7 +144,10 @@ def test_photo_patch_persists_and_preserves_other_rigs(photo_api):
     assert saved["rigs"][0]["optics"]["focal_length_mm"] == 500
     assert saved["rigs"][0]["photo"]["format"] == "RAW"
     assert saved["rigs"][0]["optics"]["keep"] == 1
-    assert saved["rigs"][1:] == original["rigs"][1:]
+    assert saved["rigs"][1:] == [
+        _normalized_rig(rig)
+        for rig in original["rigs"][1:]
+    ]
     assert reloads == [saved]
     assert [item[0] for item in emitted] == ["status_update"]
 
@@ -183,7 +200,10 @@ def test_photo_get_returns_four_persisted_rig_configs(photo_api):
     assert response.status_code == 200
     rigs = response.get_json()["rigs"]
     assert [rig["rig_id"] for rig in rigs] == [1, 2, 3, 4]
-    assert rigs[0]["optics"] == original["rigs"][0]["optics"]
-    assert rigs[0]["photo"] == original["rigs"][0]["photo"]
-    assert rigs[3]["optics"] == original["rigs"][3]["optics"]
-    assert rigs[3]["photo"] == original["rigs"][3]["photo"]
+    expected_1 = _normalized_rig(original["rigs"][0])
+    expected_4 = _normalized_rig(original["rigs"][3])
+
+    assert rigs[0]["optics"] == expected_1["optics"]
+    assert rigs[0]["photo"] == expected_1["photo"]
+    assert rigs[3]["optics"] == expected_4["optics"]
+    assert rigs[3]["photo"] == expected_4["photo"]

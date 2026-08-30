@@ -306,7 +306,9 @@ def test_preview_rig_override_is_ephemeral(preview_api):
     client = preview_api(atmos_enabled=False)
 
     before = flask_module.load_rig_configuration()
-    assert before["rigs"][0]["optics"] == {}
+    assert before["rigs"][0]["optics"] == {
+        "focal_length_mm": None,
+    }
 
     response = client.post(
         "/api/rigs/preview",
@@ -337,4 +339,6 @@ def test_preview_rig_override_is_ephemeral(preview_api):
 
     # Preview must never modify the persisted RIG configuration.
     assert after == before
-    assert after["rigs"][0]["optics"] == {}
+    assert after["rigs"][0]["optics"] == {
+        "focal_length_mm": None,
+    }
