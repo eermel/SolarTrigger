@@ -3,6 +3,18 @@ import sys
 from copy import deepcopy
 from types import ModuleType
 
+def _with_photo_defaults(rig):
+    result = deepcopy(rig)
+    result.setdefault("optics", {}).setdefault("focal_length_mm", None)
+    photo = result.setdefault("photo", {})
+    photo.setdefault("atmos_enabled", False)
+    photo.setdefault("anti_trailing_enabled", False)
+    photo.setdefault("motion_tolerance_px", 1.0)
+    photo.setdefault("iso_compensation_enabled", True)
+    photo.setdefault("iso_max", 6400)
+    return result
+
+
 import pytest
 
 from backend.rig_manager import RigManager
@@ -280,8 +292,18 @@ def test_rig_devices_post_persists_single_rig_merge_and_reloads_manager(
     assert persisted["rigs"][0]["devices"]["camera"]["serial"] == "CAMERA-NEW"
     assert persisted["rigs"][0]["devices"]["mount"] == original_mount
     assert persisted["rigs"][0]["optics"] == original["rigs"][0]["optics"]
-    assert persisted["rigs"][0]["photo"] == original["rigs"][0]["photo"]
-    assert persisted["rigs"][1:] == original["rigs"][1:]
+
+    for key, value in original["rigs"][0]["photo"].items():
+        assert persisted["rigs"][0]["photo"][key] == value
+    assert persisted["rigs"][0]["photo"]["atmos_enabled"] is False
+    assert persisted["rigs"][0]["photo"]["anti_trailing_enabled"] is False
+    assert persisted["rigs"][0]["photo"]["motion_tolerance_px"] == 1.0
+    assert persisted["rigs"][0]["photo"]["iso_compensation_enabled"] is True
+    assert persisted["rigs"][0]["photo"]["iso_max"] == 6400
+    assert persisted["rigs"][1:] == [
+        _with_photo_defaults(rig)
+        for rig in original["rigs"][1:]
+    ]
     assert persisted["eclipse"] == original["eclipse"]
     assert persisted["sequence"] == original["sequence"]
     assert persisted["site_note"] == original["site_note"]

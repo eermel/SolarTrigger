@@ -207,7 +207,53 @@ def test_minimal_v2_config_validates_and_round_trips(tmp_path):
     path = tmp_path / "rig-config.json"
     save(path, config)
 
-    assert load(path) == config
+    loaded = load(path)
+
+    assert loaded["rigs"][0]["optics"] == {
+        "focal_length_mm": None,
+    }
+    assert loaded["rigs"][0]["photo"] == {
+        "atmos_enabled": False,
+        "anti_trailing_enabled": False,
+        "motion_tolerance_px": 1.0,
+        "iso_compensation_enabled": True,
+        "iso_max": 6400,
+    }
+
+
+def test_load_fills_missing_defaults_without_overwriting_existing_values(tmp_path):
+    config = _minimal_config()
+    config["sequence"]["common"]["exposure_correction"] = {
+        "atmospheric_attenuation_enabled": True,
+    }
+    config["rigs"][0]["optics"] = {
+        "focal_length_mm": 430,
+        "extension": "preserved",
+    }
+    config["rigs"][0]["photo"] = {
+        "anti_trailing_enabled": True,
+        "iso_max": 1600,
+        "extension": "preserved",
+    }
+
+    path = tmp_path / "rig-config.json"
+    save(path, config)
+
+    loaded = load(path)
+    rig = loaded["rigs"][0]
+
+    assert rig["optics"] == {
+        "focal_length_mm": 430,
+        "extension": "preserved",
+    }
+    assert rig["photo"] == {
+        "anti_trailing_enabled": True,
+        "iso_max": 1600,
+        "extension": "preserved",
+        "atmos_enabled": True,
+        "motion_tolerance_px": 1.0,
+        "iso_compensation_enabled": True,
+    }
 
 
 def test_validate_accepts_null_camera_config_before_trigger_execution():
