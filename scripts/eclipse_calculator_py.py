@@ -93,11 +93,6 @@ def build_trigger_config(
     utc = {event: circumstances[f"{event}_utc"] for event in EVENTS}
     local = {event: circumstances[f"{event}_local"] for event in EVENTS}
 
-    # Partial eclipses have no internal contacts; the legacy generator places
-    # both C2 and C3 at maximum so the trigger still receives a complete schema.
-    c2_utc, c3_utc = utc["C2"] or utc["TMAX"], utc["C3"] or utc["TMAX"]
-    c2_local, c3_local = local["C2"] or local["TMAX"], local["C3"] or local["TMAX"]
-
     return {
         "_comment": "Calculé par eclipse_calculator_py.py — moteur Python Jubier",
         "_eclipse": label,
@@ -120,19 +115,23 @@ def build_trigger_config(
         "_timezone": f"UTC{tz_offset:+g}",
         "title": label,
         "C1": _shift_time(utc["C1"], 0.0),
-        "C2": _shift_time(c2_utc, 0.0),
-        "C3": _shift_time(c3_utc, 0.0),
+        "C2": _shift_time(utc["C2"], 0.0) if utc["C2"] else None,
+        "C3": _shift_time(utc["C3"], 0.0) if utc["C3"] else None,
         "C4": _shift_time(utc["C4"], 0.0),
         "TMAX": _shift_time(utc["TMAX"], 0.0),
         "TSTART": _shift_time(utc["C1"], -1.0),
         "TEND": _shift_time(utc["C4"], 1.0),
         "C1_local": _shift_time(local["C1"], 0.0),
-        "C2_local": _shift_time(c2_local, 0.0),
-        "C3_local": _shift_time(c3_local, 0.0),
+        "C2_local": _shift_time(local["C2"], 0.0) if local["C2"] else None,
+        "C3_local": _shift_time(local["C3"], 0.0) if local["C3"] else None,
         "C4_local": _shift_time(local["C4"], 0.0),
         "TMAX_local": _shift_time(local["TMAX"], 0.0),
         **{
-            f"{event}_alt_deg": float(circumstances.get(f"{event}_alt_deg") or 0.0)
+            f"{event}_alt_deg": (
+                None
+                if circumstances.get(f"{event}_alt_deg") is None
+                else float(circumstances[f"{event}_alt_deg"])
+            )
             for event in EVENTS
         },
         "interval_partial": 180,
