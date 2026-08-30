@@ -7,6 +7,7 @@ import math
 
 ARCSECONDS_PER_RADIAN = 206265.0
 SOLAR_RATE_ARCSECONDS_PER_SECOND = 15.0411
+MICROMETERS_PER_MILLIMETER = 1000.0
 MIN_ABS_DECLINATION_COSINE = 1e-15
 
 
@@ -48,7 +49,10 @@ def max_exposure_time_fixed_mount(
     return float(
         (
             ARCSECONDS_PER_RADIAN
-            * converted["pixel_pitch_um"]
+            * (
+                converted["pixel_pitch_um"]
+                / MICROMETERS_PER_MILLIMETER
+            )
             * converted["tolerance_pixels"]
         )
         / (

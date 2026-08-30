@@ -98,10 +98,10 @@ def rig_server(tmp_path, monkeypatch):
     monkeypatch.setattr(camera_ipc_server, "_SENSOR_DB_PATH", sensor_db)
     workers = {rig_id: FakeWorker() for rig_id in (1, 2, 3)}
     policies = {
-        1: policy(enabled=False, focal_length_mm=75_000),
-        2: policy(enabled=True, focal_length_mm=150_000),
+        1: policy(enabled=False, focal_length_mm=75.0),
+        2: policy(enabled=True, focal_length_mm=150.0),
         3: policy(
-            enabled=True, focal_length_mm=300_000, model="Missing Model"
+            enabled=True, focal_length_mm=300.0, model="Missing Model"
         ),
     }
     server = CameraIpcServer(
