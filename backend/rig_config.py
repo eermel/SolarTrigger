@@ -143,11 +143,24 @@ def validate(obj: Any) -> None:
         isinstance(circumstances, dict),
         "eclipse.circumstances must be an object",
     )
-    for key in CIRCUMSTANCE_KEYS:
+    for key in ("C1", "TMAX", "C4"):
         _require(
             isinstance(circumstances.get(key), str),
             f"eclipse.circumstances.{key} must be a string",
         )
+
+    for key in ("C2", "C3"):
+        value = circumstances.get(key)
+        _require(
+            value is None or isinstance(value, str),
+            f"eclipse.circumstances.{key} must be a string or null",
+        )
+
+    _require(
+        (circumstances.get("C2") is None)
+        == (circumstances.get("C3") is None),
+        "eclipse.circumstances.C2 and C3 must both be present or null",
+    )
 
     sequence = obj.get("sequence")
     _require(isinstance(sequence, dict), "sequence must be an object")
@@ -309,7 +322,8 @@ def migrate_legacy(state_store: Any, configs_dir: str | PathLike[str]) -> dict[s
                 "alt_m": location["altitude_m"],
             },
             "circumstances": {
-                key: circumstances_source[key] for key in CIRCUMSTANCE_KEYS
+                key: circumstances_source.get(key)
+                for key in CIRCUMSTANCE_KEYS
             },
         },
         "sequence": {"common": common},

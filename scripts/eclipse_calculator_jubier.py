@@ -258,8 +258,14 @@ def generate_json(res, lat, lon, alt, tz_offset, eclipse_key, output="todayeclip
     tz_str = f"UTC{tz_offset:+g}"
 
     def hms(v):
-        if not v: return "00:00:00.000"
+        if not v:
+            return None
         return _fmt_hms_ms(_parse_hms_seconds(v))
+
+    def altitude(v):
+        if v is None:
+            return None
+        return float(v)
 
     import re as _re
     m = _re.search(r"(Totale|Annulaire|Partielle|Hybride)", label, _re.IGNORECASE)
@@ -288,24 +294,24 @@ def generate_json(res, lat, lon, alt, tz_offset, eclipse_key, output="todayeclip
         "_timezone":             tz_str,
         "title":                 label,
         "C1":                    hms(res["C1_utc"]),
-        "C2":                    hms(res["C2_utc"]   or res["TMAX_utc"]),
-        "C3":                    hms(res["C3_utc"]   or res["TMAX_utc"]),
+        "C2":                    hms(res.get("C2_utc")),
+        "C3":                    hms(res.get("C3_utc")),
         "C4":                    hms(res["C4_utc"]),
         "TMAX":                  hms(res["TMAX_utc"]),
         "TSTART":                hms(tstart),
         "TEND":                  hms(tend),
         # Heures locales
         "C1_local":              hms(res["C1_local"]),
-        "C2_local":              hms(res["C2_local"]   or res["TMAX_local"]),
-        "C3_local":              hms(res["C3_local"]   or res["TMAX_local"]),
+        "C2_local":              hms(res.get("C2_local")),
+        "C3_local":              hms(res.get("C3_local")),
         "C4_local":              hms(res["C4_local"]),
         "TMAX_local":            hms(res["TMAX_local"]),
         # Altitudes geometriques issues de c1[32], c2[32], mid[32], c3[32], c4[32]
-        "C1_alt_deg":            float(res.get("C1_alt_deg") or 0.0),
-        "C2_alt_deg":            float(res.get("C2_alt_deg") or 0.0),
-        "TMAX_alt_deg":          float(res.get("TMAX_alt_deg") or 0.0),
-        "C3_alt_deg":            float(res.get("C3_alt_deg") or 0.0),
-        "C4_alt_deg":            float(res.get("C4_alt_deg") or 0.0),
+        "C1_alt_deg":            altitude(res.get("C1_alt_deg")),
+        "C2_alt_deg":            altitude(res.get("C2_alt_deg")),
+        "TMAX_alt_deg":          altitude(res.get("TMAX_alt_deg")),
+        "C3_alt_deg":            altitude(res.get("C3_alt_deg")),
+        "C4_alt_deg":            altitude(res.get("C4_alt_deg")),
         "interval_partial":         180,
         "interval_diamond_ring":    4,
         "duree_diamond_ring":       40,

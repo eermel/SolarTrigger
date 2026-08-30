@@ -55,70 +55,108 @@ def facteur_atmospherique(h_deg: float, H_m: float) -> float:
 
     return F(h, H) / reference
 
-def validate_atmospheric_timeline(timeline: dict) -> None:
-    """Require physically ordered eclipse contacts for Atmos calculations.
+def _atmospheric_event_order(timeline: dict) -> tuple[str, ...]:
+    """Return the atmospheric interpolation topology.
 
-    A solar altitude of 0° remains valid: what makes a placeholder
-    circumstances file invalid is its non-physical contact chronology.
+    Central eclipse:
+        C1, C2, TMAX, C3, C4
+
+    Partial eclipse:
+        C1, TMAX, C4
     """
-
-    required = ("C1", "C2", "TMAX", "C3", "C4")
 
     if not isinstance(timeline, dict):
         raise ValueError("timeline atmospherique invalide")
 
-    values = []
-    for key in required:
-        value = timeline.get(key)
-        if not isinstance(value, datetime):
+    c2 = timeline.get("C2")
+    c3 = timeline.get("C3")
+
+    if (c2 is None) != (c3 is None):
+        raise ValueError(
+            "timeline atmospherique invalide: "
+            "C2 et C3 doivent etre tous deux presents ou absents"
+        )
+
+    if c2 is None:
+        order = ("C1", "TMAX", "C4")
+    else:
+        order = ("C1", "C2", "TMAX", "C3", "C4")
+
+    for key in order:
+        if not isinstance(timeline.get(key), datetime):
             raise ValueError(
                 f"timeline atmospherique incomplete: {key} manquant"
             )
-        values.append(value)
+
+    return order
+
+
+def validate_atmospheric_timeline(timeline: dict) -> None:
+    """Validate physical chronology for a central or partial eclipse."""
+
+    order = _atmospheric_event_order(timeline)
+    values = [timeline[key] for key in order]
 
     if not all(a < b for a, b in zip(values, values[1:])):
+        if order == ("C1", "TMAX", "C4"):
+            expected = "C1 < TMAX < C4"
+        else:
+            expected = "C1 < C2 < TMAX < C3 < C4"
+
         raise ValueError(
-            "timeline atmospherique invalide: "
-            "C1 < C2 < TMAX < C3 < C4 requis"
+            f"timeline atmospherique invalide: {expected} requis"
         )
 
 
 def interpolate_altitude(t: datetime, timeline: dict, alts: dict) -> float:
-    """Piecewise-linear interpolation of solar altitude over the eclipse.
+    """Interpolate solar altitude for a central or partial eclipse.
 
-    - timeline: dict with datetime for keys C1,C2,TMAX,C3,C4
-    - alts: dict with floating degrees for keys C1_alt_deg, C2_alt_deg,
-            TMAX_alt_deg, C3_alt_deg, C4_alt_deg
+    Central:
+        C1 -> C2 -> TMAX -> C3 -> C4
+
+    Partial:
+        C1 -> TMAX -> C4
     """
-    required_t = ("C1", "C2", "TMAX", "C3", "C4")
-    required_a = ("C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg", "C3_alt_deg", "C4_alt_deg")
-    if not all(k in timeline and isinstance(timeline[k], datetime) for k in required_t):
-        raise ValueError("timeline incomplet pour interpolation")
-    if not all(k in alts for k in required_a):
-        raise ValueError("altitudes manquantes pour interpolation")
 
-    segments = [
-        ("C1", "C2"),
-        ("C2", "TMAX"),
-        ("TMAX", "C3"),
-        ("C3", "C4"),
-    ]
-    for a, b in segments:
-        t0, t1 = timeline[a], timeline[b]
-        if t0 is None or t1 is None:
-            continue
+    order = _atmospheric_event_order(timeline)
+
+    heights: dict[str, float] = {}
+    for key in order:
+        altitude_key = f"{key}_alt_deg"
+        raw = alts.get(altitude_key)
+        if raw is None:
+            raise ValueError(
+                f"altitude atmospherique manquante: {altitude_key}"
+            )
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"altitude atmospherique invalide: {altitude_key}"
+            ) from exc
+        if not math.isfinite(value):
+            raise ValueError(
+                f"altitude atmospherique invalide: {altitude_key}"
+            )
+        heights[key] = value
+
+    first = order[0]
+    last = order[-1]
+
+    if t <= timeline[first]:
+        return heights[first]
+    if t >= timeline[last]:
+        return heights[last]
+
+    for a, b in zip(order, order[1:]):
+        t0 = timeline[a]
+        t1 = timeline[b]
         if t0 <= t <= t1:
-            h0 = float(alts[a + "_alt_deg"]) if not a.endswith("_alt_deg") else float(alts[a])
-            h1 = float(alts[b + "_alt_deg"]) if not b.endswith("_alt_deg") else float(alts[b])
             dt = (t1 - t0).total_seconds()
-            if dt <= 0:
-                return float(h0)
             x = (t - t0).total_seconds() / dt
-            return h0 + x * (h1 - h0)
-    # Outside segments: clamp to nearest bound
-    if t < timeline["C1"]:
-        return float(alts["C1_alt_deg"])  # before C1
-    return float(alts["C4_alt_deg"])  # after C4
+            return heights[a] + x * (heights[b] - heights[a])
+
+    raise ValueError("timestamp hors timeline atmospherique")
 
 
 __all__ = [

@@ -66,3 +66,52 @@ def test_frontend_accepts_decimal_contact_input_and_dryrun_route():
     assert r'(?:\.\d{1,3})?' in html
     assert '/api/trigger/dryrun' in html
     assert '@app.route("/api/trigger/dryrun"' in app
+
+
+
+def test_partial_calculator_json_keeps_c2_c3_null(tmp_path):
+    res = {
+        "C1_utc": "17:22:13.063",
+        "C2_utc": None,
+        "TMAX_utc": "18:17:18.675",
+        "C3_utc": None,
+        "C4_utc": "19:09:25.103",
+        "C1_local": "19:22:13.063",
+        "C2_local": None,
+        "TMAX_local": "20:17:18.675",
+        "C3_local": None,
+        "C4_local": "21:09:25.103",
+        "eclipse_type": "Partielle",
+        "magnitude": 0.9,
+        "moon_sun_ratio": 1.0,
+        "duration_str": "0m 0s",
+        "sun_alt_tmax": "7.6°",
+        "C1_alt_deg": 16.5,
+        "C2_alt_deg": None,
+        "TMAX_alt_deg": 7.6,
+        "C3_alt_deg": None,
+        "C4_alt_deg": -0.5,
+    }
+
+    out = tmp_path / "partial.json"
+    cfg = generate_json(
+        res,
+        48.87,
+        2.38,
+        69,
+        2,
+        "2026-08-12",
+        str(out),
+    )
+
+    assert cfg["C2"] is None
+    assert cfg["C3"] is None
+    assert cfg["C2_local"] is None
+    assert cfg["C3_local"] is None
+    assert cfg["C2_alt_deg"] is None
+    assert cfg["C3_alt_deg"] is None
+
+    timeline = build_timeline(cfg)
+    assert "C2" not in timeline
+    assert "C3" not in timeline
+    assert timeline["C1"] < timeline["TMAX"] < timeline["C4"]

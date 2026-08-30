@@ -460,3 +460,16 @@ def test_totality_only_preempts_running_trigger(tmp_path, monkeypatch):
     assert old_proc.terminated is True
     assert old_proc.killed is False
     assert launched == [totality_script]
+
+
+
+def test_eclipse_validation_accepts_partial_without_c2_c3():
+    validate_eclipse({
+        "TSTART": "16:00:00",
+        "C1": "17:00:00",
+        "C2": None,
+        "TMAX": "18:00:00",
+        "C3": None,
+        "C4": "19:00:00",
+        "TEND": "20:00:00",
+    })
