@@ -250,3 +250,75 @@ def test_materializer_only_changes_explicit_speeds_above_ceiling():
         "1/4",
     ]
     assert result["iso_applied"] == 100
+
+
+
+def test_materializer_keeps_iso_per_exposure_for_explicit_bracket():
+    result = materialize_exposure_plan(
+        speeds=[
+            "1/4000",
+            "1/2000",
+            "1/1000",
+            "1/500",
+            "1/250",
+            "1/125",
+            "1/60",
+            "1/30",
+            "1/15",
+            "1/8",
+            "1/4",
+            "1/2",
+            "1",
+            "2",
+            "4",
+        ],
+        shutter_min=None,
+        shutter_max=None,
+        step_ev=1.0,
+        iso_requested=100,
+        iso_max=6400,
+        t_max=1.0 / 15.0,
+        iso_compensation_enabled=True,
+    )
+
+    assert result["exposure_plan"] == [
+        {"shutter": "1/4000", "iso": 100},
+        {"shutter": "1/2000", "iso": 100},
+        {"shutter": "1/1000", "iso": 100},
+        {"shutter": "1/500", "iso": 100},
+        {"shutter": "1/250", "iso": 100},
+        {"shutter": "1/125", "iso": 100},
+        {"shutter": "1/60", "iso": 100},
+        {"shutter": "1/30", "iso": 100},
+        {"shutter": "1/15", "iso": 100},
+        {"shutter": "1/15", "iso": 200},
+        {"shutter": "1/15", "iso": 400},
+        {"shutter": "1/15", "iso": 800},
+        {"shutter": "1/15", "iso": 1600},
+        {"shutter": "1/15", "iso": 3200},
+        {"shutter": "1/15", "iso": 6400},
+    ]
+
+
+def test_materializer_keeps_iso_per_exposure_for_regular_bracket():
+    result = materialize_exposure_plan(
+        speeds=None,
+        shutter_min="1",
+        shutter_max="1/125",
+        step_ev=1.0,
+        iso_requested=100,
+        iso_max=6400,
+        t_max=0.25,
+        iso_compensation_enabled=True,
+    )
+
+    assert result["exposure_plan"] == [
+        {"shutter": "1/125", "iso": 100},
+        {"shutter": "1/60", "iso": 100},
+        {"shutter": "1/30", "iso": 100},
+        {"shutter": "1/15", "iso": 100},
+        {"shutter": "1/8", "iso": 100},
+        {"shutter": "1/4", "iso": 100},
+        {"shutter": "1/4", "iso": 200},
+        {"shutter": "1/4", "iso": 400},
+    ]

@@ -32,6 +32,7 @@ class CaptureIntent:
     overflow_policy: Optional[str]
     origin: Optional[str] = None
     request_id: Optional[str] = None
+    exposure_plan: Optional[List[dict[str, Any]]] = None
 
 
 @dataclass
@@ -279,6 +280,11 @@ class CameraService:
         if not self.plugin:
             raise RuntimeError("caméra non connectée")
 
+        # A materialized plan is already the exact physical sequence.
+        # Do not normalize/deduplicate it back into a logical bracket.
+        if intent.exposure_plan is not None:
+            return self.plugin.prepare_capture(intent)
+
         if intent.speeds:
             speeds = [str(speed) for speed in intent.speeds]
             fastest, slowest, step_ev, regular = _normalized_speed_plan(speeds)
@@ -329,7 +335,17 @@ class CameraService:
                 time.monotonic()
                 + max(0.0, self.clock.remaining(deadline))
             )
-        return self.plugin.trigger_prepared(prepared, deadline=plugin_deadline)
+        try:
+            return self.plugin.trigger_prepared(
+                prepared,
+                deadline=plugin_deadline,
+            )
+        finally:
+            # A materialized per-view plan may leave the physical camera
+            # at its final ISO. Forget only the cached ISO so the next
+            # apply_phase_settings() is forced to restore the phase ISO.
+            if prepared.materialized is not None:
+                self._last_phase_settings.pop("iso", None)
 
     def get_battery_level(self):
         if not self.plugin:

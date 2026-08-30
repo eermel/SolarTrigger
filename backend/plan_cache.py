@@ -17,6 +17,7 @@ _VERSION_FIELDS = {
         "atmos_enabled",
     ),
     "devices": {
+        "camera": ("backend",),
         "mount": ("control", "geometry", "tracking"),
     },
 }

@@ -141,7 +141,9 @@ def test_sensor_corner_applies_field_rotation_shutter_and_iso(make_server):
     assert "iso_compensated" in response["corrections"]
     assert "warnings" in response
     assert worker.prepared_intents[0].speeds != ["4"]
-    assert worker.apply_calls[-1] == {"iso": "800"}
+    assert worker.prepared_intents[0].exposure_plan == [
+        {"shutter": "1", "iso": 800}
+    ]
 
 
 def test_field_rotation_requires_no_radius_configuration(make_server):
@@ -154,7 +156,9 @@ def test_field_rotation_requires_no_radius_configuration(make_server):
 
     assert response["iso_applied"] == "800"
     assert worker.prepared_intents
-    assert worker.apply_calls[-1] == {"iso": "800"}
+    assert worker.prepared_intents[0].exposure_plan == [
+        {"shutter": "1", "iso": 800}
+    ]
 
 
 def test_field_rotation_does_not_depend_on_focal_length(make_server):

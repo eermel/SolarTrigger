@@ -173,6 +173,30 @@ class CameraPlugin(ABC):
         from services.camera_service import PreparedCapture
 
         deadline = intent.deadline
+
+        if intent.exposure_plan is not None:
+            plan = tuple(
+                (str(item["shutter"]), int(item["iso"]))
+                for item in intent.exposure_plan
+            )
+            if not plan:
+                raise ValueError("capture exposure plan is empty")
+
+            return PreparedCapture(
+                token=("exposure_plan", plan, deadline),
+                estimated_total_s=None,
+                exposures_s=[
+                    _parse_speed(speed)
+                    for speed, _iso in plan
+                ],
+                planned_count=len(plan),
+                plugin_name=self.name,
+                materialized=[
+                    {"shutter": speed, "iso": iso}
+                    for speed, iso in plan
+                ],
+            )
+
         if intent.speeds:
             speeds = [str(speed) for speed in intent.speeds]
             fastest, slowest, step_il, regular = _normalized_speed_plan(speeds)
@@ -210,6 +234,41 @@ class CameraPlugin(ABC):
         trigger their pre-armed, model-specific capture operation.
         """
         mode, *values = prepared.token
+
+        if mode == "exposure_plan":
+            plan, prepared_deadline = values
+            effective_deadline = (
+                deadline if deadline is not None else prepared_deadline
+            )
+
+            frames = 0
+            current_iso = None
+
+            for speed, iso in plan:
+                if (
+                    effective_deadline is not None
+                    and seconds_until_deadline(effective_deadline) <= 0
+                ):
+                    break
+
+                iso_value = str(iso)
+                if iso_value != current_iso:
+                    self.set_exposure_settings(iso=iso_value)
+                    current_iso = iso_value
+
+                result = self.shoot_single(
+                    speed,
+                    photo_num=frames,
+                    deadline=effective_deadline,
+                )
+                frames += result.frames
+
+            return CaptureResult(
+                frames=frames,
+                planned=len(plan),
+                detail="per-exposure shutter/ISO plan",
+            )
+
         if mode == "speeds":
             fastest, slowest, step_il, prepared_deadline = values
             return self.shoot_speeds(

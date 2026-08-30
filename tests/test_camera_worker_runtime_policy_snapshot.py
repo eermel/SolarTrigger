@@ -55,6 +55,7 @@ def test_reconcile_exposes_policy_snapshot_for_active_rig():
         },
         "devices": {
             "camera": {
+                "backend": "gphoto2",
                 "manufacturer": "Canon",
                 "model": "EOS R5",
                 "alias": "wide-field",
@@ -109,3 +110,43 @@ def test_policy_snapshot_preserves_explicit_iso_compensation_off():
         ]
         is False
     )
+
+
+def test_policy_snapshot_preserves_camera_backend():
+    config = {
+        "rigs": [
+            {
+                "rig_id": 1,
+                "devices": {
+                    "camera": {
+                        "backend": "nikon-dslr",
+                        "manufacturer": "Nikon",
+                        "model": "Nikon DSC D850",
+                        "alias": "D850",
+                    },
+                    "mount": None,
+                },
+                "optics": {"focal_length_mm": 800},
+                "photo": {
+                    "atmos_enabled": False,
+                    "anti_trailing_enabled": True,
+                    "motion_tolerance_px": 1.0,
+                    "iso_compensation_enabled": True,
+                    "iso_max": 6400,
+                },
+            }
+        ],
+        "eclipse": {
+            "reference_site": {"lat": 24.0, "lon": 35.0},
+        },
+    }
+
+    runtime = CameraWorkerRuntime(
+        worker_factory=lambda **_kwargs: None,
+    )
+    runtime._registry = {1: object()}
+    runtime._config = config
+
+    snapshot = runtime.get_policy_config_for_rig(1)
+
+    assert snapshot["devices"]["camera"]["backend"] == "nikon-dslr"

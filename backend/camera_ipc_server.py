@@ -29,6 +29,7 @@ from backend.field_rotation import (
     FieldRotationSingularityError,
     field_rotation_rate_deg_s,
 )
+from backend.executable_exposure_plan import expand_executable_shutters
 from backend.generic_worker import ExpiredJobError
 from backend.motion_constraint_resolver import resolve_motion_constraint
 from backend.motion_exposure_policy import (
@@ -571,9 +572,6 @@ class CameraIpcServer:
                                 )
                 if materialized is not None:
                     intent, iso_applied, corrections, warnings = materialized
-                    self._call_worker(worker.apply_phase_settings, iso=str(iso_applied))
-                    with self._state_lock:
-                        self._rig_iso_targets[rig_id] = iso_applied
                     augmented = {
                         "iso_applied": str(iso_applied),
                         "corrections": corrections,
@@ -852,6 +850,7 @@ class CameraIpcServer:
                 iso_requested,
                 iso_max,
                 t_max,
+                policy=policy,
                 iso_compensation_enabled=iso_compensation_enabled,
             )
         except IpcError:
@@ -915,6 +914,7 @@ class CameraIpcServer:
                 iso_requested,
                 iso_max,
                 t_max,
+                policy=policy,
                 iso_compensation_enabled=iso_compensation_enabled,
             )
 
@@ -972,25 +972,58 @@ class CameraIpcServer:
         iso_max: int,
         t_max: float,
         *,
+        policy: dict,
         iso_compensation_enabled: bool = True,
     ) -> tuple[CaptureIntent, int, list[str], list[str]]:
         try:
+            if intent.speeds is not None:
+                fastest, slowest, step, regular = (
+                    camera_service._normalized_speed_plan(intent.speeds)
+                )
+
+                if regular:
+                    physical_plan = (
+                        True,
+                        str(fastest),
+                        str(slowest),
+                        float(step),
+                        None,
+                    )
+                    physical_speeds = expand_executable_shutters(
+                        policy,
+                        physical_plan,
+                    )
+                else:
+                    # An irregular explicit list is already a physical plan.
+                    # Preserve its exact ordering and duplicates.
+                    physical_speeds = [
+                        str(speed)
+                        for speed in intent.speeds
+                    ]
+            else:
+                if intent.shutter_min is None or intent.shutter_max is None:
+                    raise ValueError("intent shutter bounds are incomplete")
+
+                physical_plan = (
+                    True,
+                    str(intent.shutter_max),
+                    str(intent.shutter_min),
+                    float(
+                        intent.step_ev
+                        if intent.step_ev is not None
+                        else 1.0
+                    ),
+                    None,
+                )
+                physical_speeds = expand_executable_shutters(
+                    policy,
+                    physical_plan,
+                )
+
             materialized = materialize_exposure_plan(
-                speeds=(
-                    [str(speed) for speed in intent.speeds]
-                    if intent.speeds is not None
-                    else None
-                ),
-                shutter_min=(
-                    str(intent.shutter_min)
-                    if intent.shutter_min is not None
-                    else None
-                ),
-                shutter_max=(
-                    str(intent.shutter_max)
-                    if intent.shutter_max is not None
-                    else None
-                ),
+                speeds=physical_speeds,
+                shutter_min=None,
+                shutter_max=None,
                 step_ev=intent.step_ev,
                 iso_requested=iso_requested,
                 iso_max=iso_max,
@@ -1009,10 +1042,11 @@ class CameraIpcServer:
 
         replacement = dataclasses.replace(
             intent,
-            shutter_min=materialized["shutter_min"],
-            shutter_max=materialized["shutter_max"],
+            shutter_min=None,
+            shutter_max=None,
             step_ev=materialized["step_ev"],
             speeds=materialized["speeds"],
+            exposure_plan=materialized["exposure_plan"],
         )
 
         return (
