@@ -55,6 +55,34 @@ def facteur_atmospherique(h_deg: float, H_m: float) -> float:
 
     return F(h, H) / reference
 
+def validate_atmospheric_timeline(timeline: dict) -> None:
+    """Require physically ordered eclipse contacts for Atmos calculations.
+
+    A solar altitude of 0° remains valid: what makes a placeholder
+    circumstances file invalid is its non-physical contact chronology.
+    """
+
+    required = ("C1", "C2", "TMAX", "C3", "C4")
+
+    if not isinstance(timeline, dict):
+        raise ValueError("timeline atmospherique invalide")
+
+    values = []
+    for key in required:
+        value = timeline.get(key)
+        if not isinstance(value, datetime):
+            raise ValueError(
+                f"timeline atmospherique incomplete: {key} manquant"
+            )
+        values.append(value)
+
+    if not all(a < b for a, b in zip(values, values[1:])):
+        raise ValueError(
+            "timeline atmospherique invalide: "
+            "C1 < C2 < TMAX < C3 < C4 requis"
+        )
+
+
 def interpolate_altitude(t: datetime, timeline: dict, alts: dict) -> float:
     """Piecewise-linear interpolation of solar altitude over the eclipse.
 
@@ -93,4 +121,8 @@ def interpolate_altitude(t: datetime, timeline: dict, alts: dict) -> float:
     return float(alts["C4_alt_deg"])  # after C4
 
 
-__all__ = ["facteur_atmospherique", "interpolate_altitude"]
+__all__ = [
+    "facteur_atmospherique",
+    "interpolate_altitude",
+    "validate_atmospheric_timeline",
+]

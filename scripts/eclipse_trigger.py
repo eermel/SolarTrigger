@@ -125,7 +125,11 @@ from plugins.camera.base import CaptureResult
 from services.camera_service import _normalized_speed_plan as _norm_plan
 from scripts.camera_ipc_client import CameraIpcClient
 from scripts.fanout_camera_adapter import FanoutCameraAdapter
-from backend.atmo import facteur_atmospherique, interpolate_altitude
+from backend.atmo import (
+    facteur_atmospherique,
+    interpolate_altitude,
+    validate_atmospheric_timeline,
+)
 from backend.rig_runtime import load_rig_configuration
 from backend import audio_service
 
@@ -939,6 +943,13 @@ def _extend_regular_ev_for_atmosphere(
         raise RuntimeError(
             "atmo_compensation actif : timestamp capture manquant"
         )
+
+    try:
+        validate_atmospheric_timeline(tl)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"atmo_compensation actif : {exc}"
+        ) from exc
 
     h = interpolate_altitude(target_time, tl, altitudes)
     facteur = facteur_atmospherique(h, float(observer_altitude))
