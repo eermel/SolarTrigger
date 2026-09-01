@@ -626,6 +626,25 @@ header {
 .flash.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 .sep { height: 1px; background: var(--border); margin: 4px 0; }
+
+#btn-gps-sync-time-location,
+#btn-gps-sync-time,
+#btn-gps-get-location {
+  padding: 7px 10px;
+  font-size: 11px;
+  min-height: 0;
+}
+
+
+.camcfg-rig-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: .4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
 </style>
 </head>
 <body>
@@ -672,7 +691,7 @@ header {
     </button>
     <button class="tab" onclick="showTab(3)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-      <span>PHOTO CONFIG</span>
+      <span>PHOTO CFG</span>
     </button>
     <button class="tab" onclick="showTab(4)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="3"/></svg>
@@ -697,12 +716,15 @@ header {
           <div id="devices-list"></div>
         </div>
 
-        <button class="btn btn-primary btn-full" id="devices-rescan" onclick="refreshRigDevices()">
+        <div class="card">
+          <div class="card-title">Device discovery</div>
+          <button class="btn btn-primary btn-full" id="devices-rescan" onclick="refreshRigDevices()">
           ↻ Refresh devices
         </button>
+        </div>
 
         <div class="devices-rigs-row" id="devices-rigs-row">
-          <div class="card rig-column" id="rig-column-1" data-rig-id="1"><div class="rig-header"><div class="card-title">RIG 1</div><span class="rig-trigger-required" title="RIG 1 participe toujours au trigger" style="font-family:var(--mono);font-size:9px;color:var(--accent)">REQUIS</span></div><div class="rig-body" id="rig-body-1"></div></div>
+          <div class="card rig-column" id="rig-column-1" data-rig-id="1"><div class="rig-header"><div class="card-title">RIG 1</div><span class="rig-trigger-required" title="RIG 1 always participates in the trigger" style="font-family:var(--mono);font-size:9px;color:var(--accent)">REQUIRED</span></div><div class="rig-body" id="rig-body-1"></div></div>
           <div class="card rig-column" id="rig-column-2" data-rig-id="2"><div class="rig-header"><div class="card-title">RIG 2</div><div class="focuser-mode-switch rig-mode-switch"><input class="rig-switch" id="rig-switch-2" type="checkbox" role="switch" aria-label="RIG 2 ON/OFF"></div></div><div class="rig-body" id="rig-body-2"></div></div>
           <div class="card rig-column" id="rig-column-3" data-rig-id="3"><div class="rig-header"><div class="card-title">RIG 3</div><div class="focuser-mode-switch rig-mode-switch"><input class="rig-switch" id="rig-switch-3" type="checkbox" role="switch" aria-label="RIG 3 ON/OFF"></div></div><div class="rig-body" id="rig-body-3"></div></div>
           <div class="card rig-column" id="rig-column-4" data-rig-id="4"><div class="rig-header"><div class="card-title">RIG 4</div><div class="focuser-mode-switch rig-mode-switch"><input class="rig-switch" id="rig-switch-4" type="checkbox" role="switch" aria-label="RIG 4 ON/OFF"></div></div><div class="rig-body" id="rig-body-4"></div></div>
@@ -896,15 +918,13 @@ header {
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
 
           <div class="card camcfg-rig-column" id="camcfg-rig-column-1" data-rig-id="1">
-            <div class="card-title">RIG 1</div>
+            <div class="card-title camcfg-rig-title">RIG 1</div>
 
             <div class="field">
               <label>ANTI-BLUR</label>
               <div class="focuser-mode-switch">
-                <label for="rig-1-antiblur-switch">OFF</label>
                 <input type="checkbox" id="rig-1-antiblur-switch" role="switch"
                   aria-label="Anti-blur RIG 1" onchange="persistRigPhoto(1)">
-                <label for="rig-1-antiblur-switch">ON</label>
               </div>
             </div>
 
@@ -923,10 +943,8 @@ header {
             <div class="field">
               <label>ISO COMPENSATION</label>
               <div class="focuser-mode-switch">
-                <label for="rig-1-iso-comp-switch">OFF</label>
                 <input type="checkbox" id="rig-1-iso-comp-switch" role="switch"
                   aria-label="ISO Compensation RIG 1" onchange="persistRigPhoto(1)">
-                <label for="rig-1-iso-comp-switch">ON</label>
               </div>
             </div>
 
@@ -948,15 +966,13 @@ header {
           </div>
 
           <div class="card camcfg-rig-column" id="camcfg-rig-column-2" data-rig-id="2">
-            <div class="card-title">RIG 2</div>
+            <div class="card-title camcfg-rig-title">RIG 2</div>
 
             <div class="field">
               <label>ANTI-BLUR</label>
               <div class="focuser-mode-switch">
-                <label for="rig-2-antiblur-switch">OFF</label>
                 <input type="checkbox" id="rig-2-antiblur-switch" role="switch"
                   aria-label="Anti-blur RIG 2" onchange="persistRigPhoto(2)">
-                <label for="rig-2-antiblur-switch">ON</label>
               </div>
             </div>
 
@@ -975,10 +991,8 @@ header {
             <div class="field">
               <label>ISO COMPENSATION</label>
               <div class="focuser-mode-switch">
-                <label for="rig-2-iso-comp-switch">OFF</label>
                 <input type="checkbox" id="rig-2-iso-comp-switch" role="switch"
                   aria-label="ISO Compensation RIG 2" onchange="persistRigPhoto(2)">
-                <label for="rig-2-iso-comp-switch">ON</label>
               </div>
             </div>
 
@@ -1000,15 +1014,13 @@ header {
           </div>
 
           <div class="card camcfg-rig-column" id="camcfg-rig-column-3" data-rig-id="3">
-            <div class="card-title">RIG 3</div>
+            <div class="card-title camcfg-rig-title">RIG 3</div>
 
             <div class="field">
               <label>ANTI-BLUR</label>
               <div class="focuser-mode-switch">
-                <label for="rig-3-antiblur-switch">OFF</label>
                 <input type="checkbox" id="rig-3-antiblur-switch" role="switch"
                   aria-label="Anti-blur RIG 3" onchange="persistRigPhoto(3)">
-                <label for="rig-3-antiblur-switch">ON</label>
               </div>
             </div>
 
@@ -1027,10 +1039,8 @@ header {
             <div class="field">
               <label>ISO COMPENSATION</label>
               <div class="focuser-mode-switch">
-                <label for="rig-3-iso-comp-switch">OFF</label>
                 <input type="checkbox" id="rig-3-iso-comp-switch" role="switch"
                   aria-label="ISO Compensation RIG 3" onchange="persistRigPhoto(3)">
-                <label for="rig-3-iso-comp-switch">ON</label>
               </div>
             </div>
 
@@ -1052,15 +1062,13 @@ header {
           </div>
 
           <div class="card camcfg-rig-column" id="camcfg-rig-column-4" data-rig-id="4">
-            <div class="card-title">RIG 4</div>
+            <div class="card-title camcfg-rig-title">RIG 4</div>
 
             <div class="field">
               <label>ANTI-BLUR</label>
               <div class="focuser-mode-switch">
-                <label for="rig-4-antiblur-switch">OFF</label>
                 <input type="checkbox" id="rig-4-antiblur-switch" role="switch"
                   aria-label="Anti-blur RIG 4" onchange="persistRigPhoto(4)">
-                <label for="rig-4-antiblur-switch">ON</label>
               </div>
             </div>
 
@@ -1079,10 +1087,8 @@ header {
             <div class="field">
               <label>ISO COMPENSATION</label>
               <div class="focuser-mode-switch">
-                <label for="rig-4-iso-comp-switch">OFF</label>
                 <input type="checkbox" id="rig-4-iso-comp-switch" role="switch"
                   aria-label="ISO Compensation RIG 4" onchange="persistRigPhoto(4)">
-                <label for="rig-4-iso-comp-switch">ON</label>
               </div>
             </div>
 
@@ -1109,7 +1115,7 @@ header {
       <div class="card">
         <div class="card-title">Atmospheric Attenuation</div>
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <div class="focuser-mode-switch"><label for="cfg-atmo-switch">OFF</label><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation" onchange="persistGlobalAtmosFromUi()"><label for="cfg-atmo-switch">ON</label></div>
+          <div class="focuser-mode-switch"><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation" onchange="persistGlobalAtmosFromUi()"></div>
           <span style="font-size:11px;color:var(--text-dim)">Active only if Sun &lt; 30°</span>
         </div>
       </div>
@@ -1224,8 +1230,8 @@ header {
               <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button">Read information</button>
-              <button class="btn btn-secondary btn-full" type="button">Test photo</button>
+              <button class="btn btn-primary btn-full" type="button" onclick="readRigCameraInfo(1, this)">Read information</button>
+              <button class="btn btn-secondary btn-full" type="button" onclick="testRigCameraPhoto(1, this)">Test photo</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-2" data-rig-id="2">
@@ -1237,8 +1243,8 @@ header {
               <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button">Read information</button>
-              <button class="btn btn-secondary btn-full" type="button">Test photo</button>
+              <button class="btn btn-primary btn-full" type="button" onclick="readRigCameraInfo(2, this)">Read information</button>
+              <button class="btn btn-secondary btn-full" type="button" onclick="testRigCameraPhoto(2, this)">Test photo</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-3" data-rig-id="3">
@@ -1250,8 +1256,8 @@ header {
               <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button">Read information</button>
-              <button class="btn btn-secondary btn-full" type="button">Test photo</button>
+              <button class="btn btn-primary btn-full" type="button" onclick="readRigCameraInfo(3, this)">Read information</button>
+              <button class="btn btn-secondary btn-full" type="button" onclick="testRigCameraPhoto(3, this)">Test photo</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-4" data-rig-id="4">
@@ -1263,8 +1269,8 @@ header {
               <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button">Read information</button>
-              <button class="btn btn-secondary btn-full" type="button">Test photo</button>
+              <button class="btn btn-primary btn-full" type="button" onclick="readRigCameraInfo(4, this)">Read information</button>
+              <button class="btn btn-secondary btn-full" type="button" onclick="testRigCameraPhoto(4, this)">Test photo</button>
             </div>
           </div>
         </div>
@@ -1991,6 +1997,90 @@ async function loadRigDevices(inventoryOverride) {
     flash(`Devices RIG : ${error.message}`, 'red');
   }
 }
+
+
+async function readRigCameraInfo(rigId, button) {
+  const column = document.getElementById(`cam-rig-column-${rigId}`);
+  if (!column) return;
+
+  const status = column.querySelector('.cam-rig-status');
+  const lastRead = column.querySelector('.cam-rig-last-read');
+
+  if (button) button.disabled = true;
+  if (status) status.textContent = 'Reading…';
+
+  try {
+    const response = await fetch(`/api/rigs/${rigId}/camera/read_info`, {
+      method: 'POST',
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP error ${response.status}`);
+    }
+
+    const parts = [];
+
+    if (data.model) parts.push(data.model);
+
+    if (data.battery !== undefined && data.battery !== null) {
+      parts.push(`Battery ${data.battery}`);
+    }
+
+    if (status) {
+      status.textContent = parts.length ? parts.join(' · ') : 'Information read';
+    }
+
+    if (lastRead) {
+      lastRead.textContent = new Date().toISOString().slice(11, 19) + ' UTC';
+    }
+
+    flash(`RIG ${rigId} camera information read`, 'green');
+  } catch (error) {
+    if (status) status.textContent = 'Read failed';
+    flash(`RIG ${rigId} camera: ${error.message}`, 'red');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+
+async function testRigCameraPhoto(rigId, button) {
+  const column = document.getElementById(`cam-rig-column-${rigId}`);
+  if (!column) return;
+
+  const status = column.querySelector('.cam-rig-status');
+
+  if (button) button.disabled = true;
+  if (status) status.textContent = 'Test photo…';
+
+  try {
+    const response = await fetch(`/api/rigs/${rigId}/camera/test_photo`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({speed: '1/125'}),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP error ${response.status}`);
+    }
+
+    if (status) {
+      status.textContent = 'Test photo OK';
+    }
+
+    flash(`RIG ${rigId} test photo completed`, 'green');
+  } catch (error) {
+    if (status) status.textContent = 'Test photo failed';
+    flash(`RIG ${rigId} camera: ${error.message}`, 'red');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 
 async function persistRigName(rigId, input) {
   const persistedValue = input.dataset.persistedValue || `RIG ${rigId}`;

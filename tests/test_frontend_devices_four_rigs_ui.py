@@ -36,7 +36,7 @@ def test_devices_has_one_global_gps_block_and_exactly_four_rig_columns():
     assert 'id="rig-body-1"' in body
     assert 'id="rig-switch-1"' not in body
     assert 'class="rig-trigger-required"' in body
-    assert "REQUIS" in body
+    assert "REQUIRED" in body
 
     for rig_id in range(2, 5):
         assert re.search(

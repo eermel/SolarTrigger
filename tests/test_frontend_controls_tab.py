@@ -61,7 +61,7 @@ def test_controls_tab_and_panel_are_in_the_seven_item_navigation_order():
         "DEVICES",
         "SYNC GPS",
         "ECLIPSE",
-        "PHOTO CONFIG",
+        "PHOTO CFG",
         "CAMERA",
         "CONTROLS",
         "TRIGGER",

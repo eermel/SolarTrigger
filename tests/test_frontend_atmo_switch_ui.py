@@ -40,8 +40,8 @@ def test_atmospheric_attenuation_control_is_a_labeled_switch():
     markup = section.group(1)
     assert 'id="cfg-atmo-switch"' in markup
     assert 'role="switch"' in markup
-    assert re.search(r'<label for="cfg-atmo-switch">OFF</label>', markup)
-    assert re.search(r'<label for="cfg-atmo-switch">ON</label>', markup)
+    assert '<label for="cfg-atmo-switch">OFF</label>' not in markup
+    assert '<label for="cfg-atmo-switch">ON</label>' not in markup
 
 
 def test_save_camera_config_includes_atmospheric_attenuation_in_payload():

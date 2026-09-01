@@ -32,8 +32,8 @@ def test_atmospheric_attenuation_card_has_on_off_switch():
         r'<input\s+type="checkbox"\s+id="cfg-atmo-switch"\s+role="switch"(?=\s|>)',
         control,
     )
-    assert '<label for="cfg-atmo-switch">OFF</label>' in control
-    assert '<label for="cfg-atmo-switch">ON</label>' in control
+    assert '<label for="cfg-atmo-switch">OFF</label>' not in control
+    assert '<label for="cfg-atmo-switch">ON</label>' not in control
 
 
 def test_save_camera_config_includes_atmospheric_attenuation_switch_state():
