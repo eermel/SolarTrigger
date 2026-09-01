@@ -107,7 +107,6 @@ class StateStore:
             gps.update({"connected": False, "synced": False, "lat": None, "lon": None,
                         "alt": None, "date": None, "satellites": 0, "hdop": None,
                         "sync_time": None, "timezone": None, "gps_sync_running": False})
-            self._state["eclipse"] = None
             self._state["gps_sync_running"] = False
             self._state["trigger"] = {"running": False, "phase": "idle"}
 

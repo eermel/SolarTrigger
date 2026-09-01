@@ -167,14 +167,15 @@ def test_state_store_restores_circumstances_and_capture_files(tmp_path):
     }
 
 
-def test_boot_reset_invalidates_gps_and_eclipse(tmp_path):
+def test_boot_reset_invalidates_runtime_gps_but_preserves_eclipse(tmp_path):
     store=StateStore(tmp_path/'state.json')
     store.update_section('gps', {'synced': True, 'lat': 42.0})
-    store.set('eclipse', {'C1':'10:00:00'})
+    eclipse = {'C1':'10:00:00'}
+    store.set('eclipse', eclipse)
     store.reset_boot_sensitive()
     assert store.snapshot('gps')['synced'] is False
     assert store.snapshot('gps')['lat'] is None
-    assert store.get('eclipse') is None
+    assert store.get('eclipse') == eclipse
 
 
 def test_eclipse_validation_accepts_midnight_rollover():

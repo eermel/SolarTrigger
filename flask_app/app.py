@@ -2529,8 +2529,7 @@ def api_eclipse_calculate():
 
 @app.route("/api/eclipse/current")
 def api_eclipse_current():
-    # Si _state["eclipse"] est explicitement None (réinitialisé au boot),
-    # ne pas charger depuis le disque — l'utilisateur doit recalculer.
+    # Priorité à l'éclipse restaurée depuis l'état persistant.
     with _state_lock:
         mem = _state.get("eclipse", "unset")
     if mem is None:
