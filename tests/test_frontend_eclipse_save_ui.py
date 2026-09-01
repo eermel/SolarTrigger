@@ -53,7 +53,7 @@ def test_circumstances_selection_loads_automatically():
 def test_circumstances_list_is_refreshed_from_backend():
     html = INDEX
 
-    assert "async function refreshSavedCircumstances(preferredValue = null)" in html
+    assert "async function refreshSavedCircumstances()" in html
     assert "document.getElementById('eclipse-circumstances-select')" in html
     assert "fetch('/api/configs/list_eclipse')" in html
 
@@ -110,4 +110,5 @@ def test_saved_circumstances_becomes_selected_after_save():
     end = html.index("async function cleanCircumstances()", start)
     block = html[start:end]
 
-    assert "refreshSavedCircumstances(data.filename)" in block
+    assert "await refreshSavedCircumstances()" in block
+    assert "circumstancesSelect.value = data.filename" in block

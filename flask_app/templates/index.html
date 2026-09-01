@@ -4391,7 +4391,7 @@ async function promptSaveConfig() {
   } catch(e) { flash('Erreur réseau', 'red'); }
 }
 
-async function refreshSavedCircumstances(preferredValue = null) {
+async function refreshSavedCircumstances() {
   const select = document.getElementById('eclipse-circumstances-select');
   if (!select) return;
 
@@ -4401,7 +4401,7 @@ async function refreshSavedCircumstances(preferredValue = null) {
 
     const data = await response.json();
     const files = data.files || [];
-    const valueToRestore = preferredValue || select.value;
+    const currentValue = select.value;
 
     select.innerHTML = '<option value="">— Fichier circonstances —</option>';
 
@@ -4414,8 +4414,8 @@ async function refreshSavedCircumstances(preferredValue = null) {
       select.appendChild(option);
     });
 
-    if ([...select.options].some(option => option.value === valueToRestore)) {
-      select.value = valueToRestore;
+    if ([...select.options].some(option => option.value === currentValue)) {
+      select.value = currentValue;
     }
   } catch (_error) {
   }
@@ -4480,7 +4480,14 @@ async function saveEclipseConfig() {
     if (response.ok && data.status === 'ok') {
       flash('Saved as ' + data.filename, 'green');
       loadEclipseFileList();
-      refreshSavedCircumstances(data.filename);
+      await refreshSavedCircumstances();
+
+      const circumstancesSelect = document.getElementById(
+        'eclipse-circumstances-select'
+      );
+      if (circumstancesSelect && data.filename) {
+        circumstancesSelect.value = data.filename;
+      }
     } else {
       flash(data.error || 'Save failed.', 'red');
     }
