@@ -71,3 +71,14 @@ def test_production_db_resolves_gphoto2_d850_model_without_serial():
     assert gphoto2["pixel_pitch_um"] == pytest.approx(
         canonical["pixel_pitch_um"]
     )
+
+def test_sony_a7v_gphoto2_aliases_resolve():
+    db = load_sensor_db("data/camera_sensors/camera_sensors_2017plus_zwo.json")
+
+    for alias in (
+        "Sony ILCE-7M5",
+        "Sony ILCE-7M5 (PC Control)",
+        "Sony Corporation ILCE-7M5",
+    ):
+        entry = lookup_model(db, "Sony", alias)
+        assert entry["id_key"] == "Sony::ILCE-7M5"
