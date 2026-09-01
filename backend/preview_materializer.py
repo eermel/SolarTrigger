@@ -250,16 +250,29 @@ def build_exposure_diff_lines(
     original_iso: Any,
     final_shutters: list[str],
     final_iso: Any,
+    final_isos: list[Any] | None = None,
 ) -> list[str]:
     """Return only visible exposure differences.
 
     Sequence alignment is intentional: Atmos extends the slow tail and
     Anti-blur truncates/changes the slow tail. Camera-specific planners are
     applied before this comparison.
+
+    ``final_isos`` carries the ISO actually applied to each exposure when
+    motion compensation is materialized per exposure. ``final_iso`` remains
+    the aggregate fallback for callers without a per-exposure plan.
     """
 
     original_iso_text = str(original_iso)
     final_iso_text = str(final_iso)
+
+    if final_isos is not None and len(final_isos) != len(final_shutters):
+        raise ValueError("final ISO plan must match final shutter plan")
+
+    def iso_for(index: int) -> str:
+        if final_isos is None:
+            return final_iso_text
+        return str(final_isos[index])
 
     lines = []
     common = min(len(original_shutters), len(final_shutters))
@@ -267,21 +280,23 @@ def build_exposure_diff_lines(
     for index in range(common):
         old_shutter = format_photo_shutter(original_shutters[index])
         new_shutter = format_photo_shutter(final_shutters[index])
+        new_iso = iso_for(index)
 
         if (
             old_shutter == new_shutter
-            and original_iso_text == final_iso_text
+            and original_iso_text == new_iso
         ):
             continue
 
         lines.append(
             f"({old_shutter} ; {original_iso_text}) "
-            f"→ ({new_shutter} ; {final_iso_text})"
+            f"→ ({new_shutter} ; {new_iso})"
         )
 
-    for speed in final_shutters[common:]:
+    for index in range(common, len(final_shutters)):
         lines.append(
-            f"+ ({format_photo_shutter(speed)} ; {final_iso_text})"
+            f"+ ({format_photo_shutter(final_shutters[index])} ; "
+            f"{iso_for(index)})"
         )
 
     for speed in original_shutters[common:]:

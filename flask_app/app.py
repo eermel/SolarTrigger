@@ -760,6 +760,7 @@ def api_rigs_preview():
                 )
                 corrections = []
                 warnings = []
+                final_isos = None
 
                 if motion_policy != "none":
                     if iso_requested is None:
@@ -812,6 +813,10 @@ def api_rigs_preview():
                         iso_applied = str(
                             materialized["iso_applied"]
                         )
+                        final_isos = [
+                            exposure["iso"]
+                            for exposure in materialized["exposure_plan"]
+                        ]
                         corrections = materialized["corrections"]
                         warnings = materialized["warnings"]
 
@@ -833,6 +838,7 @@ def api_rigs_preview():
                     iso_requested,
                     final_shutters,
                     final_iso,
+                    final_isos=final_isos,
                 )
 
                 item.update({
