@@ -83,7 +83,7 @@ def test_camera_page_contains_four_complete_rig_columns():
         assert column["id"] == f"cam-rig-column-{rig_id}"
         assert column["rig_id"] == str(rig_id)
         assert [" ".join(parts) for parts in column["buttons"]] == [
-            "Read information",
+            "Read Info.",
             "Test photo",
         ]
         assert {

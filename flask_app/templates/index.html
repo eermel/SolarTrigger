@@ -645,6 +645,23 @@ header {
   border-bottom: 1px solid var(--border);
 }
 
+
+.cam-rig-title {
+  color: var(--text);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.cam-rig-button {
+  padding: 7px 10px;
+  min-height: 0;
+  font-size: 11px;
+}
+
+.cam-rig-battery {
+  font-weight: 700;
+}
+
 </style>
 </head>
 <body>
@@ -1222,55 +1239,59 @@ header {
       <section class="camera-rigs-section">
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
           <div class="card cam-rig-column" id="cam-rig-column-1" data-rig-id="1">
-            <div class="card-title">RIG 1</div>
+            <div class="card-title cam-rig-title">RIG 1</div>
             <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
               <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 1</span></div>
               <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
               <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
+              <div><span style="color:var(--text-dim)">Battery: </span><span class="cam-rig-battery">—</span></div>
+<div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button" onclick="readRigCameraInfo(1, this)">Read information</button>
-              <button class="btn btn-secondary btn-full" type="button" onclick="testRigCameraPhoto(1, this)">Test photo</button>
+              <button class="btn btn-primary btn-full cam-rig-button" type="button" onclick="readRigCameraInfo(1, this)">Read Info.</button>
+              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(1, this)">Test photo</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-2" data-rig-id="2">
-            <div class="card-title">RIG 2</div>
+            <div class="card-title cam-rig-title">RIG 2</div>
             <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
               <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 2</span></div>
               <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
               <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
+              <div><span style="color:var(--text-dim)">Battery: </span><span class="cam-rig-battery">—</span></div>
+<div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button" onclick="readRigCameraInfo(2, this)">Read information</button>
-              <button class="btn btn-secondary btn-full" type="button" onclick="testRigCameraPhoto(2, this)">Test photo</button>
+              <button class="btn btn-primary btn-full cam-rig-button" type="button" onclick="readRigCameraInfo(2, this)">Read Info.</button>
+              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(2, this)">Test photo</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-3" data-rig-id="3">
-            <div class="card-title">RIG 3</div>
+            <div class="card-title cam-rig-title">RIG 3</div>
             <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
               <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 3</span></div>
               <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
               <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
+              <div><span style="color:var(--text-dim)">Battery: </span><span class="cam-rig-battery">—</span></div>
+<div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button" onclick="readRigCameraInfo(3, this)">Read information</button>
-              <button class="btn btn-secondary btn-full" type="button" onclick="testRigCameraPhoto(3, this)">Test photo</button>
+              <button class="btn btn-primary btn-full cam-rig-button" type="button" onclick="readRigCameraInfo(3, this)">Read Info.</button>
+              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(3, this)">Test photo</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-4" data-rig-id="4">
-            <div class="card-title">RIG 4</div>
+            <div class="card-title cam-rig-title">RIG 4</div>
             <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
               <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 4</span></div>
               <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
               <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
+              <div><span style="color:var(--text-dim)">Battery: </span><span class="cam-rig-battery">—</span></div>
+<div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button" onclick="readRigCameraInfo(4, this)">Read information</button>
-              <button class="btn btn-secondary btn-full" type="button" onclick="testRigCameraPhoto(4, this)">Test photo</button>
+              <button class="btn btn-primary btn-full cam-rig-button" type="button" onclick="readRigCameraInfo(4, this)">Read Info.</button>
+              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(4, this)">Test photo</button>
             </div>
           </div>
         </div>
@@ -1999,6 +2020,44 @@ async function loadRigDevices(inventoryOverride) {
 }
 
 
+
+function renderRigCameraBattery(element, value) {
+  if (!element) return;
+
+  element.style.color = 'var(--text-dim)';
+
+  if (value === null || value === undefined || value === '') {
+    element.textContent = '—';
+    return;
+  }
+
+  let numeric = null;
+
+  if (typeof value === 'number') {
+    numeric = value;
+  } else {
+    const match = String(value).match(/(\d+(?:\.\d+)?)/);
+    if (match) numeric = Number(match[1]);
+  }
+
+  if (numeric === null || !Number.isFinite(numeric)) {
+    element.textContent = String(value);
+    return;
+  }
+
+  numeric = Math.max(0, Math.min(100, numeric));
+  element.textContent = `${Math.round(numeric)}%`;
+
+  if (numeric <= 20) {
+    element.style.color = 'var(--red)';
+  } else if (numeric <= 50) {
+    element.style.color = 'var(--orange)';
+  } else {
+    element.style.color = 'var(--green)';
+  }
+}
+
+
 async function readRigCameraInfo(rigId, button) {
   const column = document.getElementById(`cam-rig-column-${rigId}`);
   if (!column) return;
@@ -2020,17 +2079,12 @@ async function readRigCameraInfo(rigId, button) {
       throw new Error(data.error || `HTTP error ${response.status}`);
     }
 
-    const parts = [];
-
-    if (data.model) parts.push(data.model);
-
-    if (data.battery !== undefined && data.battery !== null) {
-      parts.push(`Battery ${data.battery}`);
-    }
-
     if (status) {
-      status.textContent = parts.length ? parts.join(' · ') : 'Information read';
+      status.textContent = data.model || 'Information read';
     }
+
+    const battery = column.querySelector('.cam-rig-battery');
+    renderRigCameraBattery(battery, data.battery);
 
     if (lastRead) {
       lastRead.textContent = new Date().toISOString().slice(11, 19) + ' UTC';
@@ -2172,8 +2226,35 @@ function updateRigs(rigs) {
       cameraRigColumn.classList.toggle('enabled', triggerEnabled);
       cameraRigColumn.hidden = false;
 
+      const defaultName = `RIG ${defaultRig.rig_id}`;
+
+      const title = cameraRigColumn.querySelector('.cam-rig-title');
+      if (title) {
+        title.textContent = (
+          rigName && rigName !== defaultName
+            ? `${defaultName} - ${rigName}`
+            : defaultName
+        );
+      }
+
       const nameElement = cameraRigColumn.querySelector('.cam-rig-name');
       if (nameElement) nameElement.textContent = rigName;
+
+      const bindingElement = cameraRigColumn.querySelector('.cam-rig-binding');
+      if (bindingElement) {
+        const camera = rig.devices && rig.devices.camera;
+
+        bindingElement.textContent = camera
+          ? (
+              camera.display_label
+              || camera.model
+              || camera.alias
+              || camera.serial
+              || camera.backend
+              || '—'
+            )
+          : '—';
+      }
     }
     if (toggle) toggle.checked = rig.enabled === true;
   });
