@@ -149,6 +149,43 @@ class NikonZPlugin(NikonBasePlugin):
         m = _norm(model_string)
         return "nikon" in m and any(p in m for p in Z_MODEL_PATTERNS)
 
+    def _set_speed(self, speed):
+        """Set shutter speed on Nikon Z and fail explicitly when unavailable.
+
+        Nikon Z bodies may expose shutterspeed as read-only when the camera is
+        not effectively in manual exposure mode.  Unlike the DSLR fallback,
+        silently skipping an exposure is unsafe for an eclipse sequence.
+        """
+        errors = []
+
+        for name in ("shutterspeed2", "shutterspeed"):
+            try:
+                cfg = self.camera.get_config()
+                widget = cfg.get_child_by_name(name)
+            except Exception as exc:
+                errors.append(f"{name}: unavailable ({exc})")
+                continue
+
+            try:
+                get_readonly = getattr(widget, "get_readonly", None)
+                if get_readonly is not None and bool(get_readonly()):
+                    errors.append(f"{name}: read-only")
+                    continue
+
+                widget.set_value(str(speed))
+                self.camera.set_config(cfg)
+                return True
+            except gp.GPhoto2Error as exc:
+                errors.append(f"{name}: {exc}")
+            except Exception as exc:
+                errors.append(f"{name}: {exc}")
+
+        detail = "; ".join(errors) if errors else "no shutter-speed control found"
+        raise RuntimeError(
+            f"Nikon Z shutter speed {speed!r} cannot be applied: {detail}. "
+            "Check that the camera is in manual exposure mode (M)."
+        )
+
     def init_settings(self, *args, **kwargs):
         super().init_settings(*args, **kwargs)
         # Z-series : liveview requis pour certains opcodes. Base testable.
