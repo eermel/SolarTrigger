@@ -53,7 +53,7 @@ def test_circumstances_selection_loads_automatically():
 def test_circumstances_list_is_refreshed_from_backend():
     html = INDEX
 
-    assert "async function refreshSavedCircumstances()" in html
+    assert "async function refreshSavedCircumstances(preferredValue = null)" in html
     assert "document.getElementById('eclipse-circumstances-select')" in html
     assert "fetch('/api/configs/list_eclipse')" in html
 
@@ -101,3 +101,13 @@ def test_save_uses_prefix_and_rejects_bare_prefix_before_fetch():
     assert block.index("filename.trim() === activePrefix") < block.index(
         "fetch('/api/configs/save'"
     )
+
+
+def test_saved_circumstances_becomes_selected_after_save():
+    html = INDEX
+
+    start = html.index("async function saveEclipseConfig()")
+    end = html.index("async function cleanCircumstances()", start)
+    block = html[start:end]
+
+    assert "refreshSavedCircumstances(data.filename)" in block
