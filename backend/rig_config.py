@@ -125,44 +125,54 @@ def validate(obj: Any) -> None:
     _require(isinstance(obj, dict), "configuration must be an object")
     _require(obj.get("schema_version") == SCHEMA_VERSION, "schema_version must be 2")
 
-    eclipse = obj.get("eclipse")
-    _require(isinstance(eclipse, dict), "eclipse must be an object")
-    _require(isinstance(eclipse.get("date"), str), "eclipse.date must be a string")
-
-    reference_site = eclipse.get("reference_site")
+    _require("eclipse" in obj, "eclipse must be an object")
+    eclipse = obj["eclipse"]
     _require(
-        isinstance(reference_site, dict),
-        "eclipse.reference_site must be an object",
+        eclipse is None or isinstance(eclipse, dict),
+        "eclipse must be an object or null",
     )
-    for key in REFERENCE_SITE_KEYS:
+
+    if eclipse is not None:
         _require(
-            _is_number(reference_site.get(key)),
-            f"eclipse.reference_site.{key} must be a number",
+            isinstance(eclipse.get("date"), str),
+            "eclipse.date must be a string",
         )
 
-    circumstances = eclipse.get("circumstances")
-    _require(
-        isinstance(circumstances, dict),
-        "eclipse.circumstances must be an object",
-    )
-    for key in ("C1", "TMAX", "C4"):
+        reference_site = eclipse.get("reference_site")
         _require(
-            isinstance(circumstances.get(key), str),
-            f"eclipse.circumstances.{key} must be a string",
+            isinstance(reference_site, dict),
+            "eclipse.reference_site must be an object",
+        )
+        for key in REFERENCE_SITE_KEYS:
+            _require(
+                _is_number(reference_site.get(key)),
+                f"eclipse.reference_site.{key} must be a number",
+            )
+
+        circumstances = eclipse.get("circumstances")
+        _require(
+            isinstance(circumstances, dict),
+            "eclipse.circumstances must be an object",
         )
 
-    for key in ("C2", "C3"):
-        value = circumstances.get(key)
-        _require(
-            value is None or isinstance(value, str),
-            f"eclipse.circumstances.{key} must be a string or null",
-        )
+        for key in ("C1", "TMAX", "C4"):
+            _require(
+                isinstance(circumstances.get(key), str),
+                f"eclipse.circumstances.{key} must be a string",
+            )
 
-    _require(
-        (circumstances.get("C2") is None)
-        == (circumstances.get("C3") is None),
-        "eclipse.circumstances.C2 and C3 must both be present or null",
-    )
+        for key in ("C2", "C3"):
+            value = circumstances.get(key)
+            _require(
+                value is None or isinstance(value, str),
+                f"eclipse.circumstances.{key} must be a string or null",
+            )
+
+        _require(
+            (circumstances.get("C2") is None)
+            == (circumstances.get("C3") is None),
+            "eclipse.circumstances.C2 and C3 must both be present or null",
+        )
 
     sequence = obj.get("sequence")
     _require(isinstance(sequence, dict), "sequence must be an object")
@@ -250,9 +260,15 @@ def migrate_legacy(state_store: Any, configs_dir: str | PathLike[str]) -> dict[s
     # capture document itself remains the authoritative source for its content.
     state_store.snapshot("capture")
 
-    circumstances_file = configs_path / "circumstances" / circumstances_state["active_file"]
-    with circumstances_file.open("r", encoding="utf-8") as stream:
-        circumstances_source = json.load(stream)
+    circumstances_source: dict[str, Any] = {}
+    active_file = circumstances_state.get("active_file")
+    if active_file:
+        circumstances_file = configs_path / "circumstances" / active_file
+        if circumstances_file.exists():
+            with circumstances_file.open("r", encoding="utf-8") as stream:
+                loaded_circumstances = json.load(stream)
+            if isinstance(loaded_circumstances, dict):
+                circumstances_source = loaded_circumstances
 
     capture_source: dict[str, Any] = {}
     camera_config_file = state_store.get("camera_config_file")
@@ -316,14 +332,16 @@ def migrate_legacy(state_store: Any, configs_dir: str | PathLike[str]) -> dict[s
         and camera_known
     )
 
-    location = circumstances_source["_circumstances_location"]
-    eclipse_date = circumstances_source.get("_date")
-    if eclipse_date is None:
-        eclipse_date = circumstances_source["_date_utc"]
+    eclipse = None
 
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "eclipse": {
+    location = circumstances_source.get("_circumstances_location")
+    eclipse_date = (
+        circumstances_source.get("_date")
+        or circumstances_source.get("_date_utc")
+    )
+
+    if isinstance(location, dict) and eclipse_date:
+        eclipse = {
             "date": eclipse_date,
             "reference_site": {
                 "lat": location["latitude"],
@@ -334,7 +352,11 @@ def migrate_legacy(state_store: Any, configs_dir: str | PathLike[str]) -> dict[s
                 key: circumstances_source.get(key)
                 for key in CIRCUMSTANCE_KEYS
             },
-        },
+        }
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "eclipse": eclipse,
         "sequence": {"common": common},
         "rigs": [
             {

@@ -3241,7 +3241,7 @@ def api_trigger_status():
 # ══════════════════════════════════════════════════════════════════════════════
 
 @socketio.on("connect")
-def on_connect():
+def on_connect(auth=None):
     """
     À chaque (re)connexion d'un client :
     1. Envoie l'état complet (GPS, éclipse, trigger, heure)
