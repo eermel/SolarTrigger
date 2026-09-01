@@ -46,16 +46,12 @@ def test_rig_activation_uses_switch_visual_style():
     panel = devices_panel()
 
     for rig_id in (2, 3, 4):
-        assert (
-            f'<div class="focuser-mode-switch rig-mode-switch">'
-            f'<label for="rig-switch-{rig_id}">OFF</label>'
-        ) in panel
-        assert (
-            f'<input class="rig-switch" id="rig-switch-{rig_id}" '
-            'type="checkbox" role="switch"'
-        ) in panel
-        assert f'<label for="rig-switch-{rig_id}">ON</label>' in panel
+        assert f'id="rig-switch-{rig_id}"' in panel
+        assert f'class="rig-switch"' in panel
+        assert f'aria-label="RIG {rig_id} ON/OFF"' in panel
 
+        assert f'<label for="rig-switch-{rig_id}">OFF</label>' not in panel
+        assert f'<label for="rig-switch-{rig_id}">ON</label>' not in panel
 
 def test_enabled_rig_has_green_border():
     assert ".rig-column.enabled" in HTML

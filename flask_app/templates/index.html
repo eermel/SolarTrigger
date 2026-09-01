@@ -703,9 +703,9 @@ header {
 
         <div class="devices-rigs-row" id="devices-rigs-row">
           <div class="card rig-column" id="rig-column-1" data-rig-id="1"><div class="rig-header"><div class="card-title">RIG 1</div><span class="rig-trigger-required" title="RIG 1 participe toujours au trigger" style="font-family:var(--mono);font-size:9px;color:var(--accent)">REQUIS</span></div><div class="rig-body" id="rig-body-1"></div></div>
-          <div class="card rig-column" id="rig-column-2" data-rig-id="2"><div class="rig-header"><div class="card-title">RIG 2</div><div class="focuser-mode-switch rig-mode-switch"><label for="rig-switch-2">OFF</label><input class="rig-switch" id="rig-switch-2" type="checkbox" role="switch" aria-label="RIG 2 ON/OFF"><label for="rig-switch-2">ON</label></div></div><div class="rig-body" id="rig-body-2"></div></div>
-          <div class="card rig-column" id="rig-column-3" data-rig-id="3"><div class="rig-header"><div class="card-title">RIG 3</div><div class="focuser-mode-switch rig-mode-switch"><label for="rig-switch-3">OFF</label><input class="rig-switch" id="rig-switch-3" type="checkbox" role="switch" aria-label="RIG 3 ON/OFF"><label for="rig-switch-3">ON</label></div></div><div class="rig-body" id="rig-body-3"></div></div>
-          <div class="card rig-column" id="rig-column-4" data-rig-id="4"><div class="rig-header"><div class="card-title">RIG 4</div><div class="focuser-mode-switch rig-mode-switch"><label for="rig-switch-4">OFF</label><input class="rig-switch" id="rig-switch-4" type="checkbox" role="switch" aria-label="RIG 4 ON/OFF"><label for="rig-switch-4">ON</label></div></div><div class="rig-body" id="rig-body-4"></div></div>
+          <div class="card rig-column" id="rig-column-2" data-rig-id="2"><div class="rig-header"><div class="card-title">RIG 2</div><div class="focuser-mode-switch rig-mode-switch"><input class="rig-switch" id="rig-switch-2" type="checkbox" role="switch" aria-label="RIG 2 ON/OFF"></div></div><div class="rig-body" id="rig-body-2"></div></div>
+          <div class="card rig-column" id="rig-column-3" data-rig-id="3"><div class="rig-header"><div class="card-title">RIG 3</div><div class="focuser-mode-switch rig-mode-switch"><input class="rig-switch" id="rig-switch-3" type="checkbox" role="switch" aria-label="RIG 3 ON/OFF"></div></div><div class="rig-body" id="rig-body-3"></div></div>
+          <div class="card rig-column" id="rig-column-4" data-rig-id="4"><div class="rig-header"><div class="card-title">RIG 4</div><div class="focuser-mode-switch rig-mode-switch"><input class="rig-switch" id="rig-switch-4" type="checkbox" role="switch" aria-label="RIG 4 ON/OFF"></div></div><div class="rig-body" id="rig-body-4"></div></div>
         </div>
       </section>
     </div>
@@ -1894,7 +1894,25 @@ function renderRigDevices(payload, inventoryOverride) {
     const rigId = Number(rig.rig_id);
     const body = document.getElementById(`rig-body-${rigId}`);
     if (!body) return;
-    body.innerHTML = RIG_DEVICE_CATEGORIES.map(category => {
+    const rigName = (
+      typeof rig.name === 'string' && rig.name.trim()
+        ? rig.name.trim()
+        : `RIG ${rigId}`
+    );
+
+    body.innerHTML = `
+      <div class="field rig-name-field">
+        <label for="rig-${rigId}-name">RIG NAME</label>
+        <input
+          type="text"
+          id="rig-${rigId}-name"
+          maxlength="64"
+          value="${escapeDeviceText(rigName)}"
+          data-persisted-value="${escapeDeviceText(rigName)}"
+          onchange="persistRigName(${rigId}, this)"
+        >
+      </div>
+    ` + RIG_DEVICE_CATEGORIES.map(category => {
       const current = rig.devices && rig.devices[category];
       const choices = [...(inventory[category] || [])];
 
@@ -1974,6 +1992,38 @@ async function loadRigDevices(inventoryOverride) {
   }
 }
 
+async function persistRigName(rigId, input) {
+  const persistedValue = input.dataset.persistedValue || `RIG ${rigId}`;
+  const name = input.value.trim() || `RIG ${rigId}`;
+
+  input.value = name;
+  input.disabled = true;
+
+  try {
+    const response = await fetch('/api/rigs/devices', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        rigs: [{rig_id: rigId, name: name}],
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || `HTTP error ${response.status}`);
+    }
+
+    await loadRigDevices();
+  } catch (error) {
+    input.value = persistedValue;
+    flash(`RIG ${rigId} name: ${error.message}`, 'red');
+  } finally {
+    input.disabled = false;
+  }
+}
+
+
 async function selectRigDevice(rigId, category, select) {
   const persistedValue = select.dataset.persistedValue || '';
   let binding = null;
@@ -2003,6 +2053,11 @@ function updateRigs(rigs) {
   const byId = new Map(updatedRigs.map(rig => [Number(rig.rig_id), rig]));
   DEFAULT_RIGS.forEach(defaultRig => {
     const rig = byId.get(defaultRig.rig_id) || defaultRig;
+    const rigName = (
+      typeof rig.name === 'string' && rig.name.trim()
+        ? rig.name.trim()
+        : `RIG ${defaultRig.rig_id}`
+    );
     const triggerEnabled = defaultRig.rig_id === 1 || rig.enabled === true;
     const column = document.getElementById(`rig-column-${defaultRig.rig_id}`);
     const cameraColumn = document.getElementById(`camcfg-rig-column-${defaultRig.rig_id}`);
@@ -2012,12 +2067,23 @@ function updateRigs(rigs) {
     if (cameraColumn) {
       cameraColumn.classList.toggle('enabled', triggerEnabled);
       cameraColumn.hidden = false;
+
+      const title = cameraColumn.querySelector('.card-title');
+      if (title) {
+        const defaultName = `RIG ${defaultRig.rig_id}`;
+        title.textContent = rigName === defaultName
+          ? defaultName
+          : `${defaultName} — ${rigName}`;
+      }
       const previewButton = cameraColumn.querySelector('.rig-preview-button');
       if (previewButton) previewButton.disabled = false;
     }
     if (cameraRigColumn) {
       cameraRigColumn.classList.toggle('enabled', triggerEnabled);
       cameraRigColumn.hidden = false;
+
+      const nameElement = cameraRigColumn.querySelector('.cam-rig-name');
+      if (nameElement) nameElement.textContent = rigName;
     }
     if (toggle) toggle.checked = rig.enabled === true;
   });
