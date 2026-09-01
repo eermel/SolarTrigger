@@ -204,3 +204,43 @@ def test_camera_service_invalidates_cached_iso_after_materialized_plan():
 
     assert len(plugin.iso_calls) == calls_before_restore + 1
     assert plugin.iso_calls[-1] == "100"
+
+
+def test_sony_mixed_plan_keeps_bracket_before_variable_iso_singles():
+    plugin = RecordingSonyPlugin()
+
+    plan = [
+        # Exact native Sony 5-view bracket at constant ISO.
+        {"shutter": "1/1000", "iso": 100},
+        {"shutter": "1/500", "iso": 100},
+        {"shutter": "1/250", "iso": 100},
+        {"shutter": "1/125", "iso": 100},
+        {"shutter": "1/60", "iso": 100},
+
+        # Motion-limited tail: same shutter may repeat, but ISO now varies.
+        {"shutter": "1/60", "iso": 200},
+        {"shutter": "1/60", "iso": 400},
+        {"shutter": "1/60", "iso": 800},
+    ]
+
+    prepared = plugin.prepare_capture(_intent(plan))
+    result = plugin.trigger_prepared(prepared)
+
+    assert prepared.token[0] == "sony_exposure_mixed"
+
+    assert len(plugin.brackets) == 1
+    assert plugin.singles == [
+        "1/60",
+        "1/60",
+        "1/60",
+    ]
+
+    assert plugin.iso_calls == [
+        "100",
+        "200",
+        "400",
+        "800",
+    ]
+
+    assert result.frames == 8
+    assert result.planned == 8
