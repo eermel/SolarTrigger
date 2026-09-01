@@ -668,9 +668,75 @@ header {
 
 
 .cam-rig-title {
-  color: var(--text);
-  font-weight: 700;
   font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: .4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.camcfg-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.camcfg-subsection-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.camcfg-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.camcfg-iso-section .camcfg-switch-row {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.rig-preview-button {
+  padding: 7px 10px;
+  min-height: 0;
+  font-size: 11px;
+}
+
+.cam-rig-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  margin-bottom: 12px;
+}
+
+.cam-rig-meta-row {
+  min-width: 0;
+}
+
+.cam-rig-meta-label {
+  display: block;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+
+.cam-rig-meta-value {
+  display: block;
+  overflow-wrap: anywhere;
 }
 
 .cam-rig-button {
@@ -969,44 +1035,68 @@ header {
           <div class="card camcfg-rig-column" id="camcfg-rig-column-1" data-rig-id="1">
             <div class="card-title camcfg-rig-title">RIG 1</div>
 
-            <div class="field">
-              <label>ANTI-BLUR</label>
-              <div class="focuser-mode-switch">
-                <input type="checkbox" id="rig-1-antiblur-switch" role="switch"
-                  aria-label="Anti-blur RIG 1" onchange="persistRigPhoto(1)">
+            <div class="camcfg-subsection camcfg-antiblur-section">
+              <div class="camcfg-switch-row">
+                <div class="camcfg-subsection-title">Anti-blur</div>
+                <div class="focuser-mode-switch">
+                  <input type="checkbox"
+                    id="rig-1-antiblur-switch"
+                    role="switch"
+                    aria-label="Anti-blur RIG 1"
+                    onchange="persistRigPhoto(1)">
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Focal length (mm)</label>
+                <input type="number"
+                  id="rig-1-focal"
+                  min="0.1"
+                  step="0.1"
+                  placeholder="—"
+                  onblur="persistRigPhoto(1)">
+              </div>
+
+              <div class="field">
+                <label>Pixel tolerance</label>
+                <input type="number"
+                  id="rig-1-pixel-tolerance"
+                  min="0.1"
+                  step="0.1"
+                  value="1.0"
+                  onblur="persistRigPhoto(1)">
               </div>
             </div>
 
-            <div class="field">
-              <label>FOCALE (MM)</label>
-              <input type="number" id="rig-1-focal" min="0.1" step="0.1"
-                placeholder="—" onblur="persistRigPhoto(1)">
-            </div>
+            <div class="camcfg-subsection camcfg-iso-section">
+              <div class="camcfg-switch-row">
+                <div class="camcfg-subsection-title">ISO compensation</div>
+                <div class="focuser-mode-switch">
+                  <input type="checkbox"
+                    id="rig-1-iso-comp-switch"
+                    role="switch"
+                    aria-label="ISO Compensation RIG 1"
+                    onchange="persistRigPhoto(1)">
+                </div>
+              </div>
 
-            <div class="field">
-              <label>PIXEL TOLERANCE</label>
-              <input type="number" id="rig-1-pixel-tolerance" min="0.1" step="0.1"
-                value="1.0" onblur="persistRigPhoto(1)">
-            </div>
-
-            <div class="field">
-              <label>ISO COMPENSATION</label>
-              <div class="focuser-mode-switch">
-                <input type="checkbox" id="rig-1-iso-comp-switch" role="switch"
-                  aria-label="ISO Compensation RIG 1" onchange="persistRigPhoto(1)">
+              <div class="field">
+                <label>ISO max</label>
+                <div class="select-chev">
+                  <select id="rig-1-iso-max"
+                    onchange="persistRigPhoto(1)">
+                    <option>100</option>
+                    <option>200</option>
+                    <option>400</option>
+                    <option>800</option>
+                    <option>1600</option>
+                    <option>3200</option>
+                    <option selected>6400</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div class="field">
-              <label>ISO MAX</label>
-              <div class="select-chev">
-                <select id="rig-1-iso-max" onchange="persistRigPhoto(1)">
-                  <option>100</option><option>200</option><option>400</option>
-                  <option>800</option><option>1600</option><option>3200</option>
-                  <option selected>6400</option>
-                </select>
-              </div>
-            </div>
 
             <button class="btn btn-secondary btn-full rig-preview-button"
               type="button" data-rig-id="1" disabled
@@ -1017,44 +1107,68 @@ header {
           <div class="card camcfg-rig-column" id="camcfg-rig-column-2" data-rig-id="2">
             <div class="card-title camcfg-rig-title">RIG 2</div>
 
-            <div class="field">
-              <label>ANTI-BLUR</label>
-              <div class="focuser-mode-switch">
-                <input type="checkbox" id="rig-2-antiblur-switch" role="switch"
-                  aria-label="Anti-blur RIG 2" onchange="persistRigPhoto(2)">
+            <div class="camcfg-subsection camcfg-antiblur-section">
+              <div class="camcfg-switch-row">
+                <div class="camcfg-subsection-title">Anti-blur</div>
+                <div class="focuser-mode-switch">
+                  <input type="checkbox"
+                    id="rig-2-antiblur-switch"
+                    role="switch"
+                    aria-label="Anti-blur RIG 2"
+                    onchange="persistRigPhoto(2)">
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Focal length (mm)</label>
+                <input type="number"
+                  id="rig-2-focal"
+                  min="0.1"
+                  step="0.1"
+                  placeholder="—"
+                  onblur="persistRigPhoto(2)">
+              </div>
+
+              <div class="field">
+                <label>Pixel tolerance</label>
+                <input type="number"
+                  id="rig-2-pixel-tolerance"
+                  min="0.1"
+                  step="0.1"
+                  value="1.0"
+                  onblur="persistRigPhoto(2)">
               </div>
             </div>
 
-            <div class="field">
-              <label>FOCALE (MM)</label>
-              <input type="number" id="rig-2-focal" min="0.1" step="0.1"
-                placeholder="—" onblur="persistRigPhoto(2)">
-            </div>
+            <div class="camcfg-subsection camcfg-iso-section">
+              <div class="camcfg-switch-row">
+                <div class="camcfg-subsection-title">ISO compensation</div>
+                <div class="focuser-mode-switch">
+                  <input type="checkbox"
+                    id="rig-2-iso-comp-switch"
+                    role="switch"
+                    aria-label="ISO Compensation RIG 2"
+                    onchange="persistRigPhoto(2)">
+                </div>
+              </div>
 
-            <div class="field">
-              <label>PIXEL TOLERANCE</label>
-              <input type="number" id="rig-2-pixel-tolerance" min="0.1" step="0.1"
-                value="1.0" onblur="persistRigPhoto(2)">
-            </div>
-
-            <div class="field">
-              <label>ISO COMPENSATION</label>
-              <div class="focuser-mode-switch">
-                <input type="checkbox" id="rig-2-iso-comp-switch" role="switch"
-                  aria-label="ISO Compensation RIG 2" onchange="persistRigPhoto(2)">
+              <div class="field">
+                <label>ISO max</label>
+                <div class="select-chev">
+                  <select id="rig-2-iso-max"
+                    onchange="persistRigPhoto(2)">
+                    <option>100</option>
+                    <option>200</option>
+                    <option>400</option>
+                    <option>800</option>
+                    <option>1600</option>
+                    <option>3200</option>
+                    <option selected>6400</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div class="field">
-              <label>ISO MAX</label>
-              <div class="select-chev">
-                <select id="rig-2-iso-max" onchange="persistRigPhoto(2)">
-                  <option>100</option><option>200</option><option>400</option>
-                  <option>800</option><option>1600</option><option>3200</option>
-                  <option selected>6400</option>
-                </select>
-              </div>
-            </div>
 
             <button class="btn btn-secondary btn-full rig-preview-button"
               type="button" data-rig-id="2" disabled
@@ -1065,44 +1179,68 @@ header {
           <div class="card camcfg-rig-column" id="camcfg-rig-column-3" data-rig-id="3">
             <div class="card-title camcfg-rig-title">RIG 3</div>
 
-            <div class="field">
-              <label>ANTI-BLUR</label>
-              <div class="focuser-mode-switch">
-                <input type="checkbox" id="rig-3-antiblur-switch" role="switch"
-                  aria-label="Anti-blur RIG 3" onchange="persistRigPhoto(3)">
+            <div class="camcfg-subsection camcfg-antiblur-section">
+              <div class="camcfg-switch-row">
+                <div class="camcfg-subsection-title">Anti-blur</div>
+                <div class="focuser-mode-switch">
+                  <input type="checkbox"
+                    id="rig-3-antiblur-switch"
+                    role="switch"
+                    aria-label="Anti-blur RIG 3"
+                    onchange="persistRigPhoto(3)">
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Focal length (mm)</label>
+                <input type="number"
+                  id="rig-3-focal"
+                  min="0.1"
+                  step="0.1"
+                  placeholder="—"
+                  onblur="persistRigPhoto(3)">
+              </div>
+
+              <div class="field">
+                <label>Pixel tolerance</label>
+                <input type="number"
+                  id="rig-3-pixel-tolerance"
+                  min="0.1"
+                  step="0.1"
+                  value="1.0"
+                  onblur="persistRigPhoto(3)">
               </div>
             </div>
 
-            <div class="field">
-              <label>FOCALE (MM)</label>
-              <input type="number" id="rig-3-focal" min="0.1" step="0.1"
-                placeholder="—" onblur="persistRigPhoto(3)">
-            </div>
+            <div class="camcfg-subsection camcfg-iso-section">
+              <div class="camcfg-switch-row">
+                <div class="camcfg-subsection-title">ISO compensation</div>
+                <div class="focuser-mode-switch">
+                  <input type="checkbox"
+                    id="rig-3-iso-comp-switch"
+                    role="switch"
+                    aria-label="ISO Compensation RIG 3"
+                    onchange="persistRigPhoto(3)">
+                </div>
+              </div>
 
-            <div class="field">
-              <label>PIXEL TOLERANCE</label>
-              <input type="number" id="rig-3-pixel-tolerance" min="0.1" step="0.1"
-                value="1.0" onblur="persistRigPhoto(3)">
-            </div>
-
-            <div class="field">
-              <label>ISO COMPENSATION</label>
-              <div class="focuser-mode-switch">
-                <input type="checkbox" id="rig-3-iso-comp-switch" role="switch"
-                  aria-label="ISO Compensation RIG 3" onchange="persistRigPhoto(3)">
+              <div class="field">
+                <label>ISO max</label>
+                <div class="select-chev">
+                  <select id="rig-3-iso-max"
+                    onchange="persistRigPhoto(3)">
+                    <option>100</option>
+                    <option>200</option>
+                    <option>400</option>
+                    <option>800</option>
+                    <option>1600</option>
+                    <option>3200</option>
+                    <option selected>6400</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div class="field">
-              <label>ISO MAX</label>
-              <div class="select-chev">
-                <select id="rig-3-iso-max" onchange="persistRigPhoto(3)">
-                  <option>100</option><option>200</option><option>400</option>
-                  <option>800</option><option>1600</option><option>3200</option>
-                  <option selected>6400</option>
-                </select>
-              </div>
-            </div>
 
             <button class="btn btn-secondary btn-full rig-preview-button"
               type="button" data-rig-id="3" disabled
@@ -1113,44 +1251,68 @@ header {
           <div class="card camcfg-rig-column" id="camcfg-rig-column-4" data-rig-id="4">
             <div class="card-title camcfg-rig-title">RIG 4</div>
 
-            <div class="field">
-              <label>ANTI-BLUR</label>
-              <div class="focuser-mode-switch">
-                <input type="checkbox" id="rig-4-antiblur-switch" role="switch"
-                  aria-label="Anti-blur RIG 4" onchange="persistRigPhoto(4)">
+            <div class="camcfg-subsection camcfg-antiblur-section">
+              <div class="camcfg-switch-row">
+                <div class="camcfg-subsection-title">Anti-blur</div>
+                <div class="focuser-mode-switch">
+                  <input type="checkbox"
+                    id="rig-4-antiblur-switch"
+                    role="switch"
+                    aria-label="Anti-blur RIG 4"
+                    onchange="persistRigPhoto(4)">
+                </div>
+              </div>
+
+              <div class="field">
+                <label>Focal length (mm)</label>
+                <input type="number"
+                  id="rig-4-focal"
+                  min="0.1"
+                  step="0.1"
+                  placeholder="—"
+                  onblur="persistRigPhoto(4)">
+              </div>
+
+              <div class="field">
+                <label>Pixel tolerance</label>
+                <input type="number"
+                  id="rig-4-pixel-tolerance"
+                  min="0.1"
+                  step="0.1"
+                  value="1.0"
+                  onblur="persistRigPhoto(4)">
               </div>
             </div>
 
-            <div class="field">
-              <label>FOCALE (MM)</label>
-              <input type="number" id="rig-4-focal" min="0.1" step="0.1"
-                placeholder="—" onblur="persistRigPhoto(4)">
-            </div>
+            <div class="camcfg-subsection camcfg-iso-section">
+              <div class="camcfg-switch-row">
+                <div class="camcfg-subsection-title">ISO compensation</div>
+                <div class="focuser-mode-switch">
+                  <input type="checkbox"
+                    id="rig-4-iso-comp-switch"
+                    role="switch"
+                    aria-label="ISO Compensation RIG 4"
+                    onchange="persistRigPhoto(4)">
+                </div>
+              </div>
 
-            <div class="field">
-              <label>PIXEL TOLERANCE</label>
-              <input type="number" id="rig-4-pixel-tolerance" min="0.1" step="0.1"
-                value="1.0" onblur="persistRigPhoto(4)">
-            </div>
-
-            <div class="field">
-              <label>ISO COMPENSATION</label>
-              <div class="focuser-mode-switch">
-                <input type="checkbox" id="rig-4-iso-comp-switch" role="switch"
-                  aria-label="ISO Compensation RIG 4" onchange="persistRigPhoto(4)">
+              <div class="field">
+                <label>ISO max</label>
+                <div class="select-chev">
+                  <select id="rig-4-iso-max"
+                    onchange="persistRigPhoto(4)">
+                    <option>100</option>
+                    <option>200</option>
+                    <option>400</option>
+                    <option>800</option>
+                    <option>1600</option>
+                    <option>3200</option>
+                    <option selected>6400</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div class="field">
-              <label>ISO MAX</label>
-              <div class="select-chev">
-                <select id="rig-4-iso-max" onchange="persistRigPhoto(4)">
-                  <option>100</option><option>200</option><option>400</option>
-                  <option>800</option><option>1600</option><option>3200</option>
-                  <option selected>6400</option>
-                </select>
-              </div>
-            </div>
 
             <button class="btn btn-secondary btn-full rig-preview-button"
               type="button" data-rig-id="4" disabled
@@ -1272,94 +1434,138 @@ header {
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
           <div class="card cam-rig-column" id="cam-rig-column-1" data-rig-id="1">
             <div class="card-title cam-rig-title">RIG 1</div>
-            <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
-              <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 1</span></div>
-              <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
-              <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Battery: </span><span class="cam-rig-battery">—</span></div>
-<div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
+            <div class="cam-rig-meta">
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Alias:</span>
+                <span class="cam-rig-meta-value cam-rig-name">RIG 1</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Vendor:</span>
+                <span class="cam-rig-meta-value cam-rig-vendor">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Model:</span>
+                <span class="cam-rig-meta-value cam-rig-model">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Battery:</span>
+                <span class="cam-rig-meta-value cam-rig-battery">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Last update:</span>
+                <span class="cam-rig-meta-value cam-rig-last-read">—</span>
+              </div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-direction:column;gap:8px">
               <button class="btn btn-primary btn-full cam-rig-button" type="button" onclick="readRigCameraInfo(1, this)">Read Info.</button>
-              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(1, this)">Test photo</button>
+              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(1, this)">Photo test</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-2" data-rig-id="2">
             <div class="card-title cam-rig-title">RIG 2</div>
-            <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
-              <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 2</span></div>
-              <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
-              <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Battery: </span><span class="cam-rig-battery">—</span></div>
-<div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
+            <div class="cam-rig-meta">
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Alias:</span>
+                <span class="cam-rig-meta-value cam-rig-name">RIG 2</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Vendor:</span>
+                <span class="cam-rig-meta-value cam-rig-vendor">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Model:</span>
+                <span class="cam-rig-meta-value cam-rig-model">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Battery:</span>
+                <span class="cam-rig-meta-value cam-rig-battery">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Last update:</span>
+                <span class="cam-rig-meta-value cam-rig-last-read">—</span>
+              </div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-direction:column;gap:8px">
               <button class="btn btn-primary btn-full cam-rig-button" type="button" onclick="readRigCameraInfo(2, this)">Read Info.</button>
-              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(2, this)">Test photo</button>
+              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(2, this)">Photo test</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-3" data-rig-id="3">
             <div class="card-title cam-rig-title">RIG 3</div>
-            <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
-              <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 3</span></div>
-              <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
-              <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Battery: </span><span class="cam-rig-battery">—</span></div>
-<div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
+            <div class="cam-rig-meta">
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Alias:</span>
+                <span class="cam-rig-meta-value cam-rig-name">RIG 3</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Vendor:</span>
+                <span class="cam-rig-meta-value cam-rig-vendor">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Model:</span>
+                <span class="cam-rig-meta-value cam-rig-model">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Battery:</span>
+                <span class="cam-rig-meta-value cam-rig-battery">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Last update:</span>
+                <span class="cam-rig-meta-value cam-rig-last-read">—</span>
+              </div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-direction:column;gap:8px">
               <button class="btn btn-primary btn-full cam-rig-button" type="button" onclick="readRigCameraInfo(3, this)">Read Info.</button>
-              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(3, this)">Test photo</button>
+              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(3, this)">Photo test</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-4" data-rig-id="4">
             <div class="card-title cam-rig-title">RIG 4</div>
-            <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
-              <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 4</span></div>
-              <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
-              <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Battery: </span><span class="cam-rig-battery">—</span></div>
-<div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
+            <div class="cam-rig-meta">
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Alias:</span>
+                <span class="cam-rig-meta-value cam-rig-name">RIG 4</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Vendor:</span>
+                <span class="cam-rig-meta-value cam-rig-vendor">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Model:</span>
+                <span class="cam-rig-meta-value cam-rig-model">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Battery:</span>
+                <span class="cam-rig-meta-value cam-rig-battery">—</span>
+              </div>
+
+              <div class="cam-rig-meta-row">
+                <span class="cam-rig-meta-label">Last update:</span>
+                <span class="cam-rig-meta-value cam-rig-last-read">—</span>
+              </div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-direction:column;gap:8px">
               <button class="btn btn-primary btn-full cam-rig-button" type="button" onclick="readRigCameraInfo(4, this)">Read Info.</button>
-              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(4, this)">Test photo</button>
+              <button class="btn btn-secondary btn-full cam-rig-button" type="button" onclick="testRigCameraPhoto(4, this)">Photo test</button>
             </div>
           </div>
         </div>
       </section>
-
-      <div class="card">
-        <div class="card-title">Camera</div>
-        <div style="font-size:10px;color:var(--text-dim);margin-bottom:12px;font-family:var(--mono)">
-          USB connection test — the connection is automatically closed after reading to save battery.
-        </div>
-
-        <!-- Résultat détection -->
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
-            <div style="text-align:center">
-              <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px">MARQUE</div>
-              <div style="font-family:var(--mono);font-size:15px;color:var(--accent)" id="cam-brand">--</div>
-            </div>
-            <div style="text-align:center">
-              <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px">MODEL</div>
-              <div style="font-family:var(--mono);font-size:15px;color:var(--accent)" id="cam-model">--</div>
-            </div>
-            <div style="text-align:center">
-              <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px">BATTERY</div>
-              <div style="font-family:var(--mono);font-size:15px;color:var(--green)" id="cam-battery-probe">--</div>
-            </div>
-          </div>
-          <div style="margin-top:10px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--text-dim)" id="cam-probe-status">
-            En attente du test…
-          </div>
-        </div>
-
-        <button class="btn btn-primary btn-full" id="btn-cam-probe" type="button">
-          🔌 Tester la connexion USB
-        </button>
-      </div>
 
       <div class="card" style="display:none">
         <div class="card-title">Time synchronization</div>
@@ -1814,6 +2020,19 @@ function renderControlsRigSelection() {
     if (!button) return;
     button.hidden = !available;
     button.disabled = !available;
+
+    if (available) {
+      const defaultName = `RIG ${defaultRig.rig_id}`;
+      const rigName = (
+        typeof rig.name === 'string' && rig.name.trim()
+          ? rig.name.trim()
+          : defaultName
+      );
+      button.textContent = rigName === defaultName
+        ? defaultName
+        : `${defaultName} — ${rigName}`;
+    }
+
     button.classList.toggle('active', available && selectedRigId === defaultRig.rig_id);
     button.setAttribute('aria-pressed', available && selectedRigId === defaultRig.rig_id ? 'true' : 'false');
   });
@@ -2094,11 +2313,9 @@ async function readRigCameraInfo(rigId, button) {
   const column = document.getElementById(`cam-rig-column-${rigId}`);
   if (!column) return;
 
-  const status = column.querySelector('.cam-rig-status');
   const lastRead = column.querySelector('.cam-rig-last-read');
 
   if (button) button.disabled = true;
-  if (status) status.textContent = 'Reading…';
 
   try {
     const response = await fetch(`/api/rigs/${rigId}/camera/read_info`, {
@@ -2111,8 +2328,18 @@ async function readRigCameraInfo(rigId, button) {
       throw new Error(data.error || `HTTP error ${response.status}`);
     }
 
-    if (status) {
-      status.textContent = data.model || 'Information read';
+    const vendor = column.querySelector('.cam-rig-vendor');
+    if (vendor) {
+      const vendorValue =
+        data.manufacturer
+        || data.vendor
+        || data.brand;
+      if (vendorValue) vendor.textContent = vendorValue;
+    }
+
+    const model = column.querySelector('.cam-rig-model');
+    if (model && data.model) {
+      model.textContent = data.model;
     }
 
     const battery = column.querySelector('.cam-rig-battery');
@@ -2124,7 +2351,6 @@ async function readRigCameraInfo(rigId, button) {
 
     flash(`RIG ${rigId} camera information read`, 'green');
   } catch (error) {
-    if (status) status.textContent = 'Read failed';
     flash(`RIG ${rigId} camera: ${error.message}`, 'red');
   } finally {
     if (button) button.disabled = false;
@@ -2136,10 +2362,7 @@ async function testRigCameraPhoto(rigId, button) {
   const column = document.getElementById(`cam-rig-column-${rigId}`);
   if (!column) return;
 
-  const status = column.querySelector('.cam-rig-status');
-
   if (button) button.disabled = true;
-  if (status) status.textContent = 'Test photo…';
 
   try {
     const response = await fetch(`/api/rigs/${rigId}/camera/test_photo`, {
@@ -2152,10 +2375,6 @@ async function testRigCameraPhoto(rigId, button) {
 
     if (!response.ok) {
       throw new Error(data.error || `HTTP error ${response.status}`);
-    }
-
-    if (status) {
-      status.textContent = 'Test photo OK';
     }
 
     flash(`RIG ${rigId} test photo completed`, 'green');
@@ -2261,30 +2480,24 @@ function updateRigs(rigs) {
       const defaultName = `RIG ${defaultRig.rig_id}`;
 
       const title = cameraRigColumn.querySelector('.cam-rig-title');
-      if (title) {
-        title.textContent = (
-          rigName && rigName !== defaultName
-            ? `${defaultName} - ${rigName}`
-            : defaultName
-        );
-      }
+      if (title) title.textContent = defaultName;
 
       const nameElement = cameraRigColumn.querySelector('.cam-rig-name');
       if (nameElement) nameElement.textContent = rigName;
 
-      const bindingElement = cameraRigColumn.querySelector('.cam-rig-binding');
-      if (bindingElement) {
-        const camera = rig.devices && rig.devices.camera;
+      const camera = rig.devices && rig.devices.camera;
 
-        bindingElement.textContent = camera
-          ? (
-              camera.display_label
-              || camera.model
-              || camera.alias
-              || camera.serial
-              || camera.backend
-              || '—'
-            )
+      const vendorElement = cameraRigColumn.querySelector('.cam-rig-vendor');
+      if (vendorElement) {
+        vendorElement.textContent = camera
+          ? (camera.manufacturer || camera.vendor || camera.brand || '—')
+          : '—';
+      }
+
+      const modelElement = cameraRigColumn.querySelector('.cam-rig-model');
+      if (modelElement) {
+        modelElement.textContent = camera
+          ? (camera.model || camera.display_label || '—')
           : '—';
       }
     }

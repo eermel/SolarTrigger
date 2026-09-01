@@ -618,6 +618,15 @@ class SonyPlugin(CameraPlugin):
                              detail=f"{len(seq)} seq"
                                     f"{' adapt' if adapted else ''}")
 
+    def shoot_single(self, speed, photo_num=0, deadline=None):
+        """Capture one Sony frame through the optimized single-shot path."""
+        frames = self._fire_single(str(speed), deadline=deadline)
+        return CaptureResult(
+            frames=frames,
+            planned=1,
+            detail="sony single",
+        )
+
     def shoot_speeds(self, v_max, v_min, step_il, photo_num_start=0,
                      deadline=None):
         step, _, seq = planner.plan(v_max, v_min, step_il)

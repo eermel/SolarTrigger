@@ -51,7 +51,7 @@ class FakeCameraWorker:
         self._error = error
         self.calls = []
 
-    def test_photo_diagnostic(self, speeds, *, photo_num_start, deadline):
+    def test_photo(self, speeds, *, photo_num_start, deadline):
         self.calls.append((speeds, photo_num_start, deadline))
         if self._error is not None:
             raise self._error

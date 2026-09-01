@@ -84,17 +84,19 @@ def test_camera_page_contains_four_complete_rig_columns():
         assert column["rig_id"] == str(rig_id)
         assert [" ".join(parts) for parts in column["buttons"]] == [
             "Read Info.",
-            "Test photo",
+            "Photo test",
         ]
         assert {
             "cam-rig-name",
-            "cam-rig-binding",
-            "cam-rig-status",
+            "cam-rig-vendor",
+            "cam-rig-model",
+            "cam-rig-battery",
             "cam-rig-last-read",
         } <= column["classes"]
         text = " ".join(column["text"])
         assert f"RIG {rig_id}" in text
-        assert "Name / alias" in text
-        assert "Assigned camera" in text
-        assert "Known status" in text
-        assert "Last read" in text
+        assert "Alias:" in text
+        assert "Vendor:" in text
+        assert "Model:" in text
+        assert "Battery:" in text
+        assert "Last update:" in text

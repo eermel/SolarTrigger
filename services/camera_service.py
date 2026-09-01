@@ -434,6 +434,23 @@ class CameraService:
 
         speeds = [str(s) for s in speeds]
 
+        if len(speeds) == 1:
+            shoot_single = getattr(self.plugin, "shoot_single", None)
+            if shoot_single is not None:
+                return shoot_single(
+                    speeds[0],
+                    photo_num=photo_num_start,
+                    deadline=plugin_deadline,
+                )
+
+            return self.plugin.shoot_speeds(
+                speeds[0],
+                speeds[0],
+                1.0,
+                photo_num_start=photo_num_start,
+                deadline=plugin_deadline,
+            )
+
         fastest, slowest, step_il, regular = _normalized_speed_plan(speeds)
 
         if regular:

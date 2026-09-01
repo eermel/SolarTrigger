@@ -2265,7 +2265,7 @@ def api_rig_camera_test_photo(rig_id):
     started_at = start_utc.isoformat()
     t0 = time.monotonic()
     try:
-        result = worker.test_photo_diagnostic(
+        result = worker.test_photo(
             [speed], photo_num_start=0, deadline=None
         )
     except BusyDeviceError as exc:
