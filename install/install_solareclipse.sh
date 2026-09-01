@@ -862,26 +862,46 @@ grep -q 'export PATH="$HOME/bin:$PATH"' "$PROFILE" || \
 success "Scripts de lancement créés dans $BIN_DIR"
 
 # ════════════════════════════════════════════════════════════
-# ÉTAPE 7b — Règle sudoers pour gps_sync (date + hwclock)
+# ÉTAPE 7b — Règles sudoers SolarEclipse
 # ════════════════════════════════════════════════════════════
-# gps_sync tourne en non-root (lancé par Flask) mais doit pouvoir
-# modifier l'heure système via 'date' et 'hwclock'.
-step "ÉTAPE 7b — Sudoers → date et hwclock sans mot de passe"
+# Le portail Flask tourne en non-root mais doit pouvoir :
+# - synchroniser l'heure système via date / hwclock
+# - libérer certains périphériques USB
+# - arrêter certains processus caméra
+# - rebooter la machine après effacement des données persistantes
+step "ÉTAPE 7b — Configuration sudoers SolarEclipse"
 
 SUDOERS_FILE="/etc/sudoers.d/solareclipse"
+
 cat > "$SUDOERS_FILE" <<EOF
-# SolarEclipse — gps_sync appelle sudo date / sudo hwclock pour synchro heure
-$CURRENT_USER ALL=(ALL) NOPASSWD: /bin/date
-$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/date
-$CURRENT_USER ALL=(ALL) NOPASSWD: /sbin/hwclock
-$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/sbin/hwclock
+# SolarEclipse — synchronisation heure GPS
+$CURRENT_USER ALL=(root) NOPASSWD: /bin/date
+$CURRENT_USER ALL=(root) NOPASSWD: /usr/bin/date
+$CURRENT_USER ALL=(root) NOPASSWD: /sbin/hwclock
+$CURRENT_USER ALL=(root) NOPASSWD: /usr/sbin/hwclock
+
 # SolarEclipse — libération USB appareil photo
-$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/bus/usb/devices/*/authorized
-$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/pkill
+$CURRENT_USER ALL=(root) NOPASSWD: /usr/bin/tee /sys/bus/usb/devices/*/authorized
+$CURRENT_USER ALL=(root) NOPASSWD: /usr/bin/pkill
+
+# SolarEclipse — reboot demandé explicitement depuis l'IHM
+$CURRENT_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot
 EOF
+
 chmod 440 "$SUDOERS_FILE"
-visudo -c -f "$SUDOERS_FILE" && success "Règle sudoers créée : date et hwclock sans mot de passe." \
-    || { warning "Syntaxe sudoers invalide — suppression." ; rm -f "$SUDOERS_FILE"; }
+
+if visudo -cf "$SUDOERS_FILE"; then
+    success "Règles sudoers SolarEclipse installées et validées."
+else
+    rm -f "$SUDOERS_FILE"
+    error "Syntaxe sudoers invalide — installation interrompue."
+fi
+
+if sudo -u "$CURRENT_USER" sudo -n -l /usr/bin/systemctl reboot >/dev/null 2>&1; then
+    success "Reboot non interactif autorisé pour '$CURRENT_USER'."
+else
+    error "Le droit sudo pour /usr/bin/systemctl reboot n'est pas opérationnel."
+fi
 
 # ════════════════════════════════════════════════════════════
 # RÉSUMÉ FINAL

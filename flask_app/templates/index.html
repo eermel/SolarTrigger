@@ -361,6 +361,27 @@ header {
   padding-right: 32px;
 }
 
+.devices-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#devices-rescan,
+#erase-persistent-data-reboot {
+  padding: 7px 10px;
+  font-size: 11px;
+  min-height: 0;
+}
+
+.devices-reset-card {
+  border-color: var(--red);
+}
+
+.devices-reset-card .card-title {
+  color: var(--red);
+}
+
 .device-card { transition: border-color .2s, opacity .2s; }
 .device-card.active { border-color: var(--green); }
 .device-card:not(.active) { opacity: .75; }
@@ -745,6 +766,17 @@ header {
           <div class="card rig-column" id="rig-column-2" data-rig-id="2"><div class="rig-header"><div class="card-title">RIG 2</div><div class="focuser-mode-switch rig-mode-switch"><input class="rig-switch" id="rig-switch-2" type="checkbox" role="switch" aria-label="RIG 2 ON/OFF"></div></div><div class="rig-body" id="rig-body-2"></div></div>
           <div class="card rig-column" id="rig-column-3" data-rig-id="3"><div class="rig-header"><div class="card-title">RIG 3</div><div class="focuser-mode-switch rig-mode-switch"><input class="rig-switch" id="rig-switch-3" type="checkbox" role="switch" aria-label="RIG 3 ON/OFF"></div></div><div class="rig-body" id="rig-body-3"></div></div>
           <div class="card rig-column" id="rig-column-4" data-rig-id="4"><div class="rig-header"><div class="card-title">RIG 4</div><div class="focuser-mode-switch rig-mode-switch"><input class="rig-switch" id="rig-switch-4" type="checkbox" role="switch" aria-label="RIG 4 ON/OFF"></div></div><div class="rig-body" id="rig-body-4"></div></div>
+        </div>
+
+        <div class="card devices-reset-card">
+          <div class="card-title">Persistent data</div>
+          <button
+            class="btn btn-danger btn-full"
+            id="erase-persistent-data-reboot"
+            type="button"
+            onclick="erasePersistentDataAndReboot()">
+            ⚠ ERASE ALL PERSISTANT DATA &amp; REBOOT ⚠
+          </button>
         </div>
       </section>
     </div>
@@ -4928,6 +4960,51 @@ async function clearLog(source = '') {
   _logPaused = true;
   setTimeout(() => { _logPaused = false; }, 1000);
 }
+
+
+async function erasePersistentDataAndReboot() {
+  const confirmed = confirm(
+    'WARNING\n\n'
+    + 'This will permanently erase ALL persistent user data and reboot the Raspberry Pi.\n\n'
+    + 'Saved RIG assignments, eclipse circumstances, camera configurations, '
+    + 'GPS state and other persisted runtime settings will be lost.\n\n'
+    + 'Continue?'
+  );
+
+  if (!confirmed) return;
+
+  const button = document.getElementById('erase-persistent-data-reboot');
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = '⚠ ERASING DATA — REBOOTING… ⚠';
+  }
+
+  try {
+    const response = await fetch('/api/system/erase-persistent-data-and-reboot', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        confirmation: 'ERASE ALL PERSISTANT DATA & REBOOT'
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP error ${response.status}`);
+    }
+
+    flash('Persistent data erased. Raspberry Pi rebooting…', 'yellow');
+  } catch (error) {
+    if (button) {
+      button.disabled = false;
+      button.textContent = '⚠ ERASE ALL PERSISTANT DATA & REBOOT ⚠';
+    }
+    flash(`Reset failed: ${error.message}`, 'red');
+  }
+}
+
 
 // ════════════════════════════════════════════════════════════════
 // NAVIGATION

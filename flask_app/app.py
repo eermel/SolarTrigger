@@ -2527,6 +2527,107 @@ def api_eclipse_calculate():
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"status": "started"})
 
+
+def _erase_all_persistent_data():
+    """Erase user/runtime persistent data while preserving bundled defaults."""
+    removed = []
+
+    files = [
+        STATE_FILE,
+        STATE_FILE.with_suffix(STATE_FILE.suffix + ".tmp"),
+        LOGS_BUFFER_FILE,
+        JSON_FILE,
+        EVENTS_FILE,
+        TRIGGER_DIR / "configs" / "rig" / "default.json",
+    ]
+
+    for path in files:
+        try:
+            if path.exists():
+                path.unlink()
+                removed.append(str(path))
+        except OSError as exc:
+            log.error("Unable to remove persistent file %s: %s", path, exc)
+            raise
+
+    camera_cfg_dir = TRIGGER_DIR / "configs" / "camera_cfg"
+    if camera_cfg_dir.exists():
+        for path in camera_cfg_dir.glob("*.json"):
+            path.unlink()
+            removed.append(str(path))
+
+    circumstances_dir = TRIGGER_DIR / "configs" / "circumstances"
+    if circumstances_dir.exists():
+        for path in circumstances_dir.glob("*.json"):
+            # Bundled dry-run fixture, not user persistence.
+            if path.name == "dryrun_short.json":
+                continue
+            path.unlink()
+            removed.append(str(path))
+
+    return removed
+
+
+@app.route("/api/system/erase-persistent-data-and-reboot", methods=["POST"])
+def api_system_erase_persistent_data_and_reboot():
+    payload = request.get_json(silent=True) or {}
+
+    if payload.get("confirmation") != "ERASE ALL PERSISTANT DATA & REBOOT":
+        return jsonify({
+            "error": "Explicit confirmation is required.",
+            "code": "CONFIRMATION_REQUIRED",
+        }), 400
+
+    trigger_state = _state_store.snapshot("trigger") or {}
+    if trigger_state.get("running"):
+        return jsonify({
+            "error": "Persistent data cannot be erased while a trigger is running.",
+            "code": "TRIGGER_RUNNING",
+        }), 409
+
+    def erase_and_reboot():
+        import os
+        import subprocess
+        import threading
+        import time
+
+        # Allow the HTTP response to reach the browser first.
+        time.sleep(0.5)
+
+        try:
+            removed = _erase_all_persistent_data()
+            log.warning(
+                "Persistent data erased before reboot: %s",
+                ", ".join(removed) if removed else "nothing to remove",
+            )
+
+            try:
+                os.sync()
+            except AttributeError:
+                pass
+
+            subprocess.run(
+                ["sudo", "-n", "/usr/bin/systemctl", "reboot"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            log.exception("Unable to erase persistent data and reboot")
+
+    import threading
+    threading.Thread(
+        target=erase_and_reboot,
+        name="erase-persistent-data-and-reboot",
+        daemon=True,
+    ).start()
+
+    return jsonify({
+        "status": "rebooting",
+        "message": "Persistent data erase and reboot scheduled.",
+    })
+
+
 @app.route("/api/eclipse/current")
 def api_eclipse_current():
     # Priorité à l'éclipse restaurée depuis l'état persistant.
