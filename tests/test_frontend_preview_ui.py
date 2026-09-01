@@ -72,7 +72,7 @@ def test_preview_buttons_exist_once_per_rig_and_start_disabled():
             f'onclick="requestRigPreviews({rig_id}, buildPreviewIntents())"'
             in attributes
         )
-        assert "Prévisualiser" in label
+        assert "Preview" in label
 
 
 def test_cfg_photo_has_per_rig_antiblur_controls():
@@ -346,7 +346,7 @@ def test_preview_renderer_shows_only_phase_and_differences():
     body = _render_rig_previews_body()
 
     assert "diff_lines" in body
-    assert "Aucun impact" in body
+    assert "No impact" in body
 
     for label in (
         "Partial",

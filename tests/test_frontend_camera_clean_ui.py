@@ -49,9 +49,9 @@ def test_clean_camera_configs_refreshes_both_selects_and_accepts_empty_list():
     assert clean_logic.count("files.forEach(file =>") == 2
     assert (
         "cameraSelect.innerHTML = "
-        "'<option value=\"\">— Fichier config appareil —</option>';"
+        "'<option value=\"\">— Camera config file —</option>';"
     ) in clean_logic
     assert (
         "triggerCameraSelect.innerHTML = "
-        "'<option value=\"\">— Config appareil —</option>';"
+        "'<option value=\"\">— Camera config —</option>';"
     ) in clean_logic

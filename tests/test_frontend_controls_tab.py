@@ -60,9 +60,9 @@ def test_controls_tab_and_panel_are_in_the_seven_item_navigation_order():
     assert labels == [
         "DEVICES",
         "SYNC GPS",
-        "ÉCLIPSE",
-        "CFG PHOTO",
-        "CAMÉRA",
+        "ECLIPSE",
+        "PHOTO CONFIG",
+        "CAMERA",
         "CONTROLS",
         "TRIGGER",
     ]
@@ -153,8 +153,8 @@ def test_controls_rig_selection_accepts_disabled_configured_rigs_and_has_no_netw
 def test_controls_target_label_uses_cached_rig_mount_display_label():
     source = _function_source("renderControlsRigSelection")
 
-    assert "Aucun RIG sélectionné" in source
-    assert "Aucune monture pilotable" in source
+    assert "No RIG selected" in source
+    assert "No controllable mount" in source
     assert "mount.display_label" in source
     assert "rigDevicesState.rigs" in source
     assert "fetch(" not in source
@@ -238,7 +238,7 @@ def test_disabled_selected_rig_is_cleared_without_commands_or_auto_selection():
 
     assert selected_rig_id is None
     assert re.search(r"if\s*\(!selectedRig\)\s*selectedRigId\s*=\s*null", selection_source)
-    assert "Aucun RIG sélectionné" in selection_source
+    assert "No RIG selected" in selection_source
     assert "renderSelectedMountAvailability()" in selection_source
     assert "renderControlsRigSelection()" in update_source
     assert "renderControlsRigSelection()" in visibility_source

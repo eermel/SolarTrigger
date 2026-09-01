@@ -91,7 +91,7 @@ def test_absent_binding_is_kept_and_marked_not_detected(mocked_backend_responses
     )
     assert re.search(
         r"if\s*\(isCurrent\s*&&\s*current\.present\s*===\s*false\)\s*"
-        r"label\s*\+=\s*['\"]\s*—\s*attendu / non détecté['\"]",
+        r"label\s*\+=\s*['\"]\s*—\s*expected / not detected['\"]",
         renderer,
     )
 
@@ -110,7 +110,7 @@ def test_devices_assigned_to_another_rig_are_labelled_and_disabled(
         r"assignments\[`\$\{category\}:\$\{identity\}`\]\s*=\s*Number\(rig\.rig_id\)",
         renderer,
     )
-    assert "label += ` — affecté à RIG ${assignedRig}`" in renderer
+    assert "label += ` — assigned to RIG ${assignedRig}`" in renderer
     assert re.search(
         r"const\s+disabled\s*=\s*\(.*?"
         r"assignedRig\s*&&\s*assignedRig\s*!==\s*rigId.*?"
@@ -158,7 +158,7 @@ def test_non_pilotable_camera_is_visible_but_disabled():
     renderer = _function("renderRigDevices")
 
     assert "choice.pilotable === false" in renderer
-    assert " — non pilotable" in renderer
+    assert " — not controllable" in renderer
     assert re.search(
         r"choice\.pilotable\s*===\s*false.*?' disabled'",
         renderer,

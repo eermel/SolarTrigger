@@ -40,7 +40,7 @@ def test_clean_requires_confirmation():
     body = HTML[start:end]
 
     assert "confirm(" in body
-    assert "Supprimer tous les fichiers de circonstances" in body
+    assert "Delete all saved circumstances files" in body
 
 
 def test_occultation_is_rendered_in_circumstances():
@@ -50,9 +50,9 @@ def test_occultation_is_rendered_in_circumstances():
 
 
 def test_calculator_journal_is_plain_journal_with_real_button():
-    assert "<span>Journal</span>" in HTML
+    assert "<span>Log</span>" in HTML
     assert ">Journal Calculateur<" not in HTML
-    assert "onclick=\"clearLog('calculator')\">EFFACER</button>" in HTML
+    assert "onclick=\"clearLog('calculator')\">CLEAR</button>" in HTML
 
 
 def test_supported_eclipse_list_loaded_at_startup():

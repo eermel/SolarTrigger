@@ -12,7 +12,7 @@ INDEX = (
 def test_save_circumstances_controls_match_camera_configuration_pattern():
     html = INDEX
 
-    save_title = '<div class="card-title">Save circumstances</div>'
+    save_title = '<div class="card-title">Circumstances configuration</div>'
     observation_title = '<div class="card-title">Observation location</div>'
 
     start = html.index(save_title)
@@ -27,7 +27,7 @@ def test_save_circumstances_controls_match_camera_configuration_pattern():
 
     assert '<select id="eclipse-circumstances-select"' in block
     assert 'onchange="loadSavedCircumstances(this.value)"' in block
-    assert '<option value="">— Fichier circonstances —</option>' in block
+    assert '<option value="">— Circumstances file —</option>' in block
 
     assert "display:flex;gap:6px" in block
     assert "background:var(--bg3)" in block
@@ -66,7 +66,7 @@ def test_eclipse_save_prefix_uses_backend_eclipse_date():
     block = html[start:end]
 
     assert "eclipseData._date || eclipseData._date_utc" in block
-    assert "_Circonstances_" in block
+    assert "_Circumstances_" in block
     assert "new Date(" not in block
     assert "Date()" not in block
 
@@ -94,7 +94,7 @@ def test_save_uses_prefix_and_rejects_bare_prefix_before_fetch():
     end = html.index("async function cleanCircumstances()", start)
     block = html[start:end]
 
-    assert r"/^\d{8}_Circonstances_$/" in block
+    assert r"/^\d{8}_Circumstances_$/" in block
     assert "const filename = prompt(" in block
     assert "filename.trim() === activePrefix" in block
 

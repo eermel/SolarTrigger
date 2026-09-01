@@ -49,7 +49,7 @@ def test_camera_cfg_rig_columns_have_preview_controls_and_targets():
         assert re.search(
             rf'<button\b(?=[^>]*class="[^"]*\brig-preview-button\b[^"]*")'
             rf'(?=[^>]*type="button")(?=[^>]*data-rig-id="{rig_id}")[^>]*>'
-            rf'\s*Prévisualiser\s*</button>',
+            rf'\s*Preview\s*</button>',
             column,
         )
         assert re.search(

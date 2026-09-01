@@ -38,7 +38,7 @@ def test_missing_dot_gps_cannot_abort_gps_render():
 def test_detected_unsynchronised_gps_is_not_reported_missing():
     renderer = block("function updateGPS(gps)", "const PHASE_LABELS")
     assert "const deviceDetected = state.gpsDeviceDetected === true" in renderer
-    assert "Détecté — non synchronisé" in renderer
+    assert "Detected — not synchronized" in renderer
 
 
 def test_gps_coordinates_are_rendered_after_update():
@@ -52,7 +52,7 @@ def test_gps_coordinates_are_rendered_after_update():
 def test_clock_sync_indicator_is_reached_after_gps_render():
     renderer = block("function updateGPS(gps)", "const PHASE_LABELS")
     assert "clock-gps-sync" in renderer
-    assert "Heure synchronisée GPS" in renderer
+    assert "GPS time synchronized" in renderer
 
 
 def test_every_gps_action_completion_fetches_complete_state():

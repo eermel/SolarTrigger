@@ -15,8 +15,8 @@
 
 // ... (code Socket.IO complet) ...
 if (typeof io !== 'function') {
-    console.error('Socket.IO non chargé correctement');
-    alert('Erreur: Socket.IO requis pour le fonctionnement du portail');
+    console.error('Socket.IO failed to load correctly');
+    alert('Error: Socket.IO is required for the portal to operate');
 }
 
 </script>
@@ -637,7 +637,7 @@ header {
   <!-- HEADER -->
   <header>
 <div class="header-logo">
-  SOLAR<br><span>ÉCLIPSE</span>
+  SOLAR<br><span>ECLIPSE</span>
 </div>    
 <div id="header-time">
   <div style="display:flex;align-items:center;gap:8px;justify-content:center">
@@ -668,15 +668,15 @@ header {
     </button>
     <button class="tab" onclick="showTab(2)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-      <span>ÉCLIPSE</span>
+      <span>ECLIPSE</span>
     </button>
     <button class="tab" onclick="showTab(3)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-      <span>CFG PHOTO</span>
+      <span>PHOTO CONFIG</span>
     </button>
     <button class="tab" onclick="showTab(4)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="3"/></svg>
-      <span>CAMÉRA</span>
+      <span>CAMERA</span>
     </button>
     <button class="tab" id="controls-tab" onclick="showTab(5)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
@@ -698,7 +698,7 @@ header {
         </div>
 
         <button class="btn btn-primary btn-full" id="devices-rescan" onclick="refreshRigDevices()">
-          ↻ Rafraîchir les devices
+          ↻ Refresh devices
         </button>
 
         <div class="devices-rigs-row" id="devices-rigs-row">
@@ -732,7 +732,7 @@ header {
           </div>
          </div>
           <div style="font-size:11px;margin-top:6px;font-family:var(--mono)" id="clock-gps-sync" style="color:var(--text-dim)">
-            ⏱ Heure non synchronisée (navigateur)
+            ⏱ Time not synchronized (browser)
           </div>
       </div>
       </div>  
@@ -742,10 +742,10 @@ header {
         <div class="card-title">GPS (usb)</div>
         <div class="gps-status-bar">
           <span class="gps-icon" id="gps-icon">⚫</span>
-          <span id="gps-status-text">Non détecté</span>
+          <span id="gps-status-text">Not detected</span>
         </div>
         <div class="gps-coords-bar" style="margin-bottom:12px">
-  <div class="stat-label">Position GPS</div>
+  <div class="stat-label">GPS position</div>
   <div style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:14px">
     <span style="color:var(--text-dim)">LAT:</span><span style="color:var(--green)" id="gps-lat">--</span>
     <span style="color:var(--text-dim);margin-left:4px">LONG:</span><span style="color:var(--green)" id="gps-lon">--</span>
@@ -765,11 +765,11 @@ header {
         </div>
       </div>
 
-<!-- Journal GPS -->
+<!-- GPS log -->
   <div class="card" style="flex-shrink:0" data-device-section="gps">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-      <span>Journal GPS</span>
-      <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('gps_sync')">effacer</span>
+      <span>GPS log</span>
+      <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('gps_sync')">clear</span>
     </div>
     <div id="log-container-gps_sync" style="height:320px"></div>
   </div>
@@ -779,17 +779,17 @@ header {
     <div class="page" id="page-1">
 
       <div class="card">
-          <div class="card-title">Save circumstances</div>
+          <div class="card-title">Circumstances configuration</div>
           <div style="display:flex;gap:6px">
             <select id="eclipse-circumstances-select"
               style="flex:1;background:var(--bg3);border:1px solid var(--border);
                 border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
               onchange="loadSavedCircumstances(this.value)">
-              <option value="">— Fichier circonstances —</option>
+              <option value="">— Circumstances file —</option>
             </select>
             <button class="btn btn-primary" type="button"
               style="font-size:11px;padding:7px 10px"
-              onclick="saveEclipseConfig()">💾 Sauvegarder</button>
+              onclick="saveEclipseConfig()">💾 Save</button>
             <button class="btn btn-secondary" type="button"
               style="font-size:11px;padding:7px 10px"
               onclick="cleanCircumstances()">🧹 CLEAN</button>
@@ -829,7 +829,7 @@ header {
           </div>
           <div style="display:flex;gap:8px;margin-top:4px">
             <button class="btn btn-accent btn-full" id="btn-calc" onclick="calculateEclipse()">
-              🌑 Calculer les contacts
+              🌑 Calculate contacts
             </button>
           </div>
         </div>
@@ -864,10 +864,10 @@ header {
 <!-- Journal Calculateur -->
   <div class="card" style="flex-shrink:0">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-      <span>Journal</span>
+      <span>Log</span>
       <button class="btn btn-secondary" type="button"
         style="font-size:10px;padding:4px 9px"
-        onclick="clearLog('calculator')">EFFACER</button>
+        onclick="clearLog('calculator')">CLEAR</button>
     </div>
     <div id="log-container-calculator" style="height:320px"></div>
   </div>
@@ -883,10 +883,10 @@ header {
           <select id="camera-config-select" style="flex:1;background:var(--bg3);border:1px solid var(--border);
             border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
             onchange="loadCameraConfig(this.value)">
-            <option value="">— Fichier config appareil —</option>
+            <option value="">— Camera config file —</option>
           </select>
           <button class="btn btn-primary" style="font-size:11px;padding:7px 10px"
-            onclick="saveCameraConfig()">💾 Sauvegarder</button>
+            onclick="saveCameraConfig()">💾 Save</button>
           <button class="btn btn-secondary" type="button" style="font-size:11px;padding:7px 10px"
             onclick="cleanCameraConfigs()">🧹 CLEAN</button>
         </div>
@@ -943,7 +943,7 @@ header {
 
             <button class="btn btn-secondary btn-full rig-preview-button"
               type="button" data-rig-id="1" disabled
-              onclick="requestRigPreviews(1, buildPreviewIntents())">Prévisualiser</button>
+              onclick="requestRigPreviews(1, buildPreviewIntents())">Preview</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-1"></div>
           </div>
 
@@ -995,7 +995,7 @@ header {
 
             <button class="btn btn-secondary btn-full rig-preview-button"
               type="button" data-rig-id="2" disabled
-              onclick="requestRigPreviews(2, buildPreviewIntents())">Prévisualiser</button>
+              onclick="requestRigPreviews(2, buildPreviewIntents())">Preview</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-2"></div>
           </div>
 
@@ -1047,7 +1047,7 @@ header {
 
             <button class="btn btn-secondary btn-full rig-preview-button"
               type="button" data-rig-id="3" disabled
-              onclick="requestRigPreviews(3, buildPreviewIntents())">Prévisualiser</button>
+              onclick="requestRigPreviews(3, buildPreviewIntents())">Preview</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-3"></div>
           </div>
 
@@ -1099,7 +1099,7 @@ header {
 
             <button class="btn btn-secondary btn-full rig-preview-button"
               type="button" data-rig-id="4" disabled
-              onclick="requestRigPreviews(4, buildPreviewIntents())">Prévisualiser</button>
+              onclick="requestRigPreviews(4, buildPreviewIntents())">Preview</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-4"></div>
           </div>
 
@@ -1218,52 +1218,52 @@ header {
           <div class="card cam-rig-column" id="cam-rig-column-1" data-rig-id="1">
             <div class="card-title">RIG 1</div>
             <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
-              <div><span style="color:var(--text-dim)">Nom / alias : </span><span class="cam-rig-name">RIG 1</span></div>
-              <div><span style="color:var(--text-dim)">Caméra affectée : </span><span class="cam-rig-binding">—</span></div>
-              <div><span style="color:var(--text-dim)">État connu : </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Dernière lecture : </span><span class="cam-rig-last-read">—</span></div>
+              <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 1</span></div>
+              <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
+              <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
+              <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button">Lire les informations</button>
+              <button class="btn btn-primary btn-full" type="button">Read information</button>
               <button class="btn btn-secondary btn-full" type="button">Test photo</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-2" data-rig-id="2">
             <div class="card-title">RIG 2</div>
             <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
-              <div><span style="color:var(--text-dim)">Nom / alias : </span><span class="cam-rig-name">RIG 2</span></div>
-              <div><span style="color:var(--text-dim)">Caméra affectée : </span><span class="cam-rig-binding">—</span></div>
-              <div><span style="color:var(--text-dim)">État connu : </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Dernière lecture : </span><span class="cam-rig-last-read">—</span></div>
+              <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 2</span></div>
+              <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
+              <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
+              <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button">Lire les informations</button>
+              <button class="btn btn-primary btn-full" type="button">Read information</button>
               <button class="btn btn-secondary btn-full" type="button">Test photo</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-3" data-rig-id="3">
             <div class="card-title">RIG 3</div>
             <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
-              <div><span style="color:var(--text-dim)">Nom / alias : </span><span class="cam-rig-name">RIG 3</span></div>
-              <div><span style="color:var(--text-dim)">Caméra affectée : </span><span class="cam-rig-binding">—</span></div>
-              <div><span style="color:var(--text-dim)">État connu : </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Dernière lecture : </span><span class="cam-rig-last-read">—</span></div>
+              <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 3</span></div>
+              <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
+              <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
+              <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button">Lire les informations</button>
+              <button class="btn btn-primary btn-full" type="button">Read information</button>
               <button class="btn btn-secondary btn-full" type="button">Test photo</button>
             </div>
           </div>
           <div class="card cam-rig-column" id="cam-rig-column-4" data-rig-id="4">
             <div class="card-title">RIG 4</div>
             <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
-              <div><span style="color:var(--text-dim)">Nom / alias : </span><span class="cam-rig-name">RIG 4</span></div>
-              <div><span style="color:var(--text-dim)">Caméra affectée : </span><span class="cam-rig-binding">—</span></div>
-              <div><span style="color:var(--text-dim)">État connu : </span><span class="cam-rig-status">—</span></div>
-              <div><span style="color:var(--text-dim)">Dernière lecture : </span><span class="cam-rig-last-read">—</span></div>
+              <div><span style="color:var(--text-dim)">Name / alias : </span><span class="cam-rig-name">RIG 4</span></div>
+              <div><span style="color:var(--text-dim)">Assigned camera: </span><span class="cam-rig-binding">—</span></div>
+              <div><span style="color:var(--text-dim)">Known status: </span><span class="cam-rig-status">—</span></div>
+              <div><span style="color:var(--text-dim)">Last read: </span><span class="cam-rig-last-read">—</span></div>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn-primary btn-full" type="button">Lire les informations</button>
+              <button class="btn btn-primary btn-full" type="button">Read information</button>
               <button class="btn btn-secondary btn-full" type="button">Test photo</button>
             </div>
           </div>
@@ -1271,9 +1271,9 @@ header {
       </section>
 
       <div class="card">
-        <div class="card-title">Appareil photo</div>
+        <div class="card-title">Camera</div>
         <div style="font-size:10px;color:var(--text-dim);margin-bottom:12px;font-family:var(--mono)">
-          Test de connexion USB — la connexion est coupée automatiquement après lecture pour économiser la batterie.
+          USB connection test — the connection is automatically closed after reading to save battery.
         </div>
 
         <!-- Résultat détection -->
@@ -1284,11 +1284,11 @@ header {
               <div style="font-family:var(--mono);font-size:15px;color:var(--accent)" id="cam-brand">--</div>
             </div>
             <div style="text-align:center">
-              <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px">MODÈLE</div>
+              <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px">MODEL</div>
               <div style="font-family:var(--mono);font-size:15px;color:var(--accent)" id="cam-model">--</div>
             </div>
             <div style="text-align:center">
-              <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px">BATTERIE</div>
+              <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-bottom:4px">BATTERY</div>
               <div style="font-family:var(--mono);font-size:15px;color:var(--green)" id="cam-battery-probe">--</div>
             </div>
           </div>
@@ -1303,37 +1303,37 @@ header {
       </div>
 
       <div class="card" style="display:none">
-        <div class="card-title">Synchronisation horaire</div>
+        <div class="card-title">Time synchronization</div>
         <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
           <div><span style="color:var(--text-dim)">Fuseau : </span><span id="cam-time-sync-timezone">UTC</span></div>
           <div><span style="color:var(--text-dim)">Dernier statut : </span><span id="cam-time-sync-status">--</span></div>
-          <div><span style="color:var(--text-dim)">Dernière tentative : </span><span id="cam-time-sync-attempted">--</span></div>
-          <div id="cam-time-sync-message" style="color:var(--text-dim)">Aucune synchronisation demandée.</div>
+          <div><span style="color:var(--text-dim)">Last attempt: </span><span id="cam-time-sync-attempted">--</span></div>
+          <div id="cam-time-sync-message" style="color:var(--text-dim)">No synchronization requested.</div>
         </div>
         <button class="btn btn-primary btn-full" id="btn-cam-time-sync" onclick="syncCameraTime()">
-          🕒 Synchroniser l'heure de la caméra
+          🕒 Synchronize camera time
         </button>
       </div>
 
     </div><!-- /page-3 CAMÉRA -->
 
     <div class="page" id="controls-panel">
-      <div class="controls-rig-selector" role="group" aria-label="RIG contrôlé">
+      <div class="controls-rig-selector" role="group" aria-label="Controlled RIG">
         <button class="btn btn-primary" id="controls-rig-1" data-controls-rig-id="1" onclick="selectControlsRig(1)" disabled hidden>RIG 1</button>
         <button class="btn btn-primary" id="controls-rig-2" data-controls-rig-id="2" onclick="selectControlsRig(2)" disabled hidden>RIG 2</button>
         <button class="btn btn-primary" id="controls-rig-3" data-controls-rig-id="3" onclick="selectControlsRig(3)" disabled hidden>RIG 3</button>
         <button class="btn btn-primary" id="controls-rig-4" data-controls-rig-id="4" onclick="selectControlsRig(4)" disabled hidden>RIG 4</button>
       </div>
-      <div class="controls-target-label" id="controls-target-label" aria-live="polite">Aucun RIG sélectionné</div>
+      <div class="controls-target-label" id="controls-target-label" aria-live="polite">No RIG selected</div>
 
       <!-- ── FOCUSEUR ── -->
       <div id="focuser-section" hidden>
         <div class="card">
-          <div class="card-title">Focuseur</div>
+          <div class="card-title">Focuser</div>
           <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
             <div><span style="color:var(--text-dim)">Plugin : </span><span id="focuser-plugin">--</span></div>
             <div><span style="color:var(--text-dim)">Statut : </span><span id="focuser-status">--</span></div>
-            <div><span style="color:var(--text-dim)">Position : </span><span id="focuser-position">--</span></div>
+            <div><span style="color:var(--text-dim)">Position: </span><span id="focuser-position">--</span></div>
           </div>
 
           <div class="field" style="margin-top:12px">
@@ -1395,52 +1395,52 @@ header {
         <div style="display:flex;flex-direction:column;gap:8px;min-width:110px">
           <button class="btn" id="btn-dryrun" onclick="startDryRun()"
                   style="flex:1;background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
-                  title="Même moteur et même caméra que le jour J, timeline translatée sur maintenant, vitesse ×1">🧪 DRY-RUN ×1</button>
+                  title="Same engine and camera as the real run, timeline shifted to now, speed ×1">🧪 DRY-RUN ×1</button>
           <button class="btn btn-success" id="btn-start" onclick="startTrigger()" style="flex:1">▶ START</button>
           <button class="btn" id="btn-totality-only" onclick="startTotalityOnly()"
                   style="flex:1;background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);
                          color:var(--accent);font-size:11px"
-                  title="Override immédiat : arrête le trigger en cours et lance la séquence totalité en boucle jusqu'au STOP">⚠ Override for Totality Sequence</button>
+                  title="Immediate override: stops the current trigger and loops the totality sequence until STOP">⚠ Override for Totality Sequence</button>
           <button class="btn btn-danger"  id="btn-stop"  onclick="stopTrigger()" style="flex:1">■ STOP</button>
         </div>
 
         <!-- Config + sélecteur JSON -->
         <div class="card" style="flex:1;margin:0;padding:12px">
-          <div class="card-title" style="margin-bottom:8px">Configuration active</div>
+          <div class="card-title" style="margin-bottom:8px">Active configuration</div>
 
           <!-- Sélecteur circonstances éclipse -->
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Circonstances éclipse</div>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Eclipse circumstances</div>
           <div style="display:flex;gap:6px;margin-bottom:8px">
             <select id="trigger-config-select"
                     style="flex:1;background:var(--bg3);border:1px solid var(--border);
                            border-radius:8px;padding:6px 8px;color:var(--text);
                            font-family:var(--mono);font-size:11px"
                     onchange="loadTriggerConfig(this.value, this.options[this.selectedIndex].dataset.dir)">
-              <option value="">— Choisir un fichier —</option>
+              <option value="">— Select a file —</option>
             </select>
           </div>
 
           <!-- Sélecteur config appareil -->
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Config appareil photo</div>
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Camera configuration</div>
           <div style="display:flex;gap:6px;margin-bottom:8px">
             <select id="trigger-camera-select"
                     style="flex:1;background:var(--bg3);border:1px solid var(--border);
                            border-radius:8px;padding:6px 8px;color:var(--text);
                            font-family:var(--mono);font-size:11px"
                     onchange="selectTriggerCamera(this.value)">
-              <option value="">— Config appareil —</option>
+              <option value="">— Camera config —</option>
             </select>
           </div>
 
           <!-- Infos config active -->
           <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">
-            Éclipse : <span id="trig-eclipse-label" style="color:var(--accent)">--</span>
+            Eclipse: <span id="trig-eclipse-label" style="color:var(--accent)">--</span>
           </div>
           <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:4px">
             Type : <span id="trig-eclipse-type2" style="color:var(--text)">--</span>
           </div>
           <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:4px">
-            Type pos. GPS : <span id="trig-eclipse-type-gps" style="color:var(--orange)">--</span>
+            GPS position type: <span id="trig-eclipse-type-gps" style="color:var(--orange)">--</span>
           </div>
         </div>
       </div>
@@ -1477,7 +1477,7 @@ header {
       <!-- ── Circonstances de l'éclipse ── -->
       <div class="card">
         <div class="card-title">
-          Circonstances éclipse
+          Eclipse circumstances
           <span id="trigger-eclipse-type" style="font-size:11px;font-family:var(--mono);font-weight:normal;margin-left:8px"></span>
         </div>
         <!-- TSTART au-dessus des contacts -->
@@ -1486,7 +1486,7 @@ header {
           <input type="text" id="ov-tstart" placeholder="HH:MM:SS"
                  pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?"
                  style="color:var(--green);font-family:var(--mono)">
-          <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:2px">= C1 − 1h par défaut</div>
+          <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:2px">= C1 − 1h by default</div>
         </div>
         <!-- Contacts C1..C4 + countdown -->
         <div id="trigger-contacts">
@@ -1498,7 +1498,7 @@ header {
           <input type="text" id="ov-tend" placeholder="HH:MM:SS"
                  pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?"
                  style="color:var(--green);font-family:var(--mono)">
-          <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:2px">= C4 + 1h par défaut</div>
+          <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:2px">= C4 + 1h by default</div>
         </div>
         <div style="display:flex;gap:6px;margin-top:8px">
           <button class="btn btn-primary" style="flex:1;font-size:11px;padding:7px 6px"
@@ -1506,11 +1506,11 @@ header {
         </div>
       </div>
 
-      <!-- Journal Trigger -->
+      <!-- Trigger log -->
       <div class="card" style="flex-shrink:0">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Journal Trigger</span>
-          <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('trigger')">effacer</span>
+          <span>Trigger log</span>
+          <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('trigger')">clear</span>
         </div>
         <div id="log-container-trigger" style="height:320px"></div>
       </div>
@@ -1540,7 +1540,7 @@ const state = {
 };
 
 const DEVICE_CATEGORIES = ['camera', 'gps', 'focuser', 'mount'];
-const DEVICE_LABELS = { camera: 'Caméra', gps: 'GPS', focuser: 'Focuseur', mount: 'Monture' };
+const DEVICE_LABELS = { camera: 'Camera', gps: 'GPS', focuser: 'Focuser', mount: 'Mount' };
 const DEVICE_PLUGIN_OPTIONS = {
   camera: ['sony', 'nikon-z', 'nikon-dslr'],
   gps: ['serial_nmea', 'gpsd'],
@@ -1603,7 +1603,7 @@ async function loadRigPhotoConfig() {
     const response = await fetch('/api/rigs/photo');
     const payload = await response.json();
     if (!response.ok) {
-      throw new Error(payload.error || `Erreur HTTP ${response.status}`);
+      throw new Error(payload.error || `HTTP error ${response.status}`);
     }
     renderRigPhotoConfig(payload);
   } catch (error) {
@@ -1626,13 +1626,13 @@ function readRigPhotoConfig(rigId) {
   const isoMaxValue = Number(isoMax && isoMax.value);
 
   if (focalValue !== null && (!Number.isFinite(focalValue) || focalValue <= 0)) {
-    throw new Error('Focale doit être strictement positive');
+    throw new Error('Focal length must be strictly positive');
   }
   if (!Number.isFinite(toleranceValue) || toleranceValue <= 0) {
-    throw new Error('Pixel Tolerance doit être strictement positif');
+    throw new Error('Pixel tolerance must be strictly positive');
   }
   if (!Number.isInteger(isoMaxValue) || isoMaxValue <= 0) {
-    throw new Error('ISO Max invalide');
+    throw new Error('Invalid ISO Max');
   }
 
   return {
@@ -1660,7 +1660,7 @@ async function persistRigPhoto(rigId) {
     });
     const payload = await response.json();
     if (!response.ok) {
-      throw new Error(payload.error || `Erreur HTTP ${response.status}`);
+      throw new Error(payload.error || `HTTP error ${response.status}`);
     }
     await loadRigPhotoConfig();
   } catch (error) {
@@ -1683,7 +1683,7 @@ async function persistGlobalAtmos(enabled, showFeedback = true) {
     });
     const payload = await response.json();
     if (!response.ok) {
-      throw new Error(payload.error || `Erreur HTTP ${response.status}`);
+      throw new Error(payload.error || `HTTP error ${response.status}`);
     }
 
     await loadRigPhotoConfig();
@@ -1766,14 +1766,14 @@ function renderControlsRigSelection() {
   if (!targetLabel) return;
   const rig = selectedControlsRig();
   if (!rig) {
-    targetLabel.textContent = 'Aucun RIG sélectionné';
+    targetLabel.textContent = 'No RIG selected';
     return;
   }
   const mount = rig.devices && rig.devices.mount;
   const pilotable = mount && ![null, '', 'none', 'external'].includes(mount.backend);
   targetLabel.textContent = pilotable
-    ? `RIG ${selectedRigId} — Monture : ${mount.display_label}`
-    : `RIG ${selectedRigId} — Aucune monture pilotable`;
+    ? `RIG ${selectedRigId} — Mount : ${mount.display_label}`
+    : `RIG ${selectedRigId} — No controllable mount`;
 }
 
 function selectControlsRig(rigId) {
@@ -1797,7 +1797,7 @@ function deviceOptions(category, device) {
   });
   return values.map(value => {
     const escaped = escapeDeviceText(value);
-    return `<option value="${escaped}">${value === 'none' ? 'Aucun' : escaped}</option>`;
+    return `<option value="${escaped}">${value === 'none' ? 'None' : escaped}</option>`;
   }).join('');
 }
 
@@ -1810,11 +1810,11 @@ function renderDevices(devices) {
   list.innerHTML = ['gps'].map(category => {
     const device = devices[category] || {plugin: 'none', active: false};
     const active = device.active === true;
-    const detected = device.detected === true ? 'Détecté' : 'Non détecté';
-    const suggestion = escapeDeviceText(device.suggested_plugin || 'aucune');
+    const detected = device.detected === true ? 'Detected' : 'Not detected';
+    const suggestion = escapeDeviceText(device.suggested_plugin || 'none');
     return `<div class="card device-card ${active ? 'active' : ''}" data-device-category="${category}">
       <div class="card-title" style="display:flex;justify-content:space-between">
-        <span>${DEVICE_LABELS[category]}</span><span>${active ? 'ACTIF' : 'INACTIF'}</span>
+        <span>${DEVICE_LABELS[category]}</span><span>${active ? 'ACTIVE' : 'INACTIVE'}</span>
       </div>
       <div class="field">
         <label for="device-${category}-select">Plugin</label>
@@ -1915,7 +1915,7 @@ function renderRigDevices(payload, inventoryOverride) {
         choices.push(current);
       }
 
-      const options = ['<option value="">Aucun</option>'];
+      const options = ['<option value="">None</option>'];
       choices.forEach(choice => {
         const identity = rigDeviceIdentity(choice);
         const assignedRig = identity ? assignments[`${category}:${identity}`] : null;
@@ -1928,9 +1928,9 @@ function renderRigDevices(payload, inventoryOverride) {
         );
 
         let label = rigDeviceDisplayLabel(category, choice);
-        if (isCurrent && current.present === false) label += ' — attendu / non détecté';
-        if (choice.pilotable === false && !isExternalAltAz) label += ' — non pilotable';
-        if (assignedRig && assignedRig !== rigId) label += ` — affecté à RIG ${assignedRig}`;
+        if (isCurrent && current.present === false) label += ' — expected / not detected';
+        if (choice.pilotable === false && !isExternalAltAz) label += ' — not controllable';
+        if (assignedRig && assignedRig !== rigId) label += ` — assigned to RIG ${assignedRig}`;
 
         const optionBinding = isCurrent ? current : choice;
         const disabled = (
@@ -1965,8 +1965,8 @@ async function loadRigDevices(inventoryOverride) {
     const responses = await Promise.all(requests);
     const payload = await responses[0].json();
     const inventory = inventoryOverride || await responses[1].json();
-    if (!responses[0].ok) throw new Error(payload.error || `Erreur HTTP ${responses[0].status}`);
-    if (!inventoryOverride && !responses[1].ok) throw new Error(inventory.error || `Erreur HTTP ${responses[1].status}`);
+    if (!responses[0].ok) throw new Error(payload.error || `HTTP error ${responses[0].status}`);
+    if (!inventoryOverride && !responses[1].ok) throw new Error(inventory.error || `HTTP error ${responses[1].status}`);
     renderRigDevices(payload, inventory);
     await loadRigPhotoConfig();
   } catch (error) {
@@ -1985,7 +1985,7 @@ async function selectRigDevice(rigId, category, select) {
       body: JSON.stringify({rigs: [{rig_id: rigId, devices: {[category]: binding}}]}),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `Erreur HTTP ${response.status}`);
+    if (!response.ok) throw new Error(result.error || `HTTP error ${response.status}`);
     await loadRigDevices();
   } catch (error) {
     select.value = persistedValue;
@@ -2048,7 +2048,7 @@ document.addEventListener('change', async event => {
     });
     const result = await response.json();
     if (!response.ok) {
-      throw new Error(result.error || `Erreur HTTP ${response.status}`);
+      throw new Error(result.error || `HTTP error ${response.status}`);
     }
     await loadRigDevices();
   } catch (error) {
@@ -2101,7 +2101,7 @@ async function fetchDevices() {
   try {
     const response = await fetch('/api/devices');
     const devices = await response.json();
-    if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
+    if (!response.ok) throw new Error(devices.error || `HTTP error ${response.status}`);
     renderDevices(devices);
     updateControlsVisibility(devices);
   } catch (error) {
@@ -2117,10 +2117,10 @@ async function selectDevice(category, plugin) {
       body: JSON.stringify({[category]: plugin}),
     });
     const devices = await response.json();
-    if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
+    if (!response.ok) throw new Error(devices.error || `HTTP error ${response.status}`);
     renderDevices(devices);
     updateControlsVisibility(devices);
-    flash(`${DEVICE_LABELS[category]} mis à jour`, 'green');
+    flash(`${DEVICE_LABELS[category]} updated`, 'green');
   } catch (error) {
     flash(`Devices : ${error.message}`, 'red');
     fetchDevices();
@@ -2133,12 +2133,12 @@ async function rescanDevices() {
   try {
     const response = await fetch('/api/devices/detect', {method: 'POST'});
     const devices = await response.json();
-    if (!response.ok) throw new Error(devices.error || `Erreur HTTP ${response.status}`);
+    if (!response.ok) throw new Error(devices.error || `HTTP error ${response.status}`);
     renderDevices(devices);
     updateControlsVisibility(devices);
-    flash('Détection des périphériques terminée', 'green');
+    flash('Device detection completed', 'green');
   } catch (error) {
-    flash(`Détection : ${error.message}`, 'red');
+    flash(`Detection: ${error.message}`, 'red');
   } finally {
     if (button) button.disabled = false;
   }
@@ -2150,12 +2150,12 @@ async function refreshRigDevices(silent = false) {
   try {
     const response = await fetch('/api/rigs/devices/refresh', {method: 'POST'});
     const inventory = await response.json();
-    if (!response.ok) throw new Error(inventory.error || `Erreur HTTP ${response.status}`);
+    if (!response.ok) throw new Error(inventory.error || `HTTP error ${response.status}`);
     await loadRigDevices(inventory);
     await fetchDevices();
-    if (!silent) flash('Inventaire des devices rafraîchi', 'green');
+    if (!silent) flash('Device inventory refreshed', 'green');
   } catch (error) {
-    flash(`Détection : ${error.message}`, 'red');
+    flash(`Detection: ${error.message}`, 'red');
   } finally {
     if (button) button.disabled = false;
   }
@@ -2251,7 +2251,7 @@ function updateEclipseSaveFilename(eclipseData) {
     return;
   }
 
-  _eclipseSavePrefix = `${eclipseDate.replace(/-/g, '')}_Circonstances_`;
+  _eclipseSavePrefix = `${eclipseDate.replace(/-/g, '')}_Circumstances_`;
 }
 
 
@@ -2321,7 +2321,7 @@ async function _reanchorClockFromStatus() {
 }
 
 socket.on('connect', async () => {
-  flash('Connecté au Pi ✓', 'green');
+  flash('Connected to Pi ✓', 'green');
   try {
     const response = await fetch('/api/status');
     if (response.ok) {
@@ -2338,7 +2338,7 @@ socket.on('connect', async () => {
   }
 });
 socket.io.on('reconnect', _reanchorClockFromStatus);
-socket.on('disconnect', () => flash('Déconnecté', 'red'));
+socket.on('disconnect', () => flash('Disconnected', 'red'));
 
 socket.on('gps_sync_done', async d => {
   resetGpsActionButtons();
@@ -2415,7 +2415,7 @@ document.addEventListener('visibilitychange', () => {
 socket.on('eclipse_calculated', d => {
   // Réactiver le bouton dès réception du résultat
   const btn = document.getElementById('btn-calc');
-  if (btn) { btn.disabled = false; btn.textContent = '🌑 Calculer les contacts'; }
+  if (btn) { btn.disabled = false; btn.textContent = '🌑 Calculate contacts'; }
   if (d.status === 'success' && d.data) {
     // Appliquer la timezone DST AVANT renderContacts pour que les heures locales soient correctes
     if (d.timezone_override) {
@@ -2431,9 +2431,9 @@ socket.on('eclipse_calculated', d => {
     updateEclipseSaveFilename(d.data);
     renderContacts(d.data);
     populateOverrides(d.data);
-    flash('Calcul terminé ✓', 'green');
+    flash('Calculation completed ✓', 'green');
   } else {
-    flash('Calcul échoué', 'red');
+    flash('Calculation failed', 'red');
   }
 });
 
@@ -2551,7 +2551,7 @@ socket.on('play_sound', d => {
   async function request(url, options = {}) {
     const response = await fetch(url, options);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `Erreur HTTP ${response.status}`);
+    if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
     return data;
   }
 
@@ -2599,7 +2599,7 @@ socket.on('play_sound', d => {
     }).then(data => {
       if (renderResponse) displayFocuser(data);
       return data;
-    }).catch(error => flash(`Focuseur : ${error.message}`, 'red'));
+    }).catch(error => flash(`Focuser : ${error.message}`, 'red'));
   }
 
   function cancelAbsoluteMotion() {
@@ -2812,7 +2812,7 @@ socket.on('play_sound', d => {
     try {
       const response = await fetch(url);
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `Erreur HTTP ${response.status}`);
+      if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
       if (url !== mountUrl('status')) return;
       displayMount(data);
     } catch (error) {
@@ -2831,7 +2831,7 @@ socket.on('play_sound', d => {
       const response = await fetch(url, options);
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || `Erreur HTTP ${response.status}`);
+        throw new Error(data.error || `HTTP error ${response.status}`);
       }
     } catch (error) {
       flash(`Mount : ${error.message}`, 'red');
@@ -2919,15 +2919,15 @@ socket.on('battery_alert', d => {
   const banner = document.getElementById('battery-alert-banner');
   if (d.level === 'critical') {
     banner.style.display = '';
-    banner.textContent   = `⚠⚠⚠ BATTERIE CRITIQUE ${d.percent}% — CHANGEZ MAINTENANT ⚠⚠⚠`;
+    banner.textContent   = `⚠⚠⚠ CRITICAL BATTERY ${d.percent}% — REPLACE NOW ⚠⚠⚠`;
     banner.style.borderColor = 'var(--red)';
-    flash(`⚠ BATTERIE CRITIQUE ${d.percent}%`, 'red');
+    flash(`⚠ CRITICAL BATTERY ${d.percent}%`, 'red');
     playSound('10seconds.wav');
   } else {
     banner.style.display = '';
-    banner.textContent   = `⚠ Batterie ${d.percent}% — changez entre deux photos avant C2-10min`;
+    banner.textContent   = `⚠ Battery ${d.percent}% — replace between two photos before C2-10min`;
     banner.style.borderColor = 'var(--yellow)';
-    flash(`⚠ Batterie faible ${d.percent}%`, 'yellow');
+    flash(`⚠ Low battery ${d.percent}%`, 'yellow');
   }
 });
 
@@ -3110,24 +3110,24 @@ function updateGPS(gps) {
 
   if (gps.connected && gps.synced) {
     if (icon) icon.textContent = '🟢';
-    if (status) status.textContent = 'Connecté — synchronisé ✓';
+    if (status) status.textContent = 'Connected — synchronized ✓';
     if (dotGps) dotGps.className = 'dot on';
   } else if (gps.connected) {
     if (icon) icon.textContent = '🟡';
-    if (status) status.textContent = 'Connecté — en attente de fix…';
+    if (status) status.textContent = 'Connected — waiting for fix…';
     if (dotGps) dotGps.className = 'dot warn';
   } else if (gps.synced) {
     const t = gps.sync_time ? _isoUtcToConfiguredLocalTime(gps.sync_time) : '';
     if (icon) icon.textContent = '🟢';
-    if (status) status.textContent = `Synchronisé ✓${t ? ' — ' + t : ''}`;
+    if (status) status.textContent = `Synchronized ✓${t ? ' — ' + t : ''}`;
     if (dotGps) dotGps.className = 'dot on';
   } else if (deviceDetected) {
     if (icon) icon.textContent = '🟡';
-    if (status) status.textContent = 'Détecté — non synchronisé';
+    if (status) status.textContent = 'Detected — not synchronized';
     if (dotGps) dotGps.className = 'dot warn';
   } else {
     if (icon) icon.textContent = '⚫';
-    if (status) status.textContent = 'Non détecté';
+    if (status) status.textContent = 'Not detected';
     if (dotGps) dotGps.className = 'dot off';
   }
 
@@ -3154,10 +3154,10 @@ function updateGPS(gps) {
   if (syncIndicator) {
     if (gps.synced) {
       const t = gps.sync_time ? _isoUtcToConfiguredLocalTime(gps.sync_time) : '';
-      syncIndicator.textContent = `⏱ Heure synchronisée GPS${t ? ' à ' + t : ''}`;
+      syncIndicator.textContent = `⏱ GPS time synchronized${t ? ' at ' + t : ''}`;
       syncIndicator.style.color = 'var(--green)';
     } else {
-      syncIndicator.textContent = '⏱ Heure non synchronisée (navigateur)';
+      syncIndicator.textContent = '⏱ Time not synchronized (browser)';
       syncIndicator.style.color = 'var(--text-dim)';
     }
   }
@@ -3170,10 +3170,10 @@ function updateGPS(gps) {
 const PHASE_LABELS = {
   idle:         'IDLE',
   waiting:      'EN ATTENTE',
-  partial:      'PARTIELLE',
+  partial:      'PARTIAL',
   diamond_ring: '💎 DIAMOND RING',
-  totality:     '🌑 TOTALITÉ',
-  partial_end:  'PARTIELLE FIN',
+  totality:     '🌑 TOTALITY',
+  partial_end:  'PARTIAL END',
 };
 
 function updatePhase(phase) {
@@ -3288,6 +3288,23 @@ function renderContacts(data) {
   }
 
   // Helpers couleur/icône selon type
+  const _displayEclipseType = (typeStr) => {
+    if (!typeStr) return typeStr;
+
+    const translations = {
+      totale: 'Total',
+      total: 'Total',
+      partielle: 'Partial',
+      partial: 'Partial',
+      annulaire: 'Annular',
+      annular: 'Annular',
+      hybride: 'Hybrid',
+      hybrid: 'Hybrid'
+    };
+
+    return translations[String(typeStr).toLowerCase()] || typeStr;
+  };
+
   const _typeStyle = (typeStr) => {
     const t = (typeStr || '').toLowerCase();
     const colorMap = { totale: 'var(--green)', partielle: 'var(--yellow)', annulaire: 'var(--orange)' };
@@ -3305,7 +3322,7 @@ function renderContacts(data) {
   const gsty = _typeStyle(typeGlobal);
   const elTypeGlobal = document.getElementById('eclipse-type2');
   if (elTypeGlobal) {
-    elTypeGlobal.textContent = `${gsty.icon} ${typeGlobal}`;
+    elTypeGlobal.textContent = `${gsty.icon} ${_displayEclipseType(typeGlobal)}`;
     elTypeGlobal.style.color = gsty.color;
   }
 
@@ -3314,7 +3331,7 @@ function renderContacts(data) {
   const lsty = _typeStyle(typeGps);
   const elTypeGps = document.getElementById('eclipse-type-gps');
   if (elTypeGps) {
-    elTypeGps.textContent = `${lsty.icon} ${typeGps}`;
+    elTypeGps.textContent = `${lsty.icon} ${_displayEclipseType(typeGps)}`;
     elTypeGps.style.color = lsty.color;
   }
 
@@ -3332,14 +3349,14 @@ function renderContacts(data) {
   // Badge dans Contacts & Countdowns (page-2 CFG PHOTO et page-4 TRIGGER) — type pos GPS
   const triggerTypeEl = document.getElementById('trigger-eclipse-type');
   if (triggerTypeEl && typeGps !== '--') {
-    triggerTypeEl.textContent = `${lsty.icon} ${typeGps}`;
+    triggerTypeEl.textContent = `${lsty.icon} ${_displayEclipseType(typeGps)}`;
     triggerTypeEl.style.color = lsty.color;
     const lbl = document.getElementById('trig-eclipse-label');
     if (lbl) lbl.textContent = data.title || data._eclipse || '--';
     const lbl2 = document.getElementById('trig-eclipse-type2');
-    if (lbl2) { lbl2.textContent = `${gsty.icon} ${typeGlobal}`; lbl2.style.color = gsty.color; }
+    if (lbl2) { lbl2.textContent = `${gsty.icon} ${_displayEclipseType(typeGlobal)}`; lbl2.style.color = gsty.color; }
     const lbl3 = document.getElementById('trig-eclipse-type-gps');
-    if (lbl3) { lbl3.textContent = `${lsty.icon} ${typeGps}`; lbl3.style.color = lsty.color; }
+    if (lbl3) { lbl3.textContent = `${lsty.icon} ${_displayEclipseType(typeGps)}`; lbl3.style.color = lsty.color; }
   }
 
   // TMAX toujours recalculé — le TMAX Jubier (magnitude max) ≠ milieu totalité
@@ -3349,13 +3366,13 @@ function renderContacts(data) {
                || data.TMAX || data.tmax || null;
 
   const contacts = [
-    { key: 'TSTART',  utc: data.TSTART || data.tstart, local_json: null, label: 'TSTART', desc: 'Début séquence', style: 'color:var(--green)' },
+    { key: 'TSTART',  utc: data.TSTART || data.tstart, local_json: null, label: 'TSTART', desc: 'Sequence start', style: 'color:var(--green)' },
     { key: 'C1',      utc: data.C1 || data.c1,          local_json: data.C1_local,  label: 'C1',  desc: '1er contact', style: '' },
-    { key: 'C2',      utc: data.C2 || data.c2,          local_json: data.C2_local,  label: 'C2',  desc: 'Début totalité', style: '' },
-    { key: 'TMILIEU', utc: tmilieu,                      local_json: null,           label: 'MID', desc: 'Milieu totalité', style: '' },
-    { key: 'C3',      utc: data.C3 || data.c3,          local_json: data.C3_local,  label: 'C3',  desc: 'Fin totalité', style: '' },
+    { key: 'C2',      utc: data.C2 || data.c2,          local_json: data.C2_local,  label: 'C2',  desc: 'Totality start', style: '' },
+    { key: 'TMILIEU', utc: tmilieu,                      local_json: null,           label: 'MID', desc: 'Mid-totality', style: '' },
+    { key: 'C3',      utc: data.C3 || data.c3,          local_json: data.C3_local,  label: 'C3',  desc: 'Totality end', style: '' },
     { key: 'C4',      utc: data.C4 || data.c4,          local_json: data.C4_local,  label: 'C4',  desc: '4e contact', style: '' },
-    { key: 'TEND',    utc: data.TEND  || data.tend,     local_json: null, label: 'TEND',  desc: 'Fin séquence', style: 'color:var(--green)' },
+    { key: 'TEND',    utc: data.TEND  || data.tend,     local_json: null, label: 'TEND',  desc: 'Sequence end', style: 'color:var(--green)' },
   ].map(c => ({
     ...c,
     local: c.local_json || (c.utc ? _utcToLocal(c.utc) : null)
@@ -3581,7 +3598,7 @@ async function runGpsAction(buttonId, request, startedMessage, copyLocation = fa
     const d = await r.json();
     if (!r.ok || d.error) {
       _pendingGpsLocationCopy = false;
-      flash(d.error || `Erreur HTTP ${r.status}`, 'red');
+      flash(d.error || `HTTP error ${r.status}`, 'red');
       resetGpsActionButtons();
     } else {
       flash(startedMessage, 'blue');
@@ -3590,7 +3607,7 @@ async function runGpsAction(buttonId, request, startedMessage, copyLocation = fa
     }
   } catch(e) {
     _pendingGpsLocationCopy = false;
-    flash('Erreur réseau', 'red');
+    flash('Network error', 'red');
     resetGpsActionButtons();
   }
 }
@@ -3599,7 +3616,7 @@ function syncGpsTimeLocation() {
   return runGpsAction(
     'btn-gps-sync-time-location',
     fetch('/api/gps/sync_time_location', { method: 'POST' }),
-    'Synchronisation heure et position lancée…',
+    'Time and location synchronization started…',
     true
   );
 }
@@ -3608,7 +3625,7 @@ function syncGpsTime() {
   return runGpsAction(
     'btn-gps-sync-time',
     fetch('/api/gps/sync_time', { method: 'POST' }),
-    'Synchronisation heure lancée…',
+    'Time synchronization started…',
     false
   );
 }
@@ -3617,7 +3634,7 @@ function getGpsLocation() {
   return runGpsAction(
     'btn-gps-get-location',
     fetch('/api/gps/get_location', { method: 'POST' }),
-    'Acquisition de la position lancée…',
+    'Location acquisition started…',
     true
   );
 }
@@ -3642,7 +3659,7 @@ async function calculateEclipse() {
     });
     const d = await r.json();
     if (d.error) flash(d.error, 'red');
-  } catch(e) { flash('Erreur réseau', 'red'); }
+  } catch(e) { flash('Network error', 'red'); }
   // Le bouton est réactivé par l'événement eclipse_calculated
 }
 
@@ -3672,31 +3689,31 @@ function updateCameraTimeSync(camera, gps, responseAttemptedAt) {
       : sync.status ? 'var(--yellow)' : 'var(--text)';
   }
   if (attempted) attempted.textContent = sync.attempted_at || responseAttemptedAt || '--';
-  if (message) message.textContent = sync.message || 'Aucune synchronisation demandée.';
+  if (message) message.textContent = sync.message || 'No synchronization requested.';
 }
 
 async function syncCameraTime() {
   const btn = document.getElementById('btn-cam-time-sync');
   const requestedAt = new Date().toISOString();
   btn.disabled = true;
-  btn.textContent = '⏳ Synchronisation en cours…';
+  btn.textContent = '⏳ Synchronization in progress…';
   try {
     const r = await fetch('/api/camera/sync_time', { method: 'POST' });
     const d = await r.json();
     if (!r.ok || d.error) {
-      updateCameraTimeSync({status: 'error', message: d.error || `Erreur HTTP ${r.status}`}, state.gps || {}, requestedAt);
-      flash(d.error || 'Synchronisation caméra échouée', 'red');
+      updateCameraTimeSync({status: 'error', message: d.error || `HTTP error ${r.status}`}, state.gps || {}, requestedAt);
+      flash(d.error || 'Camera synchronization failed', 'red');
     } else {
       updateCameraTimeSync(d, state.gps || {}, requestedAt);
-      flash(d.message || 'Synchronisation caméra terminée', d.status === 'success' ? 'green' : 'yellow');
+      flash(d.message || 'Camera synchronization completed', d.status === 'success' ? 'green' : 'yellow');
       await loadCameraStatus();
     }
   } catch(e) {
-    updateCameraTimeSync({status: 'error', message: 'Erreur réseau'}, state.gps || {}, requestedAt);
-    flash('Erreur réseau', 'red');
+    updateCameraTimeSync({status: 'error', message: 'Network error'}, state.gps || {}, requestedAt);
+    flash('Network error', 'red');
   } finally {
     btn.disabled = false;
-    btn.textContent = "🕒 Synchroniser l'heure de la caméra";
+    btn.textContent = "🕒 Synchronize camera time";
   }
 }
 
@@ -3725,7 +3742,7 @@ async function loadTriggerConfigList() {
     const d2 = await r2.json();
     const sel2 = document.getElementById('trigger-camera-select');
     if (!sel2) return;
-    sel2.innerHTML = '<option value="">— Config appareil —</option>';
+    sel2.innerHTML = '<option value="">— Camera config —</option>';
     (d2.files || []).forEach(f => {
       const opt = document.createElement('option');
       opt.value = f; opt.textContent = f;
@@ -3765,8 +3782,8 @@ async function selectTriggerCamera(filename) {
     });
     const d = await r.json();
     if (d.error) flash(d.error, 'red');
-    else flash(`📷 Config appareil : ${filename}`, 'green');
-  } catch(e) { flash('Erreur réseau', 'red'); }
+    else flash(`📷 Camera config : ${filename}`, 'green');
+  } catch(e) { flash('Network error', 'red'); }
 }
 
 async function loadTriggerConfig(filename, dir) {
@@ -3778,10 +3795,10 @@ async function loadTriggerConfig(filename, dir) {
       body: JSON.stringify({ filename, dir: dir || 'configs' })
     });
     const d = await r.json();
-    if (!r.ok || d.error) { flash(d.error || `Erreur HTTP ${r.status}`, 'red'); return; }
-    flash(`📂 ${filename} chargé`, 'green');
+    if (!r.ok || d.error) { flash(d.error || `HTTP error ${r.status}`, 'red'); return; }
+    flash(`📂 ${filename} loaded`, 'green');
     await Promise.all([loadTriggerConfigList(), loadEclipseData()]);
-  } catch(e) { flash('Erreur réseau', 'red'); }
+  } catch(e) { flash('Network error', 'red'); }
 }
 
 async function startTrigger() {
@@ -3796,12 +3813,12 @@ async function startTrigger() {
       setTimeout(() => showTab(2), 1500);  // → onglet ÉCLIPSE
     }
   } else {
-    flash('Trigger démarré ▶', 'green');
+    flash('Trigger started ▶', 'green');
   }
 }
 
 async function startDryRun() {
-  if (!confirm('🧪 Lancer un DRY-RUN ×1 ?\nMême caméra, mêmes phases et mêmes intervalles que le jour J.\nSeule la timeline sera translatée sur maintenant.')) return;
+  if (!confirm('🧪 Start a DRY-RUN ×1?\nSame camera, phases and intervals as the real run.\nOnly the timeline will be shifted to now.')) return;
   const r = await fetch('/api/trigger/dryrun', {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({delay_s: 30})
   });
@@ -3811,7 +3828,7 @@ async function startDryRun() {
     if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE') setTimeout(() => showTab(1), 1500);
     else if (d.code === 'JSON_INVALID') setTimeout(() => showTab(2), 1500);
   } else {
-    flash('Dry-run ×1 démarré — TSTART dans 30 s', 'blue');
+    flash('Dry-run ×1 started — TSTART in 30 s', 'blue');
   }
 }
 
@@ -3819,24 +3836,24 @@ async function stopTrigger() {
   const btn = document.getElementById('btn-stop');
   // Confirmation seulement si le trigger tourne
   const isRunning = btn.textContent.includes('STOP') && !document.getElementById('btn-start').disabled === false;
-  if (!confirm('⚠️ Arrêter / forcer l\'arrêt du trigger ?')) return;
-  btn.textContent = '⏳ Arrêt…';
+  if (!confirm('⚠️ Stop / force-stop the trigger?')) return;
+  btn.textContent = '⏳ Stopping…';
   try {
     const r = await fetch('/api/trigger/stop', { method: 'POST' });
     const d = await r.json();
     if (d.status === 'not_running') {
-      flash('Trigger non actif', 'yellow');
+      flash('Trigger not active', 'yellow');
     } else {
-      flash('■ Trigger arrêté', 'yellow');
+      flash('■ Trigger stopped', 'yellow');
     }
   } catch(e) {
-    flash('Erreur réseau lors de l\'arrêt', 'red');
+    flash('Network error while stopping', 'red');
   }
   btn.textContent = '■ STOP';
 }
 
 async function startTotalityOnly() {
-  if (!confirm('🌑 Mode Totalité uniquement :\nArrête le trigger en cours et démarre la séquence totalité en boucle.\nAppuyez sur STOP pour arrêter.')) return;
+  if (!confirm('🌑 Totality-only mode:\nStops the current trigger and starts the totality sequence in a loop.\nPress STOP to stop.')) return;
   // Arrêter le trigger en cours si actif
   try { await fetch('/api/trigger/stop', { method: 'POST' }); } catch(e) {}
   await new Promise(r => setTimeout(r, 1500)); // laisser le temps au script de s'arrêter
@@ -3845,13 +3862,13 @@ async function startTotalityOnly() {
     const r = await fetch('/api/trigger/totality_only', { method: 'POST' });
     const d = await r.json();
     if (d.status === 'ok') {
-      flash('🌑 Totalité uniquement démarrée', 'orange');
+      flash('🌑 Totality-only mode started', 'orange');
       document.getElementById('btn-totality-only').style.opacity = '0.5';
     } else {
-      flash('Erreur : ' + (d.error || 'inconnue'), 'red');
+      flash('Error: ' + (d.error || 'unknown'), 'red');
     }
   } catch(e) {
-    flash('Erreur réseau', 'red');
+    flash('Network error', 'red');
   }
 }
 
@@ -3891,9 +3908,9 @@ function updateBattery(pct) {
 
   let color, msgText = '';
   if      (pct > 50) { color = 'var(--green)';  msgText = ''; }
-  else if (pct > 20) { color = 'var(--yellow)';  msgText = 'Batterie correcte'; }
-  else if (pct > 20) { color = 'var(--accent)';  msgText = '⚠ Faible — préparez le remplacement'; }
-  else               { color = 'var(--red)';      msgText = '⚠⚠ CRITIQUE — changez dès que possible'; }
+  else if (pct > 20) { color = 'var(--yellow)';  msgText = 'Battery OK'; }
+  else if (pct > 20) { color = 'var(--accent)';  msgText = '⚠ Low — prepare replacement'; }
+  else               { color = 'var(--red)';      msgText = '⚠⚠ CRITICAL — replace as soon as possible'; }
 
   el.style.color    = color;
   bar.style.background = color;
@@ -3978,9 +3995,9 @@ async function saveOverrides() {
       body: JSON.stringify(payload)
     });
     const d = await r.json();
-    if (d.status === 'ok') flash('Paramètres sauvegardés ✓', 'green');
-    else flash(d.error || 'Erreur', 'red');
-  } catch(e) { flash('Erreur réseau', 'red'); }
+    if (d.status === 'ok') flash('Settings saved ✓', 'green');
+    else flash(d.error || 'Error', 'red');
+  } catch(e) { flash('Network error', 'red'); }
 }
 // ════════════════════════════════════════════════════════════════
 // CONFIG FILES
@@ -4016,7 +4033,7 @@ async function loadConfigFileList() {
     const sel = document.getElementById('config-file-select');
     if (!sel) return;
     const current = sel.value;
-    sel.innerHTML = '<option value="">— Choisir un fichier —</option>';
+    sel.innerHTML = '<option value="">— Select a file —</option>';
     (d.files || []).forEach(f => {
       const opt = document.createElement('option');
       opt.value = f; opt.textContent = f;
@@ -4032,7 +4049,7 @@ async function loadEclipseFileList() {
     const d = await r.json();
     const sel = document.getElementById('eclipse-file-select');
     if (!sel) return;
-    sel.innerHTML = '<option value="">— Fichier circonstances —</option>';
+    sel.innerHTML = '<option value="">— Circumstances file —</option>';
     (d.files || []).forEach(f => {
       const opt = document.createElement('option');
       opt.value = f; opt.textContent = f;
@@ -4047,7 +4064,7 @@ async function loadCameraConfigList() {
     const d = await r.json();
     const sel = document.getElementById('camera-config-select');
     if (!sel) return;
-    sel.innerHTML = '<option value="">— Fichier config appareil —</option>';
+    sel.innerHTML = '<option value="">— Camera config file —</option>';
     (d.files || []).forEach(f => {
       const opt = document.createElement('option');
       opt.value = f; opt.textContent = f;
@@ -4060,23 +4077,23 @@ async function loadEclipseFile(filename) {
   if (!filename) return;
   try {
     const r = await fetch('/api/configs/load/' + encodeURIComponent(filename));
-    if (!r.ok) { flash('Erreur chargement circonstances', 'red'); return; }
+    if (!r.ok) { flash('Failed to load circumstances', 'red'); return; }
     const data = await r.json();
     const rPost = await fetch('/api/eclipse/override', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify(data)
     });
     const d = await rPost.json();
-    if (d.status === 'ok') flash('Circonstances chargées : ' + filename, 'green');
-    else flash(d.error || 'Erreur', 'red');
-  } catch(e) { flash('Erreur réseau', 'red'); }
+    if (d.status === 'ok') flash('Circumstances loaded: ' + filename, 'green');
+    else flash(d.error || 'Error', 'red');
+  } catch(e) { flash('Network error', 'red'); }
 }
 
 async function loadCameraConfig(filename) {
   if (!filename) return;
   try {
     const r = await fetch('/api/configs/load_camera/' + encodeURIComponent(filename));
-    if (!r.ok) { flash('Erreur chargement config appareil', 'red'); return; }
+    if (!r.ok) { flash('Failed to load camera configuration', 'red'); return; }
     const data = await r.json();
     const atmosEnabled = Boolean(
       data.exposure_correction?.atmospheric_attenuation_enabled
@@ -4084,8 +4101,8 @@ async function loadCameraConfig(filename) {
     document.getElementById('cfg-atmo-switch').checked = atmosEnabled;
     await persistGlobalAtmos(atmosEnabled, false);
     _applyCameraConfig(data);
-    flash('Config appareil chargée : ' + filename, 'green');
-  } catch(e) { flash('Erreur réseau', 'red'); }
+    flash('Camera config loadede : ' + filename, 'green');
+  } catch(e) { flash('Network error', 'red'); }
 }
 
 function _applyCameraConfig(data) {
@@ -4256,7 +4273,7 @@ function renderRigPreviews(responseJson, requestedRigId) {
       if (item && item.error) {
         const message = document.createElement('div');
         message.className = 'rig-preview-error';
-        message.textContent = `Erreur : ${item.error.message || item.error.code || 'preview impossible'}`;
+        message.textContent = `Error: ${item.error.message || item.error.code || 'preview unavailable'}`;
         preview.appendChild(message);
       } else {
         const lines = Array.isArray(item && item.diff_lines)
@@ -4265,7 +4282,7 @@ function renderRigPreviews(responseJson, requestedRigId) {
 
         if (lines.length === 0) {
           const line = document.createElement('div');
-          line.textContent = 'Aucun impact';
+          line.textContent = 'No impact';
           preview.appendChild(line);
         } else {
           lines.forEach(value => {
@@ -4284,7 +4301,7 @@ function renderRigPreviews(responseJson, requestedRigId) {
 async function requestRigPreviews(rigId, intents) {
   if (rigPreviewInFlight) return;
   if (!Array.isArray(intents) || intents.length === 0) {
-    flash('configuration/circumstances incomplete', 'red');
+    flash('Configuration/circumstances incomplete', 'red');
     return;
   }
 
@@ -4324,7 +4341,7 @@ async function requestRigPreviews(rigId, intents) {
     if (body) {
       body.replaceChildren();
       const message = document.createElement('div');
-      message.textContent = `Erreur : ${error.message}`;
+      message.textContent = `Error: ${error.message}`;
       body.appendChild(message);
     }
   } finally {
@@ -4340,7 +4357,7 @@ async function saveCameraConfig() {
   const current = sel && sel.value
     ? sel.value.replace(/^camera_/, '').replace(/\.json$/, '')
     : 'camera_config';
-  const name = prompt('Nom du fichier config appareil :', current);
+  const name = prompt('Camera configuration file name:', current);
   if (!name) return;
   const data = _readCameraConfig();
   data.exposure_correction = {
@@ -4353,31 +4370,31 @@ async function saveCameraConfig() {
     });
     const d = await r.json();
     if (d.status === 'ok') {
-      flash('Sauvegardé : ' + d.filename, 'green');
+      flash('Saved: ' + d.filename, 'green');
       loadCameraConfigList();
     }
-    else flash(d.error || 'Erreur', 'red');
-  } catch(e) { flash('Erreur réseau', 'red'); }
+    else flash(d.error || 'Error', 'red');
+  } catch(e) { flash('Network error', 'red'); }
 }
 
 async function loadConfigFile(filename) {
   if (!filename) return;
   try {
     const r = await fetch('/api/configs/load/' + encodeURIComponent(filename));
-    if (!r.ok) { flash('Erreur chargement config', 'red'); return; }
+    if (!r.ok) { flash('Failed to load configuration', 'red'); return; }
     const data = await r.json();
     const rPost = await fetch('/api/eclipse/override', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify(data)
     });
     const d = await rPost.json();
-    if (d.status === 'ok') flash('Config chargée : ' + filename, 'green');
-    else flash(d.error || 'Erreur', 'red');
-  } catch(e) { flash('Erreur réseau', 'red'); }
+    if (d.status === 'ok') flash('Configuration loaded: ' + filename, 'green');
+    else flash(d.error || 'Error', 'red');
+  } catch(e) { flash('Network error', 'red'); }
 }
 
 async function promptSaveConfig() {
-  const name = prompt('Nom du fichier de configuration :', 'ma_config');
+  const name = prompt('Configuration file name:', 'ma_config');
   if (!name) return;
   await saveOverrides();
   try {
@@ -4386,9 +4403,9 @@ async function promptSaveConfig() {
       body: JSON.stringify({ filename: name })
     });
     const d = await r.json();
-    if (d.status === 'ok') { flash('Sauvegardé : ' + d.filename, 'green'); loadConfigFileList(); }
-    else flash(d.error || 'Erreur', 'red');
-  } catch(e) { flash('Erreur réseau', 'red'); }
+    if (d.status === 'ok') { flash('Saved: ' + d.filename, 'green'); loadConfigFileList(); }
+    else flash(d.error || 'Error', 'red');
+  } catch(e) { flash('Network error', 'red'); }
 }
 
 async function refreshSavedCircumstances() {
@@ -4403,7 +4420,7 @@ async function refreshSavedCircumstances() {
     const files = data.files || [];
     const currentValue = select.value;
 
-    select.innerHTML = '<option value="">— Fichier circonstances —</option>';
+    select.innerHTML = '<option value="">— Circumstances file —</option>';
 
     files.forEach(file => {
       if (!file || !file.name || file.name === 'todayeclipse.json') return;
@@ -4438,25 +4455,25 @@ async function loadSavedCircumstances(filename) {
     const data = await response.json();
 
     if (!response.ok || data.status !== 'ok') {
-      flash(data.error || 'Erreur chargement circonstances.', 'red');
+      flash(data.error || 'Failed to load circumstances.', 'red');
       return;
     }
 
-    flash('Circonstances chargées : ' + filename, 'green');
+    flash('Circumstances loaded: ' + filename, 'green');
   } catch (_error) {
-    flash('Erreur réseau.', 'red');
+    flash('Network error.', 'red');
   }
 }
 
 
 async function saveEclipseConfig() {
   const activePrefix = typeof _eclipseSavePrefix === 'string'
-    && /^\d{8}_Circonstances_$/.test(_eclipseSavePrefix)
+    && /^\d{8}_Circumstances_$/.test(_eclipseSavePrefix)
     ? _eclipseSavePrefix
     : '';
 
   const filename = prompt(
-    'Nom du fichier de circonstances :',
+    'Circumstances file name:',
     activePrefix
   );
 
@@ -4497,7 +4514,7 @@ async function saveEclipseConfig() {
 }
 
 async function cleanCircumstances() {
-  if (!confirm('Supprimer tous les fichiers de circonstances sauvegardés ?')) {
+  if (!confirm('Delete all saved circumstances files?')) {
     return;
   }
 
@@ -4531,7 +4548,7 @@ async function cleanCircumstances() {
 
     const eclipseSelect = document.getElementById('eclipse-file-select');
     if (eclipseSelect) {
-      eclipseSelect.innerHTML = '<option value="">— Fichier circonstances —</option>';
+      eclipseSelect.innerHTML = '<option value="">— Circumstances file —</option>';
       files.forEach(file => {
         const option = document.createElement('option');
         option.value = file.name;
@@ -4563,7 +4580,7 @@ async function cleanCameraConfigs() {
 
     const cameraSelect = document.getElementById('camera-config-select');
     if (cameraSelect) {
-      cameraSelect.innerHTML = '<option value="">— Fichier config appareil —</option>';
+      cameraSelect.innerHTML = '<option value="">— Camera config file —</option>';
       files.forEach(file => {
         const option = document.createElement('option');
         option.value = file;
@@ -4574,7 +4591,7 @@ async function cleanCameraConfigs() {
 
     const triggerCameraSelect = document.getElementById('trigger-camera-select');
     if (triggerCameraSelect) {
-      triggerCameraSelect.innerHTML = '<option value="">— Config appareil —</option>';
+      triggerCameraSelect.innerHTML = '<option value="">— Camera config —</option>';
       files.forEach(file => {
         const option = document.createElement('option');
         option.value = file;
@@ -4706,7 +4723,7 @@ async function loadCameraStatus() {
       const camStatus = document.getElementById('cam-status');
       const camBattery = document.getElementById('cam-battery');
       if (camStatus) {
-        camStatus.textContent = cam.connected ? '✅ Connectée' : '❌ Non détectée';
+        camStatus.textContent = cam.connected ? '✅ Connected' : '❌ Not detected';
         camStatus.className = `stat-value ${cam.connected ? 'green' : 'red'}`;
       }
       if (camBattery) camBattery.textContent = cam.battery || '--';
@@ -4722,7 +4739,7 @@ async function loadCameraStatus() {
 
 // Countdown toutes les secondes
 setInterval(() => { if (state.eclipse) updateCountdowns(state.eclipse); }, 1000);
-// Caméra toutes les 10s
+// Camera toutes les 10s
 setInterval(loadCameraStatus, 10000);
 
 // Init
