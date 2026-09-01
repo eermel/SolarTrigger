@@ -1730,7 +1730,7 @@ async function persistGlobalAtmosFromUi() {
   const control = document.getElementById('cfg-atmo-switch');
   await persistGlobalAtmos(Boolean(control && control.checked));
 }
-let selectedRigId = null;
+let selectedRigId = 1;
 
 function selectedControlsRig() {
   return rigDevicesState.rigs.find(rig => Number(rig.rig_id) === selectedRigId) || null;
@@ -4676,6 +4676,27 @@ async function refreshSavedCircumstances() {
 }
 
 
+
+function applyCircumstancesLocationToForm(eclipseData) {
+  if (!eclipseData || typeof eclipseData !== 'object') return;
+
+  const location = eclipseData._circumstances_location;
+  if (!location || typeof location !== 'object') return;
+
+  const latitude = location.latitude ?? location.lat;
+  const longitude = location.longitude ?? location.lon ?? location.lng;
+  const altitude = location.altitude_m ?? location.altitude ?? location.alt;
+
+  const latInput = document.getElementById('inp-lat');
+  const lonInput = document.getElementById('inp-lon');
+  const altInput = document.getElementById('inp-alt');
+
+  if (latInput && latitude != null) latInput.value = latitude;
+  if (lonInput && longitude != null) lonInput.value = longitude;
+  if (altInput && altitude != null) altInput.value = altitude;
+}
+
+
 async function loadSavedCircumstances(filename) {
   if (!filename) return;
 
@@ -4696,12 +4717,24 @@ async function loadSavedCircumstances(filename) {
       return;
     }
 
+    const eclipseData = data.data || {};
+
+    state.eclipse = eclipseData;
+    updateEclipseSaveFilename(eclipseData);
+
+    if (eclipseData._timezone) {
+      _gpsTimezone = eclipseData._timezone;
+    }
+
+    renderContacts(eclipseData);
+    populateOverrides(eclipseData);
+    applyCircumstancesLocationToForm(eclipseData);
+
     flash('Circumstances loaded: ' + filename, 'green');
   } catch (_error) {
     flash('Network error.', 'red');
   }
 }
-
 
 async function saveEclipseConfig() {
   const activePrefix = typeof _eclipseSavePrefix === 'string'
@@ -4947,6 +4980,7 @@ async function loadEclipseData() {
         if (d._timezone) _gpsTimezone = d._timezone;
         renderContacts(d);
         populateOverrides(d);
+        applyCircumstancesLocationToForm(d);
       }
     }
   } catch(e) {}

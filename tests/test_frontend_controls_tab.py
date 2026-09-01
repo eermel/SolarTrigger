@@ -123,7 +123,7 @@ def test_controls_panel_has_four_exclusive_rig_buttons_and_target_label():
         assert f'id="controls-rig-{rig_id}"' in controls_panel
         assert f'onclick="selectControlsRig({rig_id})"' in controls_panel
     assert 'id="controls-target-label"' in controls_panel
-    assert re.search(r"let\s+selectedRigId\s*=\s*null\s*;", INDEX)
+    assert re.search(r"let\s+selectedRigId\s*=\s*1\s*;", INDEX)
 
 
 def test_controls_rig_rendering_depends_on_rig_existence_not_trigger_enabled():
