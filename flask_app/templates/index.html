@@ -779,19 +779,24 @@ header {
     <div class="page" id="page-1">
 
       <div class="card">
-        <div class="card-title">Save circumstances</div>
-        <div class="field">
-          <label for="eclipse-save-filename">File name</label>
-          <div style="display:flex;gap:8px">
-            <input type="text" id="eclipse-save-filename" value="" style="flex:1">
-            <button class="btn btn-primary" type="button" onclick="saveEclipseConfig()">💾 Save</button>
-            <button class="btn btn-secondary" type="button" onclick="cleanCircumstances()">🧹 Clean</button>
+          <div class="card-title">Save circumstances</div>
+          <div style="display:flex;gap:6px">
+            <select id="eclipse-circumstances-select"
+              style="flex:1;background:var(--bg3);border:1px solid var(--border);
+                border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
+              onchange="loadSavedCircumstances(this.value)">
+              <option value="">— Fichier circonstances —</option>
+            </select>
+            <button class="btn btn-primary" type="button"
+              style="font-size:11px;padding:7px 10px"
+              onclick="saveEclipseConfig()">💾 Sauvegarder</button>
+            <button class="btn btn-secondary" type="button"
+              style="font-size:11px;padding:7px 10px"
+              onclick="cleanCircumstances()">🧹 CLEAN</button>
           </div>
         </div>
-      </div>
 
-      <!-- Formulaire coordonnées -->
-      <div class="card">
+        <div class="card">
         <div class="card-title">Observation location</div>
         <div style="display:flex;flex-direction:column;gap:10px">
           <div class="grid2">
@@ -2242,19 +2247,13 @@ function updateEclipseSaveFilename(eclipseData) {
   if (!eclipseData) return;
 
   const eclipseDate = eclipseData._date || eclipseData._date_utc;
-  if (typeof eclipseDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(eclipseDate)) return;
-
-  const newPrefix = `${eclipseDate.replace(/-/g, '')}_Circonstances_`;
-  const input = document.getElementById('eclipse-save-filename');
-  if (!input) return;
-
-  if (!input.value) {
-    input.value = newPrefix;
-  } else if (_eclipseSavePrefix && input.value.startsWith(_eclipseSavePrefix)) {
-    input.value = newPrefix + input.value.slice(_eclipseSavePrefix.length);
+  if (typeof eclipseDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(eclipseDate)) {
+    return;
   }
-  _eclipseSavePrefix = newPrefix;
+
+  _eclipseSavePrefix = `${eclipseDate.replace(/-/g, '')}_Circonstances_`;
 }
+
 
 function handleEclipseSelectionChange() {
   const select = document.getElementById('inp-eclipse');
@@ -4392,18 +4391,76 @@ async function promptSaveConfig() {
   } catch(e) { flash('Erreur réseau', 'red'); }
 }
 
+async function refreshSavedCircumstances() {
+  const select = document.getElementById('eclipse-circumstances-select');
+  if (!select) return;
+
+  try {
+    const response = await fetch('/api/configs/list_eclipse');
+    if (!response.ok) return;
+
+    const data = await response.json();
+    const files = data.files || [];
+    const currentValue = select.value;
+
+    select.innerHTML = '<option value="">— Fichier circonstances —</option>';
+
+    files.forEach(file => {
+      if (!file || !file.name || file.name === 'todayeclipse.json') return;
+
+      const option = document.createElement('option');
+      option.value = file.name;
+      option.textContent = file.name;
+      select.appendChild(option);
+    });
+
+    if ([...select.options].some(option => option.value === currentValue)) {
+      select.value = currentValue;
+    }
+  } catch (_error) {
+  }
+}
+
+
+async function loadSavedCircumstances(filename) {
+  if (!filename) return;
+
+  try {
+    const response = await fetch('/api/trigger/select', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        filename: filename,
+        dir: 'circumstances'
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.status !== 'ok') {
+      flash(data.error || 'Erreur chargement circonstances.', 'red');
+      return;
+    }
+
+    flash('Circonstances chargées : ' + filename, 'green');
+  } catch (_error) {
+    flash('Erreur réseau.', 'red');
+  }
+}
+
+
 async function saveEclipseConfig() {
-  const input = document.getElementById('eclipse-save-filename');
-  const filename = input ? input.value.trim() : '';
   const activePrefix = typeof _eclipseSavePrefix === 'string'
     && /^\d{8}_Circonstances_$/.test(_eclipseSavePrefix)
     ? _eclipseSavePrefix
-    : null;
-  const hasEmptySuffix = activePrefix
-    && filename.startsWith(activePrefix)
-    && filename.slice(filename.lastIndexOf('_') + 1) === '';
-  if (!filename || filename === activePrefix || hasEmptySuffix) {
-    flash('Please complete the file name after the default prefix.', 'red');
+    : '';
+
+  const filename = prompt(
+    'Nom du fichier de circonstances :',
+    activePrefix
+  );
+
+  if (!filename || !filename.trim() || filename.trim() === activePrefix) {
     return;
   }
 
@@ -4423,6 +4480,7 @@ async function saveEclipseConfig() {
     if (response.ok && data.status === 'ok') {
       flash('Saved as ' + data.filename, 'green');
       loadEclipseFileList();
+      refreshSavedCircumstances();
     } else {
       flash(data.error || 'Save failed.', 'red');
     }
@@ -4474,6 +4532,7 @@ async function cleanCircumstances() {
         eclipseSelect.appendChild(option);
       });
     }
+  await refreshSavedCircumstances();
   } catch(e) {
     alert('Clean failed.');
   }
