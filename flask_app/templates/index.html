@@ -4846,6 +4846,7 @@ try { loadConfigFileList(); } catch(e) { console.error('loadConfigFileList', e);
 try { loadCameraConfigList(); } catch(e) { console.error('loadCameraConfigList', e); }
 try { loadEclipseFileList(); } catch(e) { console.error('loadEclipseFileList', e); }
 try { loadTriggerConfigList(); } catch(e) { console.error('loadTriggerConfigList', e); }
+try { refreshSavedCircumstances(); } catch(e) { console.error('refreshSavedCircumstances', e); }
 
 function appendLog(text, level = 'info', source = '', ts = '') {
   if (_logPaused) return;
