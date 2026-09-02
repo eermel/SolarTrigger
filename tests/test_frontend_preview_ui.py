@@ -113,9 +113,10 @@ def test_focal_length_is_owned_by_devices_optics():
     assert control
 
     html = control.group(0)
-    assert 'type="number"' in html
-    assert 'step="0.1"' in html
-    assert 'min="0.1"' in html
+    assert 'type="text"' in html
+    assert 'inputmode="decimal"' in html
+    assert 'step=' not in html
+    assert 'min=' not in html
     assert 'onchange="persistRigFocalLength(${rigId}, this)"' in html
 
     persist_body = _function_body(
@@ -429,4 +430,3 @@ def test_saving_exposure_opt_does_not_serialize_optics():
     assert "optics:" not in body
     assert "focal_length_mm:" not in body
     assert "photo:" in body
-

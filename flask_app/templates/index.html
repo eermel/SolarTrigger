@@ -2393,11 +2393,10 @@ function renderRigDevices(payload, inventoryOverride) {
           <div class="field">
             <label for="rig-${rigId}-focal">Focal length (mm)</label>
             <input
-              type="number"
+              type="text"
+              inputmode="decimal"
               id="rig-${rigId}-focal"
-              min="0.1"
-              step="0.1"
-              placeholder="—"
+              placeholder="mm"
               value="${escapeDeviceText(focalValue)}"
               data-persisted-value="${escapeDeviceText(focalValue)}"
               onchange="persistRigFocalLength(${rigId}, this)"
