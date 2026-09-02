@@ -63,22 +63,71 @@ def test_get_rig_manager_reuses_one_instance_across_calls(tmp_path, monkeypatch)
     assert rig_runtime.get_rig_manager() is first
 
 
-def test_missing_canonical_config_uses_legacy_migration(tmp_path, monkeypatch):
+def test_missing_canonical_config_persists_legacy_migration(
+    tmp_path,
+    monkeypatch,
+):
     calls = []
 
     def migrate(store, configs_dir):
         calls.append((store.path, configs_dir))
         return _config()
 
-    monkeypatch.setattr(rig_runtime, "TRIGGER_DIR", tmp_path)
-    monkeypatch.setattr(rig_runtime, "migrate_legacy", migrate)
+    monkeypatch.setattr(
+        rig_runtime,
+        "TRIGGER_DIR",
+        tmp_path,
+    )
+    monkeypatch.setattr(
+        rig_runtime,
+        "migrate_legacy",
+        migrate,
+    )
 
     manager = rig_runtime.get_rig_manager()
 
     assert manager.get_rig(1).name == "RIG 1"
+
     assert calls == [
-        (tmp_path / "flask_app" / "state.json", tmp_path / "configs")
+        (
+            tmp_path / "flask_app" / "state.json",
+            tmp_path / "configs",
+        )
     ]
+
+    config_path = (
+        tmp_path
+        / "configs"
+        / "rig"
+        / "default.json"
+    )
+
+    assert config_path.exists()
+
+    persisted = json.loads(
+        config_path.read_text(encoding="utf-8")
+    )
+
+    assert persisted == _config()
+
+    # Once canonical persistence exists, legacy migration is no
+    # longer consulted after a runtime-manager reset.
+    rig_runtime.reset_rig_manager_for_tests()
+
+    def unexpected_migration(*_args, **_kwargs):
+        pytest.fail(
+            "persisted canonical config must replace legacy migration"
+        )
+
+    monkeypatch.setattr(
+        rig_runtime,
+        "migrate_legacy",
+        unexpected_migration,
+    )
+
+    reloaded = rig_runtime.get_rig_manager()
+
+    assert reloaded.get_rig(1).name == "RIG 1"
 
 
 def test_invalid_canonical_config_propagates_without_migration(tmp_path, monkeypatch):

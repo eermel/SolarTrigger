@@ -109,6 +109,52 @@ def _active_rigs(config: dict[str, Any]) -> list[dict[str, Any]]:
     )
 
 
+def _validate_active_rigs_for_sequencer(
+    active_rigs: list[dict[str, Any]],
+) -> None:
+    """Reject incomplete RIG configuration before capture materialization."""
+
+    for rig in active_rigs:
+        rig_id = rig.get("rig_id")
+
+        devices = rig.get("devices")
+        camera = (
+            devices.get("camera")
+            if isinstance(devices, dict)
+            else None
+        )
+
+        if not isinstance(camera, dict):
+            raise SequencerCompileError(
+                f"RIG {rig_id} is not configured: camera required"
+            )
+
+        backend = _identity_text(
+            camera.get("backend")
+        )
+
+        if not backend or backend == "none":
+            raise SequencerCompileError(
+                f"RIG {rig_id} is not configured: camera required"
+            )
+
+        optics = rig.get("optics")
+        focal_length = (
+            optics.get("focal_length_mm")
+            if isinstance(optics, dict)
+            else None
+        )
+
+        if (
+            isinstance(focal_length, bool)
+            or not isinstance(focal_length, (int, float))
+            or focal_length <= 0
+        ):
+            raise SequencerCompileError(
+                f"RIG {rig_id} is not configured: focal length required"
+            )
+
+
 def _group_audited_by_rig(materialized):
     result = {}
 
@@ -131,36 +177,50 @@ def _group_audited_by_rig(materialized):
     return result
 
 
+def _identity_text(value: Any) -> str:
+    return (
+        str(value).strip().casefold()
+        if value is not None
+        else ""
+    )
+
+
 def _load_timing_profiles(
     *,
     active_rigs: list[dict[str, Any]],
     timing_dir: Path,
-    camera_timing_files: dict[int, str],
 ):
+    """Resolve calibrated timing profiles from each RIG camera identity."""
     profiles = {}
+    resolved_files = {}
+
+    documents = []
+
+    if timing_dir.exists():
+        for path in sorted(timing_dir.glob("*.json")):
+            try:
+                data = _load_json_object(
+                    path,
+                    f"camera timing {path.name}",
+                )
+            except (
+                OSError,
+                ValueError,
+                json.JSONDecodeError,
+                SequencerCompileError,
+            ):
+                continue
+
+            if data.get("config_type") != "camera_timing":
+                continue
+
+            documents.append((
+                path,
+                data,
+            ))
 
     for rig in active_rigs:
         rig_id = rig.get("rig_id")
-
-        filename = camera_timing_files.get(rig_id)
-
-        if not filename:
-            raise SequencerCompileError(
-                f"missing calibrated camera timing profile for RIG {rig_id}"
-            )
-
-        path = _safe_child(
-            timing_dir,
-            filename,
-            f"RIG {rig_id} camera timing",
-        )
-
-        try:
-            profile = load_camera_timing_profile(path)
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            raise SequencerCompileError(
-                f"invalid camera timing profile for RIG {rig_id}: {exc}"
-            ) from exc
 
         devices = rig.get("devices")
         camera = (
@@ -169,10 +229,19 @@ def _load_timing_profiles(
             else None
         )
 
-        rig_backend = (
-            str(camera.get("backend") or "").strip().lower()
-            if isinstance(camera, dict)
-            else ""
+        if not isinstance(camera, dict):
+            raise SequencerCompileError(
+                f"RIG {rig_id} has no configured camera"
+            )
+
+        rig_backend = _identity_text(
+            camera.get("backend")
+        )
+        rig_manufacturer = _identity_text(
+            camera.get("manufacturer")
+        )
+        rig_model = _identity_text(
+            camera.get("model")
         )
 
         if not rig_backend or rig_backend == "none":
@@ -180,58 +249,84 @@ def _load_timing_profiles(
                 f"RIG {rig_id} has no camera backend"
             )
 
-        if profile.backend != rig_backend:
+        if not rig_manufacturer or not rig_model:
             raise SequencerCompileError(
-                f"RIG {rig_id} timing profile backend "
-                f"{profile.backend!r} does not match "
-                f"camera backend {rig_backend!r}"
+                f"RIG {rig_id} camera identity is incomplete "
+                f"(manufacturer/model required)"
             )
 
-        profiles[rig_id] = profile
+        matches = []
 
-    return profiles
+        for path, data in documents:
+            if (
+                _identity_text(data.get("backend"))
+                == rig_backend
+                and _identity_text(data.get("manufacturer"))
+                == rig_manufacturer
+                and _identity_text(data.get("model"))
+                == rig_model
+            ):
+                matches.append(path)
+
+        camera_label = " ".join(
+            value
+            for value in (
+                str(camera.get("manufacturer") or "").strip(),
+                str(camera.get("model") or "").strip(),
+            )
+            if value
+        )
+
+        if not matches:
+            raise SequencerCompileError(
+                f"no calibrated camera timing profile matches "
+                f"RIG {rig_id} camera {camera_label!r} "
+                f"(backend {rig_backend!r})"
+            )
+
+        if len(matches) > 1:
+            names = ", ".join(
+                path.name
+                for path in matches
+            )
+            raise SequencerCompileError(
+                f"multiple calibrated camera timing profiles match "
+                f"RIG {rig_id} camera {camera_label!r}: {names}"
+            )
+
+        path = matches[0]
+
+        try:
+            profile = load_camera_timing_profile(path)
+        except (
+            OSError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise SequencerCompileError(
+                f"invalid camera timing profile for "
+                f"RIG {rig_id}: {exc}"
+            ) from exc
+
+        profiles[rig_id] = profile
+        resolved_files[rig_id] = path.name
+
+    return profiles, resolved_files
 
 
 def compile_execution_plan_from_files(
     *,
     configs_dir: str | Path,
-    sequence_file: str,
-    camera_timing_files: dict[int, str],
+    circumstances_file: str,
+    photo_setup_file: str,
+    exposure_opt_file: str,
+    sequence_margin_min: int | float,
     rig_config: dict[str, Any] | None = None,
+    sequence_file: str | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Compile one complete execution plan without touching hardware."""
 
     configs_dir = Path(configs_dir)
-
-    sequence_path = _safe_child(
-        configs_dir / "sequence",
-        sequence_file,
-        "Sequence",
-    )
-
-    sequence_config = _load_json_object(
-        sequence_path,
-        "Sequence",
-    )
-
-    if sequence_config.get("config_type") != "sequence":
-        raise SequencerCompileError(
-            "invalid Sequence configuration"
-        )
-
-    circumstances_file = sequence_config.get(
-        "circumstances_file"
-    )
-    photo_setup_file = sequence_config.get(
-        "photo_setup_file"
-    )
-    exposure_opt_file = sequence_config.get(
-        "exposure_opt_file"
-    )
-    sequence_margin_min = sequence_config.get(
-        "sequence_margin_min",
-        60,
-    )
 
     required = {
         "circumstances_file": circumstances_file,
@@ -312,6 +407,7 @@ def compile_execution_plan_from_files(
     )
 
     active_rigs = _active_rigs(config)
+    _validate_active_rigs_for_sequencer(active_rigs)
 
     try:
         targets = compile_capture_targets(
@@ -341,10 +437,9 @@ def compile_execution_plan_from_files(
         audited_by_rig
     )
 
-    timing_profiles = _load_timing_profiles(
+    timing_profiles, resolved_timing_files = _load_timing_profiles(
         active_rigs=active_rigs,
         timing_dir=configs_dir / "camera_timing",
-        camera_timing_files=camera_timing_files,
     )
 
     try:
@@ -393,9 +488,9 @@ def compile_execution_plan_from_files(
         ).name
 
     plan["camera_timing_files"] = {
-        str(rig_id): Path(filename).name
+        str(rig_id): filename
         for rig_id, filename in sorted(
-            camera_timing_files.items()
+            resolved_timing_files.items()
         )
     }
 

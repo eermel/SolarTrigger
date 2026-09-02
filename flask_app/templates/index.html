@@ -1482,6 +1482,16 @@ header {
             <option value="">— Exposure Optimization file —</option>
           </select>
 
+          <div class="stat-label">Execution Plan filename</div>
+          <div class="field">
+            <input
+              id="sequencer-output-filename"
+              type="text"
+              value="execution_plan.json"
+              placeholder="execution_plan.json"
+              style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:11px 12px;color:var(--text);font-family:var(--mono);font-size:14px;width:100%;outline:none;box-sizing:border-box;">
+          </div>
+
           <div class="stat-label">Sequence margin</div>
           <div style="display:flex;align-items:center;gap:8px" class="field">
             <input
@@ -6335,7 +6345,16 @@ function appendLog(text, level = 'info', source = '', ts = '') {
   
   containers.forEach(c => {
     c.appendChild(d.cloneNode(true));
-    if (c.children.length > 600) c.removeChild(c.firstChild);
+
+    const maxLines =
+      source === 'sequencer'
+        ? 3000
+        : 600;
+
+    while (c.children.length > maxLines) {
+      c.removeChild(c.firstChild);
+    }
+
     c.scrollTop = c.scrollHeight;
   });
 }
@@ -6586,43 +6605,6 @@ async function _sequencerFillSelect(
 }
 
 
-let sequencerCameraTimingFiles = [];
-const sequencerCameraTimingSelection = {};
-
-
-function setSequencerCameraTiming(rigId, filename) {
-  const id = Number(rigId);
-
-  if (!filename) {
-    delete sequencerCameraTimingSelection[id];
-  } else {
-    sequencerCameraTimingSelection[id] = filename;
-  }
-}
-
-
-async function loadSequencerCameraTimingList() {
-  const response = await fetch(
-    '/api/configs/list_camera_timing'
-  );
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(
-      data.error || `HTTP error ${response.status}`
-    );
-  }
-
-  sequencerCameraTimingFiles =
-    Array.isArray(data.files)
-      ? data.files
-      : [];
-
-  renderSequencerRigSummary();
-}
-
-
 async function loadSequencerConfigLists() {
   try {
     await Promise.all([
@@ -6651,7 +6633,6 @@ async function loadSequencerConfigLists() {
         '— Exposure Optimization file —'
       ),
 
-      loadSequencerCameraTimingList(),
     ]);
   } catch (error) {
     appendSequencerLog(
@@ -6970,36 +6951,7 @@ function renderSequencerRigSummary() {
             ${escapeDeviceText(focal)}
           </span>
 
-          <span style="color:var(--text-dim)">Timing</span>
-          <select
-            id="sequencer-timing-rig-${rigId}"
-            ${active ? '' : 'disabled'}
-            onchange="setSequencerCameraTiming(${rigId}, this.value)"
-            style="
-              min-width:0;
-              width:100%;
-              background:var(--bg2);
-              border:1px solid var(--border);
-              border-radius:5px;
-              color:var(--text);
-              font-family:var(--mono);
-              font-size:9px;
-              padding:4px 5px;
-            ">
-            <option value="">— calibrated profile —</option>
-            ${sequencerCameraTimingFiles.map(filename => `
-              <option
-                value="${escapeDeviceText(filename)}"
-                ${
-                  sequencerCameraTimingSelection[rigId] === filename
-                    ? 'selected'
-                    : ''
-                }>
-                ${escapeDeviceText(filename)}
-              </option>
-            `).join('')}
-          </select>
-        </div>
+          </div>
       </div>
     `;
   });
@@ -7166,6 +7118,36 @@ function renderSequencer() {
 async function runSequencer() {
   const config = readSequenceConfig();
 
+  if (
+    !config.circumstances_file ||
+    !config.photo_setup_file ||
+    !config.exposure_opt_file
+  ) {
+    flash('Select all Sequencer input files first', 'red');
+    return;
+  }
+
+  const outputInput =
+    document.getElementById('sequencer-output-filename');
+
+  let outputFilename =
+    outputInput && outputInput.value
+      ? outputInput.value.trim()
+      : '';
+
+  if (!outputFilename) {
+    flash('Enter an Execution Plan filename', 'red');
+    return;
+  }
+
+  if (!outputFilename.toLowerCase().endsWith('.json')) {
+    outputFilename += '.json';
+
+    if (outputInput) {
+      outputInput.value = outputFilename;
+    }
+  }
+
   const sequenceSelect =
     document.getElementById('sequencer-config-select');
 
@@ -7174,42 +7156,11 @@ async function runSequencer() {
       ? sequenceSelect.value
       : '';
 
-  if (!sequenceFile) {
-    flash('Select a Sequence file', 'red');
-    return;
-  }
-
   const activeRigs = (rigDevicesState.rigs || []).filter(
     rig =>
       Number(rig.rig_id) === 1 ||
       rig.enabled === true
   );
-
-  const cameraTimingFiles = {};
-
-  for (const rig of activeRigs) {
-    const rigId = Number(rig.rig_id);
-
-    const select = document.getElementById(
-      `sequencer-timing-rig-${rigId}`
-    );
-
-    const filename =
-      select && select.value
-        ? select.value
-        : sequencerCameraTimingSelection[rigId];
-
-    if (!filename) {
-      flash(
-        `Select a calibrated timing profile for RIG ${rigId}`,
-        'red'
-      );
-      return;
-    }
-
-    cameraTimingFiles[String(rigId)] = filename;
-    sequencerCameraTimingSelection[rigId] = filename;
-  }
 
   const logContainer =
     document.getElementById('log-container-sequencer');
@@ -7220,7 +7171,19 @@ async function runSequencer() {
 
   appendSequencerLog('Sequencer compilation started', 'info');
   appendSequencerLog(
-    `Sequence: ${sequenceFile}`,
+    sequenceFile
+      ? `Sequence preset: ${sequenceFile}`
+      : 'Sequence preset: none (current UI values)',
+    'info'
+  );
+
+  appendSequencerLog(
+    `Sequence margin: ${config.sequence_margin_min} min`,
+    'info'
+  );
+
+  appendSequencerLog(
+    `Execution Plan: ${outputFilename}`,
     'info'
   );
   appendSequencerLog(
@@ -7242,15 +7205,6 @@ async function runSequencer() {
     }`,
     'info'
   );
-
-  for (const rig of activeRigs) {
-    const rigId = Number(rig.rig_id);
-
-    appendSequencerLog(
-      `RIG ${rigId} timing: ${cameraTimingFiles[String(rigId)]}`,
-      'info'
-    );
-  }
 
   const button =
     document.getElementById('btn-run-sequencer');
@@ -7337,9 +7291,18 @@ async function runSequencer() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          sequence_file: sequenceFile,
-          camera_timing_files:
-            cameraTimingFiles,
+          circumstances_file:
+            config.circumstances_file,
+          photo_setup_file:
+            config.photo_setup_file,
+          exposure_opt_file:
+            config.exposure_opt_file,
+          sequence_margin_min:
+            config.sequence_margin_min,
+          output_filename:
+            outputFilename,
+          sequence_file:
+            sequenceFile || null,
         }),
       }
     );

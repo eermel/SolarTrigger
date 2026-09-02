@@ -3474,67 +3474,80 @@ def api_sequencer_compile():
     """
     body = request.get_json(silent=True) or {}
 
-    raw_sequence_file = body.get("sequence_file")
+    required_files = {
+        "circumstances_file": body.get("circumstances_file"),
+        "photo_setup_file": body.get("photo_setup_file"),
+        "exposure_opt_file": body.get("exposure_opt_file"),
+    }
 
-    if (
-        not isinstance(raw_sequence_file, str)
-        or not raw_sequence_file.strip()
-    ):
-        return jsonify({
-            "error": "Missing Sequencer input: sequence_file",
-        }), 400
+    normalized_files = {}
 
-    sequence_file = raw_sequence_file.strip()
-
-    if Path(sequence_file).name != sequence_file:
-        return jsonify({
-            "error": "Invalid Sequencer input filename: sequence_file",
-        }), 400
-
-    raw_timing_files = body.get("camera_timing_files")
-
-    if not isinstance(raw_timing_files, dict):
-        return jsonify({
-            "error": "camera_timing_files must be an object",
-        }), 400
-
-    timing_files = {}
-
-    for raw_rig_id, raw_filename in raw_timing_files.items():
-        try:
-            rig_id = int(raw_rig_id)
-        except (TypeError, ValueError):
+    for field, raw_value in required_files.items():
+        if not isinstance(raw_value, str) or not raw_value.strip():
             return jsonify({
-                "error": f"Invalid RIG id in camera_timing_files: {raw_rig_id}",
+                "error": f"Missing Sequencer input: {field}",
             }), 400
 
-        if rig_id < 1 or rig_id > 4:
-            return jsonify({
-                "error": f"Invalid RIG id in camera_timing_files: {rig_id}",
-            }), 400
-
-        if (
-            not isinstance(raw_filename, str)
-            or not raw_filename.strip()
-        ):
-            return jsonify({
-                "error": f"Missing camera timing file for RIG {rig_id}",
-            }), 400
-
-        filename = raw_filename.strip()
+        filename = raw_value.strip()
 
         if Path(filename).name != filename:
             return jsonify({
-                "error": f"Invalid camera timing filename for RIG {rig_id}",
+                "error": f"Invalid Sequencer input filename: {field}",
             }), 400
 
-        timing_files[rig_id] = filename
+        normalized_files[field] = filename
+
+    raw_margin = body.get("sequence_margin_min")
+
+    if (
+        isinstance(raw_margin, bool)
+        or not isinstance(raw_margin, (int, float))
+        or raw_margin < 0
+    ):
+        return jsonify({
+            "error": "Invalid Sequencer input: sequence_margin_min",
+        }), 400
+
+    raw_output_name = body.get("output_filename")
+
+    if not isinstance(raw_output_name, str) or not raw_output_name.strip():
+        return jsonify({
+            "error": "Missing Sequencer input: output_filename",
+        }), 400
+
+    output_name = raw_output_name.strip()
+
+    if not output_name.lower().endswith(".json"):
+        output_name += ".json"
+
+    if (
+        Path(output_name).name != output_name
+        or output_name in {".json", "..json"}
+        or ".." in output_name
+    ):
+        return jsonify({
+            "error": "Invalid execution plan filename",
+        }), 400
+
+    raw_sequence_file = body.get("sequence_file")
+    sequence_file = None
+
+    if isinstance(raw_sequence_file, str) and raw_sequence_file.strip():
+        sequence_file = raw_sequence_file.strip()
+
+        if Path(sequence_file).name != sequence_file:
+            return jsonify({
+                "error": "Invalid Sequencer input filename: sequence_file",
+            }), 400
 
     try:
         plan, lines = compile_execution_plan_from_files(
             configs_dir=CONFIGS_DIR,
+            circumstances_file=normalized_files["circumstances_file"],
+            photo_setup_file=normalized_files["photo_setup_file"],
+            exposure_opt_file=normalized_files["exposure_opt_file"],
+            sequence_margin_min=raw_margin,
             sequence_file=sequence_file,
-            camera_timing_files=timing_files,
         )
     except SequencerCompileError as exc:
         return jsonify({
@@ -3549,12 +3562,6 @@ def api_sequencer_compile():
 
     output_dir = CONFIGS_DIR / "execution_plan"
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    source_stem = Path(sequence_file).stem
-
-    output_name = (
-        f"execution_plan_{source_stem}.json"
-    )
 
     destination = output_dir / output_name
 

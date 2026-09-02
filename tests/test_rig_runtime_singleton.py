@@ -29,7 +29,7 @@ def _config():
     }
 
 
-def test_get_rig_manager_is_cached_and_reset_creates_new_instance(
+def test_get_rig_manager_is_cached_and_reset_reloads_canonical_config(
     tmp_path, monkeypatch
 ):
     migration_calls = []
@@ -48,10 +48,19 @@ def test_get_rig_manager_is_cached_and_reset_creates_new_instance(
     assert second is first
     assert len(migration_calls) == 1
 
+    config_path = (
+        tmp_path
+        / "configs"
+        / "rig"
+        / "default.json"
+    )
+
+    assert config_path.exists()
+
     rig_runtime.reset_rig_manager_for_tests()
     after_reset = rig_runtime.get_rig_manager()
 
     assert after_reset is not first
-    assert len(migration_calls) == 2
+    assert len(migration_calls) == 1
 
     rig_runtime.reset_rig_manager_for_tests()

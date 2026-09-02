@@ -17,3 +17,6 @@ venv/
 .DS_Store
 ._*
 flask_app/logs_buffer.jsonl
+
+# Runtime RIG configuration
+configs/rig/default.json

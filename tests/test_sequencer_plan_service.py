@@ -221,10 +221,11 @@ def test_service_compiles_complete_plan_without_hardware(
 
     plan, lines = compile_execution_plan_from_files(
         configs_dir=configs,
+        circumstances_file="test.json",
+        photo_setup_file="photo.json",
+        exposure_opt_file="expo.json",
+        sequence_margin_min=1,
         sequence_file="test_sequence.json",
-        camera_timing_files={
-            1: "rig1.json",
-        },
         rig_config=rig_config,
     )
 
@@ -256,7 +257,7 @@ def test_service_compiles_complete_plan_without_hardware(
     )
 
 
-def test_service_requires_timing_for_every_active_rig(
+def test_service_requires_matching_timing_for_every_active_rig(
     tmp_path,
     monkeypatch,
 ):
@@ -272,7 +273,13 @@ def test_service_requires_timing_for_every_active_rig(
     rig_config = {
         "rigs": [
             _rig(1, enabled=False),
-            _rig(2, enabled=True),
+            _rig(
+                2,
+                enabled=True,
+                backend="sony",
+                manufacturer="Sony",
+                model="UNSUPPORTED-MODEL",
+            ),
         ],
         "sequence": {"common": {}},
         "eclipse": None,
@@ -280,26 +287,26 @@ def test_service_requires_timing_for_every_active_rig(
 
     with pytest.raises(
         SequencerCompileError,
-        match="missing calibrated camera timing profile for RIG 2",
+        match="no calibrated camera timing profile matches RIG 2",
     ):
         compile_execution_plan_from_files(
             configs_dir=configs,
+            circumstances_file="test.json",
+            photo_setup_file="photo.json",
+            exposure_opt_file="expo.json",
+            sequence_margin_min=1,
             sequence_file="test_sequence.json",
-            camera_timing_files={
-                1: "rig1.json",
-            },
             rig_config=rig_config,
         )
 
 
-def test_service_uses_distinct_timing_per_rig(
+def test_service_reuses_timing_profile_for_same_camera_identity(
     tmp_path,
     monkeypatch,
 ):
     configs = _build_configs(tmp_path)
 
-    _timing(configs, "rig1.json", 275)
-    _timing(configs, "rig2.json", 291)
+    _timing(configs, "sony_profile.json", 275)
 
     monkeypatch.setattr(
         service,
@@ -318,13 +325,18 @@ def test_service_uses_distinct_timing_per_rig(
 
     plan, _lines = compile_execution_plan_from_files(
         configs_dir=configs,
+        circumstances_file="test.json",
+        photo_setup_file="photo.json",
+        exposure_opt_file="expo.json",
+        sequence_margin_min=1,
         sequence_file="test_sequence.json",
-        camera_timing_files={
-            1: "rig1.json",
-            2: "rig2.json",
-        },
         rig_config=rig_config,
     )
+
+    assert plan["camera_timing_files"] == {
+        "1": "sony_profile.json",
+        "2": "sony_profile.json",
+    }
 
     first_target = min(
         target["target_time"]
@@ -346,7 +358,7 @@ def test_service_uses_distinct_timing_per_rig(
     }
 
     assert by_rig[1].endswith("59.725")
-    assert by_rig[2].endswith("59.709")
+    assert by_rig[2].endswith("59.725")
 
 
 def test_service_rejects_path_traversal(
@@ -356,12 +368,14 @@ def test_service_rejects_path_traversal(
 
     with pytest.raises(
         SequencerCompileError,
-        match="invalid Sequence filename",
+        match="invalid circumstances filename",
     ):
         compile_execution_plan_from_files(
             configs_dir=configs,
-            sequence_file="../test_sequence.json",
-            camera_timing_files={},
+            circumstances_file="../test.json",
+            photo_setup_file="photo.json",
+            exposure_opt_file="expo.json",
+            sequence_margin_min=1,
             rig_config={
                 "rigs": [_rig(1)],
             },
@@ -449,11 +463,11 @@ def test_service_camera_backends_are_independent_of_rig_numbers(
 
     plan, lines = compile_execution_plan_from_files(
         configs_dir=configs,
+        circumstances_file="test.json",
+        photo_setup_file="photo.json",
+        exposure_opt_file="expo.json",
+        sequence_margin_min=1,
         sequence_file="test_sequence.json",
-        camera_timing_files={
-            1: "d850_rig1.json",
-            4: "sony_rig4.json",
-        },
         rig_config=rig_config,
     )
 
@@ -580,10 +594,11 @@ def test_service_sequence_bounds_are_logical_window_not_photo_targets(
 
     plan, _lines = compile_execution_plan_from_files(
         configs_dir=configs,
+        circumstances_file="test.json",
+        photo_setup_file="photo.json",
+        exposure_opt_file="expo.json",
+        sequence_margin_min=1,
         sequence_file="test_sequence.json",
-        camera_timing_files={
-            1: "rig1.json",
-        },
         rig_config=rig_config,
     )
 
@@ -617,7 +632,7 @@ def test_service_sequence_bounds_are_logical_window_not_photo_targets(
     )
 
 
-def test_service_sequence_file_is_canonical_source(
+def test_service_current_run_values_override_sequence_preset(
     tmp_path,
     monkeypatch,
 ):
@@ -632,7 +647,7 @@ def test_service_sequence_file_is_canonical_source(
             "circumstances_file": "test.json",
             "photo_setup_file": "photo.json",
             "exposure_opt_file": "expo.json",
-            "sequence_margin_min": 1,
+            "sequence_margin_min": 60,
         },
     )
 
@@ -650,12 +665,12 @@ def test_service_sequence_file_is_canonical_source(
 
     plan, _lines = compile_execution_plan_from_files(
         configs_dir=configs,
+        circumstances_file="test.json",
+        photo_setup_file="photo.json",
+        exposure_opt_file="expo.json",
+        sequence_margin_min=5,
         sequence_file="canonical.json",
-        camera_timing_files={
-            1: "rig1.json",
-        },
         rig_config=rig_config,
-
     )
 
     assert plan["sources"] == {
@@ -665,12 +680,111 @@ def test_service_sequence_file_is_canonical_source(
         "sequence_file": "canonical.json",
     }
 
-    assert plan["sequence_margin_min"] == 1
+    assert plan["sequence_margin_min"] == 5
+    assert plan["sequence_start"] == "2027-08-02T09:55:00.000"
+    assert plan["sequence_end"] == "2027-08-02T10:10:00.000"
 
-    assert plan["sequence_start"] == (
-        "2027-08-02T09:59:00.000"
+
+
+def test_service_rejects_unconfigured_active_rig_camera(
+    tmp_path,
+    monkeypatch,
+):
+    configs = _build_configs(tmp_path)
+
+    monkeypatch.setattr(
+        service,
+        "load_eclipse_context",
+        lambda _path: _context(),
     )
 
-    assert plan["sequence_end"] == (
-        "2027-08-02T10:06:00.000"
+    rig_config = {
+        "rigs": [
+            {
+                "rig_id": 1,
+                "name": "RIG 1",
+                "enabled": False,
+                "devices": {
+                    "camera": {
+                        "backend": "none",
+                        "manufacturer": None,
+                        "model": None,
+                        "serial": None,
+                    },
+                    "mount": None,
+                    "focuser": None,
+                },
+                "optics": {
+                    "focal_length_mm": 430,
+                },
+                "photo": {},
+            },
+        ],
+        "sequence": {"common": {}},
+        "eclipse": None,
+    }
+
+    with pytest.raises(
+        SequencerCompileError,
+        match=r"RIG 1 is not configured: camera required",
+    ):
+        compile_execution_plan_from_files(
+            configs_dir=configs,
+            circumstances_file="test.json",
+            photo_setup_file="photo.json",
+            exposure_opt_file="expo.json",
+            sequence_margin_min=1,
+            rig_config=rig_config,
+        )
+
+
+def test_service_rejects_unconfigured_active_rig_focal_length(
+    tmp_path,
+    monkeypatch,
+):
+    configs = _build_configs(tmp_path)
+
+    monkeypatch.setattr(
+        service,
+        "load_eclipse_context",
+        lambda _path: _context(),
     )
+
+    rig_config = {
+        "rigs": [
+            {
+                "rig_id": 1,
+                "name": "RIG 1",
+                "enabled": False,
+                "devices": {
+                    "camera": {
+                        "backend": "sony",
+                        "manufacturer": "Sony",
+                        "model": "ILCE-7M5",
+                        "serial": None,
+                    },
+                    "mount": None,
+                    "focuser": None,
+                },
+                "optics": {
+                    "focal_length_mm": None,
+                },
+                "photo": {},
+            },
+        ],
+        "sequence": {"common": {}},
+        "eclipse": None,
+    }
+
+    with pytest.raises(
+        SequencerCompileError,
+        match=r"RIG 1 is not configured: focal length required",
+    ):
+        compile_execution_plan_from_files(
+            configs_dir=configs,
+            circumstances_file="test.json",
+            photo_setup_file="photo.json",
+            exposure_opt_file="expo.json",
+            sequence_margin_min=1,
+            rig_config=rig_config,
+        )

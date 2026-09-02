@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from backend.rig_config import load, migrate_legacy
+from backend.rig_config import load, migrate_legacy, save
 from backend.rig_manager import RigManager
 from backend.state_store import StateStore
 
@@ -27,14 +27,26 @@ _rig_manager_lock = threading.Lock()
 
 
 def load_rig_configuration() -> dict:
-    """Load the persisted rig configuration, or migrate legacy state in memory."""
+    """Load canonical RIG configuration, creating it once from legacy state."""
 
     rig_config_path = TRIGGER_DIR / "configs" / "rig" / "default.json"
+
     if rig_config_path.exists():
         return load(rig_config_path)
 
     state_store = StateStore(_resolve_state_file(TRIGGER_DIR))
-    return migrate_legacy(state_store, TRIGGER_DIR / "configs")
+    config = migrate_legacy(
+        state_store,
+        TRIGGER_DIR / "configs",
+    )
+
+    rig_config_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    save(rig_config_path, config)
+
+    return config
 
 
 def get_rig_manager() -> RigManager:

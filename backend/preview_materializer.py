@@ -113,8 +113,14 @@ def apply_atmos_if_enabled(
     altitude_m = (
         location.get("altitude_m")
         if isinstance(location, Mapping)
-        else context.get("altitude_m")
+        else None
     )
+
+    if altitude_m is None:
+        altitude_m = context.get(
+            "observer_alt_m",
+            context.get("altitude_m"),
+        )
 
     if not isinstance(timeline, Mapping) or altitude_m is None:
         raise PreviewMaterializationError(

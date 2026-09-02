@@ -66,7 +66,13 @@ def test_missing_v2_config_migrates_legacy_state_and_normalizes_four_slots(
     assert isinstance(migrated_store, StateStore)
     assert migrated_store.path == tmp_path / "flask_app" / "state.json"
     assert configs_dir == tmp_path / "configs"
-    assert not (tmp_path / "configs" / "rig" / "default.json").exists()
+    config_path = (
+        tmp_path
+        / "configs"
+        / "rig"
+        / "default.json"
+    )
+    assert config_path.exists()
     assert rig_runtime.normalize_rigs_for_ui(manager) == [
         {"rig_id": 1, "name": "RIG 1", "enabled": True},
         {"rig_id": 2, "name": "RIG 2", "enabled": False},
