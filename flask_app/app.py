@@ -602,6 +602,12 @@ def api_rig_device_inventory():
 def api_rig_devices_get():
     """Return persisted rig bindings enriched from the inventory cache."""
     manager = get_rig_manager()
+    config = load_rig_configuration()
+    config_rigs = {
+        rig.get("rig_id"): rig
+        for rig in config.get("rigs", [])
+        if isinstance(rig, dict)
+    }
     inventory = get_cached_inventory()
     categories = ("camera", "mount", "focuser")
 
@@ -619,11 +625,13 @@ def api_rig_devices_get():
             devices[category] = binding
             if binding is not None:
                 bindings_by_category[category].append(binding)
+        configured_rig = config_rigs.get(rig_id, {})
         rigs.append({
             "rig_id": rig_id,
             "name": rig.name if rig is not None else f"RIG {rig_id}",
             "enabled": rig.enabled if rig is not None else False,
             "devices": devices,
+            "optics": deepcopy(configured_rig.get("optics", {})),
         })
 
     for category, bindings in bindings_by_category.items():
@@ -643,8 +651,8 @@ def api_rig_devices_get():
     })
 
 
-_RIG_PATCH_FIELDS = frozenset(("rig_id", "enabled", "name", "devices"))
-_RIG_PHOTO_PATCH_FIELDS = frozenset(("rig_id", "optics", "photo"))
+_RIG_PATCH_FIELDS = frozenset(("rig_id", "enabled", "name", "devices", "optics"))
+_RIG_PHOTO_PATCH_FIELDS = frozenset(("rig_id", "photo"))
 _RIG_DEVICE_CATEGORIES = frozenset(("camera", "mount", "focuser"))
 _RUNTIME_DEVICE_FIELDS = frozenset(
     ("present", "pilotable", "transport_locator", "busnum", "devnum")
@@ -1143,6 +1151,30 @@ def api_rig_devices_post():
             for field in ("enabled", "name"):
                 if field in patch:
                     target[field] = patch[field]
+
+            if "optics" in patch:
+                optics_patch = patch["optics"]
+                if not isinstance(optics_patch, dict):
+                    raise ValueError(f"rigs[{index}].optics must be an object")
+
+                unknown_optics = set(optics_patch) - {"focal_length_mm"}
+                if unknown_optics:
+                    raise ValueError(
+                        f"rigs[{index}].optics contains unsupported fields: "
+                        + ", ".join(sorted(unknown_optics))
+                    )
+
+                if "focal_length_mm" in optics_patch:
+                    _validate_positive_number(
+                        optics_patch["focal_length_mm"],
+                        f"rigs[{index}].optics.focal_length_mm",
+                        nullable=True,
+                    )
+
+                target.setdefault("optics", {}).update(
+                    deepcopy(optics_patch)
+                )
+
             if "devices" in patch:
                 devices_patch = patch["devices"]
                 if not isinstance(devices_patch, dict):
@@ -1227,7 +1259,6 @@ def api_rig_photo_post():
             )
             rigs.append({
                 "rig_id": rig_id,
-                "optics": deepcopy(rig.get("optics", {})),
                 "photo": deepcopy(rig.get("photo", {})),
             })
 
@@ -1272,19 +1303,9 @@ def api_rig_photo_post():
                 raise ValueError(f"duplicate rig_id patch: {rig_id}")
             patched_ids.add(rig_id)
 
-            optics_patch = patch.get("optics", {})
             photo_patch = patch.get("photo", {})
-            if not isinstance(optics_patch, dict):
-                raise ValueError(f"{prefix}.optics must be an object")
             if not isinstance(photo_patch, dict):
                 raise ValueError(f"{prefix}.photo must be an object")
-
-            if "focal_length_mm" in optics_patch:
-                _validate_positive_number(
-                    optics_patch["focal_length_mm"],
-                    f"{prefix}.optics.focal_length_mm",
-                    nullable=True,
-                )
             for field in (
                 "atmos_enabled",
                 "anti_trailing_enabled",
@@ -1307,7 +1328,6 @@ def api_rig_photo_post():
                 )
 
             target = rigs_by_id[rig_id]
-            target.setdefault("optics", {}).update(deepcopy(optics_patch))
             target.setdefault("photo", {}).update(deepcopy(photo_patch))
 
         config["rigs"] = [rigs_by_id[rig_id] for rig_id in range(1, 5)]
@@ -3287,19 +3307,15 @@ def api_configs_save_exposure_opt():
 
             seen.add(rig_id)
 
-            optics = rig.get("optics", {})
+            # Optics belongs to the canonical RIG configuration.
+            # Accept legacy Exposure Optimization payloads but never
+            # persist their optics section.
+            rig.pop("optics", None)
+
             photo = rig.get("photo", {})
 
-            if not isinstance(optics, dict) or not isinstance(photo, dict):
+            if not isinstance(photo, dict):
                 raise ValueError(f"Invalid RIG {rig_id} configuration")
-
-            focal = optics.get("focal_length_mm")
-            if focal is not None:
-                _validate_positive_number(
-                    focal,
-                    f"rigs[{rig_id}].optics.focal_length_mm",
-                    nullable=True,
-                )
 
             tolerance = photo.get("motion_tolerance_px")
             if tolerance is not None:

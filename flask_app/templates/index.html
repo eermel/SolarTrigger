@@ -1170,16 +1170,6 @@ header {
               </div>
 
               <div class="field">
-                <label>Focal length (mm)</label>
-                <input type="number"
-                  id="rig-1-focal"
-                  min="0.1"
-                  step="0.1"
-                  placeholder="—"
-                  onblur="persistRigPhoto(1)">
-              </div>
-
-              <div class="field">
                 <label>Pixel tolerance</label>
                 <input type="number"
                   id="rig-1-pixel-tolerance"
@@ -1234,16 +1224,6 @@ header {
                     aria-label="Anti-blur RIG 2"
                     onchange="persistRigPhoto(2)">
                 </div>
-              </div>
-
-              <div class="field">
-                <label>Focal length (mm)</label>
-                <input type="number"
-                  id="rig-2-focal"
-                  min="0.1"
-                  step="0.1"
-                  placeholder="—"
-                  onblur="persistRigPhoto(2)">
               </div>
 
               <div class="field">
@@ -1304,16 +1284,6 @@ header {
               </div>
 
               <div class="field">
-                <label>Focal length (mm)</label>
-                <input type="number"
-                  id="rig-3-focal"
-                  min="0.1"
-                  step="0.1"
-                  placeholder="—"
-                  onblur="persistRigPhoto(3)">
-              </div>
-
-              <div class="field">
                 <label>Pixel tolerance</label>
                 <input type="number"
                   id="rig-3-pixel-tolerance"
@@ -1368,16 +1338,6 @@ header {
                     aria-label="Anti-blur RIG 4"
                     onchange="persistRigPhoto(4)">
                 </div>
-              </div>
-
-              <div class="field">
-                <label>Focal length (mm)</label>
-                <input type="number"
-                  id="rig-4-focal"
-                  min="0.1"
-                  step="0.1"
-                  placeholder="—"
-                  onblur="persistRigPhoto(4)">
               </div>
 
               <div class="field">
@@ -1853,21 +1813,15 @@ function renderRigPhotoConfig(payload) {
     const rigId = Number(rig.rig_id);
     if (!Number.isInteger(rigId) || rigId < 1 || rigId > 4) return;
 
-    const optics = rig.optics || {};
     const photo = rig.photo || {};
 
     const antiBlur = document.getElementById(`rig-${rigId}-antiblur-switch`);
-    const focal = document.getElementById(`rig-${rigId}-focal`);
     const tolerance = document.getElementById(`rig-${rigId}-pixel-tolerance`);
     const isoComp = document.getElementById(`rig-${rigId}-iso-comp-switch`);
     const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
 
     if (antiBlur) antiBlur.checked = photo.anti_trailing_enabled === true;
-    if (focal) {
-      focal.value = optics.focal_length_mm == null
-        ? ''
-        : String(optics.focal_length_mm);
-    }
+
     if (tolerance) {
       tolerance.value = photo.motion_tolerance_px == null
         ? '1.0'
@@ -1903,21 +1857,14 @@ async function loadRigPhotoConfig() {
 
 function readRigPhotoConfig(rigId) {
   const antiBlur = document.getElementById(`rig-${rigId}-antiblur-switch`);
-  const focal = document.getElementById(`rig-${rigId}-focal`);
   const tolerance = document.getElementById(`rig-${rigId}-pixel-tolerance`);
   const isoComp = document.getElementById(`rig-${rigId}-iso-comp-switch`);
   const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
   const atmo = document.getElementById('cfg-atmo-switch');
 
-  const focalValue = focal && focal.value.trim() !== ''
-    ? Number(focal.value)
-    : null;
   const toleranceValue = Number(tolerance && tolerance.value);
   const isoMaxValue = Number(isoMax && isoMax.value);
 
-  if (focalValue !== null && (!Number.isFinite(focalValue) || focalValue <= 0)) {
-    throw new Error('Focal length must be strictly positive');
-  }
   if (!Number.isFinite(toleranceValue) || toleranceValue <= 0) {
     throw new Error('Pixel tolerance must be strictly positive');
   }
@@ -1927,9 +1874,6 @@ function readRigPhotoConfig(rigId) {
 
   return {
     rig_id: rigId,
-    optics: {
-      focal_length_mm: focalValue,
-    },
     photo: {
       anti_trailing_enabled: Boolean(antiBlur && antiBlur.checked),
       motion_tolerance_px: toleranceValue,
@@ -2023,9 +1967,6 @@ function readExposureOptConfig() {
 
     return {
       rig_id: rigId,
-      optics: {
-        focal_length_mm: current.optics.focal_length_mm
-      },
       photo: {
         anti_trailing_enabled: current.photo.anti_trailing_enabled,
         motion_tolerance_px: current.photo.motion_tolerance_px,
@@ -2114,7 +2055,6 @@ async function loadExposureOptConfig(filename) {
 
     const patches = (data.rigs || []).map(rig => ({
       rig_id: Number(rig.rig_id),
-      optics: {...(rig.optics || {})},
       photo: {
         ...(rig.photo || {}),
         atmos_enabled: atmos
@@ -2435,7 +2375,7 @@ function renderRigDevices(payload, inventoryOverride) {
         options.push(`<option value="${escapeDeviceText(encodedRigBinding(optionBinding))}"${disabled ? ' disabled' : ''}>${escapeDeviceText(label)}</option>`);
       });
       const persisted = encodedRigBinding(current);
-      return `<div class="rig-device" data-rig-device="${category}">
+      let block = `<div class="rig-device" data-rig-device="${category}">
         <div class="card-title">${DEVICE_LABELS[category]}</div>
         <div class="field">
           <div class="select-chev"><select id="rig-${rigId}-${category}-select" aria-label="${DEVICE_LABELS[category]} RIG ${rigId}" data-persisted-value="${escapeDeviceText(persisted)}" onchange="selectRigDevice(${rigId}, '${category}', this)">
@@ -2443,6 +2383,30 @@ function renderRigDevices(payload, inventoryOverride) {
           </select></div>
         </div>
       </div>`;
+
+      if (category === 'camera') {
+        const focal = rig.optics && rig.optics.focal_length_mm;
+        const focalValue = focal == null ? '' : String(focal);
+
+        block += `<div class="rig-device rig-optics" data-rig-optics>
+          <div class="card-title">Optics</div>
+          <div class="field">
+            <label for="rig-${rigId}-focal">Focal length (mm)</label>
+            <input
+              type="number"
+              id="rig-${rigId}-focal"
+              min="0.1"
+              step="0.1"
+              placeholder="—"
+              value="${escapeDeviceText(focalValue)}"
+              data-persisted-value="${escapeDeviceText(focalValue)}"
+              onchange="persistRigFocalLength(${rigId}, this)"
+            >
+          </div>
+        </div>`;
+      }
+
+      return block;
     }).join('');
     RIG_DEVICE_CATEGORIES.forEach(category => {
       const select = document.getElementById(`rig-${rigId}-${category}-select`);
@@ -2612,6 +2576,64 @@ async function persistRigName(rigId, input) {
   } catch (error) {
     input.value = persistedValue;
     flash(`RIG ${rigId} name: ${error.message}`, 'red');
+  } finally {
+    input.disabled = false;
+  }
+}
+
+
+async function persistRigFocalLength(rigId, input) {
+  const persistedValue = input.dataset.persistedValue || '';
+  const raw = input.value.trim();
+
+  let focal = null;
+
+  if (raw !== '') {
+    focal = Number(raw);
+
+    if (!Number.isFinite(focal) || focal <= 0) {
+      input.value = persistedValue;
+      flash(
+        `RIG ${rigId} focal length must be strictly positive`,
+        'red'
+      );
+      return;
+    }
+  }
+
+  input.disabled = true;
+
+  try {
+    const response = await fetch('/api/rigs/devices', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        rigs: [{
+          rig_id: rigId,
+          optics: {
+            focal_length_mm: focal
+          }
+        }]
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error || `HTTP error ${response.status}`
+      );
+    }
+
+    await loadRigDevices();
+
+  } catch (error) {
+    input.value = persistedValue;
+    flash(
+      `RIG ${rigId} focal length: ${error.message}`,
+      'red'
+    );
+
   } finally {
     input.disabled = false;
   }
@@ -5544,11 +5566,24 @@ function renderExposureOptPreviewLog(
 async function _fetchRigPreview(rigId, intents) {
   const currentRigPhoto = readRigPhotoConfig(rigId);
 
+  const rigState = Array.isArray(rigDevicesState.rigs)
+    ? rigDevicesState.rigs.find(
+        rig => Number(rig.rig_id) === Number(rigId)
+      )
+    : null;
+
   const payload = {
     intents,
     rig_id: Number(rigId),
     rig_override: {
-      optics: currentRigPhoto.optics,
+      optics: {
+        focal_length_mm:
+          rigState &&
+          rigState.optics &&
+          rigState.optics.focal_length_mm != null
+            ? Number(rigState.optics.focal_length_mm)
+            : null
+      },
       photo: currentRigPhoto.photo
     }
   };

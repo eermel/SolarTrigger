@@ -438,3 +438,94 @@ def test_rig_devices_post_duplicate_identity_returns_409_and_rolls_back(
     assert config_path.read_bytes() == before
     assert emitted == []
     assert reloads == []
+
+def test_rig_devices_get_returns_persisted_optics(persisted_rig_api):
+    client, _config_path, config, _emitted, _reloads = persisted_rig_api
+
+    response = client.get("/api/rigs/devices")
+
+    assert response.status_code == 200
+    rigs = response.get_json()["rigs"]
+    assert [rig["optics"]["focal_length_mm"] for rig in rigs] == [
+        rig["optics"]["focal_length_mm"]
+        for rig in config["rigs"]
+    ]
+
+
+def test_rig_devices_patch_persists_focal_length(persisted_rig_api):
+    client, config_path, original, emitted, reloads = persisted_rig_api
+
+    response = client.post(
+        "/api/rigs/devices",
+        json={
+            "rigs": [{
+                "rig_id": 1,
+                "optics": {"focal_length_mm": 430.0},
+            }]
+        },
+    )
+
+    assert response.status_code == 200
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert saved["rigs"][0]["optics"]["focal_length_mm"] == 430.0
+    assert saved["rigs"][0]["photo"]["format"] == original["rigs"][0]["photo"]["format"]
+    for saved_rig, original_rig in zip(
+        saved["rigs"][1:],
+        original["rigs"][1:],
+    ):
+        assert (
+            saved_rig["optics"]["focal_length_mm"]
+            == original_rig["optics"]["focal_length_mm"]
+        )
+        assert (
+            saved_rig["photo"]["format"]
+            == original_rig["photo"]["format"]
+        )
+    assert reloads == [saved]
+    assert [item[0] for item in emitted] == ["status_update"]
+
+
+@pytest.mark.parametrize("value", [0, -1, True, "430"])
+def test_rig_devices_rejects_invalid_focal_length(
+    persisted_rig_api,
+    value,
+):
+    client, config_path, _original, emitted, reloads = persisted_rig_api
+    before = config_path.read_bytes()
+
+    response = client.post(
+        "/api/rigs/devices",
+        json={
+            "rigs": [{
+                "rig_id": 1,
+                "optics": {"focal_length_mm": value},
+            }]
+        },
+    )
+
+    assert response.status_code == 400
+    assert "focal_length_mm" in response.get_json()["error"]
+    assert config_path.read_bytes() == before
+    assert reloads == []
+    assert emitted == []
+
+
+def test_rig_devices_allows_clearing_focal_length(persisted_rig_api):
+    client, config_path, _original, _emitted, _reloads = persisted_rig_api
+
+    response = client.post(
+        "/api/rigs/devices",
+        json={
+            "rigs": [{
+                "rig_id": 1,
+                "optics": {"focal_length_mm": None},
+            }]
+        },
+    )
+
+    assert response.status_code == 200
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["rigs"][0]["optics"]["focal_length_mm"] is None

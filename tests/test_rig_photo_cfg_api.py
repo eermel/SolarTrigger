@@ -135,7 +135,6 @@ def test_photo_patch_persists_and_preserves_other_rigs(photo_api):
             "iso_max": 1600,
             "motion_tolerance_px": 3,
         },
-        "optics": {"focal_length_mm": 500},
     }]})
 
     assert response.status_code == 200
@@ -143,9 +142,8 @@ def test_photo_patch_persists_and_preserves_other_rigs(photo_api):
     assert saved["rigs"][0]["photo"]["anti_trailing_enabled"] is False
     assert saved["rigs"][0]["photo"]["iso_max"] == 1600
     assert saved["rigs"][0]["photo"]["motion_tolerance_px"] == 3
-    assert saved["rigs"][0]["optics"]["focal_length_mm"] == 500
     assert saved["rigs"][0]["photo"]["format"] == "RAW"
-    assert saved["rigs"][0]["optics"]["keep"] == 1
+    assert saved["rigs"][0]["optics"] == original["rigs"][0]["optics"]
     assert saved["rigs"][1:] == [
         _normalized_rig(rig)
         for rig in original["rigs"][1:]
@@ -157,7 +155,6 @@ def test_photo_patch_persists_and_preserves_other_rigs(photo_api):
 @pytest.mark.parametrize(
     "section,field,value",
     [
-        ("optics", "focal_length_mm", 0),
         ("photo", "iso_max", 0),
         ("photo", "motion_tolerance_px", -1),
     ],
@@ -205,7 +202,7 @@ def test_photo_get_returns_four_persisted_rig_configs(photo_api):
     expected_1 = _normalized_rig(original["rigs"][0])
     expected_4 = _normalized_rig(original["rigs"][3])
 
-    assert rigs[0]["optics"] == expected_1["optics"]
+    assert set(rigs[0]) == {"rig_id", "photo"}
+    assert set(rigs[3]) == {"rig_id", "photo"}
     assert rigs[0]["photo"] == expected_1["photo"]
-    assert rigs[3]["optics"] == expected_4["optics"]
     assert rigs[3]["photo"] == expected_4["photo"]

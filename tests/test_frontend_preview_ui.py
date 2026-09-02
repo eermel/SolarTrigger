@@ -70,13 +70,17 @@ def test_only_one_global_preview_button_is_exposed():
     assert 'onclick="requestAllRigPreviews()"' in INDEX
 
 
-def test_cfg_photo_has_per_rig_antiblur_controls():
+def test_cfg_photo_has_per_rig_exposure_optimization_controls():
     for rig_id in range(1, 5):
         assert INDEX.count(f'id="rig-{rig_id}-antiblur-switch"') == 1
-        assert INDEX.count(f'id="rig-{rig_id}-focal"') == 1
         assert INDEX.count(f'id="rig-{rig_id}-pixel-tolerance"') == 1
         assert INDEX.count(f'id="rig-{rig_id}-iso-comp-switch"') == 1
         assert INDEX.count(f'id="rig-{rig_id}-iso-max"') == 1
+
+    assert 'id="rig-1-focal"' not in INDEX
+    assert 'id="rig-2-focal"' not in INDEX
+    assert 'id="rig-3-focal"' not in INDEX
+    assert 'id="rig-4-focal"' not in INDEX
 
 
 def test_pixel_tolerance_is_a_positive_float_control():
@@ -93,17 +97,33 @@ def test_pixel_tolerance_is_a_positive_float_control():
         assert 'value="1.0"' in html
 
 
-def test_focal_length_is_positive_float_mm_control():
-    for rig_id in range(1, 5):
-        control = re.search(
-            rf'<input[^>]*id="rig-{rig_id}-focal"[^>]*>',
-            INDEX,
-        )
-        assert control
-        html = control.group(0)
-        assert 'type="number"' in html
-        assert 'step="0.1"' in html
-        assert 'min="0.1"' in html
+def test_focal_length_is_owned_by_devices_optics():
+    assert "if (category === 'camera')" in INDEX
+    assert 'class="rig-device rig-optics"' in INDEX
+    assert '<div class="card-title">Optics</div>' in INDEX
+    assert '<label for="rig-${rigId}-focal">Focal length (mm)</label>' in INDEX
+
+    control = re.search(
+        r'<input\s+'
+        r'[^>]*id="rig-\$\{rigId\}-focal"'
+        r'[^>]*>',
+        INDEX,
+        re.DOTALL,
+    )
+    assert control
+
+    html = control.group(0)
+    assert 'type="number"' in html
+    assert 'step="0.1"' in html
+    assert 'min="0.1"' in html
+    assert 'onchange="persistRigFocalLength(${rigId}, this)"' in html
+
+    persist_body = _function_body(
+        "persistRigFocalLength",
+        r"\(rigId,\s*input\)",
+    )
+    assert "fetch('/api/rigs/devices'" in persist_body
+    assert "focal_length_mm: focal" in persist_body
 
 
 def test_iso_max_has_supported_iso_grid():
@@ -157,7 +177,8 @@ def test_photo_configuration_has_get_and_persistence_flow():
     assert "motion_tolerance_px:" in read_body
     assert "iso_compensation_enabled:" in read_body
     assert "iso_max:" in read_body
-    assert "focal_length_mm:" in read_body
+    assert "focal_length_mm:" not in read_body
+    assert "optics:" not in read_body
     assert "atmos_enabled:" in read_body
 
 
@@ -280,12 +301,18 @@ def test_request_rig_previews_posts_intents_and_targets_requested_rig():
 
     body = fetch_helper.group("body")
 
+    assert "const rigState = Array.isArray(rigDevicesState.rigs)" in body
+    assert "rigState.optics.focal_length_mm" in body
+
     assert re.search(
         r"const\s+payload\s*=\s*\{.*?"
         r"intents\s*,.*?"
         r"rig_id:\s*Number\(rigId\).*?"
         r"rig_override:\s*\{.*?"
-        r"optics:\s*currentRigPhoto\.optics.*?"
+        r"optics:\s*\{.*?"
+        r"focal_length_mm:.*?"
+        r"rigState\.optics\.focal_length_mm.*?"
+        r"\}.*?"
         r"photo:\s*currentRigPhoto\.photo.*?"
         r"\}.*?"
         r"\}",
@@ -380,4 +407,26 @@ def test_preview_renderer_shows_only_phase_and_differences():
 
     assert "RAW_JSON_NUMBER:" not in body
     assert "numberPattern" not in body
+
+def test_loading_legacy_exposure_opt_ignores_optics():
+    body = _function_body(
+        "loadExposureOptConfig",
+        r"\(filename\)",
+    )
+
+    assert "rig.optics" not in body
+    assert "optics:" not in body
+    assert "photo:" in body
+    assert "fetch('/api/rigs/photo'" in body
+
+
+def test_saving_exposure_opt_does_not_serialize_optics():
+    body = _function_body(
+        "readExposureOptConfig",
+        r"\(\)",
+    )
+
+    assert "optics:" not in body
+    assert "focal_length_mm:" not in body
+    assert "photo:" in body
 

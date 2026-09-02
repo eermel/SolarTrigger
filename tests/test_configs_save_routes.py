@@ -477,3 +477,55 @@ def test_config_save_camera_persists_default_step_ev_for_every_phase(save_routes
         )
     )
     assert all(phase["step_ev"] == 1.0 for phase in saved["phases"].values())
+
+def test_exposure_opt_save_strips_legacy_optics(save_routes):
+    client, configs_dir, state_store, emitted = save_routes
+    initial_state = state_store.snapshot()
+
+    data = {
+        "schema_version": 1,
+        "config_type": "exposure_optimization",
+        "atmospheric_attenuation_enabled": True,
+        "rigs": [
+            {
+                "rig_id": rig_id,
+                "optics": {
+                    "focal_length_mm": 400 + rig_id,
+                },
+                "photo": {
+                    "anti_trailing_enabled": True,
+                    "motion_tolerance_px": 1.0,
+                    "iso_compensation_enabled": True,
+                    "iso_max": 6400,
+                },
+            }
+            for rig_id in range(1, 5)
+        ],
+    }
+
+    response = client.post(
+        "/api/configs/save_exposure_opt",
+        json={
+            "filename": "legacy_optics",
+            "data": data,
+            "overwrite": False,
+        },
+    )
+
+    assert response.status_code == 200
+
+    result = response.get_json()
+    filename = result["filename"]
+
+    saved_path = configs_dir / "exposure_opt" / filename
+    saved = json.loads(saved_path.read_text(encoding="utf-8"))
+
+    assert saved["config_type"] == "exposure_optimization"
+    assert saved["schema_version"] == 1
+
+    for rig in saved["rigs"]:
+        assert "optics" not in rig
+        assert "photo" in rig
+
+    assert state_store.snapshot() == initial_state
+    assert emitted == []
