@@ -177,7 +177,20 @@ def _timing(
     trigger_single_duration_ms=0,
     bracket_release_ms=0,
     settle_idle_ms=0,
+    bracket_atomic_ms_by_frames=None,
 ):
+    if bracket_atomic_ms_by_frames is None:
+        bracket_atomic_ms_by_frames = (
+            {
+                "3": 3000,
+                "5": 3200,
+                "7": 3600,
+                "9": 4000,
+            }
+            if backend == "sony"
+            else {}
+        )
+
     _write_json(
         configs / "camera_timing" / filename,
         {
@@ -195,6 +208,9 @@ def _timing(
                 "bracket_press_latency_ms": latency,
                 "bracket_release_ms": bracket_release_ms,
                 "settle_idle_ms": settle_idle_ms,
+                "bracket_atomic_ms_by_frames": (
+                    bracket_atomic_ms_by_frames
+                ),
             },
         },
     )
@@ -229,7 +245,7 @@ def test_service_compiles_complete_plan_without_hardware(
         rig_config=rig_config,
     )
 
-    assert plan["schema_version"] == 1
+    assert plan["schema_version"] == 2
     assert plan["config_type"] == "execution_plan"
 
     assert plan["sources"] == {
@@ -243,17 +259,20 @@ def test_service_compiles_complete_plan_without_hardware(
         "1": "rig1.json",
     }
 
-    # RIG1 is active even with enabled=false.
+    # RIG1 remains active even with enabled=false.
     assert set(plan["initial_state_required"]) == {"1"}
 
-    assert plan["targets"]
-    assert plan["events"]
+    assert plan["commands"]
     assert lines
 
-    # Compilation only describes Sony commands.
+    assert {
+        command["action"]
+        for command in plan["commands"]
+    } <= {"SET", "PHOTO"}
+
     assert any(
-        event["operation"].get("action") == "bracket_press"
-        for event in plan["events"]
+        command["action"] == "PHOTO"
+        for command in plan["commands"]
     )
 
 
@@ -338,27 +357,25 @@ def test_service_reuses_timing_profile_for_same_camera_identity(
         "2": "sony_profile.json",
     }
 
-    first_target = min(
-        target["target_time"]
-        for target in plan["targets"]
-    )
-
-    triggers = [
-        event
-        for event in plan["events"]
-        if event["target_time"] == first_target
-        and event["operation"].get("action") == "bracket_press"
-    ]
-
-    assert len(triggers) == 2
-
-    by_rig = {
-        event["rig_id"]: event["command_time"]
-        for event in triggers
+    photos_by_rig = {
+        rig_id: [
+            command
+            for command in plan["commands"]
+            if command["rig_id"] == rig_id
+            and command["action"] == "PHOTO"
+        ]
+        for rig_id in (1, 2)
     }
 
-    assert by_rig[1].endswith("59.725")
-    assert by_rig[2].endswith("59.725")
+    assert photos_by_rig[1]
+    assert photos_by_rig[2]
+
+    # Same camera identity + same timing profile + same logical target:
+    # physical trigger times remain identical.
+    assert (
+        photos_by_rig[1][0]["time_utc"]
+        == photos_by_rig[2][0]["time_utc"]
+    )
 
 
 def test_service_rejects_path_traversal(
@@ -388,7 +405,6 @@ def test_service_camera_backends_are_independent_of_rig_numbers(
 ):
     configs = _build_configs(tmp_path)
 
-    # Exposure Optimization must also know about RIG4.
     expo_path = configs / "exposure_opt" / "expo.json"
     expo = json.loads(expo_path.read_text(encoding="utf-8"))
     expo["rigs"].append({
@@ -401,7 +417,6 @@ def test_service_camera_backends_are_independent_of_rig_numbers(
     })
     _write_json(expo_path, expo)
 
-    # Real measured D850 timing, attached here to RIG1.
     _timing(
         configs,
         "d850_rig1.json",
@@ -413,12 +428,11 @@ def test_service_camera_backends_are_independent_of_rig_numbers(
         set_capturemode_ms=0,
         set_shutter_ms=543,
         trigger_single_latency_ms=285,
-                trigger_single_duration_ms=285,
+        trigger_single_duration_ms=285,
         bracket_release_ms=0,
         settle_idle_ms=0,
     )
 
-    # Real measured Sony A7V timing, attached here to RIG4.
     _timing(
         configs,
         "sony_rig4.json",
@@ -478,96 +492,49 @@ def test_service_camera_backends_are_independent_of_rig_numbers(
         "4": "sony_rig4.json",
     }
 
-    # RIG1 is the Nikon D850.
-    nikon_events = [
-        event
-        for event in plan["events"]
-        if event["rig_id"] == 1
+    rig1 = [
+        command
+        for command in plan["commands"]
+        if command["rig_id"] == 1
     ]
 
-    assert nikon_events
-    assert all(
-        event["backend"] == "nikon-dslr"
-        for event in nikon_events
+    rig4 = [
+        command
+        for command in plan["commands"]
+        if command["rig_id"] == 4
+    ]
+
+    assert rig1
+    assert rig4
+
+    assert any(
+        command["action"] == "PHOTO"
+        for command in rig1
     )
 
     assert any(
-        event["operation"].get("action") == "trigger_capture"
-        for event in nikon_events
+        command["action"] == "PHOTO"
+        for command in rig4
     )
 
-    assert not any(
-        event["operation"].get("action") in {
-            "bracket_press",
-            "bracket_release",
-        }
-        for event in nikon_events
-    )
-
-    assert not any(
-        event["operation"].get("parameter") == "capturemode"
-        for event in nikon_events
-    )
-
-    # RIG4 is the Sony.
-    sony_events = [
-        event
-        for event in plan["events"]
-        if event["rig_id"] == 4
-    ]
-
-    assert sony_events
-    assert all(
-        event["backend"] == "sony"
-        for event in sony_events
-    )
-
+    # Nikon uses its own shutter parameter and never Sony capturemode.
     assert any(
-        event["operation"].get("action") == "bracket_press"
-        for event in sony_events
+        command["action"] == "SET"
+        and command["params"].get("parameter") == "shutterspeed2"
+        for command in rig1
     )
 
-    # Verify the measured trigger compensation on each physical backend.
-    nikon_trigger = next(
-        event
-        for event in nikon_events
-        if event["operation"].get("action") == "trigger_capture"
-        and event["command_time"] is not None
+    assert not any(
+        command["action"] == "SET"
+        and command["params"].get("parameter") == "capturemode"
+        for command in rig1
     )
 
-    nikon_target = datetime.fromisoformat(
-        nikon_trigger["target_time"]
-    )
-    nikon_command = datetime.fromisoformat(
-        nikon_trigger["command_time"]
-    )
-
-    assert (
-        nikon_target - nikon_command
-    ).total_seconds() == pytest.approx(
-        0.285,
-        abs=0.001,
-    )
-
-    sony_trigger = next(
-        event
-        for event in sony_events
-        if event["operation"].get("action") == "bracket_press"
-        and event["command_time"] is not None
-    )
-
-    sony_target = datetime.fromisoformat(
-        sony_trigger["target_time"]
-    )
-    sony_command = datetime.fromisoformat(
-        sony_trigger["command_time"]
-    )
-
-    assert (
-        sony_target - sony_command
-    ).total_seconds() == pytest.approx(
-        0.840,
-        abs=0.001,
+    # Sony remains independent of the logical RIG number.
+    assert any(
+        command["action"] == "SET"
+        and command["params"].get("parameter") == "capturemode"
+        for command in rig4
     )
 
     assert lines
@@ -602,33 +569,25 @@ def test_service_sequence_bounds_are_logical_window_not_photo_targets(
         rig_config=rig_config,
     )
 
-    assert plan["sequence_start"] == (
-        "2027-08-02T09:59:00.000"
-    )
-    assert plan["sequence_end"] == (
-        "2027-08-02T10:06:00.000"
+    assert plan["sequence_start_utc"] == (
+        "2027-08-02T09:59:00.000Z"
     )
 
-    assert plan["target_start"] == min(
-        target["target_time"]
-        for target in plan["targets"]
-    )
-    assert plan["target_end"] == max(
-        target["target_time"]
-        for target in plan["targets"]
+    assert plan["sequence_end_utc"] == (
+        "2027-08-02T10:06:00.000Z"
     )
 
-    absolute_commands = [
-        event["command_time"]
-        for event in plan["events"]
-        if event["command_time"] is not None
-    ]
-
-    assert plan["command_start"] == min(
-        absolute_commands
+    assert all(
+        command["time_utc"].endswith("Z")
+        for command in plan["commands"]
     )
-    assert plan["command_end"] == max(
-        absolute_commands
+
+    assert plan["commands"] == sorted(
+        plan["commands"],
+        key=lambda item: (
+            item["time_utc"],
+            item["rig_id"],
+        ),
     )
 
 
@@ -681,9 +640,14 @@ def test_service_current_run_values_override_sequence_preset(
     }
 
     assert plan["sequence_margin_min"] == 5
-    assert plan["sequence_start"] == "2027-08-02T09:55:00.000"
-    assert plan["sequence_end"] == "2027-08-02T10:10:00.000"
 
+    assert plan["sequence_start_utc"] == (
+        "2027-08-02T09:55:00.000Z"
+    )
+
+    assert plan["sequence_end_utc"] == (
+        "2027-08-02T10:10:00.000Z"
+    )
 
 
 def test_service_rejects_unconfigured_active_rig_camera(

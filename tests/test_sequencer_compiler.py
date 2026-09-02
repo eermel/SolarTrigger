@@ -71,7 +71,7 @@ def test_builds_canonical_five_windows():
             "totality",
             "10:05:00",
             "10:07:00",
-            5.0,
+            None,
         ),
         (
             "phase_3a",
@@ -149,7 +149,7 @@ def test_deadline_is_next_target_or_phase_boundary():
     assert phase_1b[-1].deadline.strftime("%H:%M:%S") == "10:05:00"
 
 
-def test_totality_is_interval_driven():
+def test_totality_is_one_continuous_c2_c3_window():
     targets = compile_capture_targets(
         _timeline(),
         _photo(),
@@ -162,21 +162,18 @@ def test_totality_is_interval_driven():
         if target.phase == "totality"
     ]
 
-    # C2 10:05:00 -> C3 10:07:00, every 5 s, [C2, C3).
-    assert len(totality) == 24
+    assert len(totality) == 1
 
-    assert totality[0].target_time.strftime("%H:%M:%S") == "10:05:00"
-    assert totality[1].target_time.strftime("%H:%M:%S") == "10:05:05"
-    assert totality[-1].target_time.strftime("%H:%M:%S") == "10:06:55"
+    target = totality[0]
 
-    assert totality[0].deadline.strftime("%H:%M:%S") == "10:05:05"
-    assert totality[-1].deadline.strftime("%H:%M:%S") == "10:07:00"
-
-    # C3 belongs to the following Diamond Ring window.
-    assert all(
-        target.target_time.strftime("%H:%M:%S") != "10:07:00"
-        for target in totality
+    assert target.target_time == datetime(
+        2027, 8, 2, 10, 5, 0
     )
+    assert target.deadline == datetime(
+        2027, 8, 2, 10, 7, 0
+    )
+    assert target.sequence_index == 0
+    assert target.phase_window == "phase_2"
 
 
 @pytest.mark.parametrize(
@@ -520,6 +517,12 @@ def _sony_test_timing():
         bracket_press_latency_ms=280,
         trigger_single_latency_ms=250,
         settle_idle_ms=500,
+        bracket_atomic_ms_by_frames={
+            3: 3000,
+            5: 3200,
+            7: 3600,
+            9: 4000,
+        },
     )
 
 
@@ -889,9 +892,7 @@ def _audited_sony_for_rig(rig_id, target_time):
     target = replace(
         base.target,
         target_time=target_time,
-        deadline=target_time.replace(
-            microsecond=0
-        ),
+        deadline=None,
     )
 
     return replace(
@@ -1074,6 +1075,12 @@ def test_merge_orders_different_rig_command_times_globally():
                 backend="sony",
                 set_capturemode_ms=120,
                 bracket_press_latency_ms=280,
+                bracket_atomic_ms_by_frames={
+                    3: 3000,
+                    5: 3200,
+                    7: 3600,
+                    9: 4000,
+                },
             ),
         },
     )
@@ -1155,8 +1162,19 @@ def test_execution_plan_is_json_serializable():
     encoded = json.dumps(plan)
 
     assert encoded
-    assert plan["schema_version"] == 1
+    assert plan["schema_version"] == 2
     assert plan["config_type"] == "execution_plan"
+    assert plan["commands"]
+
+    assert all(
+        command["time_utc"].endswith("Z")
+        for command in plan["commands"]
+    )
+
+    assert {
+        command["action"]
+        for command in plan["commands"]
+    } <= {"SET", "PHOTO"}
 
 
 def test_execution_plan_keeps_trigger_initial_state_as_requirement_only():
@@ -1177,13 +1195,14 @@ def test_execution_plan_keeps_trigger_initial_state_as_requirement_only():
         "shutterspeed": "1/250",
     }
 
-    # Initial state must not be expanded into fake Sequencer commands.
+    # Initial state is established before execution and must not be
+    # duplicated as fake timed commands.
     rig1_iso_sets = [
-        event
-        for event in plan["events"]
-        if event["rig_id"] == 1
-        and event["operation"].get("action") == "set"
-        and event["operation"].get("parameter") == "iso"
+        command
+        for command in plan["commands"]
+        if command["rig_id"] == 1
+        and command["action"] == "SET"
+        and command["params"].get("parameter") == "iso"
     ]
 
     assert rig1_iso_sets == []
@@ -1200,28 +1219,18 @@ def test_execution_plan_preserves_simultaneous_multirig_targets():
         final_states=final_states,
     )
 
-    assert len(plan["targets"]) == 2
-
-    assert [
-        item["target_time"]
-        for item in plan["targets"]
-    ] == [
-        "2027-08-02T10:04:00.000",
-        "2027-08-02T10:04:00.000",
-    ]
-
-    triggers = [
-        event
-        for event in plan["events"]
-        if event["operation"].get("action") == "bracket_press"
+    photos = [
+        command
+        for command in plan["commands"]
+        if command["action"] == "PHOTO"
     ]
 
     assert [
-        event["command_time"]
-        for event in triggers
+        (command["rig_id"], command["time_utc"])
+        for command in photos
     ] == [
-        "2027-08-02T10:03:59.720",
-        "2027-08-02T10:03:59.720",
+        (1, "2027-08-02T10:03:59.720Z"),
+        (2, "2027-08-02T10:03:59.720Z"),
     ]
 
 
@@ -1239,31 +1248,28 @@ def test_execution_plan_text_exposes_real_sony_bracket():
     lines = format_execution_plan_lines(plan)
 
     assert (
-        "10:03:59.600 | RIG1 | SONY | PREPARE | "
+        "2027-08-02T10:03:59.600Z | RIG1 | "
         "SET capturemode=Continuous Bracket 1.0 EV 5 Img."
     ) in lines
 
     assert (
-        "10:03:59.720 | RIG1 | SONY | TRIGGER | "
-        "BRACKET PRESS bulb=1 centre=1/250 "
-        "step=1.0EV frames=5"
+        "2027-08-02T10:03:59.720Z | RIG1 | PHOTO 1/250"
     ) in lines
 
-    assert (
-        "10:04:00.000 | RIG1 | TARGET | DIAMOND_RING"
-    ) in lines
+    # Plugin/runtime protocol details never enter the Trigger command stream.
+    text = "\n".join(lines)
 
-    assert any(
-        line.startswith(
-            "RUNTIME | RIG1 | SONY | POST_TRIGGER | EXPECT 5 FRAMES"
-        )
-        for line in lines
-    )
+    for forbidden in (
+        "EXPECT",
+        "BRACKET RELEASE",
+        "SETTLE IDLE",
+        "RUNTIME",
+        "TARGET",
+    ):
+        assert forbidden not in text
 
 
-from backend.sequencer_compiler import (
-    derive_initial_state_required,
-)
+from backend.sequencer_compiler import derive_initial_state_required
 
 
 def test_initial_state_is_derived_from_first_capture_only():
@@ -1333,11 +1339,23 @@ def test_multirig_can_use_different_timing_for_same_backend():
                 backend="sony",
                 set_capturemode_ms=120,
                 bracket_press_latency_ms=275,
+                bracket_atomic_ms_by_frames={
+                    3: 3000,
+                    5: 3200,
+                    7: 3600,
+                    9: 4000,
+                },
             ),
             2: CameraTimingProfile(
                 backend="sony",
                 set_capturemode_ms=120,
                 bracket_press_latency_ms=291,
+                bracket_atomic_ms_by_frames={
+                    3: 3000,
+                    5: 3200,
+                    7: 3600,
+                    9: 4000,
+                },
             ),
         },
     )
@@ -1403,24 +1421,216 @@ def test_execution_plan_format_keeps_runtime_post_trigger_with_its_capture():
         },
     )
 
-    lines = format_execution_plan_lines(plan)
+    # The final Trigger plan contains only executable physical commands.
+    assert plan["commands"]
 
-    trigger_index = next(
-        index
-        for index, line in enumerate(lines)
-        if "BRACKET PRESS" in line
-    )
-
-    runtime_lines = lines[
-        trigger_index + 2:
-        trigger_index + 5
-    ]
-
-    assert "EXPECT 5 FRAMES" in runtime_lines[0]
-    assert "BRACKET RELEASE" in runtime_lines[1]
-    assert "SETTLE IDLE" in runtime_lines[2]
+    assert {
+        command["action"]
+        for command in plan["commands"]
+    } <= {"SET", "PHOTO"}
 
     assert all(
-        "RUNTIME" in line
-        for line in runtime_lines
+        command["time_utc"].endswith("Z")
+        for command in plan["commands"]
     )
+
+    lines = format_execution_plan_lines(plan)
+    text = "\n".join(lines)
+
+    assert "PHOTO" in text
+    assert "EXPECT" not in text
+    assert "BRACKET RELEASE" not in text
+    assert "SETTLE IDLE" not in text
+    assert "RUNTIME" not in text
+
+
+
+
+def test_periodic_bracket_is_skipped_when_atomic_end_exceeds_deadline():
+    from dataclasses import replace
+    from datetime import datetime
+
+    capture = _audited_sony_for_rig(
+        1,
+        datetime(2027, 8, 2, 10, 1, 57),
+    )
+
+    capture = replace(
+        capture,
+        target=replace(
+            capture.target,
+            phase="diamond_ring",
+            phase_window="phase_1b",
+            sequence_index=9,
+            deadline=datetime(2027, 8, 2, 10, 2, 0),
+        ),
+    )
+
+    timing = replace(
+        _sony_test_timing(),
+        bracket_atomic_ms_by_frames={
+            3: 3000,
+            5: 4000,
+            7: 4200,
+            9: 4500,
+        },
+    )
+
+    merged, _states = compile_and_merge_scheduled_rigs(
+        {1: [capture]},
+        initial_states={
+            1: {
+                "iso": "100",
+                "capturemode": "Single Shot",
+                "shutterspeed": "1/250",
+            },
+        },
+        timing_profiles={
+            "sony": timing,
+        },
+    )
+
+    triggers = [
+        event
+        for event in merged
+        if event.operation.get("action") == "bracket_press"
+    ]
+
+    assert triggers == []
+
+def test_periodic_bracket_is_kept_when_atomic_end_fits_deadline():
+    from dataclasses import replace
+    from datetime import datetime
+
+    capture = _audited_sony_for_rig(
+        1,
+        datetime(2027, 8, 2, 10, 1, 54),
+    )
+
+    capture = replace(
+        capture,
+        target=replace(
+            capture.target,
+            phase="diamond_ring",
+            phase_window="phase_1b",
+            sequence_index=8,
+            deadline=datetime(2027, 8, 2, 10, 1, 57),
+        ),
+    )
+
+    merged, _states = compile_and_merge_scheduled_rigs(
+        {1: [capture]},
+        initial_states={
+            1: {
+                "iso": "100",
+                "capturemode": "Single Shot",
+                "shutterspeed": "1/250",
+            },
+        },
+        timing_profiles={
+            "sony": _sony_test_timing(),
+        },
+    )
+
+    triggers = [
+        event
+        for event in merged
+        if event.operation.get("action") == "bracket_press"
+    ]
+
+    assert len(triggers) == 1
+
+
+def test_pre_c2_bracket_is_skipped_if_it_blocks_totality_preparation():
+    from dataclasses import replace
+    from datetime import datetime
+
+    base = audit_materialized_sony_capture(
+        _sony_materialized_capture()
+    )
+
+    pre_c2 = replace(
+        base,
+        target=replace(
+            base.target,
+            phase="diamond_ring",
+            phase_window="phase_1b",
+            sequence_index=0,
+            target_time=datetime(2027, 8, 2, 10, 4, 0),
+            deadline=datetime(2027, 8, 2, 10, 4, 3),
+        ),
+    )
+
+    totality = replace(
+        base,
+        target=replace(
+            base.target,
+            phase="totality",
+            phase_window="phase_2",
+            sequence_index=0,
+            target_time=datetime(2027, 8, 2, 10, 4, 3),
+            deadline=datetime(2027, 8, 2, 10, 4, 10),
+        ),
+    )
+
+    c3 = replace(
+        base,
+        target=replace(
+            base.target,
+            phase="diamond_ring",
+            phase_window="phase_3a",
+            sequence_index=0,
+            target_time=datetime(2027, 8, 2, 10, 4, 10),
+            deadline=datetime(2027, 8, 2, 10, 4, 13),
+        ),
+    )
+
+    captures = [pre_c2, totality, c3]
+
+    initial = derive_initial_state_required({
+        1: captures,
+    })
+
+    merged, _states = compile_and_merge_scheduled_rigs(
+        {
+            1: captures,
+        },
+        initial_states=initial,
+        timing_profiles={
+            1: _sony_test_timing(),
+        },
+    )
+
+    pre_c2_photos = [
+        event
+        for event in merged
+        if event.phase_window == "phase_1b"
+        and event.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    totality_photos = [
+        event
+        for event in merged
+        if event.phase_window == "phase_2"
+        and event.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    c3_photos = [
+        event
+        for event in merged
+        if event.phase_window == "phase_3a"
+        and event.sequence_index == 0
+        and event.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    # The DR itself fits before C2, but its atomic reservation would occupy
+    # time required to prepare the first TOTALITY PHOTO. It must therefore
+    # never be started.
+    assert pre_c2_photos == []
+
+    # C2 and C3 remain executable hard anchors.
+    assert totality_photos
+    assert c3_photos

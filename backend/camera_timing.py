@@ -68,8 +68,39 @@ def load_camera_timing_profile(path: str | Path) -> CameraTimingProfile:
         for field in _TIMING_FIELDS
     }
 
+    raw_bracket_atomic = timing.get(
+        "bracket_atomic_ms_by_frames",
+        {},
+    )
+
+    if not isinstance(raw_bracket_atomic, dict):
+        raise ValueError(
+            "bracket_atomic_ms_by_frames must be an object"
+        )
+
+    bracket_atomic_ms_by_frames: dict[int, float] = {}
+
+    for raw_frames, raw_duration in raw_bracket_atomic.items():
+        try:
+            frames = int(raw_frames)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "bracket_atomic_ms_by_frames keys must be integers"
+            ) from exc
+
+        if frames <= 0:
+            raise ValueError(
+                "bracket_atomic_ms_by_frames keys must be > 0"
+            )
+
+        bracket_atomic_ms_by_frames[frames] = _nonnegative_ms(
+            raw_duration,
+            f"bracket_atomic_ms_by_frames[{frames}]",
+        )
+
     return CameraTimingProfile(
         backend=backend,
+        bracket_atomic_ms_by_frames=bracket_atomic_ms_by_frames,
         **values,
     )
 

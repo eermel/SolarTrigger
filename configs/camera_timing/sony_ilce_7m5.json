@@ -10,8 +10,14 @@
     "set_shutter_ms": 827,
     "trigger_single_latency_ms": 26,
     "trigger_single_duration_ms": 0,
-    "bracket_press_latency_ms": 840,
+    "bracket_press_latency_ms": 900,
     "bracket_release_ms": 854,
-    "settle_idle_ms": 666
+    "settle_idle_ms": 666,
+    "bracket_atomic_ms_by_frames": {
+      "3": 2933,
+      "5": 3212,
+      "7": 3611,
+      "9": 3929
+    }
   }
 }

@@ -167,8 +167,8 @@ def _audited_nikon_capture(plan, rig_id=2):
     )
 
     target = CaptureTarget(
-        phase="totality",
-        phase_window="TOTALITY",
+        phase="partial",
+        phase_window="phase_1a",
         sequence_index=0,
         target_time=datetime(2027, 8, 2, 12, 0, 0),
         deadline=None,
@@ -299,16 +299,16 @@ def test_multirig_sony_and_d850_use_independent_measured_timings():
     target_time = datetime(2027, 8, 2, 12, 0, 0)
 
     target_rig1 = CaptureTarget(
-        phase="totality",
-        phase_window="TOTALITY",
+        phase="partial",
+        phase_window="phase_1a",
         sequence_index=0,
         target_time=target_time,
         deadline=None,
     )
 
     target_rig2 = CaptureTarget(
-        phase="totality",
-        phase_window="TOTALITY",
+        phase="partial",
+        phase_window="phase_1a",
         sequence_index=0,
         target_time=target_time,
         deadline=None,
@@ -406,6 +406,12 @@ def test_multirig_sony_and_d850_use_independent_measured_timings():
                 bracket_press_latency_ms=840,
                 bracket_release_ms=854,
                 settle_idle_ms=666,
+                bracket_atomic_ms_by_frames={
+                    3: 3000,
+                    5: 3200,
+                    7: 3600,
+                    9: 4000,
+                },
             ),
             2: CameraTimingProfile(
                 backend="nikon-dslr",
@@ -546,8 +552,8 @@ def test_camera_backends_are_not_tied_to_rig_numbers():
 
     def target(rig_id):
         return CaptureTarget(
-            phase="totality",
-            phase_window="TOTALITY",
+            phase="partial",
+            phase_window="phase_1a",
             sequence_index=0,
             target_time=target_time,
             deadline=None,
@@ -643,6 +649,12 @@ def test_camera_backends_are_not_tied_to_rig_numbers():
                 bracket_press_latency_ms=840,
                 bracket_release_ms=854,
                 settle_idle_ms=666,
+                bracket_atomic_ms_by_frames={
+                    3: 3000,
+                    5: 3200,
+                    7: 3600,
+                    9: 4000,
+                },
             ),
         },
     )
@@ -782,9 +794,7 @@ def test_nikon_multiframe_schedule_is_sequential_and_statically_timed():
     )
 
 
-def test_same_rig_overlapping_nikon_captures_are_rejected():
-    import pytest
-
+def test_same_rig_overlapping_nikon_periodic_capture_is_skipped():
     from dataclasses import replace
     from datetime import timedelta
 
@@ -824,24 +834,36 @@ def test_same_rig_overlapping_nikon_captures_are_rejected():
         trigger_single_duration_ms=285,
     )
 
-    with pytest.raises(
-        ValueError,
-        match="static command overlap for RIG 1",
-    ):
-        compile_and_merge_scheduled_rigs(
-            {
-                1: [first, second],
+    merged, _states = compile_and_merge_scheduled_rigs(
+        {
+            1: [first, second],
+        },
+        initial_states={
+            1: {
+                "iso": "100",
+                "shutterspeed2": "1/1000",
             },
-            initial_states={
-                1: {
-                    "iso": "100",
-                    "shutterspeed2": "1/1000",
-                },
-            },
-            timing_profiles={
-                1: timing,
-            },
-        )
+        },
+        timing_profiles={
+            1: timing,
+        },
+    )
+
+    triggers = [
+        event
+        for event in merged
+        if event.operation.get("action") == "trigger_capture"
+    ]
+
+    # First Nikon capture is complete: 3 physical photos.
+    assert len(triggers) == 3
+
+    # The overlapping periodic target is skipped completely.
+    assert {
+        event.sequence_index
+        for event in triggers
+    } == {0}
+
 
 
 def test_simultaneous_nikon_captures_on_different_rigs_are_allowed():

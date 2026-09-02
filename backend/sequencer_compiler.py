@@ -113,11 +113,6 @@ def build_sequence_windows(
         "diamond_ring.interval_s",
     )
 
-    totality_interval_s = _positive_number(
-        totality.get("interval_s", totality.get("interval")),
-        "totality.interval_s",
-    )
-
     c1 = timeline["C1"]
     c2 = timeline["C2"]
     c3 = timeline["C3"]
@@ -152,7 +147,7 @@ def build_sequence_windows(
             phase="totality",
             start=c2,
             end=c3,
-            interval_s=totality_interval_s,
+            interval_s=None,
         ),
         SequenceWindow(
             name="phase_3a",
@@ -219,7 +214,21 @@ def compile_capture_targets(
     targets: list[CaptureTarget] = []
 
     for window in windows:
-        targets.extend(_periodic_targets(window))
+        if window.phase == "totality":
+            # Totality is one continuous execution window:
+            # C2 -> C3. Physical camera timings decide how many
+            # SET/PHOTO commands fit inside it.
+            targets.append(
+                CaptureTarget(
+                    target_time=window.start,
+                    phase=window.phase,
+                    phase_window=window.name,
+                    sequence_index=0,
+                    deadline=window.end,
+                )
+            )
+        else:
+            targets.extend(_periodic_targets(window))
 
     targets.sort(
         key=lambda item: (
@@ -752,6 +761,11 @@ class CameraTimingProfile:
     bracket_release_ms: float = 0.0
     settle_idle_ms: float = 0.0
 
+    # Total blocking time of one native Sony bracket PHOTO, measured from
+    # dispatch of bulb=1 until the camera has completed frame delivery,
+    # bulb=0 and settle-idle. Keys are physical frame counts (3/5/7/9).
+    bracket_atomic_ms_by_frames: dict[int, float] | None = None
+
 
 @dataclass(frozen=True)
 class ScheduledOperation:
@@ -841,8 +855,40 @@ def _operation_reservation_duration_ms(
             "trigger_single_duration_ms",
         )
 
-    # Sony native bracket post-trigger work and any other operation whose
-    # blocking duration is not statically known are deliberately not guessed.
+    if action == "settle_idle":
+        return _timing_ms(
+            profile.settle_idle_ms,
+            "settle_idle_ms",
+        )
+
+    if action == "bracket_press" and backend == "sony":
+        raw_frames = operation.get("frames")
+
+        if isinstance(raw_frames, bool):
+            raise ValueError(
+                "Sony native bracket frames must be an integer"
+            )
+
+        try:
+            frames = int(raw_frames)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Sony native bracket frames must be an integer"
+            ) from exc
+
+        durations = profile.bracket_atomic_ms_by_frames or {}
+
+        if frames not in durations:
+            raise ValueError(
+                f"no calibrated Sony native bracket duration "
+                f"for {frames} frames"
+            )
+
+        return _timing_ms(
+            durations[frames],
+            f"bracket_atomic_ms_by_frames[{frames}]",
+        )
+
     return 0.0
 
 
@@ -946,19 +992,25 @@ def schedule_audited_capture(
 
         command_times[index] = cursor
 
-    # Nikon executes exposure plans strictly photo-by-photo:
+    # Exact-single sequences are deterministic from the measured USB
+    # timings.  Calculate their complete timeline here.  Timing helpers such
+    # as DELAY / SETTLE_IDLE advance the clock but will not become Trigger
+    # commands in the final execution plan.
     #
-    #   trigger_capture()
-    #   sleep(50 ms)
-    #   SET next shutter / ISO
-    #   trigger_capture()
-    #   ...
-    #
-    # Unlike Sony native bracket post-trigger activity, this sequence is
-    # deterministic from the measured blocking command durations.  Keep the
-    # first physical trigger anchored to target_time, then schedule every
-    # following Nikon operation forwards in exact execution order.
-    if capture.backend in {"nikon", "nikon-dslr", "nikon-z"}:
+    # Sony native bracket is different: bracket_press is one high-level PHOTO
+    # command and its expect/release/idle protocol remains private to the
+    # Sony plugin.
+    trigger_action = operations[trigger_index].get("action")
+
+    deterministic_post_trigger = (
+        capture.backend in {"nikon", "nikon-dslr", "nikon-z"}
+        or (
+            capture.backend == "sony"
+            and trigger_action == "trigger_capture"
+        )
+    )
+
+    if deterministic_post_trigger:
         cursor = (
             trigger_command_time
             + timedelta(
@@ -987,15 +1039,24 @@ def schedule_audited_capture(
                     "delay duration_ms",
                 )
 
+            elif action == "settle_idle":
+                duration_ms = _timing_ms(
+                    profile.settle_idle_ms,
+                    "settle_idle_ms",
+                )
+
             elif action == "trigger_capture":
                 duration_ms = _timing_ms(
                     profile.trigger_single_duration_ms,
                     "trigger_single_duration_ms",
                 )
 
+            elif action == "segment":
+                duration_ms = 0.0
+
             else:
                 raise ValueError(
-                    "unsupported Nikon post-trigger audited operation: "
+                    "unsupported deterministic post-trigger operation: "
                     f"{action!r}"
                 )
 
@@ -1401,6 +1462,197 @@ def validate_static_rig_feasibility(
                 reserving_operation = item
 
 
+def _scheduled_static_bounds(
+    scheduled: Iterable[ScheduledOperation],
+) -> tuple[datetime, datetime]:
+    """Return first command time and end of the last reserved operation."""
+
+    timed = [
+        item
+        for item in scheduled
+        if item.command_time is not None
+    ]
+
+    if not timed:
+        raise ValueError("capture contains no statically scheduled command")
+
+    start = min(
+        item.command_time
+        for item in timed
+    )
+
+    end = max(
+        item.command_time
+        + timedelta(milliseconds=item.duration_ms)
+        for item in timed
+    )
+
+    return start, end
+
+
+def _split_totality_single_photos(
+    capture: AuditedRigCapture,
+) -> list[AuditedRigCapture]:
+    """Split TOTALITY into independently schedulable physical PHOTO units.
+
+    A PHOTO unit can produce either:
+
+      * one image through trigger_capture, or
+      * N images through one native Sony bracket_press.
+
+    exposure_plan describes the resulting physical images, whereas the
+    Trigger plan contains one PHOTO command per physical camera operation.
+    """
+
+    operations = list(capture.operations)
+    exposures = list(capture.exposure_plan)
+
+    trigger_indexes = [
+        index
+        for index, operation in enumerate(operations)
+        if operation.get("action") in {
+            "trigger_capture",
+            "bracket_press",
+        }
+    ]
+
+    if not trigger_indexes:
+        raise ValueError(
+            f"totality contains no photo for RIG {capture.rig_id}"
+        )
+
+    result: list[AuditedRigCapture] = []
+
+    operation_cursor = 0
+    exposure_cursor = 0
+
+    for trigger_index in trigger_indexes:
+        trigger = operations[trigger_index]
+        trigger_action = trigger.get("action")
+
+        if trigger_action == "bracket_press":
+            raw_frames = trigger.get("frames")
+
+            if isinstance(raw_frames, bool):
+                raise ValueError(
+                    f"invalid Sony bracket frame count for "
+                    f"RIG {capture.rig_id}"
+                )
+
+            try:
+                frame_count = int(raw_frames)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"invalid Sony bracket frame count for "
+                    f"RIG {capture.rig_id}"
+                ) from exc
+
+            if frame_count <= 0:
+                raise ValueError(
+                    f"invalid Sony bracket frame count for "
+                    f"RIG {capture.rig_id}"
+                )
+
+            physical_views = trigger.get("physical_views")
+
+            if (
+                physical_views is not None
+                and len(physical_views) != frame_count
+            ):
+                raise ValueError(
+                    f"Sony bracket physical view mismatch for "
+                    f"RIG {capture.rig_id}"
+                )
+
+        else:
+            frame_count = 1
+
+        exposure_end = exposure_cursor + frame_count
+
+        if exposure_end > len(exposures):
+            raise ValueError(
+                f"totality exposure/trigger mismatch for "
+                f"RIG {capture.rig_id}"
+            )
+
+        operation_end = trigger_index + 1
+
+        if trigger_action == "bracket_press":
+            # Runtime-private tail of the atomic Sony PHOTO.
+            while (
+                operation_end < len(operations)
+                and operations[operation_end].get("action") in {
+                    "expect_frames",
+                    "bracket_release",
+                    "settle_idle",
+                }
+            ):
+                operation_end += 1
+
+        else:
+            # Timing helpers belonging to one ordinary exposure.
+            while (
+                operation_end < len(operations)
+                and operations[operation_end].get("action") in {
+                    "delay",
+                    "settle_idle",
+                }
+            ):
+                operation_end += 1
+
+        unit_operations = tuple(
+            deepcopy(operation)
+            for operation in operations[
+                operation_cursor:operation_end
+            ]
+        )
+
+        unit_exposures = tuple(
+            deepcopy(exposure)
+            for exposure in exposures[
+                exposure_cursor:exposure_end
+            ]
+        )
+
+        result.append(
+            replace(
+                capture,
+                exposure_plan=unit_exposures,
+                planned_count=frame_count,
+                operations=unit_operations,
+            )
+        )
+
+        operation_cursor = operation_end
+        exposure_cursor = exposure_end
+
+    if exposure_cursor != len(exposures):
+        raise ValueError(
+            f"totality exposure/trigger mismatch for "
+            f"RIG {capture.rig_id}"
+        )
+
+    return result
+
+
+def _profile_for_capture(
+    capture: AuditedRigCapture,
+    timing_profiles: dict[Any, CameraTimingProfile],
+) -> CameraTimingProfile:
+    profile = timing_profiles.get(capture.rig_id)
+
+    if profile is None:
+        profile = timing_profiles.get(capture.backend)
+
+    if profile is None:
+        raise ValueError(
+            f"missing camera timing profile for "
+            f"{capture.backend or 'none'}"
+        )
+
+    return profile
+
+
 def compile_and_merge_scheduled_rigs(
     audited_by_rig: dict[int, Iterable[AuditedRigCapture]],
     initial_states: dict[int, dict[str, Any]],
@@ -1409,9 +1661,11 @@ def compile_and_merge_scheduled_rigs(
     list[GlobalExecutionEvent],
     dict[int, dict[str, str]],
 ]:
-    """Reduce, schedule and merge already-audited captures per RIG.
+    """Schedule every RIG independently, then merge chronologically.
 
-    Each RIG is processed independently before the global merge.
+    TOTALITY is continuous: its physical exposure list is repeated
+    photo-by-photo from C2 until the next photo would collide with the
+    preparation required for the first Diamond Ring capture at C3.
     """
 
     scheduled_by_rig: dict[int, list[ScheduledOperation]] = {}
@@ -1427,35 +1681,296 @@ def compile_and_merge_scheduled_rigs(
                     f"key={rig_id}, capture={capture.rig_id}"
                 )
 
-        reduced, states = reduce_audited_captures(
-            captures,
-            {
-                rig_id: initial_states.get(rig_id, {}),
-            },
+        captures.sort(
+            key=lambda capture: (
+                capture.target.target_time,
+                capture.target.sequence_index,
+            )
         )
 
-        final_states[rig_id] = states.get(rig_id, {})
+        state = _normalize_camera_state(
+            initial_states.get(rig_id, {})
+        )
 
         scheduled: list[ScheduledOperation] = []
+        rig_available_at: datetime | None = None
 
-        for capture in reduced:
-            profile = timing_profiles.get(capture.rig_id)
-            if profile is None:
-                profile = timing_profiles.get(capture.backend)
-
-            if profile is None:
-                raise ValueError(
-                    f"missing camera timing profile for "
-                    f"{capture.backend or 'none'}"
-                )
-
-            scheduled.extend(
-                schedule_audited_capture(
-                    capture,
-                    profile,
-                )
+        for capture_index, capture in enumerate(captures):
+            profile = _profile_for_capture(
+                capture,
+                timing_profiles,
             )
 
+            if capture.target.phase != "totality":
+                reduced, candidate_state = (
+                    reduce_audited_capture_operations(
+                        capture,
+                        state,
+                    )
+                )
+
+                candidate_scheduled = schedule_audited_capture(
+                    reduced,
+                    profile,
+                )
+
+                candidate_start, candidate_end = (
+                    _scheduled_static_bounds(candidate_scheduled)
+                )
+
+                if (
+                    capture.target.deadline is not None
+                    and candidate_end > capture.target.deadline
+                ):
+                    # A camera operation, especially a native bracket,
+                    # is atomic once started. Never launch it unless the
+                    # complete operation fits inside its target window.
+                    if (
+                        capture.target.phase_window == "phase_3a"
+                        and capture.target.sequence_index == 0
+                    ):
+                        raise ValueError(
+                            f"C3 Diamond Ring does not fit inside its "
+                            f"capture window for RIG {rig_id}"
+                        )
+
+                    continue
+
+                # The final pre-C2 Diamond Ring must also leave enough
+                # time for preparation of the first TOTALITY PHOTO.  C2 is a
+                # physical anchor, so a preceding atomic capture is skipped
+                # rather than allowed to consume its preparation interval.
+                next_totality = next(
+                    (
+                        item
+                        for item in captures[capture_index + 1:]
+                        if item.target.phase == "totality"
+                    ),
+                    None,
+                )
+
+                if (
+                    next_totality is not None
+                    and capture.target.deadline
+                    == next_totality.target.target_time
+                ):
+                    totality_profile = _profile_for_capture(
+                        next_totality,
+                        timing_profiles,
+                    )
+
+                    first_totality_unit = (
+                        _split_totality_single_photos(
+                            next_totality
+                        )[0]
+                    )
+
+                    reduced_totality, _ = (
+                        reduce_audited_capture_operations(
+                            first_totality_unit,
+                            candidate_state,
+                        )
+                    )
+
+                    first_totality_scheduled = (
+                        schedule_audited_capture(
+                            reduced_totality,
+                            totality_profile,
+                        )
+                    )
+
+                    totality_prepare_start, _ = (
+                        _scheduled_static_bounds(
+                            first_totality_scheduled
+                        )
+                    )
+
+                    if candidate_end > totality_prepare_start:
+                        continue
+
+                if (
+                    rig_available_at is not None
+                    and candidate_start < rig_available_at
+                ):
+                    # C3 itself is a hard anchor. It must never disappear
+                    # silently because of an earlier camera operation.
+                    if (
+                        capture.target.phase_window == "phase_3a"
+                        and capture.target.sequence_index == 0
+                    ):
+                        raise ValueError(
+                            f"C3 Diamond Ring preparation overlaps "
+                            f"previous camera operation for RIG {rig_id}"
+                        )
+
+                    # Periodic captures keep their absolute target time.
+                    # If this RIG is still busy, skip this target rather
+                    # than delaying it and corrupting eclipse timing.
+                    continue
+
+                scheduled.extend(candidate_scheduled)
+                state = candidate_state
+                rig_available_at = candidate_end
+                continue
+
+            if capture.target.deadline is None:
+                raise ValueError(
+                    f"totality deadline missing for RIG {rig_id}"
+                )
+
+            # Find the first C3 Diamond Ring capture for this same RIG.
+            c3_capture = next(
+                (
+                    item
+                    for item in captures[capture_index + 1:]
+                    if item.target.phase_window == "phase_3a"
+                    and item.target.sequence_index == 0
+                ),
+                None,
+            )
+
+            if c3_capture is None:
+                raise ValueError(
+                    f"C3 Diamond Ring capture missing for RIG {rig_id}"
+                )
+
+            units = _split_totality_single_photos(capture)
+
+            totality_deadline = capture.target.deadline
+            current_end: datetime | None = None
+            unit_index = 0
+            photo_index = 0
+
+            while True:
+                template = units[unit_index]
+
+                # First physical totality photo remains anchored exactly
+                # to C2. Later photos are shifted so their first USB command
+                # starts immediately when the previous photo has finished.
+                provisional_target = (
+                    capture.target.target_time
+                    if current_end is None
+                    else current_end
+                )
+
+                candidate = replace(
+                    template,
+                    target=replace(
+                        template.target,
+                        target_time=provisional_target,
+                        sequence_index=photo_index,
+                        deadline=totality_deadline,
+                    ),
+                )
+
+                reduced_candidate, candidate_state = (
+                    reduce_audited_capture_operations(
+                        candidate,
+                        state,
+                    )
+                )
+
+                candidate_scheduled = schedule_audited_capture(
+                    reduced_candidate,
+                    profile,
+                )
+
+                candidate_start, _candidate_end = (
+                    _scheduled_static_bounds(candidate_scheduled)
+                )
+
+                if current_end is not None:
+                    shift = current_end - candidate_start
+
+                    candidate = replace(
+                        reduced_candidate,
+                        target=replace(
+                            reduced_candidate.target,
+                            target_time=(
+                                reduced_candidate.target.target_time
+                                + shift
+                            ),
+                        ),
+                    )
+
+                    candidate_scheduled = schedule_audited_capture(
+                        candidate,
+                        profile,
+                    )
+
+                candidate_start, candidate_end = (
+                    _scheduled_static_bounds(candidate_scheduled)
+                )
+
+                if (
+                    current_end is None
+                    and rig_available_at is not None
+                    and candidate_start < rig_available_at
+                ):
+                    raise ValueError(
+                        f"C2 totality preparation overlaps previous "
+                        f"camera operation for RIG {rig_id}"
+                    )
+
+                if (
+                    current_end is not None
+                    and candidate_start < current_end
+                ):
+                    raise ValueError(
+                        f"continuous totality scheduling regression "
+                        f"for RIG {rig_id}"
+                    )
+
+                # Compute the exact preparation boundary for C3 using the
+                # camera state that would exist after this candidate photo.
+                c3_profile = _profile_for_capture(
+                    c3_capture,
+                    timing_profiles,
+                )
+
+                reduced_c3, _c3_state = (
+                    reduce_audited_capture_operations(
+                        c3_capture,
+                        candidate_state,
+                    )
+                )
+
+                c3_scheduled = schedule_audited_capture(
+                    reduced_c3,
+                    c3_profile,
+                )
+
+                c3_prepare_start, _c3_end = (
+                    _scheduled_static_bounds(c3_scheduled)
+                )
+
+                stop_at = min(
+                    totality_deadline,
+                    c3_prepare_start,
+                )
+
+                if candidate_end > stop_at:
+                    break
+
+                scheduled.extend(candidate_scheduled)
+
+                state = candidate_state
+                current_end = candidate_end
+
+                photo_index += 1
+                unit_index = (unit_index + 1) % len(units)
+
+                if current_end >= totality_deadline:
+                    break
+
+            if photo_index == 0:
+                raise ValueError(
+                    f"no totality photo fits before C3 for RIG {rig_id}"
+                )
+
+            rig_available_at = current_end
+
+        final_states[rig_id] = state
         scheduled_by_rig[rig_id] = scheduled
 
     validate_static_rig_feasibility(
@@ -1474,10 +1989,61 @@ def compile_and_merge_scheduled_rigs(
 
 
 def _isoformat_ms(value: datetime | None) -> str | None:
+    """Serialize an internal UTC datetime with an explicit Z suffix."""
     if value is None:
         return None
 
-    return value.isoformat(timespec="milliseconds")
+    text = value.isoformat(timespec="milliseconds")
+
+    if value.tzinfo is None:
+        return text + "Z"
+
+    if value.utcoffset() != timedelta(0):
+        raise ValueError("execution-plan datetime must be UTC")
+
+    if text.endswith("+00:00"):
+        text = text[:-6]
+
+    return text + "Z"
+
+
+def _execution_command(
+    event: GlobalExecutionEvent,
+) -> dict[str, Any] | None:
+    """Return the minimal command consumed by Trigger."""
+
+    if event.command_time is None:
+        return None
+
+    operation = event.operation
+    action = operation.get("action")
+
+    if action == "set":
+        return {
+            "time_utc": _isoformat_ms(event.command_time),
+            "rig_id": event.rig_id,
+            "action": "SET",
+            "params": {
+                "parameter": operation.get("parameter"),
+                "value": operation.get("value"),
+            },
+        }
+
+    if action in {"trigger_capture", "bracket_press"}:
+        return {
+            "time_utc": _isoformat_ms(event.command_time),
+            "rig_id": event.rig_id,
+            "action": "PHOTO",
+            "params": {
+                key: deepcopy(value)
+                for key, value in operation.items()
+                if key != "action"
+            },
+        }
+
+    # delay, settle_idle, segment, expect_frames and bracket_release are
+    # compiler/plugin implementation details, never Trigger instructions.
+    return None
 
 
 def build_execution_plan_document(
@@ -1491,117 +2057,43 @@ def build_execution_plan_document(
     sequence_start: datetime | None = None,
     sequence_end: datetime | None = None,
 ) -> dict[str, Any]:
-    """Build the canonical, JSON-serializable Sequencer execution plan.
-
-    This document is an execution description only. It does not initialize
-    cameras and does not execute any command.
-    """
+    """Build the minimal UTC command stream consumed by Trigger."""
 
     event_list = list(events)
 
     if not event_list:
         raise ValueError("execution plan contains no events")
 
-    normalized_initial_states = {
-        int(rig_id): _normalize_camera_state(state)
-        for rig_id, state in initial_states.items()
-    }
-
-    normalized_final_states = {
-        int(rig_id): _normalize_camera_state(state)
-        for rig_id, state in (final_states or {}).items()
-    }
-
-    # One logical target per RIG/capture occurrence.
-    target_keys: set[tuple[Any, ...]] = set()
-    targets: list[dict[str, Any]] = []
-
-    for event in event_list:
-        key = (
-            event.rig_id,
-            event.phase_window,
-            event.sequence_index,
-            event.target_time,
-        )
-
-        if key in target_keys:
-            continue
-
-        target_keys.add(key)
-
-        targets.append({
-            "target_time": _isoformat_ms(event.target_time),
-            "rig_id": event.rig_id,
-            "backend": event.backend,
-            "phase": event.phase,
-            "phase_window": event.phase_window,
-            "sequence_index": event.sequence_index,
-        })
-
-    targets.sort(
-        key=lambda item: (
-            item["target_time"],
-            item["rig_id"],
-            item["sequence_index"],
-        )
-    )
-
-    serialized_events: list[dict[str, Any]] = []
-
-    for event in event_list:
-        serialized_events.append({
-            "command_time": _isoformat_ms(event.command_time),
-            "target_time": _isoformat_ms(event.target_time),
-            "rig_id": event.rig_id,
-            "backend": event.backend,
-            "phase": event.phase,
-            "phase_window": event.phase_window,
-            "sequence_index": event.sequence_index,
-            "timing_relation": event.timing_relation,
-            "operation_index": event.operation_index,
-            "operation": deepcopy(event.operation),
-            "duration_ms": event.duration_ms,
-        })
-
-    target_start = min(
-        event.target_time
+    commands = [
+        command
         for event in event_list
-    )
-
-    target_end = max(
-        event.target_time
-        for event in event_list
-    )
-
-    # Direct callers that do not provide the logical Sequencer window retain
-    # the historical target-bound behaviour.  The complete plan service
-    # provides the canonical C1-margin / C4+margin boundaries.
-    if sequence_start is None:
-        sequence_start = target_start
-
-    if sequence_end is None:
-        sequence_end = target_end
-
-    absolute_command_times = [
-        event.command_time
-        for event in event_list
-        if event.command_time is not None
+        if (command := _execution_command(event)) is not None
     ]
 
-    command_start = (
-        min(absolute_command_times)
-        if absolute_command_times
-        else None
+    commands.sort(
+        key=lambda item: (
+            item["time_utc"],
+            item["rig_id"],
+        )
     )
 
-    command_end = (
-        max(absolute_command_times)
-        if absolute_command_times
-        else None
-    )
+    if not commands:
+        raise ValueError("execution plan contains no executable commands")
+
+    if sequence_start is None:
+        sequence_start = min(
+            event.target_time
+            for event in event_list
+        )
+
+    if sequence_end is None:
+        sequence_end = max(
+            event.target_time
+            for event in event_list
+        )
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "config_type": "execution_plan",
 
         "sources": {
@@ -1610,193 +2102,63 @@ def build_execution_plan_document(
             "exposure_opt_file": exposure_opt_file,
         },
 
-        # Trigger must establish these states before TSTART.
-        # These are requirements, not Sequencer commands.
+        "sequence_start_utc": _isoformat_ms(sequence_start),
+        "sequence_end_utc": _isoformat_ms(sequence_end),
+
+        # State that Trigger establishes once before sequence_start.
         "initial_state_required": {
-            str(rig_id): deepcopy(state)
-            for rig_id, state in sorted(
-                normalized_initial_states.items()
+            str(rig_id): deepcopy(
+                _normalize_camera_state(state)
             )
+            for rig_id, state in sorted(initial_states.items())
         },
 
-        "sequence_start": _isoformat_ms(sequence_start),
-        "sequence_end": _isoformat_ms(sequence_end),
-
-        "target_start": _isoformat_ms(target_start),
-        "target_end": _isoformat_ms(target_end),
-
-        "command_start": _isoformat_ms(command_start),
-        "command_end": _isoformat_ms(command_end),
-
-        "targets": targets,
-
-        "events": serialized_events,
-
-        # Mainly useful for audit/debug and deterministic tests.
-        "final_state_expected": {
-            str(rig_id): deepcopy(state)
-            for rig_id, state in sorted(
-                normalized_final_states.items()
-            )
-        },
+        "commands": commands,
     }
 
 
 def format_execution_plan_lines(
     plan: dict[str, Any],
 ) -> list[str]:
-    """Render a compact human-readable audit of an execution plan."""
+    """Render exactly the UTC commands that Trigger will execute."""
 
     if plan.get("config_type") != "execution_plan":
         raise ValueError("not an execution plan")
 
     lines: list[str] = []
 
-    targets_by_key = {
-        (
-            item["rig_id"],
-            item["phase_window"],
-            item["sequence_index"],
-        ): item
-        for item in plan.get("targets", [])
-    }
+    for command in plan.get("commands", []):
+        params = command.get("params") or {}
 
-    emitted_targets: set[tuple[Any, ...]] = set()
-
-    events = list(plan.get("events", []))
-
-    # The canonical global event list keeps runtime-dependent Sony
-    # post-trigger operations (command_time=None) after all statically
-    # scheduled commands.  That ordering is useful for the canonical
-    # document but misleading for a human audit: EXPECT_FRAMES,
-    # BRACKET_RELEASE and SETTLE_IDLE appear detached from their capture.
-    #
-    # For display only, restore each runtime operation immediately after
-    # the trigger/capture it belongs to.  Do not mutate the execution plan.
-    runtime_by_capture: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
-
-    for event in events:
-        if event.get("command_time") is not None:
-            continue
-
-        key = (
-            event["rig_id"],
-            event["phase_window"],
-            event["sequence_index"],
-        )
-        runtime_by_capture.setdefault(key, []).append(event)
-
-    display_events: list[dict[str, Any]] = []
-
-    for event in events:
-        if event.get("command_time") is None:
-            continue
-
-        display_events.append(event)
-
-        if str(event.get("timing_relation") or "").lower() != "trigger":
-            continue
-
-        key = (
-            event["rig_id"],
-            event["phase_window"],
-            event["sequence_index"],
-        )
-
-        display_events.extend(
-            runtime_by_capture.pop(key, [])
-        )
-
-    # Defensive fallback for malformed/unusual plans whose runtime
-    # operations have no corresponding statically scheduled trigger.
-    for remaining in runtime_by_capture.values():
-        display_events.extend(remaining)
-
-    for event in display_events:
-        rig_id = event["rig_id"]
-        backend = str(event["backend"]).upper()
-        relation = str(event["timing_relation"]).upper()
-        operation = event["operation"]
-
-        command_time = event.get("command_time")
-
-        if command_time is None:
-            clock = "RUNTIME"
-        else:
-            clock = command_time[11:23]
-
-        action = str(operation.get("action") or "").upper()
-
-        if action == "SET":
+        if command["action"] == "SET":
             detail = (
-                f'SET {operation.get("parameter")}='
-                f'{operation.get("value")}'
+                f"SET {params.get('parameter')}="
+                f"{params.get('value')}"
             )
 
-        elif action == "BRACKET_PRESS":
-            detail = (
-                f'BRACKET PRESS {operation.get("parameter")}'
-                f'={operation.get("value")} '
-                f'centre={operation.get("centre")} '
-                f'step={operation.get("step_ev")}EV '
-                f'frames={operation.get("frames")}'
-            )
+        elif command["action"] == "PHOTO":
+            detail = "PHOTO"
 
-        elif action == "EXPECT_FRAMES":
-            detail = (
-                f'EXPECT {operation.get("count")} FRAMES'
+            exposure = (
+                params.get("shutter")
+                or params.get("centre")
             )
+            iso = params.get("iso")
 
-        elif action == "BRACKET_RELEASE":
-            detail = (
-                f'BRACKET RELEASE {operation.get("parameter")}'
-                f'={operation.get("value")}'
-            )
+            if exposure is not None:
+                detail += f" {exposure}"
 
-        elif action == "TRIGGER_CAPTURE":
-            detail = (
-                f'TRIGGER CAPTURE '
-                f'{operation.get("shutter")} '
-                f'ISO{operation.get("iso")}'
-            )
-
-        elif action == "SETTLE_IDLE":
-            detail = "SETTLE IDLE"
-
-        elif action == "SEGMENT":
-            detail = (
-                f'SEGMENT {operation.get("description")}'
-            )
+            if iso is not None:
+                detail += f" ISO{iso}"
 
         else:
-            detail = action
+            detail = str(command["action"])
 
         lines.append(
-            f"{clock} | RIG{rig_id} | {backend} | "
-            f"{relation} | {detail}"
+            f"{command['time_utc']} | "
+            f"RIG{command['rig_id']} | "
+            f"{detail}"
         )
-
-        key = (
-            rig_id,
-            event["phase_window"],
-            event["sequence_index"],
-        )
-
-        # Emit the physical target marker immediately after its trigger.
-        if (
-            relation == "TRIGGER"
-            and key not in emitted_targets
-            and key in targets_by_key
-        ):
-            target = targets_by_key[key]
-            target_clock = target["target_time"][11:23]
-
-            lines.append(
-                f"{target_clock} | RIG{rig_id} | TARGET | "
-                f'{target["phase"].upper()}'
-            )
-
-            emitted_targets.add(key)
 
     return lines
 
