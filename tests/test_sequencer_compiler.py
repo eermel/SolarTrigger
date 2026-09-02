@@ -1671,3 +1671,83 @@ def test_execution_plan_preserves_set_fallback_parameter():
             "fallback_parameter": "shutterspeed",
         },
     }
+
+
+def test_totality_reserves_generic_margin_before_c3_preparation():
+    from dataclasses import replace
+    from datetime import datetime, timedelta
+
+    base = audit_materialized_sony_capture(
+        _sony_materialized_capture()
+    )
+
+    totality = replace(
+        base,
+        target=replace(
+            base.target,
+            phase="totality",
+            phase_window="phase_2",
+            sequence_index=0,
+            target_time=datetime(2027, 8, 2, 10, 4, 0),
+            deadline=datetime(2027, 8, 2, 10, 4, 10),
+        ),
+    )
+
+    c3 = replace(
+        base,
+        target=replace(
+            base.target,
+            phase="diamond_ring",
+            phase_window="phase_3a",
+            sequence_index=0,
+            target_time=datetime(2027, 8, 2, 10, 4, 10),
+            deadline=datetime(2027, 8, 2, 10, 4, 13),
+        ),
+    )
+
+    initial = derive_initial_state_required({
+        1: [totality, c3],
+    })
+
+    merged, _states = compile_and_merge_scheduled_rigs(
+        {
+            1: [totality, c3],
+        },
+        initial_states=initial,
+        timing_profiles={
+            1: _sony_test_timing(),
+        },
+    )
+
+    totality_events = [
+        event
+        for event in merged
+        if event.phase_window == "phase_2"
+    ]
+
+    c3_events = [
+        event
+        for event in merged
+        if event.phase_window == "phase_3a"
+        and event.sequence_index == 0
+    ]
+
+    assert totality_events
+    assert c3_events
+
+    totality_end = max(
+        event.command_time + timedelta(milliseconds=event.duration_ms)
+        for event in totality_events
+        if event.command_time is not None
+    )
+
+    c3_prepare_start = min(
+        event.command_time
+        for event in c3_events
+        if event.command_time is not None
+    )
+
+    assert (
+        c3_prepare_start - totality_end
+        >= timedelta(milliseconds=250)
+    )

@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
+CRITICAL_TRANSITION_MARGIN_MS = 250.0
+
 
 @dataclass(frozen=True)
 class CaptureTarget:
@@ -1944,9 +1946,16 @@ def compile_and_merge_scheduled_rigs(
                     _scheduled_static_bounds(c3_scheduled)
                 )
 
+                c3_safety_boundary = (
+                    c3_prepare_start
+                    - timedelta(
+                        milliseconds=CRITICAL_TRANSITION_MARGIN_MS
+                    )
+                )
+
                 stop_at = min(
                     totality_deadline,
-                    c3_prepare_start,
+                    c3_safety_boundary,
                 )
 
                 if candidate_end > stop_at:
