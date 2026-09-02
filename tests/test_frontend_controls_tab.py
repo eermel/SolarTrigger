@@ -52,7 +52,7 @@ class _NavigationParser(HTMLParser):
             self._tab["text"].append(data)
 
 
-def test_controls_tab_and_panel_are_in_the_seven_item_navigation_order():
+def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
     parser = _NavigationParser()
     parser.feed(INDEX)
 
@@ -61,7 +61,8 @@ def test_controls_tab_and_panel_are_in_the_seven_item_navigation_order():
         "DEVICES",
         "SYNC GPS",
         "ECLIPSE",
-        "PHOTO CFG",
+        "PHOTO SETUP",
+        "EXPO. OPT.",
         "CAMERA",
         "CONTROLS",
         "TRIGGER",
@@ -71,20 +72,21 @@ def test_controls_tab_and_panel_are_in_the_seven_item_navigation_order():
         "page-0",
         "page-1",
         "page-2",
+        "page-exposure-opt",
         "page-3",
         "controls-panel",
         "page-4",
     ]
 
-    controls, trigger = parser.tabs[5:]
+    controls, trigger = parser.tabs[6:]
     assert controls["id"] == "controls-tab"
-    assert controls["onclick"] == "showTab(5)"
-    assert trigger["onclick"] == "showTab(6)"
+    assert controls["onclick"] == "showTab(6)"
+    assert trigger["onclick"] == "showTab(7)"
 
 
 def test_trigger_initialization_uses_trigger_tab_index():
     trigger_initialization = re.compile(
-        r"if\s*\(\s*n\s*===\s*6\s*\)\s*\{\s*"
+        r"if\s*\(\s*n\s*===\s*7\s*\)\s*\{\s*"
         r"loadTriggerConfigList\(\);\s*loadEclipseFileList\(\);\s*\}"
     )
 

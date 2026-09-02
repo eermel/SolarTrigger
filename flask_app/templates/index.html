@@ -795,17 +795,21 @@ header {
     </button>
     <button class="tab" onclick="showTab(3)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-      <span>PHOTO CFG</span>
+      <span>PHOTO SETUP</span>
     </button>
     <button class="tab" onclick="showTab(4)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M4 20h16M6 17l3-6 3 3 3-8 3 11"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="6" r="1"/></svg>
+      <span>EXPO. OPT.</span>
+    </button>
+    <button class="tab" onclick="showTab(5)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="3"/></svg>
       <span>CAMERA</span>
     </button>
-    <button class="tab" id="controls-tab" onclick="showTab(5)">
+    <button class="tab" id="controls-tab" onclick="showTab(6)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
       <span>CONTROLS</span>
     </button>
-    <button class="tab" onclick="showTab(6)">
+    <button class="tab" onclick="showTab(7)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
       <span>TRIGGER</span>
     </button>
@@ -1015,17 +1019,138 @@ header {
 
       <!-- ── CARD 1 : Charger / Sauvegarder ── -->
       <div class="card">
-        <div class="card-title">Camera configuration</div>
+        <div class="card-title">Photo Setup configuration</div>
         <div style="display:flex;gap:6px">
           <select id="camera-config-select" style="flex:1;background:var(--bg3);border:1px solid var(--border);
             border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
             onchange="loadCameraConfig(this.value)">
-            <option value="">— Camera config file —</option>
+            <option value="">— Photo Setup file —</option>
           </select>
           <button class="btn btn-primary" style="font-size:11px;padding:7px 10px"
             onclick="saveCameraConfig()">💾 Save</button>
           <button class="btn btn-secondary" type="button" style="font-size:11px;padding:7px 10px"
             onclick="cleanCameraConfigs()">🧹 CLEAN</button>
+        </div>
+      </div>
+
+      <!-- ── CARD 2 : Phase Partielle ── -->
+      <div class="card">
+        <div class="card-title" style="color:var(--purple)">☀ PARTIAL PHASE</div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>INTERVAL (S)</label>
+            <input type="number" id="cfg-partial-interval" value="180" step="1" min="1">
+          </div>
+        </div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>ISO</label>
+            <select id="cfg-partial-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+              <option selected>100</option><option>200</option><option>400</option><option>800</option>
+              <option>1600</option><option>3200</option><option>6400</option>
+            </select>
+          </div>
+          <div class="field"><label>Aperture</label>
+            <select id="cfg-partial-aperture">
+              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Minimum shutter speed (slowest)</label>
+            <select id="cfg-partial-shutter-min"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+          <div class="field"><label>Maximum shutter speed (fastest)</label>
+            <select id="cfg-partial-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
+      </div>
+
+      <!-- ── CARD 3 : Phase Diamond Ring ── -->
+      <div class="card">
+        <div class="card-title" style="color:var(--accent)">💎 DIAMOND RING <small style="font-size:10px;opacity:.7">(before C2 / after C3)</small></div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>TOTAL DURATION (S)</label>
+            <input type="number" id="cfg-dr-duration" value="40" step="1" min="1">
+          </div>
+          <div class="field"><label>INTERVAL (S)</label>
+            <input type="number" id="cfg-dr-interval" value="4" step="1" min="1">
+          </div>
+        </div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>ISO</label>
+            <select id="cfg-dr-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+              <option selected>100</option><option>200</option><option>400</option><option>800</option>
+              <option>1600</option><option>3200</option><option>6400</option>
+            </select>
+          </div>
+          <div class="field"><label>Aperture</label>
+            <select id="cfg-dr-aperture">
+              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Minimum shutter speed (slowest)</label>
+            <select id="cfg-dr-shutter-min"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+          <div class="field"><label>Maximum shutter speed (fastest)</label>
+            <select id="cfg-dr-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000" selected>1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
+      </div>
+
+      <!-- ── CARD 4 : Phase Totalité ── -->
+      <div class="card">
+        <div class="card-title" style="color:var(--green)">🌑 TOTALITY</div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>ISO</label>
+            <select id="cfg-tot-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+              <option selected>100</option><option>200</option><option>400</option><option>800</option>
+              <option>1600</option><option>3200</option><option>6400</option>
+            </select>
+          </div>
+          <div class="field"><label>Aperture</label>
+            <select id="cfg-tot-aperture">
+              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Minimum shutter speed (slowest)</label>
+            <select id="cfg-tot-shutter-min"><option value="8">8s</option><option value="4" selected>4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+          <div class="field"><label>Maximum shutter speed (fastest)</label>
+            <select id="cfg-tot-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000" selected>1/4000</option><option value="1/8000">1/8000</option></select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
+      </div>
+
+    </div><!-- /page-2 CFG PHOTO -->
+
+    <!-- ═══════════════ EXPOSURE OPTIMIZATION ═══════════════ -->
+    <div class="page" id="page-exposure-opt">
+
+      <div class="card">
+        <div class="card-title">Exposure Optimization configuration</div>
+        <div style="display:flex;gap:6px">
+          <select id="exposure-opt-config-select"
+            style="flex:1;background:var(--bg3);border:1px solid var(--border);
+            border-radius:8px;padding:8px 10px;color:var(--text);
+            font-family:var(--mono);font-size:11px"
+            onchange="loadExposureOptConfig(this.value)">
+            <option value="">— Exposure Optimization file —</option>
+          </select>
+
+          <button class="btn btn-primary"
+            style="font-size:11px;padding:7px 10px"
+            onclick="saveExposureOptConfig()">💾 Save</button>
+
+          <button class="btn btn-secondary"
+            type="button"
+            style="font-size:11px;padding:7px 10px"
+            onclick="cleanExposureOptConfigs()">🧹 CLEAN</button>
         </div>
       </div>
 
@@ -1331,101 +1456,9 @@ header {
         </div>
       </div>
 
-      <!-- ── CARD 2 : Phase Partielle ── -->
-      <div class="card">
-        <div class="card-title" style="color:var(--purple)">☀ PARTIAL PHASE</div>
-        <div class="grid2" style="margin-bottom:8px">
-          <div class="field"><label>INTERVAL (S)</label>
-            <input type="number" id="cfg-partial-interval" value="180" step="1" min="1">
-          </div>
-        </div>
-        <div class="grid2" style="margin-bottom:8px">
-          <div class="field"><label>ISO</label>
-            <select id="cfg-partial-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
-              <option selected>100</option><option>200</option><option>400</option><option>800</option>
-              <option>1600</option><option>3200</option><option>6400</option>
-            </select>
-          </div>
-          <div class="field"><label>Aperture</label>
-            <select id="cfg-partial-aperture">
-              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
-            </select>
-          </div>
-        </div>
-        <div class="grid2">
-          <div class="field"><label>Minimum shutter speed (slowest)</label>
-            <select id="cfg-partial-shutter-min"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
-          </div>
-          <div class="field"><label>Maximum shutter speed (fastest)</label>
-            <select id="cfg-partial-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
-          </div>
-        </div>
-        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
-      </div>
 
-      <!-- ── CARD 3 : Phase Diamond Ring ── -->
-      <div class="card">
-        <div class="card-title" style="color:var(--accent)">💎 DIAMOND RING <small style="font-size:10px;opacity:.7">(before C2 / after C3)</small></div>
-        <div class="grid2" style="margin-bottom:8px">
-          <div class="field"><label>TOTAL DURATION (S)</label>
-            <input type="number" id="cfg-dr-duration" value="40" step="1" min="1">
-          </div>
-          <div class="field"><label>INTERVAL (S)</label>
-            <input type="number" id="cfg-dr-interval" value="4" step="1" min="1">
-          </div>
-        </div>
-        <div class="grid2" style="margin-bottom:8px">
-          <div class="field"><label>ISO</label>
-            <select id="cfg-dr-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
-              <option selected>100</option><option>200</option><option>400</option><option>800</option>
-              <option>1600</option><option>3200</option><option>6400</option>
-            </select>
-          </div>
-          <div class="field"><label>Aperture</label>
-            <select id="cfg-dr-aperture">
-              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
-            </select>
-          </div>
-        </div>
-        <div class="grid2">
-          <div class="field"><label>Minimum shutter speed (slowest)</label>
-            <select id="cfg-dr-shutter-min"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
-          </div>
-          <div class="field"><label>Maximum shutter speed (fastest)</label>
-            <select id="cfg-dr-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000" selected>1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
-          </div>
-        </div>
-        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
-      </div>
+    </div><!-- /Exposure Optimization -->
 
-      <!-- ── CARD 4 : Phase Totalité ── -->
-      <div class="card">
-        <div class="card-title" style="color:var(--green)">🌑 TOTALITY</div>
-        <div class="grid2" style="margin-bottom:8px">
-          <div class="field"><label>ISO</label>
-            <select id="cfg-tot-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
-              <option selected>100</option><option>200</option><option>400</option><option>800</option>
-              <option>1600</option><option>3200</option><option>6400</option>
-            </select>
-          </div>
-          <div class="field"><label>Aperture</label>
-            <select id="cfg-tot-aperture">
-              <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
-            </select>
-          </div>
-        </div>
-        <div class="grid2">
-          <div class="field"><label>Minimum shutter speed (slowest)</label>
-            <select id="cfg-tot-shutter-min"><option value="8">8s</option><option value="4" selected>4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
-          </div>
-          <div class="field"><label>Maximum shutter speed (fastest)</label>
-            <select id="cfg-tot-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000" selected>1/4000</option><option value="1/8000">1/8000</option></select>
-          </div>
-        </div>
-        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
-      </div>
-
-    </div><!-- /page-2 CFG PHOTO -->
 
     <!-- ═══════════════ PAGE 3 : CAMÉRA ═══════════════ -->
     <div class="page" id="page-3" data-device-section="camera">
@@ -1968,6 +2001,180 @@ async function persistGlobalAtmosFromUi() {
   const control = document.getElementById('cfg-atmo-switch');
   await persistGlobalAtmos(Boolean(control && control.checked));
 }
+
+async function loadExposureOptConfigList() {
+  try {
+    const r = await fetch('/api/configs/list_exposure_opt');
+    const d = await r.json();
+    const sel = document.getElementById('exposure-opt-config-select');
+    if (!sel) return;
+
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Exposure Optimization file —</option>';
+
+    (d.files || []).forEach(filename => {
+      const opt = document.createElement('option');
+      opt.value = filename;
+      opt.textContent = filename;
+      if (filename === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+
+function readExposureOptConfig() {
+  const atmo = document.getElementById('cfg-atmo-switch');
+
+  const rigs = [1, 2, 3, 4].map(rigId => {
+    const current = readRigPhotoConfig(rigId);
+
+    return {
+      rig_id: rigId,
+      optics: {
+        focal_length_mm: current.optics.focal_length_mm
+      },
+      photo: {
+        anti_trailing_enabled: current.photo.anti_trailing_enabled,
+        motion_tolerance_px: current.photo.motion_tolerance_px,
+        iso_compensation_enabled: current.photo.iso_compensation_enabled,
+        iso_max: current.photo.iso_max
+      }
+    };
+  });
+
+  return {
+    schema_version: 1,
+    config_type: 'exposure_optimization',
+    atmospheric_attenuation_enabled: Boolean(atmo && atmo.checked),
+    rigs
+  };
+}
+
+
+async function saveExposureOptConfig() {
+  const sel = document.getElementById('exposure-opt-config-select');
+  const current = sel && sel.value
+    ? sel.value.replace(/^expo_/, '').replace(/\.json$/, '')
+    : 'exposure_opt';
+
+  const name = prompt('Exposure Optimization file name:', current);
+  if (!name) return;
+
+  let data;
+  try {
+    data = readExposureOptConfig();
+  } catch (e) {
+    flash(`Exposure Optimization: ${e.message}`, 'red');
+    return;
+  }
+
+  const save = async overwrite => {
+    return fetch('/api/configs/save_exposure_opt', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({filename: name, data, overwrite})
+    });
+  };
+
+  try {
+    let r = await save(false);
+    let d = await r.json();
+
+    if (r.status === 409) {
+      if (!confirm(`${d.filename || name} already exists. Overwrite it?`)) return;
+      r = await save(true);
+      d = await r.json();
+    }
+
+    if (r.ok && d.status === 'ok') {
+      flash('Saved: ' + d.filename, 'green');
+      await loadExposureOptConfigList();
+      if (sel) sel.value = d.filename;
+    } else {
+      flash(d.error || 'Error', 'red');
+    }
+  } catch(e) {
+    flash('Network error', 'red');
+  }
+}
+
+
+async function loadExposureOptConfig(filename) {
+  if (!filename) return;
+
+  try {
+    const r = await fetch(
+      '/api/configs/load_exposure_opt/' + encodeURIComponent(filename)
+    );
+
+    const data = await r.json();
+
+    if (!r.ok) {
+      throw new Error(data.error || `HTTP error ${r.status}`);
+    }
+
+    if (data.config_type !== 'exposure_optimization') {
+      throw new Error('Invalid Exposure Optimization file');
+    }
+
+    const atmos = Boolean(data.atmospheric_attenuation_enabled);
+
+    const patches = (data.rigs || []).map(rig => ({
+      rig_id: Number(rig.rig_id),
+      optics: {...(rig.optics || {})},
+      photo: {
+        ...(rig.photo || {}),
+        atmos_enabled: atmos
+      }
+    }));
+
+    const post = await fetch('/api/rigs/photo', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({rigs: patches})
+    });
+
+    const result = await post.json();
+
+    if (!post.ok) {
+      throw new Error(result.error || `HTTP error ${post.status}`);
+    }
+
+    await loadRigPhotoConfig();
+    flash('Exposure Optimization loaded: ' + filename, 'green');
+
+  } catch(e) {
+    flash(`Exposure Optimization: ${e.message}`, 'red');
+  }
+}
+
+
+async function cleanExposureOptConfigs() {
+  if (!confirm(
+    'Delete ALL saved Exposure Optimization JSON files?\n\nThis cannot be undone.'
+  )) return;
+
+  try {
+    const r = await fetch('/api/configs/exposure_opt/clean', {
+      method: 'POST'
+    });
+
+    const d = await r.json();
+
+    if (!r.ok) {
+      throw new Error(d.error || `HTTP error ${r.status}`);
+    }
+
+    flash(`${d.deleted || 0} Exposure Optimization file(s) deleted`, 'yellow');
+    await loadExposureOptConfigList();
+
+  } catch(e) {
+    flash(`Exposure Optimization CLEAN: ${e.message}`, 'red');
+  }
+}
+
+
 let selectedRigId = 1;
 
 function selectedControlsRig() {
@@ -4542,11 +4749,11 @@ async function loadEclipseFileList() {
 
 async function loadCameraConfigList() {
   try {
-    const r = await fetch('/api/configs/list_camera');
+    const r = await fetch('/api/configs/list_photo');
     const d = await r.json();
     const sel = document.getElementById('camera-config-select');
     if (!sel) return;
-    sel.innerHTML = '<option value="">— Camera config file —</option>';
+    sel.innerHTML = '<option value="">— Photo Setup file —</option>';
     (d.files || []).forEach(f => {
       const opt = document.createElement('option');
       opt.value = f; opt.textContent = f;
@@ -4574,17 +4781,17 @@ async function loadEclipseFile(filename) {
 async function loadCameraConfig(filename) {
   if (!filename) return;
   try {
-    const r = await fetch('/api/configs/load_camera/' + encodeURIComponent(filename));
-    if (!r.ok) { flash('Failed to load camera configuration', 'red'); return; }
+    const r = await fetch('/api/configs/load_photo/' + encodeURIComponent(filename));
+    if (!r.ok) {
+      flash('Failed to load Photo Setup configuration', 'red');
+      return;
+    }
     const data = await r.json();
-    const atmosEnabled = Boolean(
-      data.exposure_correction?.atmospheric_attenuation_enabled
-    );
-    document.getElementById('cfg-atmo-switch').checked = atmosEnabled;
-    await persistGlobalAtmos(atmosEnabled, false);
     _applyCameraConfig(data);
-    flash('Camera config loadede : ' + filename, 'green');
-  } catch(e) { flash('Network error', 'red'); }
+    flash('Photo Setup loaded: ' + filename, 'green');
+  } catch(e) {
+    flash('Network error', 'red');
+  }
 }
 
 function _applyCameraConfig(data) {
@@ -4670,7 +4877,7 @@ function _readCameraConfig() {
       ),
       totality: phase('tot', 0, null)
     },
-    exposure_correction: { atmospheric_attenuation_enabled: false }
+    config_type: 'photo_setup'
   };
 }
 
@@ -4837,26 +5044,43 @@ async function requestRigPreviews(rigId, intents) {
 async function saveCameraConfig() {
   const sel = document.getElementById('camera-config-select');
   const current = sel && sel.value
-    ? sel.value.replace(/^camera_/, '').replace(/\.json$/, '')
-    : 'camera_config';
-  const name = prompt('Camera configuration file name:', current);
+    ? sel.value.replace(/^photo_/, '').replace(/\.json$/, '')
+    : 'photo_setup';
+
+  const name = prompt('Photo Setup file name:', current);
   if (!name) return;
+
   const data = _readCameraConfig();
-  data.exposure_correction = {
-    atmospheric_attenuation_enabled: Boolean(document.getElementById('cfg-atmo-switch').checked)
-  };
-  try {
-    const r = await fetch('/api/configs/save_camera', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ filename: name, data })
+
+  const save = async overwrite => {
+    return fetch('/api/configs/save_photo', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({filename: name, data, overwrite})
     });
-    const d = await r.json();
-    if (d.status === 'ok') {
-      flash('Saved: ' + d.filename, 'green');
-      loadCameraConfigList();
+  };
+
+  try {
+    let r = await save(false);
+    let d = await r.json();
+
+    if (r.status === 409) {
+      if (!confirm(`${d.filename || name} already exists. Overwrite it?`)) return;
+      r = await save(true);
+      d = await r.json();
     }
-    else flash(d.error || 'Error', 'red');
-  } catch(e) { flash('Network error', 'red'); }
+
+    if (r.ok && d.status === 'ok') {
+      flash('Saved: ' + d.filename, 'green');
+      await loadCameraConfigList();
+      const select = document.getElementById('camera-config-select');
+      if (select) select.value = d.filename;
+    } else {
+      flash(d.error || 'Error', 'red');
+    }
+  } catch(e) {
+    flash('Network error', 'red');
+  }
 }
 
 async function loadConfigFile(filename) {
@@ -5078,44 +5302,25 @@ async function cleanCircumstances() {
 }
 
 async function cleanCameraConfigs() {
+  if (!confirm(
+    'Delete ALL saved Photo Setup JSON files?\n\nThis cannot be undone.'
+  )) return;
+
   try {
-    const cleanResponse = await fetch('/api/configs/camera_cfg/clean', { method: 'POST' });
-    if (!cleanResponse.ok) {
-      alert('Clean failed.');
-      return;
+    const response = await fetch('/api/configs/photo_cfg/clean', {
+      method: 'POST'
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP error ${response.status}`);
     }
 
-    const listResponse = await fetch('/api/configs/list_camera');
-    if (!listResponse.ok) {
-      alert('Refresh failed.');
-      return;
-    }
-    const data = await listResponse.json();
-    const files = data.files || [];
+    flash(`${data.deleted || 0} Photo Setup file(s) deleted`, 'yellow');
+    await loadCameraConfigList();
 
-    const cameraSelect = document.getElementById('camera-config-select');
-    if (cameraSelect) {
-      cameraSelect.innerHTML = '<option value="">— Camera config file —</option>';
-      files.forEach(file => {
-        const option = document.createElement('option');
-        option.value = file;
-        option.textContent = file;
-        cameraSelect.appendChild(option);
-      });
-    }
-
-    const triggerCameraSelect = document.getElementById('trigger-camera-select');
-    if (triggerCameraSelect) {
-      triggerCameraSelect.innerHTML = '<option value="">— Camera config —</option>';
-      files.forEach(file => {
-        const option = document.createElement('option');
-        option.value = file;
-        option.textContent = file;
-        triggerCameraSelect.appendChild(option);
-      });
-    }
   } catch(e) {
-    alert('Clean failed.');
+    flash(`Photo Setup CLEAN: ${e.message}`, 'red');
   }
 }
 
@@ -5236,7 +5441,11 @@ function showTab(n) {
     if (di && di.value === '') di.value = '100';
     if (ti && ti.value === '') ti.value = '100';
   }
-  if (n === 6) { loadTriggerConfigList(); loadEclipseFileList(); }
+  if (n === 4) {
+    loadExposureOptConfigList();
+    loadRigPhotoConfig();
+  }
+  if (n === 7) { loadTriggerConfigList(); loadEclipseFileList(); }
 }
 
 // ════════════════════════════════════════════════════════════════

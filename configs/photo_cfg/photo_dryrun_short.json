@@ -1,0 +1,38 @@
+{
+    "schema_version": 2,
+    "kind": "capture_execution",
+    "name": "dryrun_short_scheduler",
+    "phases": {
+        "partial": {
+            "enabled": true,
+            "interval_s": 10,
+            "duration_s": null,
+            "iso": 100,
+            "aperture": "f/8",
+            "shutter_min": "1/1000",
+            "shutter_max": "1/250",
+            "step_ev": 1.0
+        },
+        "diamond_ring": {
+            "enabled": true,
+            "interval_s": 3,
+            "duration_s": 30,
+            "iso": 100,
+            "aperture": "f/8",
+            "shutter_min": "1/1000",
+            "shutter_max": "1/250",
+            "step_ev": 1.0
+        },
+        "totality": {
+            "enabled": true,
+            "interval_s": 5,
+            "duration_s": null,
+            "iso": 100,
+            "aperture": "f/8",
+            "shutter_min": "1/1000",
+            "shutter_max": "1/4",
+            "step_ev": 1.0
+        }
+    },
+    "config_type": "photo_setup"
+}

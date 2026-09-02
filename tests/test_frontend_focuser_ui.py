@@ -110,8 +110,17 @@ def test_top_level_navigation_includes_controls_without_a_focuser_tab():
     labels = re.findall(r"<span>\s*([^<]+?)\s*</span>", TABS)
     targets = [int(value) for value in re.findall(r"onclick=[\"']showTab\((\d+)\)[\"']", TABS)]
 
-    assert labels == ["DEVICES", "SYNC GPS", "ECLIPSE", "PHOTO CFG", "CAMERA", "CONTROLS", "TRIGGER"]
-    assert targets == [0, 1, 2, 3, 4, 5, 6]
+    assert labels == [
+        "DEVICES",
+        "SYNC GPS",
+        "ECLIPSE",
+        "PHOTO SETUP",
+        "EXPO. OPT.",
+        "CAMERA",
+        "CONTROLS",
+        "TRIGGER",
+    ]
+    assert targets == [0, 1, 2, 3, 4, 5, 6, 7]
     assert "FOCUSEUR" not in TABS.upper()
 
 

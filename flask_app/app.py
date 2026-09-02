@@ -2821,6 +2821,377 @@ def api_configs_circumstances_clean():
 
     return jsonify({"status": "ok", "deleted": deleted, "errors": errors})
 
+
+@app.route("/api/configs/list_photo", methods=["GET"])
+def api_configs_list_photo():
+    """List Photo Setup configurations stored in photo_cfg/."""
+    try:
+        base_dir = CONFIGS_DIR / "photo_cfg"
+        files = sorted(
+            path.name
+            for path in base_dir.glob("*.json")
+            if path.is_file()
+        )
+        return jsonify({"files": files})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/configs/load_photo/<filename>", methods=["GET"])
+def api_configs_load_photo(filename):
+    """Load one Photo Setup configuration."""
+    try:
+        filename = Path(filename).name
+        path = CONFIGS_DIR / "photo_cfg" / filename
+        if not path.exists() or not path.is_file() or path.suffix.lower() != ".json":
+            return jsonify({"error": "Fichier introuvable"}), 404
+
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        if not isinstance(data, dict):
+            return jsonify({"error": "Invalid Photo Setup configuration"}), 400
+
+        config_type = data.get("config_type")
+        if config_type not in (None, "photo_setup"):
+            return jsonify({"error": "Invalid Photo Setup configuration type"}), 400
+
+        return jsonify(data)
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/configs/save_photo", methods=["POST"])
+def api_configs_save_photo():
+    """Save one Photo Setup configuration into photo_cfg/."""
+    body = request.get_json(silent=True) or {}
+    requested = str(body.get("filename", "")).strip()
+    data = body.get("data")
+
+    if not requested:
+        return jsonify({"error": "Nom de fichier manquant"}), 400
+    if not isinstance(data, dict):
+        return jsonify({"error": "Configuration invalide"}), 400
+
+    data = deepcopy(data)
+    data["config_type"] = "photo_setup"
+
+    # Exposure optimization must never leak into Photo Setup files.
+    data.pop("exposure_correction", None)
+    data.pop("atmospheric_attenuation_enabled", None)
+    data.pop("rigs", None)
+
+    shutter_speeds = [
+        "8", "4", "2", "1", "1/2", "1/4", "1/8", "1/15", "1/30",
+        "1/60", "1/125", "1/250", "1/500", "1/1000", "1/2000",
+        "1/4000", "1/8000",
+    ]
+    shutter_indices = {
+        speed: index for index, speed in enumerate(shutter_speeds)
+    }
+
+    phases = data.get("phases")
+    if not isinstance(phases, dict):
+        return jsonify({"error": "Phases invalides ou manquantes"}), 400
+
+    for phase_name in ("partial", "diamond_ring", "totality"):
+        phase = phases.get(phase_name)
+        if not isinstance(phase, dict):
+            return jsonify({
+                "error": f"Phase invalide ou manquante : {phase_name}"
+            }), 400
+
+        shutter_min = phase.get("shutter_min")
+        shutter_max = phase.get("shutter_max")
+
+        if shutter_min not in shutter_indices or shutter_max not in shutter_indices:
+            return jsonify({
+                "error": f"Vitesse d'obturation invalide : {phase_name}"
+            }), 400
+
+        if shutter_indices[shutter_min] > shutter_indices[shutter_max]:
+            return jsonify({
+                "error": f"Plage d'obturation inversée : {phase_name}"
+            }), 400
+
+        if "step_ev" in phase and phase["step_ev"] != 1.0:
+            return jsonify({
+                "error": f"step_ev invalide : {phase_name}"
+            }), 400
+
+        phase.setdefault("step_ev", 1.0)
+
+    filename = requested
+    if not filename.endswith(".json"):
+        filename += ".json"
+    if not filename.startswith("photo_"):
+        filename = "photo_" + filename
+    filename = Path(filename).name
+
+    try:
+        base_dir = CONFIGS_DIR / "photo_cfg"
+        base_dir.mkdir(parents=True, exist_ok=True)
+
+        destination = base_dir / filename
+        if destination.exists() and body.get("overwrite") is not True:
+            return jsonify({
+                "error": "Le fichier existe déjà",
+                "filename": filename,
+            }), 409
+
+        with open(destination, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=4, ensure_ascii=False)
+
+        return jsonify({
+            "status": "ok",
+            "filename": filename,
+            "saved": {"filename": filename, "data": data},
+        })
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/configs/photo_cfg/clean", methods=["POST"])
+def api_configs_photo_clean():
+    """Delete all Photo Setup JSON files."""
+    base_dir = CONFIGS_DIR / "photo_cfg"
+    deleted = 0
+    errors = []
+
+    if not base_dir.exists():
+        return jsonify({
+            "status": "ok",
+            "deleted": 0,
+            "errors": [],
+        })
+
+    for entry in base_dir.iterdir():
+        if (
+            entry.is_symlink()
+            or not entry.is_file()
+            or entry.suffix.lower() != ".json"
+        ):
+            continue
+
+        try:
+            entry.unlink()
+            deleted += 1
+        except OSError as exc:
+            errors.append({
+                "file": entry.name,
+                "error": str(exc),
+            })
+
+    return jsonify({
+        "status": "ok",
+        "deleted": deleted,
+        "errors": errors,
+    })
+
+
+@app.route("/api/configs/list_exposure_opt", methods=["GET"])
+def api_configs_list_exposure_opt():
+    """List Exposure Optimization configurations."""
+    try:
+        base_dir = CONFIGS_DIR / "exposure_opt"
+        files = sorted(
+            path.name
+            for path in base_dir.glob("*.json")
+            if path.is_file()
+        )
+        return jsonify({"files": files})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/configs/load_exposure_opt/<filename>", methods=["GET"])
+def api_configs_load_exposure_opt(filename):
+    """Load one Exposure Optimization configuration."""
+    try:
+        filename = Path(filename).name
+        path = CONFIGS_DIR / "exposure_opt" / filename
+
+        if not path.exists() or not path.is_file() or path.suffix.lower() != ".json":
+            return jsonify({"error": "Fichier introuvable"}), 404
+
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        if (
+            not isinstance(data, dict)
+            or data.get("config_type") != "exposure_optimization"
+        ):
+            return jsonify({
+                "error": "Invalid Exposure Optimization configuration"
+            }), 400
+
+        return jsonify(data)
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/configs/save_exposure_opt", methods=["POST"])
+def api_configs_save_exposure_opt():
+    """Save one Exposure Optimization configuration."""
+    body = request.get_json(silent=True) or {}
+    requested = str(body.get("filename", "")).strip()
+    data = body.get("data")
+
+    if not requested:
+        return jsonify({"error": "Nom de fichier manquant"}), 400
+    if not isinstance(data, dict):
+        return jsonify({"error": "Configuration invalide"}), 400
+
+    data = deepcopy(data)
+    data["schema_version"] = 1
+    data["config_type"] = "exposure_optimization"
+
+    rigs = data.get("rigs")
+    if not isinstance(rigs, list) or len(rigs) != 4:
+        return jsonify({
+            "error": "Exposure Optimization must contain exactly 4 RIGs"
+        }), 400
+
+    seen = set()
+
+    try:
+        for rig in rigs:
+            if not isinstance(rig, dict):
+                raise ValueError("Invalid RIG entry")
+
+            rig_id = rig.get("rig_id")
+            if (
+                not isinstance(rig_id, int)
+                or isinstance(rig_id, bool)
+                or not 1 <= rig_id <= 4
+                or rig_id in seen
+            ):
+                raise ValueError("Invalid or duplicate rig_id")
+
+            seen.add(rig_id)
+
+            optics = rig.get("optics", {})
+            photo = rig.get("photo", {})
+
+            if not isinstance(optics, dict) or not isinstance(photo, dict):
+                raise ValueError(f"Invalid RIG {rig_id} configuration")
+
+            focal = optics.get("focal_length_mm")
+            if focal is not None:
+                _validate_positive_number(
+                    focal,
+                    f"rigs[{rig_id}].optics.focal_length_mm",
+                    nullable=True,
+                )
+
+            tolerance = photo.get("motion_tolerance_px")
+            if tolerance is not None:
+                _validate_positive_number(
+                    tolerance,
+                    f"rigs[{rig_id}].photo.motion_tolerance_px",
+                )
+
+            iso_max = photo.get("iso_max")
+            if iso_max is not None:
+                _validate_positive_number(
+                    iso_max,
+                    f"rigs[{rig_id}].photo.iso_max",
+                    integer=True,
+                )
+
+            for field in (
+                "anti_trailing_enabled",
+                "iso_compensation_enabled",
+            ):
+                if field in photo and not isinstance(photo[field], bool):
+                    raise ValueError(
+                        f"rigs[{rig_id}].photo.{field} must be a boolean"
+                    )
+
+        if not isinstance(
+            data.get("atmospheric_attenuation_enabled"),
+            bool,
+        ):
+            raise ValueError(
+                "atmospheric_attenuation_enabled must be a boolean"
+            )
+
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    filename = requested
+    if not filename.endswith(".json"):
+        filename += ".json"
+    if not filename.startswith("expo_"):
+        filename = "expo_" + filename
+    filename = Path(filename).name
+
+    try:
+        base_dir = CONFIGS_DIR / "exposure_opt"
+        base_dir.mkdir(parents=True, exist_ok=True)
+
+        destination = base_dir / filename
+
+        if destination.exists() and body.get("overwrite") is not True:
+            return jsonify({
+                "error": "Le fichier existe déjà",
+                "filename": filename,
+            }), 409
+
+        with open(destination, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=4, ensure_ascii=False)
+
+        return jsonify({
+            "status": "ok",
+            "filename": filename,
+            "saved": {"filename": filename, "data": data},
+        })
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/configs/exposure_opt/clean", methods=["POST"])
+def api_configs_exposure_opt_clean():
+    """Delete all Exposure Optimization JSON files."""
+    base_dir = CONFIGS_DIR / "exposure_opt"
+    deleted = 0
+    errors = []
+
+    if not base_dir.exists():
+        return jsonify({
+            "status": "ok",
+            "deleted": 0,
+            "errors": [],
+        })
+
+    for entry in base_dir.iterdir():
+        if (
+            entry.is_symlink()
+            or not entry.is_file()
+            or entry.suffix.lower() != ".json"
+        ):
+            continue
+
+        try:
+            entry.unlink()
+            deleted += 1
+        except OSError as exc:
+            errors.append({
+                "file": entry.name,
+                "error": str(exc),
+            })
+
+    return jsonify({
+        "status": "ok",
+        "deleted": deleted,
+        "errors": errors,
+    })
+
+
 @app.route("/api/configs/list_camera", methods=["GET"])
 def api_configs_list_camera():
     """Retourne les configurations appareil photo de camera_cfg/."""

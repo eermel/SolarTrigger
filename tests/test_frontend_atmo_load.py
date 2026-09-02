@@ -10,31 +10,31 @@ INDEX = (
 ).read_text(encoding="utf-8")
 
 
-def test_load_camera_config_initializes_atmospheric_attenuation_switch():
-    function = re.search(
-        r"async function loadCameraConfig\(filename\) \{(.*?)\n\}",
+def _function(name):
+    match = re.search(
+        rf"async function {name}\([^)]*\) \{{(.*?)\n\}}",
         INDEX,
         re.DOTALL,
     )
+    assert match is not None
+    return match.group(1)
 
-    assert function is not None
-    body = function.group(1)
 
-    assert "data.exposure_correction" in body
+def test_photo_setup_load_does_not_touch_atmospheric_attenuation():
+    body = _function("loadCameraConfig")
+
+    assert "load_photo" in body
+    assert "exposure_correction" not in body
+    assert "atmospheric_attenuation_enabled" not in body
+    assert "cfg-atmo-switch" not in body
+    assert "persistGlobalAtmos" not in body
+
+
+def test_exposure_opt_load_restores_atmospheric_attenuation():
+    body = _function("loadExposureOptConfig")
+
+    assert "load_exposure_opt" in body
     assert "atmospheric_attenuation_enabled" in body
-
-    assert re.search(
-        r"const\s+atmosEnabled\s*=\s*Boolean\(\s*"
-        r"data\.exposure_correction\?\.atmospheric_attenuation_enabled"
-        r"\s*\)",
-        body,
-        re.DOTALL,
-    )
-
-    assert re.search(
-        r"document\.getElementById\([\"']cfg-atmo-switch[\"']\)"
-        r"\.checked\s*=\s*atmosEnabled",
-        body,
-    )
-
-    assert "await persistGlobalAtmos(atmosEnabled, false)" in body
+    assert "atmos_enabled: atmos" in body
+    assert "/api/rigs/photo" in body
+    assert "await loadRigPhotoConfig()" in body

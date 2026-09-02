@@ -3,56 +3,44 @@ from pathlib import Path
 
 
 INDEX_HTML = (
-    Path(__file__).resolve().parents[1] / "flask_app" / "templates" / "index.html"
+    Path(__file__).resolve().parents[1]
+    / "flask_app"
+    / "templates"
+    / "index.html"
 ).read_text(encoding="utf-8")
 
 
-def test_cfg_photo_has_exactly_four_camera_rig_columns_before_phase_cards():
-    cfg_photo = re.search(
-        r'<div class="page" id="page-2">(?P<body>.*?)</div><!-- /page-2 CFG PHOTO -->',
-        INDEX_HTML,
-        flags=re.DOTALL,
-    )
-    assert cfg_photo, "CFG PHOTO page is missing"
+def test_photo_setup_contains_no_rig_columns():
+    start = INDEX_HTML.index('<div class="page" id="page-2">')
+    end = INDEX_HTML.index('<!-- /page-2 CFG PHOTO -->', start)
+    page = INDEX_HTML[start:end]
 
-    page_body = cfg_photo.group("body")
-    rigs_section = re.search(
-        r'<section\b[^>]*class="[^"]*\bcamera-rigs-section\b[^"]*"[^>]*>'
-        r'(?P<body>.*?)</section>',
-        page_body,
-        flags=re.DOTALL,
-    )
-    assert rigs_section, "Camera RIGs section is missing from CFG PHOTO"
+    assert "camcfg-rig-column-" not in page
+    assert "camera-rigs-section" not in page
+
+
+def test_exposure_opt_contains_exactly_four_rig_columns():
+    start = INDEX_HTML.index('<div class="page" id="page-exposure-opt">')
+    end = INDEX_HTML.index('<!-- /Exposure Optimization -->', start)
+    page = INDEX_HTML[start:end]
 
     columns = re.findall(
-        r'<div\b(?=[^>]*class="[^"]*\bcamcfg-rig-column\b[^"]*")'
-        r'(?=[^>]*\sid="([^"]+)")(?=[^>]*\sdata-rig-id="([^"]+)")[^>]*>',
-        rigs_section.group("body"),
+        r'id="camcfg-rig-column-([1-4])"',
+        page,
     )
-    assert columns == [
-        ("camcfg-rig-column-1", "1"),
-        ("camcfg-rig-column-2", "2"),
-        ("camcfg-rig-column-3", "3"),
-        ("camcfg-rig-column-4", "4"),
-    ]
-
-    camera_config_position = page_body.index(
-        '<div class="card-title">Camera configuration</div>'
-    )
-    rigs_position = page_body.index(rigs_section.group(0))
-    first_phase_position = page_body.index("<!-- ── CARD 2 : Phase Partielle ── -->")
-    assert camera_config_position < rigs_position < first_phase_position
+    assert columns == ["1", "2", "3", "4"]
 
 
-def test_update_rigs_toggles_camera_column_visibility_and_enabled_class():
+def test_update_rigs_toggles_exposure_opt_column_visibility():
     update_rigs = re.search(
         r"function updateRigs\(rigs\)\s*\{(?P<body>.*?)\n\}",
         INDEX_HTML,
-        flags=re.DOTALL,
+        re.DOTALL,
     )
-    assert update_rigs, "updateRigs function is missing"
+    assert update_rigs
 
     body = update_rigs.group("body")
+
     assert re.search(
         r"document\.getElementById\("
         r"`camcfg-rig-column-\$\{defaultRig\.rig_id\}`\)",
@@ -68,4 +56,3 @@ def test_update_rigs_toggles_camera_column_visibility_and_enabled_class():
         in body
     )
     assert "cameraColumn.hidden = false" in body
-
