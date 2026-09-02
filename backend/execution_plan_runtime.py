@@ -202,6 +202,8 @@ class ExecutionPlanRuntime:
         self.clock = clock
         self.camera = camera_client
         self.log = log_fn
+        self._timing_samples: list[float] = []
+        self._timing_lock = threading.Lock()
 
     def apply_initial_state(self, plan: dict[str, Any]) -> None:
         initial = plan.get("initial_state_required", {})
@@ -332,15 +334,28 @@ class ExecutionPlanRuntime:
 
             self._wait_until(target)
 
+            dispatch_time = self.clock.now()
+            lateness_ms = (
+                dispatch_time - target
+            ).total_seconds() * 1000.0
+
+            with self._timing_lock:
+                self._timing_samples.append(lateness_ms)
+
             self.log(
                 f"EXECUTION_PLAN rig={rig_id} "
                 f"action={command['action']} "
-                f"time={target.isoformat()}Z"
+                f"scheduled={target.isoformat()}Z "
+                f"dispatch={dispatch_time.isoformat()}Z "
+                f"lateness_ms={lateness_ms:+.3f}"
             )
 
             self._execute_command(command)
 
     def run(self, plan: dict[str, Any]) -> None:
+        with self._timing_lock:
+            self._timing_samples = []
+
         commands = plan.get("_commands_runtime")
         if not isinstance(commands, list):
             raise ExecutionPlanError("execution plan was not loaded by runtime loader")
@@ -373,6 +388,27 @@ class ExecutionPlanRuntime:
 
         for thread in threads:
             thread.join()
+
+        with self._timing_lock:
+            samples = list(self._timing_samples)
+
+        if samples:
+            ordered = sorted(samples)
+            count = len(ordered)
+            mean_ms = sum(ordered) / count
+
+            # Nearest-rank percentile: ceil(0.95 * count), converted to index.
+            p95_index = max(0, (95 * count + 99) // 100 - 1)
+            p95_ms = ordered[p95_index]
+            max_ms = ordered[-1]
+
+            self.log(
+                f"EXECUTION_PLAN TIMING "
+                f"count={count} "
+                f"mean_ms={mean_ms:+.3f} "
+                f"p95_ms={p95_ms:+.3f} "
+                f"max_ms={max_ms:+.3f}"
+            )
 
         if errors:
             rig_id, exc = errors[0]

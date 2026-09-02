@@ -519,3 +519,70 @@ def test_prepare_for_execution_replays_past_sets_but_never_past_photos():
         ("SET", 1, "shutterspeed", "1/250", None),
         ("SET", 1, "iso", "200", None),
     ]
+
+
+def test_runtime_logs_dispatch_lateness_and_summary():
+    start = datetime(2027, 8, 2, 10, 0, 0)
+    clock = FakeClock(start)
+    camera = FakeCamera()
+    logs = []
+
+    plan = {
+        "_commands_runtime": [
+            {
+                "index": 0,
+                "rig_id": 1,
+                "action": "SET",
+                "time": start + timedelta(seconds=1),
+                "params": {
+                    "parameter": "iso",
+                    "value": 100,
+                },
+            },
+            {
+                "index": 1,
+                "rig_id": 1,
+                "action": "PHOTO",
+                "time": start + timedelta(seconds=2),
+                "params": {},
+            },
+        ]
+    }
+
+    runtime = ExecutionPlanRuntime(
+        clock=clock,
+        camera_client=camera,
+        log_fn=logs.append,
+    )
+
+    runtime.run(plan)
+
+    dispatch_logs = [
+        line
+        for line in logs
+        if line.startswith("EXECUTION_PLAN rig=")
+    ]
+
+    assert len(dispatch_logs) == 2
+
+    assert "scheduled=2027-08-02T10:00:01Z" in dispatch_logs[0]
+    assert "dispatch=2027-08-02T10:00:01Z" in dispatch_logs[0]
+    assert "lateness_ms=+0.000" in dispatch_logs[0]
+
+    assert "scheduled=2027-08-02T10:00:02Z" in dispatch_logs[1]
+    assert "dispatch=2027-08-02T10:00:02Z" in dispatch_logs[1]
+    assert "lateness_ms=+0.000" in dispatch_logs[1]
+
+    timing_logs = [
+        line
+        for line in logs
+        if line.startswith("EXECUTION_PLAN TIMING ")
+    ]
+
+    assert timing_logs == [
+        "EXECUTION_PLAN TIMING "
+        "count=2 "
+        "mean_ms=+0.000 "
+        "p95_ms=+0.000 "
+        "max_ms=+0.000"
+    ]
