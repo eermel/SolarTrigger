@@ -1132,7 +1132,9 @@ def reduce_audited_capture_operations(
 
     reduced: list[dict[str, Any]] = []
 
-    for raw_operation in capture.operations:
+    operations = list(capture.operations)
+
+    for index, raw_operation in enumerate(operations):
         operation = deepcopy(raw_operation)
 
         if operation.get("action") != "set":
@@ -1146,7 +1148,41 @@ def reduce_audited_capture_operations(
             reduced.append(operation)
             continue
 
-        if state.get(parameter) == value:
+        # Sony native bracket preparation has a physical protocol:
+        #
+        #   Single Shot
+        #   SET centre shutterspeed
+        #   Continuous Bracket ...
+        #
+        # The centre shutter SET must be issued while the camera is in
+        # Single Shot mode even when its logical value is unchanged.
+        # Do not let generic state reduction remove that transaction.
+        sony_bracket_centre_set = False
+
+        if (
+            capture.backend == "sony"
+            and parameter == "shutterspeed"
+            and index > 0
+            and index + 1 < len(operations)
+        ):
+            previous = operations[index - 1]
+            following = operations[index + 1]
+
+            sony_bracket_centre_set = (
+                previous.get("action") == "set"
+                and previous.get("parameter") == "capturemode"
+                and str(previous.get("value")) == "Single Shot"
+                and following.get("action") == "set"
+                and following.get("parameter") == "capturemode"
+                and str(following.get("value")).startswith(
+                    "Continuous Bracket "
+                )
+            )
+
+        if (
+            state.get(parameter) == value
+            and not sony_bracket_centre_set
+        ):
             # No USB transaction required.
             continue
 
@@ -1627,7 +1663,56 @@ def format_execution_plan_lines(
 
     emitted_targets: set[tuple[Any, ...]] = set()
 
-    for event in plan.get("events", []):
+    events = list(plan.get("events", []))
+
+    # The canonical global event list keeps runtime-dependent Sony
+    # post-trigger operations (command_time=None) after all statically
+    # scheduled commands.  That ordering is useful for the canonical
+    # document but misleading for a human audit: EXPECT_FRAMES,
+    # BRACKET_RELEASE and SETTLE_IDLE appear detached from their capture.
+    #
+    # For display only, restore each runtime operation immediately after
+    # the trigger/capture it belongs to.  Do not mutate the execution plan.
+    runtime_by_capture: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+
+    for event in events:
+        if event.get("command_time") is not None:
+            continue
+
+        key = (
+            event["rig_id"],
+            event["phase_window"],
+            event["sequence_index"],
+        )
+        runtime_by_capture.setdefault(key, []).append(event)
+
+    display_events: list[dict[str, Any]] = []
+
+    for event in events:
+        if event.get("command_time") is None:
+            continue
+
+        display_events.append(event)
+
+        if str(event.get("timing_relation") or "").lower() != "trigger":
+            continue
+
+        key = (
+            event["rig_id"],
+            event["phase_window"],
+            event["sequence_index"],
+        )
+
+        display_events.extend(
+            runtime_by_capture.pop(key, [])
+        )
+
+    # Defensive fallback for malformed/unusual plans whose runtime
+    # operations have no corresponding statically scheduled trigger.
+    for remaining in runtime_by_capture.values():
+        display_events.extend(remaining)
+
+    for event in display_events:
         rig_id = event["rig_id"]
         backend = str(event["backend"]).upper()
         relation = str(event["timing_relation"]).upper()

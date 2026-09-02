@@ -678,8 +678,15 @@ def test_trigger_initial_state_removes_unnecessary_first_sony_sets():
         if op.get("action") == "set"
     ]
 
-    # Only entering Sony native bracket mode is still required.
+    # Sony native bracket preparation always reissues the centre shutter
+    # while the camera is in Single Shot mode, even when its logical value
+    # is already known from Trigger initial state.
     assert sets == [
+        {
+            "action": "set",
+            "parameter": "shutterspeed",
+            "value": "1/250",
+        },
         {
             "action": "set",
             "parameter": "capturemode",
@@ -732,15 +739,21 @@ def test_second_identical_sony_bracket_only_keeps_required_mode_transitions():
     ]
 
     # After a bracket, Sony remains in bracket capture mode.
-    # We must return to Single Shot before bracket preparation.
+    # Native bracket preparation must physically execute:
     #
-    # The centre shutter itself is already 1/250, so setting it again
-    # would be an unnecessary USB operation.
+    #   Single Shot -> centre shutter -> Continuous Bracket
+    #
+    # even when the centre shutter value is already logically known.
     assert sets == [
         {
             "action": "set",
             "parameter": "capturemode",
             "value": "Single Shot",
+        },
+        {
+            "action": "set",
+            "parameter": "shutterspeed",
+            "value": "1/250",
         },
         {
             "action": "set",
@@ -786,6 +799,11 @@ def test_reduced_capture_changes_scheduling_lead_time():
         )
         for item in timed
     ] == [
+        (
+            "set",
+            "shutterspeed",
+            datetime(2027, 8, 2, 10, 3, 59, 450000),
+        ),
         (
             "set",
             "capturemode",
@@ -1349,3 +1367,60 @@ def test_multirig_can_use_different_timing_for_same_backend():
             ),
         ),
     ]
+
+
+def test_execution_plan_format_keeps_runtime_post_trigger_with_its_capture():
+    audited = audit_materialized_sony_capture(
+        _sony_materialized_capture()
+    )
+
+    reduced, _state = reduce_audited_capture_operations(
+        audited,
+        {
+            "iso": "100",
+            "capturemode": "Single Shot",
+            "shutterspeed": "1/250",
+        },
+    )
+
+    scheduled = schedule_audited_capture(
+        reduced,
+        _sony_test_timing(),
+    )
+
+    merged = merge_scheduled_operations({
+        1: scheduled,
+    })
+
+    plan = build_execution_plan_document(
+        merged,
+        initial_states={
+            1: {
+                "iso": "100",
+                "capturemode": "Single Shot",
+                "shutterspeed": "1/250",
+            },
+        },
+    )
+
+    lines = format_execution_plan_lines(plan)
+
+    trigger_index = next(
+        index
+        for index, line in enumerate(lines)
+        if "BRACKET PRESS" in line
+    )
+
+    runtime_lines = lines[
+        trigger_index + 2:
+        trigger_index + 5
+    ]
+
+    assert "EXPECT 5 FRAMES" in runtime_lines[0]
+    assert "BRACKET RELEASE" in runtime_lines[1]
+    assert "SETTLE IDLE" in runtime_lines[2]
+
+    assert all(
+        "RUNTIME" in line
+        for line in runtime_lines
+    )
