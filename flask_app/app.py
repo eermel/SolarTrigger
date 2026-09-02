@@ -67,7 +67,10 @@ from functools import wraps
 from pathlib import Path
 from types import SimpleNamespace
 
-import gphoto2 as gp
+try:
+    import gphoto2 as gp
+except ModuleNotFoundError:
+    gp = None
 from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
 
@@ -229,6 +232,11 @@ from backend.rig_config import (
     validate as validate_rig_config,
 )
 from backend.rig_manager import RigManager
+from backend.sequencer_plan_service import (
+    SequencerCompileError,
+    compile_execution_plan_from_files,
+)
+
 from backend.rig_runtime import (
     get_rig_manager,
     load_rig_configuration,
@@ -3388,6 +3396,353 @@ def api_configs_save_exposure_opt():
 def api_configs_exposure_opt_clean():
     """Delete all Exposure Optimization JSON files."""
     base_dir = CONFIGS_DIR / "exposure_opt"
+    deleted = 0
+    errors = []
+
+    if not base_dir.exists():
+        return jsonify({
+            "status": "ok",
+            "deleted": 0,
+            "errors": [],
+        })
+
+    for entry in base_dir.iterdir():
+        if (
+            entry.is_symlink()
+            or not entry.is_file()
+            or entry.suffix.lower() != ".json"
+        ):
+            continue
+
+        try:
+            entry.unlink()
+            deleted += 1
+        except OSError as exc:
+            errors.append({
+                "file": entry.name,
+                "error": str(exc),
+            })
+
+    return jsonify({
+        "status": "ok",
+        "deleted": deleted,
+        "errors": errors,
+    })
+
+
+@app.route("/api/configs/load_circumstances/<filename>", methods=["GET"])
+def api_configs_load_circumstances(filename):
+    """Load one circumstances file without changing the active eclipse."""
+    try:
+        filename = Path(filename).name
+        path = _resolve_config_file(filename, "circumstances")
+
+        if (
+            not path.exists()
+            or not path.is_file()
+            or path.suffix.lower() != ".json"
+        ):
+            return jsonify({"error": "Fichier introuvable"}), 404
+
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        if not isinstance(data, dict):
+            return jsonify({"error": "Invalid circumstances configuration"}), 400
+
+        required = ("TSTART", "C1", "C2", "C3", "C4", "TEND")
+        missing = [field for field in required if not data.get(field)]
+
+        if missing:
+            return jsonify({
+                "error": "Invalid circumstances configuration",
+                "missing": missing,
+            }), 400
+
+        return jsonify(data)
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+
+@app.route("/api/sequencer/compile", methods=["POST"])
+def api_sequencer_compile():
+    """Compile and persist a deterministic execution plan.
+
+    This route never initializes or triggers camera hardware.
+    """
+    body = request.get_json(silent=True) or {}
+
+    raw_sequence_file = body.get("sequence_file")
+
+    if (
+        not isinstance(raw_sequence_file, str)
+        or not raw_sequence_file.strip()
+    ):
+        return jsonify({
+            "error": "Missing Sequencer input: sequence_file",
+        }), 400
+
+    sequence_file = raw_sequence_file.strip()
+
+    if Path(sequence_file).name != sequence_file:
+        return jsonify({
+            "error": "Invalid Sequencer input filename: sequence_file",
+        }), 400
+
+    raw_timing_files = body.get("camera_timing_files")
+
+    if not isinstance(raw_timing_files, dict):
+        return jsonify({
+            "error": "camera_timing_files must be an object",
+        }), 400
+
+    timing_files = {}
+
+    for raw_rig_id, raw_filename in raw_timing_files.items():
+        try:
+            rig_id = int(raw_rig_id)
+        except (TypeError, ValueError):
+            return jsonify({
+                "error": f"Invalid RIG id in camera_timing_files: {raw_rig_id}",
+            }), 400
+
+        if rig_id < 1 or rig_id > 4:
+            return jsonify({
+                "error": f"Invalid RIG id in camera_timing_files: {rig_id}",
+            }), 400
+
+        if (
+            not isinstance(raw_filename, str)
+            or not raw_filename.strip()
+        ):
+            return jsonify({
+                "error": f"Missing camera timing file for RIG {rig_id}",
+            }), 400
+
+        filename = raw_filename.strip()
+
+        if Path(filename).name != filename:
+            return jsonify({
+                "error": f"Invalid camera timing filename for RIG {rig_id}",
+            }), 400
+
+        timing_files[rig_id] = filename
+
+    try:
+        plan, lines = compile_execution_plan_from_files(
+            configs_dir=CONFIGS_DIR,
+            sequence_file=sequence_file,
+            camera_timing_files=timing_files,
+        )
+    except SequencerCompileError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": "SEQUENCER_COMPILE_FAILED",
+        }), 400
+    except Exception as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": "SEQUENCER_COMPILE_ERROR",
+        }), 500
+
+    output_dir = CONFIGS_DIR / "execution_plan"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    source_stem = Path(sequence_file).stem
+
+    output_name = (
+        f"execution_plan_{source_stem}.json"
+    )
+
+    destination = output_dir / output_name
+
+    try:
+        with destination.open(
+            "w",
+            encoding="utf-8",
+        ) as handle:
+            json.dump(
+                plan,
+                handle,
+                indent=2,
+                ensure_ascii=False,
+            )
+            handle.write("\n")
+    except OSError as exc:
+        return jsonify({
+            "error": f"execution plan could not be saved: {exc}",
+            "code": "SEQUENCER_SAVE_FAILED",
+        }), 500
+
+    return jsonify({
+        "status": "ok",
+        "filename": output_name,
+        "plan": plan,
+        "lines": lines,
+    })
+
+
+@app.route("/api/configs/list_camera_timing", methods=["GET"])
+def api_configs_list_camera_timing():
+    """List calibrated camera timing profiles."""
+    try:
+        base_dir = CONFIGS_DIR / "camera_timing"
+        files = sorted(
+            path.name
+            for path in base_dir.glob("*.json")
+            if path.is_file()
+        )
+        return jsonify({"files": files})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/configs/list_sequence", methods=["GET"])
+def api_configs_list_sequence():
+    """List saved Sequencer configurations."""
+    try:
+        base_dir = CONFIGS_DIR / "sequence"
+        files = sorted(
+            path.name
+            for path in base_dir.glob("*.json")
+            if path.is_file()
+        )
+        return jsonify({"files": files})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/configs/load_sequence/<filename>", methods=["GET"])
+def api_configs_load_sequence(filename):
+    """Load one Sequencer configuration."""
+    try:
+        filename = Path(filename).name
+        path = CONFIGS_DIR / "sequence" / filename
+
+        if (
+            not path.exists()
+            or not path.is_file()
+            or path.suffix.lower() != ".json"
+        ):
+            return jsonify({"error": "Fichier introuvable"}), 404
+
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        if (
+            not isinstance(data, dict)
+            or data.get("config_type") != "sequence"
+        ):
+            return jsonify({
+                "error": "Invalid Sequencer configuration"
+            }), 400
+
+        return jsonify(data)
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/configs/save_sequence", methods=["POST"])
+def api_configs_save_sequence():
+    """Save one Sequencer configuration."""
+    body = request.get_json(silent=True) or {}
+    requested = str(body.get("filename", "")).strip()
+    data = body.get("data")
+
+    if not requested:
+        return jsonify({"error": "Nom de fichier manquant"}), 400
+
+    if not isinstance(data, dict):
+        return jsonify({"error": "Configuration invalide"}), 400
+
+    requested_path = Path(requested)
+
+    if (
+        requested_path.is_absolute()
+        or "/" in requested
+        or "\\" in requested
+        or ".." in requested_path.parts
+    ):
+        return jsonify({"error": "Nom de fichier invalide"}), 400
+
+    filename = requested
+    if not filename.endswith(".json"):
+        filename += ".json"
+
+    filename = Path(filename).name
+
+    data = deepcopy(data)
+    data["schema_version"] = 1
+    data["config_type"] = "sequence"
+
+    required_fields = (
+        "circumstances_file",
+        "photo_setup_file",
+        "exposure_opt_file",
+    )
+
+    for field in required_fields:
+        value = data.get(field)
+
+        if not isinstance(value, str) or not value.strip():
+            return jsonify({
+                "error": f"Missing Sequencer input: {field}"
+            }), 400
+
+        data[field] = Path(value.strip()).name
+
+    margin_min = data.get("sequence_margin_min", 60)
+
+    if (
+        isinstance(margin_min, bool)
+        or not isinstance(margin_min, (int, float))
+        or margin_min < 0
+    ):
+        return jsonify({
+            "error": "Invalid sequence_margin_min"
+        }), 400
+
+    data["sequence_margin_min"] = margin_min
+
+    base_dir = CONFIGS_DIR / "sequence"
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    destination = base_dir / filename
+
+    try:
+        if destination.resolve().parent != base_dir.resolve():
+            return jsonify({"error": "Nom de fichier invalide"}), 400
+
+        if destination.exists() and body.get("overwrite") is not True:
+            return jsonify({
+                "error": "Le fichier existe déjà",
+                "filename": filename,
+            }), 409
+
+        with open(destination, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+
+        return jsonify({
+            "status": "ok",
+            "filename": filename,
+            "saved": {
+                "filename": filename,
+                "data": data,
+            },
+        })
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/configs/sequence/clean", methods=["POST"])
+def api_configs_sequence_clean():
+    """Delete all saved Sequencer JSON files."""
+    base_dir = CONFIGS_DIR / "sequence"
     deleted = 0
     errors = []
 

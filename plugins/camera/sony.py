@@ -25,7 +25,10 @@ Regles de sequencement DUREMENT validees (voir sony_planner pour le decoupage) :
 
 import time
 
-import gphoto2 as gp
+try:
+    import gphoto2 as gp
+except ModuleNotFoundError:
+    gp = None
 
 from .base import (
     CameraPlugin,
@@ -53,6 +56,9 @@ class SonyPlugin(CameraPlugin):
     # ------------------------------------------------------------------ #
     def _set(self, name, value):
         """Ecrit une config. Retourne (ok, is_readonly, err)."""
+        if gp is None:
+            return False, False, "gphoto2 unavailable"
+
         try:
             cfg = self.camera.get_config()
             w = cfg.get_child_by_name(name)
@@ -407,6 +413,124 @@ class SonyPlugin(CameraPlugin):
             planned_count=self._planned_count(seq),
             plugin_name=self.name,
         )
+
+
+    def audit_prepared_capture(self, prepared):
+        """Describe the exact physical Sony operations without touching hardware.
+
+        This is consumed by the Sequencer compiler.  The returned operations
+        deliberately mirror trigger_prepared()/execution helpers so an audit
+        plan shows what the Sony plugin will really do.
+        """
+        mode, *values = prepared.token
+
+        operations = []
+
+        def set_op(name, value):
+            operations.append({
+                "action": "set",
+                "parameter": str(name),
+                "value": str(value),
+            })
+
+        def single(speed, iso=None):
+            if iso is not None:
+                set_op("iso", iso)
+
+            set_op("capturemode", "Single Shot")
+            set_op("shutterspeed", speed)
+
+            operations.append({
+                "action": "trigger_capture",
+                "shutter": str(speed),
+                "iso": int(iso) if iso is not None else None,
+                "expected_frames": 1,
+            })
+
+            operations.append({
+                "action": "settle_idle",
+            })
+
+        def bracket(item, iso=None):
+            if iso is not None:
+                set_op("iso", iso)
+
+            # Exact order used by _fire_bracket():
+            # Single Shot -> centre shutter -> native bracket -> bulb hold.
+            set_op("capturemode", "Single Shot")
+            set_op("shutterspeed", item.centre)
+            set_op("capturemode", item.mode_string)
+
+            operations.append({
+                "action": "bracket_press",
+                "parameter": "bulb",
+                "value": "1",
+                "centre": str(item.centre),
+                "step_ev": float(item.step),
+                "frames": int(item.nimg),
+                "physical_views": [str(view) for view in item.views],
+            })
+
+            operations.append({
+                "action": "expect_frames",
+                "count": int(item.nimg),
+                "physical_views": [str(view) for view in item.views],
+            })
+
+            operations.append({
+                "action": "bracket_release",
+                "parameter": "bulb",
+                "value": "0",
+            })
+
+            operations.append({
+                "action": "settle_idle",
+            })
+
+        def sequence(seq, iso=None):
+            for item in seq:
+                if isinstance(item, planner.SinglePhoto):
+                    single(item.speed, iso)
+                elif isinstance(item, planner.Bracket):
+                    bracket(item, iso)
+                else:
+                    raise ValueError(
+                        f"unsupported Sony planner item: {type(item)!r}"
+                    )
+
+        if mode == "sony_sequence":
+            seq, _prepared_deadline, _description = values
+            sequence(seq)
+            return operations
+
+        if mode == "sony_exposure_sequence":
+            seq, _prepared_deadline, _description, iso = values
+            sequence(seq, iso)
+            return operations
+
+        if mode == "sony_exposure_singles":
+            plan, _prepared_deadline, _description = values
+            for speed, iso in plan:
+                single(speed, iso)
+            return operations
+
+        if mode == "sony_exposure_mixed":
+            segments, _prepared_deadline, _description = values
+
+            for seq, iso, description in segments:
+                operations.append({
+                    "action": "segment",
+                    "description": str(description),
+                    "iso": int(iso),
+                })
+                sequence(seq, iso)
+
+            return operations
+
+        raise ValueError(
+            f"unsupported prepared Sony capture mode for audit: {mode!r}"
+        )
+
 
     def trigger_prepared(self, prepared, deadline=None):
         mode, *values = prepared.token

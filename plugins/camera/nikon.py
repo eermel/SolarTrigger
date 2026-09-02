@@ -22,7 +22,10 @@ Strategie de capture : PHOTO PAR PHOTO -- une vue par vitesse.
 
 import time
 
-import gphoto2 as gp
+try:
+    import gphoto2 as gp
+except ModuleNotFoundError:
+    gp = None
 
 from .base import CameraPlugin, CaptureResult, seconds_until_deadline
 
@@ -93,6 +96,56 @@ class NikonBasePlugin(CameraPlugin):
             self._set("iso", str(iso))
         if aperture is not None:
             self._set("f-number", aperture)
+
+    def audit_prepared_capture(self, prepared):
+        """Describe the exact Nikon exposure-plan operations without hardware."""
+        mode, *values = prepared.token
+
+        if mode != "exposure_plan":
+            raise ValueError(
+                f"unsupported prepared Nikon capture mode for audit: {mode!r}"
+            )
+
+        plan, _prepared_deadline = values
+
+        operations = []
+        current_iso = None
+
+        for speed, iso in plan:
+            iso_value = str(iso)
+
+            if iso_value != current_iso:
+                operations.append({
+                    "action": "set",
+                    "parameter": "iso",
+                    "value": iso_value,
+                })
+                current_iso = iso_value
+
+            operations.append({
+                "action": "set",
+                "parameter": "shutterspeed2",
+                "value": str(speed),
+                "fallback_parameter": "shutterspeed",
+            })
+
+            operations.append({
+                "action": "trigger_capture",
+                "shutter": str(speed),
+                "iso": int(iso),
+                "expected_frames": 1,
+            })
+
+            # Nikon shoot_speeds() currently waits 50 ms after each
+            # photo-by-photo trigger.
+            operations.append({
+                "action": "delay",
+                "duration_ms": 50,
+                "reason": "nikon_photo_spacing",
+            })
+
+        return operations
+
 
     def shoot_speeds(self, v_max, v_min, step_il, photo_num_start=0,
                      deadline=None):

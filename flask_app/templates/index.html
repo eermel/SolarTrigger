@@ -796,15 +796,24 @@ header {
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M4 20h16M6 17l3-6 3 3 3-8 3 11"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="6" r="1"/></svg>
       <span>EXPO. OPT.</span>
     </button>
-    <button class="tab" onclick="showTab(5)">
+    <button class="tab" id="sequencer-tab" onclick="showTab(5)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5">
+        <circle cx="5" cy="6" r="2"/>
+        <circle cx="12" cy="12" r="2"/>
+        <circle cx="19" cy="18" r="2"/>
+        <path d="M7 6h3a2 2 0 0 1 2 2v2M14 12h3a2 2 0 0 1 2 2v2"/>
+      </svg>
+      <span>SEQUENCER</span>
+    </button>
+    <button class="tab" onclick="showTab(6)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="3"/></svg>
       <span>CAMERA</span>
     </button>
-    <button class="tab" id="controls-tab" onclick="showTab(6)">
+    <button class="tab" id="controls-tab" onclick="showTab(7)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
       <span>CONTROLS</span>
     </button>
-    <button class="tab" onclick="showTab(7)">
+    <button class="tab" onclick="showTab(8)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
       <span>TRIGGER</span>
     </button>
@@ -1414,6 +1423,251 @@ header {
 
 
     <!-- ═══════════════ PAGE 3 : CAMÉRA ═══════════════ -->
+    <!-- ═══════════════ SEQUENCER ═══════════════ -->
+    <div class="page" id="sequencer-panel">
+
+      <!-- Sequence file -->
+      <div class="card">
+        <div class="card-title">Sequence configuration</div>
+
+        <div style="display:flex;gap:6px">
+          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
+            id="sequencer-config-select"
+            onchange="loadSequenceConfig(this.value)">
+            <option value="">— Sequence file —</option>
+          </select>
+
+          <button
+            class="btn btn-primary"
+            type="button"
+            style="font-size:11px;padding:7px 10px"
+            onclick="saveSequenceConfig()">
+            💾 Save
+          </button>
+
+          <button
+            class="btn btn-secondary"
+            type="button"
+            style="font-size:11px;padding:7px 10px"
+            onclick="cleanSequenceConfigs()">
+            🧹 CLEAN
+          </button>
+        </div>
+      </div>
+
+
+      <!-- Inputs -->
+      <div class="card">
+        <div class="card-title">Input configurations</div>
+
+        <div style="
+          display:grid;
+          grid-template-columns:190px minmax(0,1fr);
+          gap:8px 12px;
+          align-items:center;
+        ">
+
+          <div class="stat-label">Eclipse circumstances</div>
+          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-circumstances-select">
+            <option value="">— Circumstances file —</option>
+          </select>
+
+          <div class="stat-label">Photo Setup</div>
+          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-photo-select">
+            <option value="">— Photo Setup file —</option>
+          </select>
+
+          <div class="stat-label">Exposure Optimization</div>
+          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-exposure-opt-select">
+            <option value="">— Exposure Optimization file —</option>
+          </select>
+
+          <div class="stat-label">Sequence margin</div>
+          <div style="display:flex;align-items:center;gap:8px" class="field">
+            <input
+              id="sequencer-margin-min"
+              type="number"
+              min="0"
+              step="1"
+              value="60"
+              onchange="renderSequencer()" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:11px 12px;color:var(--text);font-family:var(--mono);font-size:14px;width:100%;outline:none;-webkit-appearance:none;appearance:textfield;box-sizing:border-box;">
+            <span style="
+              font-family:var(--mono);
+              font-size:10px;
+              color:var(--text-dim);
+            ">
+              min — START = C1 − margin / END = C4 + margin
+            </span>
+          </div>
+
+        </div>
+
+        <div class="sep" style="margin:12px 0"></div>
+
+        <div class="card-title" style="margin-bottom:8px">
+          Sequence parameters
+        </div>
+
+        <div style="
+          display:grid;
+          grid-template-columns:repeat(3,minmax(0,1fr));
+          gap:10px;
+        ">
+          <div class="stat">
+            <div class="stat-label">Diamond Ring duration</div>
+            <div
+              class="stat-value"
+              id="seq-dr-duration"
+              style="color:var(--accent)">
+              --
+            </div>
+          </div>
+
+          <div class="stat">
+            <div class="stat-label">Partial interval</div>
+            <div class="stat-value" id="seq-partial-interval">
+              --
+            </div>
+          </div>
+
+          <div class="stat">
+            <div class="stat-label">Diamond Ring interval</div>
+            <div class="stat-value" id="seq-dr-interval">
+              --
+            </div>
+          </div>
+        </div>
+
+        <div class="sep" style="margin:12px 0"></div>
+
+        <div class="card-title" style="margin-bottom:8px">Active RIGs</div>
+
+        <div style="
+          display:grid;
+          grid-template-columns:repeat(2,minmax(0,1fr));
+          gap:8px;
+        "
+          id="sequencer-rigs-summary">
+        </div>
+
+      </div>
+
+
+      <!-- Run Sequencer -->
+      <div class="card">
+        <div>
+          <button class="btn btn-success btn-full"
+            id="btn-run-sequencer"
+            type="button"
+            onclick="runSequencer()">
+            ▶ RUN SEQUENCER
+          </button>
+        </div>
+      </div>
+
+
+      <!-- Timeline -->
+      <div class="card">
+        <div class="card-title">Sequence timeline</div>
+
+        <div style="
+          display:grid;
+          grid-template-columns:repeat(3,minmax(0,1fr));
+          gap:10px;
+          align-items:start;
+          font-family:var(--mono);
+          font-size:10px;
+        ">
+          <div class="stat">
+            <div class="stat-label">START</div>
+            <div class="stat-value green" id="seq-tstart">--</div>
+          </div>
+
+          <div class="stat">
+            <div class="stat-label">C1</div>
+            <div class="stat-value blue" id="seq-c1">--</div>
+          </div>
+
+          <div class="stat">
+            <div class="stat-label">C2 - DR</div>
+            <div class="stat-value" id="seq-c2-dr" style="color:var(--accent)">--</div>
+          </div>
+
+          <div class="stat">
+            <div class="stat-label">C2</div>
+            <div class="stat-value orange" id="seq-c2">--</div>
+          </div>
+
+          <div class="stat">
+            <div class="stat-label">TMAX</div>
+            <div class="stat-value green" id="seq-tmax">--</div>
+          </div>
+
+          <div class="stat">
+            <div class="stat-label">C3</div>
+            <div class="stat-value orange" id="seq-c3">--</div>
+          </div>
+
+          <div class="stat">
+            <div class="stat-label">C3 + DR</div>
+            <div class="stat-value" id="seq-c3-dr" style="color:var(--accent)">--</div>
+          </div>
+
+          <div class="stat">
+            <div class="stat-label">C4</div>
+            <div class="stat-value blue" id="seq-c4">--</div>
+          </div>
+
+          <div class="stat">
+            <div class="stat-label">END</div>
+            <div class="stat-value green" id="seq-tend">--</div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- Log -->
+      <div class="card" style="flex-shrink:0">
+        <div
+          class="card-title"
+          style="
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+          ">
+          <span>Sequencer log</span>
+
+          <button
+            class="btn btn-secondary"
+            type="button"
+            style="font-size:10px;padding:4px 9px"
+            onclick="clearLog('sequencer')">
+            CLEAR
+          </button>
+        </div>
+
+        <div
+          id="log-container-sequencer"
+          style="
+            height:320px;
+            overflow-y:auto;
+            background:var(--bg3);
+            border:1px solid var(--border);
+            border-radius:8px;
+            padding:10px 12px;
+            font-family:var(--mono);
+            font-size:11px;
+            line-height:1.5;
+            white-space:pre-wrap;
+            word-break:break-word;
+          ">
+          <div class="log-line info">Sequencer ready.</div>
+        </div>
+      </div>
+
+    </div><!-- /sequencer-panel -->
+
+
     <div class="page" id="page-3" data-device-section="camera">
 
       <section class="camera-rigs-section">
@@ -6070,6 +6324,7 @@ function appendLog(text, level = 'info', source = '', ts = '') {
   else if (source === 'calculator') containerId = 'log-container-calculator';
   else if (source === 'trigger') containerId = 'log-container-trigger';
   else if (source === 'exposure_opt') containerId = 'log-container-exposure_opt';
+  else if (source === 'sequencer') containerId = 'log-container-sequencer';
   
   const containers = document.querySelectorAll(`#${containerId}`);
   if (containers.length === 0) return;
@@ -6114,6 +6369,7 @@ async function clearLog(source = '') {
   else if (source === 'calculator') containerId = 'log-container-calculator';
   else if (source === 'trigger') containerId = 'log-container-trigger';
   else if (source === 'exposure_opt') containerId = 'log-container-exposure_opt';
+  else if (source === 'sequencer') containerId = 'log-container-sequencer';
   
   document.querySelectorAll(`#${containerId}`).forEach(c => c.innerHTML = '');
   // Bloquer l'ajout de nouvelles lignes pendant 1s
@@ -6167,6 +6423,994 @@ async function erasePersistentDataAndReboot() {
 
 
 // ════════════════════════════════════════════════════════════════
+// SEQUENCER
+// ════════════════════════════════════════════════════════════════
+
+let sequencerCircumstances = null;
+let sequencerPhotoConfig = null;
+let sequencerExposureOptConfig = null;
+
+
+function _sequencerParseClock(value) {
+  if (typeof value !== 'string') return null;
+
+  const match = value.trim().match(
+    /^(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d+))?$/
+  );
+
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  const fraction = match[4] ? Number(`0.${match[4]}`) : 0;
+
+  if (
+    hours < 0 || hours > 23 ||
+    minutes < 0 || minutes > 59 ||
+    seconds < 0 || seconds > 59
+  ) {
+    return null;
+  }
+
+  return hours * 3600 + minutes * 60 + seconds + fraction;
+}
+
+
+function _sequencerFormatClock(totalSeconds) {
+  if (!Number.isFinite(totalSeconds)) return '--';
+
+  let value = totalSeconds % 86400;
+  if (value < 0) value += 86400;
+
+  let hh = Math.floor(value / 3600);
+  value -= hh * 3600;
+
+  let mm = Math.floor(value / 60);
+  value -= mm * 60;
+
+  let seconds = Math.floor(value);
+
+  let milliseconds = Math.round(
+    (value - seconds) * 1000
+  );
+
+  if (milliseconds === 1000) {
+    milliseconds = 0;
+    seconds += 1;
+  }
+
+  if (seconds === 60) {
+    seconds = 0;
+    mm += 1;
+  }
+
+  if (mm === 60) {
+    mm = 0;
+    hh = (hh + 1) % 24;
+  }
+
+  return (
+    String(hh).padStart(2, '0') + ':' +
+    String(mm).padStart(2, '0') + ':' +
+    String(seconds).padStart(2, '0')
+  );
+}
+
+
+function _sequencerShiftClock(value, deltaSeconds) {
+  const parsed = _sequencerParseClock(value);
+
+  if (parsed == null || !Number.isFinite(deltaSeconds)) {
+    return '--';
+  }
+
+  return _sequencerFormatClock(parsed + deltaSeconds);
+}
+
+
+function _sequencerDisplayClock(value) {
+  if (value == null || value === '') return '--';
+
+  const text = String(value).trim();
+
+  const match = text.match(
+    /^(\d{1,2}:\d{2}:\d{2})(?:\.\d+)?$/
+  );
+
+  if (!match) return text;
+
+  const parts = match[1].split(':');
+
+  return (
+    String(Number(parts[0])).padStart(2, '0') + ':' +
+    parts[1] + ':' +
+    parts[2]
+  );
+}
+
+
+function _sequencerSet(id, value) {
+  const element = document.getElementById(id);
+  if (element) element.textContent = value == null ? '--' : value;
+}
+
+
+function appendSequencerLog(text, level = 'info') {
+  const now = new Date();
+
+  const ts = [
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join(':');
+
+  appendLog(text, level, 'sequencer', ts);
+}
+
+
+async function _sequencerFillSelect(
+  selectId,
+  url,
+  placeholder,
+  objectItems = false
+) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+
+  const current = select.value;
+
+  const response = await fetch(url);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || `HTTP error ${response.status}`);
+  }
+
+  select.innerHTML = `<option value="">${placeholder}</option>`;
+
+  (data.files || []).forEach(item => {
+    const filename = objectItems ? item.name : item;
+    if (!filename || filename === 'todayeclipse.json') return;
+
+    const option = document.createElement('option');
+    option.value = filename;
+    option.textContent = filename;
+
+    if (filename === current) {
+      option.selected = true;
+    }
+
+    select.appendChild(option);
+  });
+}
+
+
+let sequencerCameraTimingFiles = [];
+const sequencerCameraTimingSelection = {};
+
+
+function setSequencerCameraTiming(rigId, filename) {
+  const id = Number(rigId);
+
+  if (!filename) {
+    delete sequencerCameraTimingSelection[id];
+  } else {
+    sequencerCameraTimingSelection[id] = filename;
+  }
+}
+
+
+async function loadSequencerCameraTimingList() {
+  const response = await fetch(
+    '/api/configs/list_camera_timing'
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `HTTP error ${response.status}`
+    );
+  }
+
+  sequencerCameraTimingFiles =
+    Array.isArray(data.files)
+      ? data.files
+      : [];
+
+  renderSequencerRigSummary();
+}
+
+
+async function loadSequencerConfigLists() {
+  try {
+    await Promise.all([
+      _sequencerFillSelect(
+        'sequencer-config-select',
+        '/api/configs/list_sequence',
+        '— Sequence file —'
+      ),
+
+      _sequencerFillSelect(
+        'sequencer-circumstances-select',
+        '/api/configs/list_eclipse',
+        '— Circumstances file —',
+        true
+      ),
+
+      _sequencerFillSelect(
+        'sequencer-photo-select',
+        '/api/configs/list_photo',
+        '— Photo Setup file —'
+      ),
+
+      _sequencerFillSelect(
+        'sequencer-exposure-opt-select',
+        '/api/configs/list_exposure_opt',
+        '— Exposure Optimization file —'
+      ),
+
+      loadSequencerCameraTimingList(),
+    ]);
+  } catch (error) {
+    appendSequencerLog(
+      `Configuration lists: ${error.message}`,
+      'error'
+    );
+  }
+}
+
+
+function readSequenceConfig() {
+  const circumstances =
+    document.getElementById('sequencer-circumstances-select');
+
+  const photo =
+    document.getElementById('sequencer-photo-select');
+
+  const exposure =
+    document.getElementById('sequencer-exposure-opt-select');
+
+  const marginInput =
+    document.getElementById('sequencer-margin-min');
+
+  const marginMin = Number(
+    marginInput ? marginInput.value : 60
+  );
+
+  return {
+    schema_version: 1,
+    config_type: 'sequence',
+    circumstances_file: circumstances ? circumstances.value : '',
+    photo_setup_file: photo ? photo.value : '',
+    exposure_opt_file: exposure ? exposure.value : '',
+    sequence_margin_min:
+      Number.isFinite(marginMin) && marginMin >= 0
+        ? marginMin
+        : 60,
+  };
+}
+
+
+async function saveSequenceConfig() {
+  const select =
+    document.getElementById('sequencer-config-select');
+
+  const current = select && select.value
+    ? select.value.replace(/\.json$/, '')
+    : 'sequence';
+
+  const name = prompt('Sequence file name:', current);
+  if (!name) return;
+
+  const data = readSequenceConfig();
+
+  if (
+    !data.circumstances_file ||
+    !data.photo_setup_file ||
+    !data.exposure_opt_file
+  ) {
+    flash('Select all Sequencer input files first', 'red');
+    return;
+  }
+
+  const save = overwrite => fetch('/api/configs/save_sequence', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      filename: name,
+      data,
+      overwrite,
+    }),
+  });
+
+  try {
+    let response = await save(false);
+    let result = await response.json();
+
+    if (response.status === 409) {
+      if (!confirm(
+        `${result.filename || name} already exists. Overwrite it?`
+      )) {
+        return;
+      }
+
+      response = await save(true);
+      result = await response.json();
+    }
+
+    if (!response.ok || result.status !== 'ok') {
+      throw new Error(
+        result.error || `HTTP error ${response.status}`
+      );
+    }
+
+    await loadSequencerConfigLists();
+
+    if (select) {
+      select.value = result.filename;
+    }
+
+    flash('Saved: ' + result.filename, 'green');
+
+  } catch (error) {
+    flash(`Sequencer Save: ${error.message}`, 'red');
+  }
+}
+
+
+async function loadSequenceConfig(filename) {
+  if (!filename) return;
+
+  try {
+    const response = await fetch(
+      '/api/configs/load_sequence/' +
+      encodeURIComponent(filename)
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || `HTTP error ${response.status}`
+      );
+    }
+
+    const circumstances =
+      document.getElementById('sequencer-circumstances-select');
+
+    const photo =
+      document.getElementById('sequencer-photo-select');
+
+    const exposure =
+      document.getElementById('sequencer-exposure-opt-select');
+
+    if (circumstances) {
+      circumstances.value = data.circumstances_file || '';
+    }
+
+    if (photo) {
+      photo.value = data.photo_setup_file || '';
+    }
+
+    if (exposure) {
+      exposure.value = data.exposure_opt_file || '';
+    }
+
+    const marginInput =
+      document.getElementById('sequencer-margin-min');
+
+    if (marginInput) {
+      const margin = Number(data.sequence_margin_min);
+
+      marginInput.value =
+        Number.isFinite(margin) && margin >= 0
+          ? margin
+          : 60;
+    }
+
+    renderSequencer();
+
+    appendSequencerLog(
+      `Sequence configuration loaded: ${filename}`,
+      'success'
+    );
+
+  } catch (error) {
+    appendSequencerLog(
+      `Load sequence: ${error.message}`,
+      'error'
+    );
+  }
+}
+
+
+async function cleanSequenceConfigs() {
+  if (!confirm(
+    'Delete ALL saved Sequence JSON files?\n\nThis cannot be undone.'
+  )) {
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      '/api/configs/sequence/clean',
+      {method:'POST'}
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error || `HTTP error ${response.status}`
+      );
+    }
+
+    flash(
+      `${result.deleted || 0} Sequence file(s) deleted`,
+      'yellow'
+    );
+
+    await loadSequencerConfigLists();
+
+  } catch (error) {
+    flash(`Sequencer CLEAN: ${error.message}`, 'red');
+  }
+}
+
+
+function renderSequencerRigSummary() {
+  const container = document.getElementById('sequencer-rigs-summary');
+  if (!container) return;
+
+  const rigs = Array.isArray(rigDevicesState.rigs)
+    ? rigDevicesState.rigs
+    : [];
+
+  const byId = new Map(
+    rigs.map(rig => [Number(rig.rig_id), rig])
+  );
+
+  const html = [1, 2, 3, 4].map(rigId => {
+    const rig = byId.get(rigId) || null;
+
+    const active =
+      rigId === 1 ||
+      Boolean(rig && rig.enabled === true);
+
+    const devices =
+      rig && rig.devices && typeof rig.devices === 'object'
+        ? rig.devices
+        : {};
+
+    const camera =
+      devices.camera && typeof devices.camera === 'object'
+        ? devices.camera
+        : {};
+
+    const cameraName =
+      camera.display_label ||
+      camera.name ||
+      camera.label ||
+      camera.model ||
+      camera.device_id ||
+      camera.backend ||
+      '—';
+
+    const focal =
+      rig &&
+      rig.optics &&
+      rig.optics.focal_length_mm != null
+        ? `${rig.optics.focal_length_mm} mm`
+        : '—';
+
+    const status = active
+      ? (rigId === 1 ? 'REQUIRED' : 'ON')
+      : 'OFF';
+
+    const statusColor = active
+      ? 'var(--green)'
+      : 'var(--text-dim)';
+
+    const opacity = active ? '1' : '.55';
+
+    return `
+      <div style="
+        min-width:0;
+        padding:10px 12px;
+        border:1px solid ${active ? 'var(--green)' : 'var(--border)'};
+        border-radius:8px;
+        background:var(--bg3);
+        opacity:${opacity};
+      ">
+        <div style="
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:8px;
+          margin-bottom:8px;
+        ">
+          <strong style="
+            font-family:var(--mono);
+            font-size:11px;
+            color:var(--text);
+          ">
+            RIG ${rigId}
+          </strong>
+
+          <span style="
+            font-family:var(--mono);
+            font-size:10px;
+            color:${statusColor};
+          ">
+            ${status}
+          </span>
+        </div>
+
+        <div style="
+          display:grid;
+          grid-template-columns:auto minmax(0,1fr);
+          gap:4px 10px;
+          font-family:var(--mono);
+          font-size:10px;
+        ">
+          <span style="color:var(--text-dim)">Camera</span>
+          <span style="
+            color:var(--text);
+            overflow:hidden;
+            text-overflow:ellipsis;
+            white-space:nowrap;
+          ">
+            ${escapeDeviceText(cameraName)}
+          </span>
+
+          <span style="color:var(--text-dim)">Focal</span>
+          <span style="color:var(--text)">
+            ${escapeDeviceText(focal)}
+          </span>
+
+          <span style="color:var(--text-dim)">Timing</span>
+          <select
+            id="sequencer-timing-rig-${rigId}"
+            ${active ? '' : 'disabled'}
+            onchange="setSequencerCameraTiming(${rigId}, this.value)"
+            style="
+              min-width:0;
+              width:100%;
+              background:var(--bg2);
+              border:1px solid var(--border);
+              border-radius:5px;
+              color:var(--text);
+              font-family:var(--mono);
+              font-size:9px;
+              padding:4px 5px;
+            ">
+            <option value="">— calibrated profile —</option>
+            ${sequencerCameraTimingFiles.map(filename => `
+              <option
+                value="${escapeDeviceText(filename)}"
+                ${
+                  sequencerCameraTimingSelection[rigId] === filename
+                    ? 'selected'
+                    : ''
+                }>
+                ${escapeDeviceText(filename)}
+              </option>
+            `).join('')}
+          </select>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html.join('');
+}
+
+
+function renderSequencer() {
+  const eclipse =
+    sequencerCircumstances ||
+    state.eclipse ||
+    {};
+
+  const phases =
+    sequencerPhotoConfig &&
+    sequencerPhotoConfig.phases
+      ? sequencerPhotoConfig.phases
+      : {};
+
+  const partial = phases.partial || {};
+  const diamond = phases.diamond_ring || {};
+
+  const c1 = eclipse.C1 || null;
+  const c2 = eclipse.C2 || null;
+  const tmax = eclipse.TMAX || eclipse.tmax || null;
+  const c3 = eclipse.C3 || null;
+  const c4 = eclipse.C4 || null;
+
+  const marginInput =
+    document.getElementById('sequencer-margin-min');
+
+  const marginMin = Number(
+    marginInput ? marginInput.value : 60
+  );
+
+  const marginSeconds =
+    Number.isFinite(marginMin) && marginMin >= 0
+      ? marginMin * 60
+      : 3600;
+
+  const tstart = c1
+    ? _sequencerShiftClock(c1, -marginSeconds)
+    : '--';
+
+  const tend = c4
+    ? _sequencerShiftClock(c4, marginSeconds)
+    : '--';
+
+  let drDuration = Number(
+    diamond.duration_s ?? diamond.duration
+  );
+
+  if (!Number.isFinite(drDuration) || drDuration <= 0) {
+    const input = document.getElementById('cfg-dr-duration');
+    drDuration = Number(input && input.value);
+  }
+
+  if (!Number.isFinite(drDuration) || drDuration <= 0) {
+    drDuration = Number(
+      eclipse.diamond_ring &&
+      eclipse.diamond_ring.duration_s != null
+        ? eclipse.diamond_ring.duration_s
+        : eclipse.duree_diamond_ring
+    );
+  }
+
+  const hasDrDuration =
+    Number.isFinite(drDuration) &&
+    drDuration > 0;
+
+  const c2Dr = hasDrDuration
+    ? _sequencerShiftClock(c2, -drDuration)
+    : '--';
+
+  const c3Dr = hasDrDuration
+    ? _sequencerShiftClock(c3, drDuration)
+    : '--';
+
+  _sequencerSet('seq-tstart', _sequencerDisplayClock(tstart));
+  _sequencerSet('seq-c1', _sequencerDisplayClock(c1));
+  _sequencerSet('seq-c2-dr', _sequencerDisplayClock(c2Dr));
+  _sequencerSet('seq-c2', _sequencerDisplayClock(c2));
+  _sequencerSet('seq-tmax', _sequencerDisplayClock(tmax));
+  _sequencerSet('seq-c3', _sequencerDisplayClock(c3));
+  _sequencerSet('seq-c3-dr', _sequencerDisplayClock(c3Dr));
+  _sequencerSet('seq-c4', _sequencerDisplayClock(c4));
+  _sequencerSet('seq-tend', _sequencerDisplayClock(tend));
+
+  _sequencerSet(
+    'seq-phase-1a',
+    tstart && c2Dr !== '--'
+      ? `${_sequencerDisplayClock(tstart)} → ${_sequencerDisplayClock(c2Dr)}`
+      : '--'
+  );
+
+  _sequencerSet(
+    'seq-phase-1b',
+    c2Dr !== '--' && c2
+      ? `${_sequencerDisplayClock(c2Dr)} → ${_sequencerDisplayClock(c2)}`
+      : '--'
+  );
+
+  _sequencerSet(
+    'seq-phase-2',
+    c2 && c3
+      ? `${_sequencerDisplayClock(c2)} → ${_sequencerDisplayClock(c3)}`
+      : '--'
+  );
+
+  _sequencerSet(
+    'seq-phase-3a',
+    c3 && c3Dr !== '--'
+      ? `${_sequencerDisplayClock(c3)} → ${_sequencerDisplayClock(c3Dr)}`
+      : '--'
+  );
+
+  _sequencerSet(
+    'seq-phase-3b',
+    c3Dr !== '--' && tend
+      ? `${_sequencerDisplayClock(c3Dr)} → ${_sequencerDisplayClock(tend)}`
+      : '--'
+  );
+
+  _sequencerSet(
+    'seq-dr-duration',
+    hasDrDuration ? `${drDuration} s` : '--'
+  );
+
+  const partialInterval = Number(
+    partial.interval_s ??
+    partial.interval ??
+    (
+      document.getElementById('cfg-partial-interval') || {}
+    ).value
+  );
+
+  _sequencerSet(
+    'seq-partial-interval',
+    Number.isFinite(partialInterval) && partialInterval > 0
+      ? `${partialInterval} s`
+      : '--'
+  );
+
+  const drInterval = Number(
+    diamond.interval_s ??
+    diamond.interval ??
+    (
+      document.getElementById('cfg-dr-interval') || {}
+    ).value
+  );
+
+  _sequencerSet(
+    'seq-dr-interval',
+    Number.isFinite(drInterval) && drInterval > 0
+      ? `${drInterval} s`
+      : '--'
+  );
+
+  renderSequencerRigSummary();
+}
+
+
+async function runSequencer() {
+  const config = readSequenceConfig();
+
+  const sequenceSelect =
+    document.getElementById('sequencer-config-select');
+
+  const sequenceFile =
+    sequenceSelect && sequenceSelect.value
+      ? sequenceSelect.value
+      : '';
+
+  if (!sequenceFile) {
+    flash('Select a Sequence file', 'red');
+    return;
+  }
+
+  const activeRigs = (rigDevicesState.rigs || []).filter(
+    rig =>
+      Number(rig.rig_id) === 1 ||
+      rig.enabled === true
+  );
+
+  const cameraTimingFiles = {};
+
+  for (const rig of activeRigs) {
+    const rigId = Number(rig.rig_id);
+
+    const select = document.getElementById(
+      `sequencer-timing-rig-${rigId}`
+    );
+
+    const filename =
+      select && select.value
+        ? select.value
+        : sequencerCameraTimingSelection[rigId];
+
+    if (!filename) {
+      flash(
+        `Select a calibrated timing profile for RIG ${rigId}`,
+        'red'
+      );
+      return;
+    }
+
+    cameraTimingFiles[String(rigId)] = filename;
+    sequencerCameraTimingSelection[rigId] = filename;
+  }
+
+  const logContainer =
+    document.getElementById('log-container-sequencer');
+
+  if (logContainer) {
+    logContainer.innerHTML = '';
+  }
+
+  appendSequencerLog('Sequencer compilation started', 'info');
+  appendSequencerLog(
+    `Sequence: ${sequenceFile}`,
+    'info'
+  );
+  appendSequencerLog(
+    `Circumstances: ${config.circumstances_file}`,
+    'info'
+  );
+  appendSequencerLog(
+    `Photo Setup: ${config.photo_setup_file}`,
+    'info'
+  );
+  appendSequencerLog(
+    `Exposure Optimization: ${config.exposure_opt_file}`,
+    'info'
+  );
+
+  appendSequencerLog(
+    `Active RIGs: ${
+      activeRigs.map(rig => `RIG ${rig.rig_id}`).join(', ')
+    }`,
+    'info'
+  );
+
+  for (const rig of activeRigs) {
+    const rigId = Number(rig.rig_id);
+
+    appendSequencerLog(
+      `RIG ${rigId} timing: ${cameraTimingFiles[String(rigId)]}`,
+      'info'
+    );
+  }
+
+  const button =
+    document.getElementById('btn-run-sequencer');
+
+  if (button) button.disabled = true;
+
+  try {
+    /*
+     * Keep the selected source configurations visible in the
+     * Sequencer timeline. These GETs are read-only.
+     */
+    const [
+      circumstancesResponse,
+      photoResponse,
+      exposureResponse,
+    ] = await Promise.all([
+      fetch(
+        '/api/configs/load_circumstances/' +
+        encodeURIComponent(config.circumstances_file)
+      ),
+      fetch(
+        '/api/configs/load_photo/' +
+        encodeURIComponent(config.photo_setup_file)
+      ),
+      fetch(
+        '/api/configs/load_exposure_opt/' +
+        encodeURIComponent(config.exposure_opt_file)
+      ),
+    ]);
+
+    const [
+      circumstances,
+      photo,
+      exposure,
+    ] = await Promise.all([
+      circumstancesResponse.json(),
+      photoResponse.json(),
+      exposureResponse.json(),
+    ]);
+
+    if (!circumstancesResponse.ok) {
+      throw new Error(
+        `Circumstances: ${
+          circumstances.error ||
+          `HTTP ${circumstancesResponse.status}`
+        }`
+      );
+    }
+
+    if (!photoResponse.ok) {
+      throw new Error(
+        `Photo Setup: ${
+          photo.error ||
+          `HTTP ${photoResponse.status}`
+        }`
+      );
+    }
+
+    if (!exposureResponse.ok) {
+      throw new Error(
+        `Exposure Optimization: ${
+          exposure.error ||
+          `HTTP ${exposureResponse.status}`
+        }`
+      );
+    }
+
+    sequencerCircumstances = circumstances;
+    sequencerPhotoConfig = photo;
+    sequencerExposureOptConfig = exposure;
+
+    renderSequencer();
+
+    appendSequencerLog(
+      'Input files validated',
+      'success'
+    );
+
+    const compileResponse = await fetch(
+      '/api/sequencer/compile',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sequence_file: sequenceFile,
+          camera_timing_files:
+            cameraTimingFiles,
+        }),
+      }
+    );
+
+    const result = await compileResponse.json();
+
+    if (!compileResponse.ok || result.status !== 'ok') {
+      throw new Error(
+        result.error ||
+        `HTTP error ${compileResponse.status}`
+      );
+    }
+
+    appendSequencerLog(
+      `Execution plan saved: ${result.filename}`,
+      'success'
+    );
+
+    const plan = result.plan || {};
+
+    appendSequencerLog(
+      `Targets: ${
+        Array.isArray(plan.targets)
+          ? plan.targets.length
+          : 0
+      }`,
+      'info'
+    );
+
+    appendSequencerLog(
+      `Operations: ${
+        Array.isArray(plan.events)
+          ? plan.events.length
+          : 0
+      }`,
+      'info'
+    );
+
+    appendSequencerLog(
+      '──── EXECUTION PLAN ────',
+      'info'
+    );
+
+    (result.lines || []).forEach(line => {
+      appendSequencerLog(line, 'info');
+    });
+
+    appendSequencerLog(
+      'Sequencer compilation completed successfully',
+      'success'
+    );
+
+    flash(
+      `Execution plan generated: ${result.filename}`,
+      'green'
+    );
+
+  } catch (error) {
+    appendSequencerLog(
+      `Sequencer failed: ${error.message}`,
+      'error'
+    );
+
+    flash(`Sequencer: ${error.message}`, 'red');
+
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
 // NAVIGATION
 // ════════════════════════════════════════════════════════════════
 function showTab(n) {
@@ -6187,7 +7431,15 @@ function showTab(n) {
     loadExposureOptConfigList();
     loadRigPhotoConfig();
   }
-  if (n === 7) { loadTriggerConfigList(); loadEclipseFileList(); }
+  if (n === 5) {
+    loadSequencerConfigLists().then(() => {
+      renderSequencer();
+    });
+  }
+  if (n === 8) {
+    loadTriggerConfigList();
+    loadEclipseFileList();
+  }
 }
 
 // ════════════════════════════════════════════════════════════════

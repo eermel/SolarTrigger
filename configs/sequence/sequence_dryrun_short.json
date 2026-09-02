@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "config_type": "sequence",
+  "circumstances_file": "dryrun_short.json",
+  "photo_setup_file": "photo_dryrun_short.json",
+  "exposure_opt_file": "expo_exposure_dryrun_short.json",
+  "sequence_margin_min": 60
+}

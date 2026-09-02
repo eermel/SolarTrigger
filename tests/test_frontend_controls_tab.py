@@ -63,6 +63,7 @@ def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
         "ECLIPSE",
         "PHOTO SETUP",
         "EXPO. OPT.",
+        "SEQUENCER",
         "CAMERA",
         "CONTROLS",
         "TRIGGER",
@@ -73,20 +74,22 @@ def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
         "page-1",
         "page-2",
         "page-exposure-opt",
+        "sequencer-panel",
         "page-3",
         "controls-panel",
         "page-4",
     ]
 
-    controls, trigger = parser.tabs[6:]
+    controls = parser.tabs[7]
+    trigger = parser.tabs[8]
     assert controls["id"] == "controls-tab"
-    assert controls["onclick"] == "showTab(6)"
-    assert trigger["onclick"] == "showTab(7)"
+    assert controls["onclick"] == "showTab(7)"
+    assert trigger["onclick"] == "showTab(8)"
 
 
 def test_trigger_initialization_uses_trigger_tab_index():
     trigger_initialization = re.compile(
-        r"if\s*\(\s*n\s*===\s*7\s*\)\s*\{\s*"
+        r"if\s*\(\s*n\s*===\s*8\s*\)\s*\{\s*"
         r"loadTriggerConfigList\(\);\s*loadEclipseFileList\(\);\s*\}"
     )
 

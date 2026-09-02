@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "config_type": "camera_timing",
+  "backend": "sony",
+  "manufacturer": "Sony",
+  "model": "ILCE-7M5",
+  "timing": {
+    "set_iso_ms": 830,
+    "set_capturemode_ms": 838,
+    "set_shutter_ms": 827,
+    "trigger_single_latency_ms": 26,
+    "trigger_single_duration_ms": 0,
+    "bracket_press_latency_ms": 840,
+    "bracket_release_ms": 854,
+    "settle_idle_ms": 666
+  }
+}

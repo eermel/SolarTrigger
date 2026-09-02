@@ -1,0 +1,43 @@
+{
+    "schema_version": 1,
+    "config_type": "exposure_optimization",
+    "atmospheric_attenuation_enabled": true,
+    "rigs": [
+        {
+            "rig_id": 1,
+            "photo": {
+                "anti_trailing_enabled": true,
+                "motion_tolerance_px": 1,
+                "iso_compensation_enabled": true,
+                "iso_max": 6400
+            }
+        },
+        {
+            "rig_id": 2,
+            "photo": {
+                "anti_trailing_enabled": true,
+                "motion_tolerance_px": 1,
+                "iso_compensation_enabled": true,
+                "iso_max": 6400
+            }
+        },
+        {
+            "rig_id": 3,
+            "photo": {
+                "anti_trailing_enabled": false,
+                "motion_tolerance_px": 1,
+                "iso_compensation_enabled": false,
+                "iso_max": 6400
+            }
+        },
+        {
+            "rig_id": 4,
+            "photo": {
+                "anti_trailing_enabled": false,
+                "motion_tolerance_px": 1,
+                "iso_compensation_enabled": false,
+                "iso_max": 6400
+            }
+        }
+    ]
+}
