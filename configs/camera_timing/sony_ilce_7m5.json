@@ -3,7 +3,7 @@
   "config_type": "camera_timing",
   "backend": "sony",
   "manufacturer": "Sony",
-  "model": "ILCE-7M5",
+  "model": "Sony ILCE-7M5 (PC Control)",
   "timing": {
     "set_iso_ms": 830,
     "set_capturemode_ms": 838,

@@ -3,7 +3,7 @@
   "config_type": "camera_timing",
   "backend": "nikon-dslr",
   "manufacturer": "Nikon",
-  "model": "D850",
+  "model": "Nikon DSC D850",
   "timing": {
     "set_iso_ms": 550,
     "set_capturemode_ms": 0,
