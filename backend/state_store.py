@@ -30,7 +30,8 @@ DEFAULT_STATE = {
 class StateStore:
     """Thread-safe runtime state with explicit persistence boundaries."""
     PERSISTED_KEYS = ("gps", "camera", "eclipse", "camera_config_file",
-                      "circumstances", "capture", "devices", "focuser_settings")
+                      "circumstances", "capture", "devices", "focuser_settings",
+                      "execution_plan_file")
     DEVICE_NAMES = ("camera", "gps", "focuser", "mount")
 
     def __init__(self, path: Path, defaults: dict | None = None):

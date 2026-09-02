@@ -1,6 +1,7 @@
 import json
 
 import flask_app.app as app_module
+from backend.state_store import StateStore
 
 
 def _client(monkeypatch, tmp_path):
@@ -8,6 +9,11 @@ def _client(monkeypatch, tmp_path):
         app_module,
         "CONFIGS_DIR",
         tmp_path / "configs",
+    )
+    monkeypatch.setattr(
+        app_module,
+        "_state_store",
+        StateStore(tmp_path / "state.json"),
     )
     return app_module.app.test_client()
 
@@ -88,6 +94,14 @@ def test_compile_route_persists_execution_plan(
     assert json.loads(
         saved.read_text(encoding="utf-8")
     ) == plan
+
+    state_file = tmp_path / "state.json"
+    assert state_file.exists()
+
+    restored = StateStore(state_file)
+    assert restored.get("execution_plan_file") == (
+        "my_execution_plan.json"
+    )
 
 
 def test_compile_route_sequence_file_is_optional(
