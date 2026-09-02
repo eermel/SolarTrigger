@@ -3,6 +3,9 @@ from datetime import datetime
 import pytest
 
 from backend.sequencer_compiler import (
+    CaptureTarget,
+    GlobalExecutionEvent,
+    _execution_command,
     build_sequence_windows,
     compile_capture_targets,
 )
@@ -1634,3 +1637,37 @@ def test_pre_c2_bracket_is_skipped_if_it_blocks_totality_preparation():
     # C2 and C3 remain executable hard anchors.
     assert totality_photos
     assert c3_photos
+
+
+def test_execution_plan_preserves_set_fallback_parameter():
+    event = GlobalExecutionEvent(
+        rig_id=2,
+        backend="nikon",
+        phase="partial",
+        phase_window="phase_1a",
+        sequence_index=0,
+        target_time=datetime(2027, 8, 2, 10, 0, 1),
+        command_time=datetime(2027, 8, 2, 10, 0, 0),
+        timing_relation="before_target",
+        operation_index=0,
+        operation={
+            "action": "set",
+            "parameter": "shutterspeed2",
+            "value": "1/500",
+            "fallback_parameter": "shutterspeed",
+        },
+        duration_ms=543.0,
+    )
+
+    command = _execution_command(event)
+
+    assert command == {
+        "time_utc": "2027-08-02T10:00:00.000Z",
+        "rig_id": 2,
+        "action": "SET",
+        "params": {
+            "parameter": "shutterspeed2",
+            "value": "1/500",
+            "fallback_parameter": "shutterspeed",
+        },
+    }

@@ -935,3 +935,25 @@ def test_simultaneous_nikon_captures_on_different_rigs_are_allowed():
         event.rig_id
         for event in first_triggers
     } == {1, 2}
+
+
+def test_execution_plan_set_parameter_uses_nikon_shutter_fallback():
+    from plugins.camera.nikon import NikonBasePlugin
+
+    calls = []
+
+    plugin = object.__new__(NikonBasePlugin)
+    plugin.name = "Nikon test"
+
+    def fake_set(name, value):
+        calls.append((name, value))
+        return name == "shutterspeed"
+
+    plugin._set = fake_set
+
+    assert plugin.set_parameter("shutterspeed2", "1/500") is True
+
+    assert calls == [
+        ("shutterspeed2", "1/500"),
+        ("shutterspeed", "1/500"),
+    ]

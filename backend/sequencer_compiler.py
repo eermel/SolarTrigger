@@ -2019,14 +2019,18 @@ def _execution_command(
     action = operation.get("action")
 
     if action == "set":
+        params = {
+            "parameter": operation.get("parameter"),
+            "value": operation.get("value"),
+        }
+        if operation.get("fallback_parameter") is not None:
+            params["fallback_parameter"] = operation.get("fallback_parameter")
+
         return {
             "time_utc": _isoformat_ms(event.command_time),
             "rig_id": event.rig_id,
             "action": "SET",
-            "params": {
-                "parameter": operation.get("parameter"),
-                "value": operation.get("value"),
-            },
+            "params": params,
         }
 
     if action in {"trigger_capture", "bracket_press"}:

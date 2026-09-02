@@ -163,6 +163,22 @@ class CameraWorker:
             worker_deadline=monotonic_deadline,
         )
 
+    def set_parameter(self, parameter, value, fallback_parameter=None):
+        return self._call(
+            "set_parameter",
+            parameter,
+            value,
+            fallback_parameter=fallback_parameter,
+            priority=PRIORITY_SEQUENCER,
+        )
+
+    def execute_photo(self, params):
+        return self._call(
+            "execute_photo",
+            params,
+            priority=PRIORITY_SEQUENCER,
+        )
+
     def get_battery_level(self):
         return self._call(
             "get_battery_level", priority=PRIORITY_DIAGNOSTIC

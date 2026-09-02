@@ -135,6 +135,18 @@ class CameraPlugin(ABC):
         """
         raise NotImplementedError
 
+    def set_parameter(self, parameter, value, fallback_parameter=None):
+        """Apply one physical camera setting from an execution plan."""
+        raise NotImplementedError(
+            f"{self.name} does not implement execution-plan SET"
+        )
+
+    def execute_photo(self, params):
+        """Execute one atomic PHOTO command from an execution plan."""
+        raise NotImplementedError(
+            f"{self.name} does not implement execution-plan PHOTO"
+        )
+
     def get_battery_level(self):
         """Return battery percentage as int when the camera exposes it."""
         try:

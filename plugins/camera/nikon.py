@@ -76,6 +76,50 @@ class NikonBasePlugin(CameraPlugin):
             self.log(f"   [{self.name}] declenchement {speed} : {e}")
             return False
 
+    def set_parameter(self, parameter, value, fallback_parameter=None):
+        parameter = str(parameter)
+
+        candidates = [parameter]
+
+        if fallback_parameter is not None:
+            candidates.append(str(fallback_parameter))
+        elif parameter == "shutterspeed2":
+            # Nikon bodies may expose shutterspeed2 as read-only while the
+            # writable equivalent remains available as shutterspeed.
+            candidates.append("shutterspeed")
+
+        for name in candidates:
+            if self._set(name, value):
+                return True
+
+        raise RuntimeError(
+            f"{self.name} setting {parameter}={value!r} could not be applied"
+        )
+
+    def execute_photo(self, params):
+        params = dict(params or {})
+
+        expected_frames = params.get("expected_frames", 1)
+        if expected_frames != 1:
+            raise ValueError("Nikon PHOTO requires expected_frames=1")
+
+        shutter = params.get("shutter")
+
+        try:
+            self.camera.trigger_capture()
+        except gp.GPhoto2Error as exc:
+            raise RuntimeError(
+                f"{self.name} PHOTO trigger failed"
+                + (f" for {shutter}" if shutter is not None else "")
+                + f": {exc}"
+            ) from exc
+
+        return CaptureResult(
+            frames=1,
+            planned=1,
+            detail="execution-plan single",
+        )
+
     def init_settings(self, aperture=None, iso=None, image_format="NEF (Raw)",
                       white_balance="Daylight"):
         self.log(f"   [{self.name}] init reglages")

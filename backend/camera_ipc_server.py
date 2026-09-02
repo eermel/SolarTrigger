@@ -83,6 +83,13 @@ _PARAM_KEYS = {
         "white_balance",
     },
     "apply_phase_settings": {"rig_id", "aperture", "iso"},
+    "camera.set_parameter": {
+        "rig_id",
+        "parameter",
+        "value",
+        "fallback_parameter",
+    },
+    "camera.execute_photo": {"rig_id", "params"},
     "prepare_capture": {"rig_id", "intent"},
     "trigger_prepared": {"rig_id", "token_id", "deadline"},
     "shoot_speed_list": {
@@ -97,6 +104,8 @@ _REQUIRED_PARAMS = {
     "camera.capabilities": {"rig_id"},
     "camera.initialize": {"rig_id"},
     "apply_phase_settings": {"rig_id"},
+    "camera.set_parameter": {"rig_id", "parameter", "value"},
+    "camera.execute_photo": {"rig_id", "params"},
     "prepare_capture": {"rig_id", "intent"},
     "trigger_prepared": {"rig_id", "token_id"},
     "shoot_speed_list": {"rig_id", "speeds"},
@@ -483,6 +492,63 @@ class CameraIpcServer:
                 with self._state_lock:
                     self._rig_iso_targets[rig_id] = int(iso)
             return result
+        if operation == "camera.set_parameter":
+            parameter = params.get("parameter")
+            fallback_parameter = params.get("fallback_parameter")
+
+            if not isinstance(parameter, str) or not parameter:
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    "parameter must be a non-empty string",
+                )
+            if (
+                fallback_parameter is not None
+                and (
+                    not isinstance(fallback_parameter, str)
+                    or not fallback_parameter
+                )
+            ):
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    "fallback_parameter must be a non-empty string or null",
+                )
+
+            rig_id, worker = self._worker(params)
+
+            result = self._call_worker(
+                worker.set_parameter,
+                parameter,
+                params.get("value"),
+                fallback_parameter=fallback_parameter,
+            )
+
+            return {
+                "rig_id": rig_id,
+                "applied": bool(result),
+            }
+
+        if operation == "camera.execute_photo":
+            photo_params = params.get("params")
+            if not isinstance(photo_params, dict):
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    "params must be an object",
+                )
+
+            rig_id, worker = self._worker(params)
+
+            result = self._call_worker(
+                worker.execute_photo,
+                photo_params,
+            )
+
+            return {
+                "rig_id": rig_id,
+                "frames": int(getattr(result, "frames", 0) or 0),
+                "planned": int(getattr(result, "planned", 0) or 0),
+                "detail": str(getattr(result, "detail", "") or ""),
+            }
+
         if operation == "prepare_capture":
             intent_data = params.get("intent")
             if not isinstance(intent_data, dict):

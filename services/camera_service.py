@@ -347,6 +347,22 @@ class CameraService:
             if prepared.materialized is not None:
                 self._last_phase_settings.pop("iso", None)
 
+    def set_parameter(self, parameter, value, fallback_parameter=None):
+        if not self.plugin:
+            raise RuntimeError("caméra non connectée")
+
+        return self.plugin.set_parameter(
+            parameter,
+            value,
+            fallback_parameter=fallback_parameter,
+        )
+
+    def execute_photo(self, params):
+        if not self.plugin:
+            raise RuntimeError("caméra non connectée")
+
+        return self.plugin.execute_photo(params)
+
     def get_battery_level(self):
         if not self.plugin:
             return None

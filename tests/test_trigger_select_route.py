@@ -49,6 +49,25 @@ def _configure_trigger_route(
     )
 
     state_store = StateStore(tmp_path / "state.json")
+
+    execution_plan_dir = configs_dir / "execution_plan"
+    execution_plan_dir.mkdir(parents=True)
+    execution_plan_name = "test_execution_plan.json"
+    (execution_plan_dir / execution_plan_name).write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "config_type": "execution_plan",
+                "sequence_start_utc": "2027-08-02T10:00:00.000Z",
+                "sequence_end_utc": "2027-08-02T10:40:00.000Z",
+                "initial_state_required": {},
+                "commands": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_store.set("execution_plan_file", execution_plan_name)
+
     state_store.update_section(
         "gps", {"synced": True, "sync_time": datetime.now().astimezone().isoformat()}
     )

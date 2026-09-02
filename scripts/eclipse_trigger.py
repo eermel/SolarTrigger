@@ -119,6 +119,11 @@ logging.basicConfig(
 # ══════════════════════════════════════════════════════════════════════════════
 from pathlib import Path
 from backend.trigger_runtime import RuntimeClock, TriggerWatchdog
+from backend.execution_plan_runtime import (
+    ExecutionPlanRuntime,
+    load_execution_plan,
+    rebase_execution_plan,
+)
 from backend.timeline import build_timeline, rebase_timeline, format_hms_ms
 from services.camera_service import CameraService, CaptureIntent, PreparedCapture
 from plugins.camera.base import CaptureResult
@@ -225,6 +230,12 @@ def parse_arguments():
     )
     parser.add_argument("--file",   type=str, default=None, help="Fichier JSON circonstances éclipse")
     parser.add_argument("--camera", type=str, default=None, help="Fichier JSON configuration appareil photo")
+    parser.add_argument(
+        "--execution-plan",
+        type=str,
+        default=None,
+        help="Plan d'exécution Sequencer schema v2",
+    )
     parser.add_argument("--interact",  action="store_true",  help="Enable interact mode")
     parser.add_argument("--debug",     action="store_true",  help="Enable debug mode (contacts dans 15s)")
     parser.add_argument("--simulate",  action="store_true",  help="Mode simulation accélérée sans déclenchement matériel")
@@ -1675,6 +1686,120 @@ def _first_future_grid_slot(first_target, interval_s, phase_end):
     return target
 
 
+class _SimulationExecutionCamera:
+    """No-hardware camera endpoint for execution-plan simulation."""
+
+    def set_parameter(
+        self,
+        rig_id,
+        parameter,
+        value,
+        *,
+        fallback_parameter=None,
+    ):
+        detail = f"{parameter}={value}"
+        if fallback_parameter is not None:
+            detail += f" fallback={fallback_parameter}"
+
+        _log(
+            f"SIM EXECUTION_PLAN RIG{rig_id} SET {detail}"
+        )
+        return {"applied": True}
+
+    def execute_photo(self, rig_id, params):
+        _log(
+            f"SIM EXECUTION_PLAN RIG{rig_id} PHOTO {params}"
+        )
+        return {
+            "rig_id": rig_id,
+            "frames": params.get("frames", params.get("expected_frames", 1)),
+        }
+
+
+def _run_execution_plan_v2():
+    plan = load_execution_plan(args.execution_plan)
+
+    if args.dry_run:
+        new_start = now() + timedelta(
+            seconds=float(args.dry_run_delay)
+        )
+        plan = rebase_execution_plan(
+            plan,
+            new_start,
+        )
+        _log(
+            f"{Colors.PINK}🧪 EXECUTION PLAN DRY-RUN ×1 — "
+            f"timeline translatée, début dans "
+            f"{args.dry_run_delay:g}s{Colors.RESET}"
+        )
+
+    if _sim_mode:
+        sequence_start_raw = plan.get("sequence_start_utc")
+        if not isinstance(sequence_start_raw, str):
+            raise RuntimeError(
+                "execution plan missing sequence_start_utc"
+            )
+
+        sequence_start = datetime.fromisoformat(
+            sequence_start_raw.replace("Z", "+00:00")
+        ).astimezone(timezone.utc).replace(tzinfo=None)
+
+        _runtime_clock.start_simulation(
+            sequence_start - timedelta(seconds=30)
+        )
+
+        camera = _SimulationExecutionCamera()
+
+        _log(
+            f"{Colors.PINK}⚡ EXECUTION PLAN SIMULATION ×"
+            f"{_sim_speed:.0f} — aucun accès caméra matériel"
+            f"{Colors.RESET}"
+        )
+
+    else:
+        ipc_socket = os.environ.get("SET_CAMERA_IPC_SOCKET")
+        ipc_session = os.environ.get("SET_CAMERA_IPC_SESSION", "")
+
+        if not ipc_socket:
+            raise RuntimeError(
+                "execution plan v2 requires camera IPC"
+            )
+
+        camera = CameraIpcClient(
+            ipc_socket,
+            ipc_session,
+            log_fn=_log,
+        )
+
+        camera.ping()
+
+        rig_snapshot = camera.list_active_camera_rigs()
+        _log(
+            f"{Colors.GREEN}### EXECUTION PLAN CAMERA IPC RIGS "
+            f"{rig_snapshot['rig_ids']}{Colors.RESET}"
+        )
+
+    runtime = ExecutionPlanRuntime(
+        clock=_runtime_clock,
+        camera_client=camera,
+        log_fn=_log,
+    )
+
+    # Établi avant les commandes horodatées. Aucun initialize() legacy :
+    # seulement les paramètres explicitement requis par le plan.
+    runtime.prepare_for_execution(plan)
+
+    _log(
+        f"{Colors.GREEN}### EXECUTION PLAN V2 START{Colors.RESET}"
+    )
+
+    runtime.run(plan)
+
+    _log(
+        f"{Colors.GREEN}✅ EXECUTION PLAN V2 TERMINÉ{Colors.RESET}"
+    )
+
+
 def main():
     """Main function to execute the eclipse photography sequence."""
     camera_service = None
@@ -1683,6 +1808,10 @@ def main():
         _log(f"{Colors.PINK}#{Colors.RESET}")
         print(f"{Colors.PINK}# TOTAL SOLAR ECLIPSE AUTOMATIC SCRIPT - {titre}{Colors.RESET}")
         print(f"{Colors.PINK}#{Colors.RESET}")
+
+        if args.execution_plan:
+            _run_execution_plan_v2()
+            return
 
         # ── Init horloge simulation ────────────────────────────────────────
         if _sim_mode:
@@ -2076,6 +2205,8 @@ def main():
         _log("INFO Script stopped by user.")
     except Exception as e:
         _log(f"{Colors.RED}Unexpected error: {e}{Colors.RESET}")
+        if args.execution_plan:
+            raise SystemExit(1) from e
     finally:
         _shutdown_audio_threads()
         if ipc_adapter is not None:

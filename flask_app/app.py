@@ -3583,6 +3583,8 @@ def api_sequencer_compile():
             "code": "SEQUENCER_SAVE_FAILED",
         }), 500
 
+    _state_store.set("execution_plan_file", output_name)
+
     return jsonify({
         "status": "ok",
         "filename": output_name,

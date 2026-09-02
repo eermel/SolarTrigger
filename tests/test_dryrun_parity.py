@@ -21,7 +21,8 @@ def _indented_block(source: str, marker: str) -> str:
 
 
 def test_service_mapping_keeps_dry_run_on_real_camera_service():
-    camera_selection = SRC[SRC.index('ipc_socket = os.environ.get("SET_CAMERA_IPC_SOCKET")') :]
+    legacy_marker = "# ── Connexion caméra via CameraService / CameraPlugin"
+    camera_selection = SRC[SRC.index(legacy_marker):]
     simulation_branch = _indented_block(camera_selection, "if _sim_mode:")
     assert "camera_service = _SimulationCameraService()" in simulation_branch
 
@@ -75,3 +76,41 @@ def test_readme_quick_help_describes_dry_run_parity():
     assert "--dry-run (simule" not in normalized
     assert "sans appareil" not in normalized
     assert "chronologie" in normalized or "timeline" in normalized or "parité matérielle" in normalized
+
+
+def test_execution_plan_dry_run_uses_one_uniform_plan_rebase():
+    import ast
+
+    tree = ast.parse(SRC)
+    function = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_run_execution_plan_v2"
+    )
+
+    dry_run_branch = next(
+        node
+        for node in function.body
+        if isinstance(node, ast.If)
+        and ast.unparse(node.test) == "args.dry_run"
+    )
+
+    calls = [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "rebase_execution_plan"
+    ]
+
+    guarded_calls = [
+        node
+        for node in ast.walk(dry_run_branch)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "rebase_execution_plan"
+    ]
+
+    assert len(calls) == 1
+    assert guarded_calls == calls

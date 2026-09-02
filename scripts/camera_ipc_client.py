@@ -131,6 +131,42 @@ class CameraIpcClient:
             timeout_s=timeout_s,
         )
 
+    def set_parameter(
+        self,
+        rig_id: int,
+        parameter: str,
+        value: Any,
+        *,
+        fallback_parameter: str | None = None,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+    ) -> Any:
+        return self._call(
+            "camera.set_parameter",
+            {
+                "rig_id": rig_id,
+                "parameter": parameter,
+                "value": value,
+                "fallback_parameter": fallback_parameter,
+            },
+            timeout_s=timeout_s,
+        )
+
+    def execute_photo(
+        self,
+        rig_id: int,
+        params: dict[str, Any],
+        *,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+    ) -> Any:
+        return self._call(
+            "camera.execute_photo",
+            {
+                "rig_id": rig_id,
+                "params": params,
+            },
+            timeout_s=timeout_s,
+        )
+
     def prepare_capture(
         self,
         rig_id: int,

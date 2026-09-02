@@ -181,3 +181,113 @@ def test_hardware_access_is_reachable_only_from_legacy_direct_branch():
         and ast.unparse(call.func) == "camera_service.close"
     ]
     assert camera_close_calls == [legacy_close.body[0].value]
+
+
+def test_execution_plan_v2_uses_direct_camera_ipc_without_fanout():
+    function = _function("_run_execution_plan_v2")
+    calls = _calls(function)
+
+    camera_ipc_calls = [
+        call for call in calls
+        if _call_name(call) == "CameraIpcClient"
+    ]
+    fanout_calls = [
+        call for call in calls
+        if _call_name(call) == "FanoutCameraAdapter"
+    ]
+
+    assert len(camera_ipc_calls) == 1
+    assert fanout_calls == []
+
+
+def test_execution_plan_v2_simulation_branch_has_no_camera_ipc():
+    function = _function("_run_execution_plan_v2")
+
+    simulation_branch = next(
+        node
+        for node in function.body
+        if isinstance(node, ast.If)
+        and ast.unparse(node.test) == "_sim_mode"
+    )
+
+    simulation_calls = {
+        _call_name(call)
+        for call in _calls(simulation_branch.body)
+    }
+
+    assert "_SimulationExecutionCamera" in simulation_calls
+    assert "CameraIpcClient" not in simulation_calls
+    assert "FanoutCameraAdapter" not in simulation_calls
+    assert "CameraService" not in simulation_calls
+
+
+def test_execution_plan_v2_real_branch_uses_camera_ipc_directly():
+    function = _function("_run_execution_plan_v2")
+
+    simulation_branch = next(
+        node
+        for node in function.body
+        if isinstance(node, ast.If)
+        and ast.unparse(node.test) == "_sim_mode"
+    )
+
+    real_calls = {
+        _call_name(call)
+        for call in _calls(simulation_branch.orelse)
+    }
+
+    assert "CameraIpcClient" in real_calls
+    assert "FanoutCameraAdapter" not in real_calls
+    assert "CameraService" not in real_calls
+
+
+def test_main_execution_plan_branch_returns_before_legacy_engine():
+    main = _function("main")
+
+    execution_branch = next(
+        node
+        for node in ast.walk(main)
+        if isinstance(node, ast.If)
+        and ast.unparse(node.test) == "args.execution_plan"
+    )
+
+    assert len(execution_branch.body) == 2
+    assert isinstance(execution_branch.body[0], ast.Expr)
+    assert _call_name(execution_branch.body[0].value) == "_run_execution_plan_v2"
+    assert isinstance(execution_branch.body[1], ast.Return)
+
+
+def test_execution_plan_failure_exits_process_nonzero():
+    main = _function("main")
+
+    try_node = next(
+        node
+        for node in main.body
+        if isinstance(node, ast.Try)
+    )
+
+    handler = next(
+        handler
+        for handler in try_node.handlers
+        if handler.type is not None
+        and ast.unparse(handler.type) == "Exception"
+    )
+
+    plan_failure_branch = next(
+        node
+        for node in handler.body
+        if isinstance(node, ast.If)
+        and ast.unparse(node.test) == "args.execution_plan"
+    )
+
+    exit_raise = next(
+        node
+        for node in plan_failure_branch.body
+        if isinstance(node, ast.Raise)
+    )
+
+    assert isinstance(exit_raise.exc, ast.Call)
+    assert _call_name(exit_raise.exc) == "SystemExit"
+    assert len(exit_raise.exc.args) == 1
+    assert isinstance(exit_raise.exc.args[0], ast.Constant)
+    assert exit_raise.exc.args[0].value == 1

@@ -194,6 +194,50 @@ class TriggerService:
                 return candidate
         return None
 
+    def _resolve_execution_plan(self):
+        filename = self.state.get("execution_plan_file")
+        if not isinstance(filename, str) or not filename.strip():
+            raise TriggerValidationError(
+                "Aucun plan d'exécution compilé.",
+                "EXECUTION_PLAN_NOT_LOADED",
+            )
+
+        filename = filename.strip()
+        if Path(filename).name != filename:
+            raise TriggerValidationError(
+                "Nom de plan d'exécution invalide.",
+                "EXECUTION_PLAN_INVALID",
+            )
+
+        path = self.configs_dir / "execution_plan" / filename
+
+        if not path.is_file():
+            raise TriggerValidationError(
+                f"Plan d'exécution introuvable : {filename}",
+                "EXECUTION_PLAN_NOT_FOUND",
+            )
+
+        try:
+            plan = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise TriggerValidationError(
+                f"Plan d'exécution illisible : {filename}",
+                "EXECUTION_PLAN_INVALID",
+            ) from exc
+
+        if (
+            not isinstance(plan, dict)
+            or plan.get("schema_version") != 2
+            or plan.get("config_type") != "execution_plan"
+            or not isinstance(plan.get("commands"), list)
+        ):
+            raise TriggerValidationError(
+                f"Plan d'exécution incompatible : {filename}",
+                "EXECUTION_PLAN_INVALID",
+            )
+
+        return path
+
     def validate_start(self, require_gps=True):
         # Une simulation ne pilote aucun matériel et utilise sa propre horloge
         # virtuelle : elle ne doit donc pas être bloquée par l'état GPS.
@@ -260,6 +304,8 @@ class TriggerService:
             except Exception:
                 self._starting=False
                 raise
+            execution_plan_path = self._resolve_execution_plan()
+
             ipc_session = None
             if not simulate and self.rig_config_loader is not None:
                 try:
@@ -284,7 +330,14 @@ class TriggerService:
                 self.emit("trigger_phase", {"phase":"starting"})
                 thread = threading.Thread(
                     target=self._run,
-                    args=(simulate,speed,dry_run,dry_run_delay,ipc_session),
+                    args=(
+                        simulate,
+                        speed,
+                        dry_run,
+                        dry_run_delay,
+                        ipc_session,
+                        execution_plan_path,
+                    ),
                     name="eclipse-trigger-process",
                     daemon=True,
                 )
@@ -311,10 +364,15 @@ class TriggerService:
         self.state.update_section("trigger", {"phase":phase}); self.emit("trigger_phase", {"phase":phase})
 
     def _run(self, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0,
-             ipc_session=None):
+             ipc_session=None, execution_plan_path=None):
         proc=None
         try:
             cmd=[sys.executable,"-u",str(self.trigger_script),"--file",str(self.json_file)]
+
+            if execution_plan_path is None:
+                execution_plan_path = self._resolve_execution_plan()
+            cmd += ["--execution-plan", str(execution_plan_path)]
+
             if simulate:
                 cmd += ["--simulate","--speed",str(speed)]
             elif dry_run:

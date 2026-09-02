@@ -151,6 +151,24 @@ def _make_service(tmp_path, runtime):
     camera_configs.mkdir(parents=True)
     (camera_configs / "camera.json").write_text("{}", encoding="utf-8")
 
+    execution_plan_dir = configs / "execution_plan"
+    execution_plan_dir.mkdir(parents=True)
+    execution_plan_name = "test_execution_plan.json"
+    (execution_plan_dir / execution_plan_name).write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "config_type": "execution_plan",
+                "sequence_start_utc": "2027-08-02T10:00:00.000Z",
+                "sequence_end_utc": "2027-08-02T10:40:00.000Z",
+                "initial_state_required": {},
+                "commands": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    store.set("execution_plan_file", execution_plan_name)
+
     service = TriggerService(
         store,
         trigger_script,
@@ -193,6 +211,7 @@ def test_start_passes_session_after_server_start_and_restart_keeps_clock(
                 socket_path,
                 kwargs["env"]["SET_CAMERA_IPC_SESSION"],
                 socket_path.exists(),
+                list(_cmd),
             )
         )
         return CompletedProcess()
@@ -204,6 +223,16 @@ def test_start_passes_session_after_server_start_and_restart_keeps_clock(
     assert events == ["server-started", "popen"]
     assert launches[0][1]
     assert launches[0][2] is True
+
+    cmd = launches[0][3]
+    plan_index = cmd.index("--execution-plan")
+    assert Path(cmd[plan_index + 1]) == (
+        tmp_path
+        / "configs"
+        / "execution_plan"
+        / "test_execution_plan.json"
+    )
+
     assert not launches[0][0].exists()
     assert runtime._ipc_server is None
 

@@ -194,6 +194,26 @@ def test_watchdog_roundtrip(tmp_path):
     wd.clear(); assert wd.read() is None
 
 
+def _write_test_execution_plan(configs):
+    plan_dir = configs / "execution_plan"
+    plan_dir.mkdir(parents=True, exist_ok=True)
+    plan_path = plan_dir / "test_execution_plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "config_type": "execution_plan",
+                "sequence_start_utc": "2027-08-02T10:00:00.000Z",
+                "sequence_end_utc": "2027-08-02T10:40:00.000Z",
+                "initial_state_required": {},
+                "commands": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return plan_path
+
+
 def test_trigger_service_simulation_builds_safe_command(tmp_path, monkeypatch):
     from backend.trigger_service import TriggerService
     store=StateStore(tmp_path/'state.json')
@@ -219,7 +239,12 @@ def test_trigger_service_simulation_builds_safe_command(tmp_path, monkeypatch):
         return Proc()
     monkeypatch.setattr('backend.trigger_service.subprocess.Popen', fake_popen)
     svc=TriggerService(store,script,eclipse,events,configs,lambda *a:None,lambda *a:None)
-    svc._run(simulate=True,speed=120)
+    plan_path = _write_test_execution_plan(configs)
+    svc._run(
+        simulate=True,
+        speed=120,
+        execution_plan_path=plan_path,
+    )
     assert '--simulate' in seen['cmd']
     assert seen['cmd'][seen['cmd'].index('--speed')+1] == '120'
     assert Path(seen['kwargs']['cwd']) == tmp_path
@@ -252,6 +277,8 @@ def test_trigger_service_simulation_does_not_require_gps(tmp_path, monkeypatch):
     camera_cfg=configs/'camera_cfg'
     camera_cfg.mkdir(parents=True)
     (camera_cfg/'camera.json').write_text('{}')
+    plan_path = _write_test_execution_plan(configs)
+    store.set("execution_plan_file", plan_path.name)
     script=tmp_path/'eclipse_trigger.py'; script.write_text('')
     svc=TriggerService(store,script,eclipse,tmp_path/'events',configs,lambda *a:None,lambda *a:None)
     # Evite de lancer un vrai thread : le but est de valider les préconditions.
@@ -302,7 +329,12 @@ def test_trigger_service_dryrun_builds_real_camera_command(tmp_path, monkeypatch
         return Proc()
     monkeypatch.setattr('backend.trigger_service.subprocess.Popen', fake_popen)
     svc=TriggerService(store,script,eclipse,tmp_path/'events',configs,lambda *a:None,lambda *a:None)
-    svc._run(dry_run=True,dry_run_delay=45)
+    plan_path = _write_test_execution_plan(configs)
+    svc._run(
+        dry_run=True,
+        dry_run_delay=45,
+        execution_plan_path=plan_path,
+    )
     assert '--dry-run' in seen['cmd']
     assert '--dry-run-delay' in seen['cmd']
     assert '--simulate' not in seen['cmd']

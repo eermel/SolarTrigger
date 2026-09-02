@@ -101,6 +101,98 @@ class SonyPlugin(CameraPlugin):
                 return False
             time.sleep(0.05)
 
+    def set_parameter(self, parameter, value, fallback_parameter=None):
+        parameter = str(parameter)
+
+        # Preserve the existing Sony read-only retry behaviour for shutter speed.
+        if parameter == "shutterspeed":
+            if self.set_speed_blocking(str(value)):
+                return True
+            raise RuntimeError(
+                f"Sony setting {parameter}={value!r} could not be applied"
+            )
+
+        candidates = [parameter]
+        if fallback_parameter is not None:
+            candidates.append(str(fallback_parameter))
+
+        errors = []
+        for name in candidates:
+            ok, _readonly, error = self._set(name, value)
+            if ok:
+                return True
+            errors.append(f"{name}: {error}")
+
+        raise RuntimeError(
+            "Sony setting could not be applied: " + "; ".join(errors)
+        )
+
+    def execute_photo(self, params):
+        params = dict(params or {})
+
+        frames = params.get("frames")
+        physical_views = params.get("physical_views")
+
+        # Native Sony bracket. SET commands have already configured
+        # capturemode and centre shutter before this PHOTO command.
+        if frames is not None:
+            if isinstance(frames, bool) or not isinstance(frames, int) or frames <= 0:
+                raise ValueError("Sony bracket PHOTO requires a positive frames count")
+            if (
+                not isinstance(physical_views, list)
+                or len(physical_views) != frames
+                or any(not isinstance(view, str) for view in physical_views)
+            ):
+                raise ValueError(
+                    "Sony bracket PHOTO requires physical_views matching frames"
+                )
+
+            longest = max(planner.parse_speed(view) for view in physical_views)
+
+            ok, _readonly, error = self._set("bulb", 1)
+            if not ok:
+                raise RuntimeError(f"Sony bracket press failed: {error}")
+
+            try:
+                captured = self._drain_frames(frames, longest)
+            finally:
+                release_ok, _readonly, release_error = self._set("bulb", 0)
+                self._settle_idle()
+
+            if not release_ok:
+                raise RuntimeError(
+                    f"Sony bracket release failed: {release_error}"
+                )
+
+            return CaptureResult(
+                frames=captured,
+                planned=frames,
+                detail="execution-plan native bracket",
+            )
+
+        # Single Sony exposure. Shutter and capture mode were already SET.
+        shutter = params.get("shutter")
+        expected_frames = params.get("expected_frames", 1)
+
+        if not isinstance(shutter, str) or not shutter:
+            raise ValueError("Sony single PHOTO requires shutter")
+        if expected_frames != 1:
+            raise ValueError("Sony single PHOTO requires expected_frames=1")
+
+        try:
+            self.camera.trigger_capture()
+        except gp.GPhoto2Error as exc:
+            raise RuntimeError(f"Sony PHOTO trigger failed: {exc}") from exc
+
+        captured = self._drain_frames(1, planner.parse_speed(shutter))
+        self._settle_idle()
+
+        return CaptureResult(
+            frames=captured,
+            planned=1,
+            detail="execution-plan single",
+        )
+
     # ------------------------------------------------------------------ #
     # Draine / repos
     # ------------------------------------------------------------------ #
