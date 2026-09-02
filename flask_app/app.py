@@ -3466,6 +3466,48 @@ def api_configs_load_circumstances(filename):
 
 
 
+@app.route("/api/configs/execution_plan/clean", methods=["POST"])
+def api_configs_execution_plan_clean():
+    """Delete generated execution plans only."""
+    base_dir = CONFIGS_DIR / "execution_plan"
+    deleted = []
+    errors = []
+
+    if base_dir.exists():
+        for entry in base_dir.iterdir():
+            if (
+                entry.is_symlink()
+                or not entry.is_file()
+                or entry.suffix.lower() != ".json"
+            ):
+                continue
+
+            try:
+                entry.unlink()
+                deleted.append(entry.name)
+            except OSError as exc:
+                errors.append({
+                    "file": entry.name,
+                    "error": str(exc),
+                })
+
+    active_plan = _state_store.get("execution_plan_file")
+
+    if active_plan in deleted:
+        _state_store.set(
+            "execution_plan_file",
+            "",
+            persist=True,
+        )
+
+    return jsonify({
+        "status": "ok",
+        "deleted": len(deleted),
+        "files": deleted,
+        "errors": errors,
+    })
+
+
 @app.route("/api/sequencer/compile", methods=["POST"])
 def api_sequencer_compile():
     """Compile and persist a deterministic execution plan.

@@ -1426,36 +1426,6 @@ header {
     <!-- ═══════════════ SEQUENCER ═══════════════ -->
     <div class="page" id="sequencer-panel">
 
-      <!-- Sequence file -->
-      <div class="card">
-        <div class="card-title">Sequence configuration</div>
-
-        <div style="display:flex;gap:6px">
-          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
-            id="sequencer-config-select"
-            onchange="loadSequenceConfig(this.value)">
-            <option value="">— Sequence file —</option>
-          </select>
-
-          <button
-            class="btn btn-primary"
-            type="button"
-            style="font-size:11px;padding:7px 10px"
-            onclick="saveSequenceConfig()">
-            💾 Save
-          </button>
-
-          <button
-            class="btn btn-secondary"
-            type="button"
-            style="font-size:11px;padding:7px 10px"
-            onclick="cleanSequenceConfigs()">
-            🧹 CLEAN
-          </button>
-        </div>
-      </div>
-
-
       <!-- Inputs -->
       <div class="card">
         <div class="card-title">Input configurations</div>
@@ -1468,7 +1438,7 @@ header {
         ">
 
           <div class="stat-label">Eclipse circumstances</div>
-          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-circumstances-select">
+          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-circumstances-select" onchange="updateSequencerOutputFilename()">
             <option value="">— Circumstances file —</option>
           </select>
 
@@ -1481,16 +1451,6 @@ header {
           <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-exposure-opt-select">
             <option value="">— Exposure Optimization file —</option>
           </select>
-
-          <div class="stat-label">Execution Plan filename</div>
-          <div class="field">
-            <input
-              id="sequencer-output-filename"
-              type="text"
-              value="execution_plan.json"
-              placeholder="execution_plan.json"
-              style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:11px 12px;color:var(--text);font-family:var(--mono);font-size:14px;width:100%;outline:none;box-sizing:border-box;">
-          </div>
 
           <div class="stat-label">Sequence margin</div>
           <div style="display:flex;align-items:center;gap:8px" class="field">
@@ -1565,12 +1525,43 @@ header {
 
       <!-- Run Sequencer -->
       <div class="card">
-        <div>
-          <button class="btn btn-success btn-full"
+        <div class="card-title">Execution Plan</div>
+
+        <div class="field" style="margin-bottom:10px">
+          <label for="sequencer-output-filename">
+            Execution Plan filename
+          </label>
+          <input
+            id="sequencer-output-filename"
+            type="text"
+            value=""
+            placeholder="exec_plan_YYYYMMDD_RIG1_"
+            autocomplete="off"
+            spellcheck="false"
+            style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:11px 12px;color:var(--text);font-family:var(--mono);font-size:14px;width:100%;outline:none;box-sizing:border-box;">
+        </div>
+
+        <div style="
+          display:flex;
+          gap:6px;
+          align-items:stretch;
+        ">
+          <button
+            class="btn btn-success"
             id="btn-run-sequencer"
             type="button"
+            style="flex:1;font-size:11px;padding:7px 10px"
             onclick="runSequencer()">
             ▶ RUN SEQUENCER
+          </button>
+
+          <button
+            class="btn btn-secondary"
+            id="btn-clean-execution-plans"
+            type="button"
+            style="font-size:11px;padding:7px 10px"
+            onclick="cleanExecutionPlans()">
+            🧹 CLEAN
           </button>
         </div>
       </div>
@@ -6634,6 +6625,9 @@ async function loadSequencerConfigLists() {
       ),
 
     ]);
+
+    await updateSequencerOutputFilename();
+
   } catch (error) {
     appendSequencerLog(
       `Configuration lists: ${error.message}`,
@@ -6641,6 +6635,163 @@ async function loadSequencerConfigLists() {
     );
   }
 }
+
+
+function _sequencerActiveRigNames() {
+  const rigs = ['RIG1'];
+
+  for (let rigId = 2; rigId <= 4; rigId += 1) {
+    const control = document.getElementById(`rig-switch-${rigId}`);
+
+    if (control && control.checked) {
+      rigs.push(`RIG${rigId}`);
+    }
+  }
+
+  return rigs;
+}
+
+
+async function updateSequencerOutputFilename() {
+  const outputInput =
+    document.getElementById('sequencer-output-filename');
+
+  const circumstancesSelect =
+    document.getElementById('sequencer-circumstances-select');
+
+  if (!outputInput || !circumstancesSelect) return;
+
+  const filename = circumstancesSelect.value;
+  if (!filename) return;
+
+  try {
+    const response = await fetch(
+      '/api/configs/load_circumstances/' +
+      encodeURIComponent(filename)
+    );
+
+    const circumstances = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        circumstances.error || `HTTP error ${response.status}`
+      );
+    }
+
+    const rawDate =
+      circumstances._date ||
+      circumstances._date_utc ||
+      circumstances.date ||
+      circumstances.eclipse_date ||
+      '';
+
+    const match = String(rawDate).match(
+      /^(\d{4})-(\d{2})-(\d{2})/
+    );
+
+    if (!match) {
+      throw new Error(
+        'Eclipse date missing or invalid in circumstances file'
+      );
+    }
+
+    const yyyymmdd = match[1] + match[2] + match[3];
+
+    const rigNames = _sequencerActiveRigNames();
+
+    const prefix =
+      `exec_plan_${yyyymmdd}_${rigNames.join('_')}_`;
+
+    const oldPrefix =
+      outputInput.dataset.autoPrefix || '';
+
+    let suffix = '';
+
+    if (
+      oldPrefix &&
+      outputInput.value.startsWith(oldPrefix)
+    ) {
+      suffix = outputInput.value.slice(oldPrefix.length);
+    }
+
+    outputInput.dataset.autoPrefix = prefix;
+    outputInput.value = prefix + suffix;
+
+  } catch (error) {
+    appendSequencerLog(
+      `Execution Plan filename: ${error.message}`,
+      'error'
+    );
+  }
+}
+
+
+async function cleanExecutionPlans() {
+  if (!confirm(
+    'Delete all generated Execution Plan files?'
+  )) {
+    return;
+  }
+
+  const button =
+    document.getElementById('btn-clean-execution-plans');
+
+  if (button) button.disabled = true;
+
+  try {
+    const response = await fetch(
+      '/api/configs/execution_plan/clean',
+      {method: 'POST'}
+    );
+
+    const result = await response.json();
+
+    if (!response.ok || result.status !== 'ok') {
+      throw new Error(
+        result.error || `HTTP error ${response.status}`
+      );
+    }
+
+    appendSequencerLog(
+      `${result.deleted || 0} Execution Plan file(s) deleted`,
+      'success'
+    );
+
+    flash(
+      `${result.deleted || 0} Execution Plan file(s) deleted`,
+      'green'
+    );
+
+  } catch (error) {
+    appendSequencerLog(
+      `Execution Plan CLEAN: ${error.message}`,
+      'error'
+    );
+
+    flash(
+      `Execution Plan CLEAN: ${error.message}`,
+      'red'
+    );
+
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+
+/*
+ * Keep the automatic filename synchronized with the RIG switches.
+ * RIG1 is always part of the trigger and therefore always appears.
+ */
+document.addEventListener('change', event => {
+  if (
+    event.target &&
+    event.target.classList &&
+    event.target.classList.contains('rig-switch')
+  ) {
+    updateSequencerOutputFilename();
+  }
+});
 
 
 function readSequenceConfig() {
@@ -7140,21 +7291,15 @@ async function runSequencer() {
     return;
   }
 
-  if (!outputFilename.toLowerCase().endsWith('.json')) {
-    outputFilename += '.json';
+  /*
+   * The UI never displays ".json".
+   * The API accepts the logical name and adds the extension itself.
+   */
+  outputFilename = outputFilename.replace(/\.json$/i, '');
 
-    if (outputInput) {
-      outputInput.value = outputFilename;
-    }
+  if (outputInput) {
+    outputInput.value = outputFilename;
   }
-
-  const sequenceSelect =
-    document.getElementById('sequencer-config-select');
-
-  const sequenceFile =
-    sequenceSelect && sequenceSelect.value
-      ? sequenceSelect.value
-      : '';
 
   const activeRigs = (rigDevicesState.rigs || []).filter(
     rig =>
@@ -7170,13 +7315,6 @@ async function runSequencer() {
   }
 
   appendSequencerLog('Sequencer compilation started', 'info');
-  appendSequencerLog(
-    sequenceFile
-      ? `Sequence preset: ${sequenceFile}`
-      : 'Sequence preset: none (current UI values)',
-    'info'
-  );
-
   appendSequencerLog(
     `Sequence margin: ${config.sequence_margin_min} min`,
     'info'
@@ -7301,8 +7439,6 @@ async function runSequencer() {
             config.sequence_margin_min,
           output_filename:
             outputFilename,
-          sequence_file:
-            sequenceFile || null,
         }),
       }
     );
