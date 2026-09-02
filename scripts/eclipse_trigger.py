@@ -23,6 +23,14 @@ import sys as _early_sys
 import os as _early_os
 import json as _early_json
 
+# Ensure repository root is importable when invoked directly as:
+#   scripts/eclipse_trigger.py
+_repo_root = _early_os.path.dirname(
+    _early_os.path.dirname(_early_os.path.abspath(__file__))
+)
+if _repo_root not in _early_sys.path:
+    _early_sys.path.insert(0, _repo_root)
+
 def _early_find_arg(argv, name):
     try:
         idx = argv.index(name)
@@ -40,10 +48,6 @@ if "--check" in _early_sys.argv:
     if not file_path:
         errors.append("Missing --file")
     else:
-        # Ensure repository root on sys.path when invoked as a script
-        _repo_root = _early_os.path.dirname(_early_os.path.dirname(_early_os.path.abspath(__file__)))
-        if _repo_root not in _early_sys.path:
-            _early_sys.path.insert(0, _repo_root)
         from backend.check_validation import validate_circumstances
 
         if _early_os.path.isfile(file_path):
