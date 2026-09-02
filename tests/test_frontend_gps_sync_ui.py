@@ -59,3 +59,9 @@ def test_every_gps_action_completion_fetches_complete_state():
     handler = block("socket.on('gps_sync_done'", "socket.on('clock_reset'")
     assert "fetch('/api/gps/state')" in handler
     assert "updateGPS(gps)" in handler
+
+
+def test_only_combined_gps_sync_action_is_exposed():
+    assert 'id="btn-gps-sync-time-location"' in HTML
+    assert 'id="btn-gps-sync-time"' not in HTML
+    assert 'id="btn-gps-get-location"' not in HTML

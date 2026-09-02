@@ -498,7 +498,8 @@ header {
 /* Styles pour tous les conteneurs de logs */
 #log-container-gps_sync,
 #log-container-calculator,
-#log-container-trigger {
+#log-container-trigger,
+#log-container-exposure_opt {
   background: #050810;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -709,12 +710,6 @@ header {
   justify-content: flex-start;
 }
 
-.rig-preview-button {
-  padding: 7px 10px;
-  min-height: 0;
-  font-size: 11px;
-}
-
 .cam-rig-meta {
   display: flex;
   flex-direction: column;
@@ -893,15 +888,9 @@ header {
     <span style="color:var(--text-dim);margin-left:4px">ALT:</span><span style="color:var(--green)" id="gps-alt">--</span>
   </div>
 </div>
-        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+        <div>
           <button class="btn btn-primary btn-full" id="btn-gps-sync-time-location" onclick="syncGpsTimeLocation()">
             SYNC TIME &amp; LOCATION
-          </button>
-          <button class="btn btn-primary btn-full" id="btn-gps-sync-time" onclick="syncGpsTime()">
-            SYNC TIME
-          </button>
-          <button class="btn btn-primary btn-full" id="btn-gps-get-location" onclick="getGpsLocation()">
-            GET LOCATION
           </button>
         </div>
       </div>
@@ -1154,6 +1143,14 @@ header {
         </div>
       </div>
 
+      <div class="card">
+        <div class="card-title">Atmospheric Attenuation</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div class="focuser-mode-switch"><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation" onchange="persistGlobalAtmosFromUi()"></div>
+          <span style="font-size:11px;color:var(--text-dim)">Active only if Sun &lt; 30°</span>
+        </div>
+      </div>
+
       <section class="camera-rigs-section">
         <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
 
@@ -1221,11 +1218,6 @@ header {
                 </div>
               </div>
             </div>
-
-
-            <button class="btn btn-secondary btn-full rig-preview-button"
-              type="button" data-rig-id="1" disabled
-              onclick="requestRigPreviews(1, buildPreviewIntents())">Preview</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-1"></div>
           </div>
 
@@ -1293,11 +1285,6 @@ header {
                 </div>
               </div>
             </div>
-
-
-            <button class="btn btn-secondary btn-full rig-preview-button"
-              type="button" data-rig-id="2" disabled
-              onclick="requestRigPreviews(2, buildPreviewIntents())">Preview</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-2"></div>
           </div>
 
@@ -1365,11 +1352,6 @@ header {
                 </div>
               </div>
             </div>
-
-
-            <button class="btn btn-secondary btn-full rig-preview-button"
-              type="button" data-rig-id="3" disabled
-              onclick="requestRigPreviews(3, buildPreviewIntents())">Preview</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-3"></div>
           </div>
 
@@ -1437,25 +1419,35 @@ header {
                 </div>
               </div>
             </div>
-
-
-            <button class="btn btn-secondary btn-full rig-preview-button"
-              type="button" data-rig-id="4" disabled
-              onclick="requestRigPreviews(4, buildPreviewIntents())">Preview</button>
             <div class="camcfg-rig-body rig-preview" id="rig-preview-4"></div>
           </div>
 
         </div>
       </section>
 
-      <div class="card">
-        <div class="card-title">Atmospheric Attenuation</div>
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <div class="focuser-mode-switch"><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation" onchange="persistGlobalAtmosFromUi()"></div>
-          <span style="font-size:11px;color:var(--text-dim)">Active only if Sun &lt; 30°</span>
-        </div>
+
+
+      <div class="card" id="exposure-opt-preview-all-card" style="flex-shrink:0">
+        <div class="card-title">Preview</div>
+        <button
+          class="btn btn-primary btn-full"
+          id="btn-exposure-opt-preview-all"
+          type="button"
+          onclick="requestAllRigPreviews()">
+          Preview all active RIGs
+        </button>
       </div>
 
+
+      <div class="card" style="flex-shrink:0">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Exposure Optimization log</span>
+          <button class="btn btn-secondary" type="button"
+            style="font-size:10px;padding:4px 9px"
+            onclick="clearLog('exposure_opt')">CLEAR</button>
+        </div>
+        <div id="log-container-exposure_opt" style="height:320px"></div>
+      </div>
 
     </div><!-- /Exposure Optimization -->
 
@@ -2677,8 +2669,6 @@ function updateRigs(rigs) {
           ? defaultName
           : `${defaultName} — ${rigName}`;
       }
-      const previewButton = cameraColumn.querySelector('.rig-preview-button');
-      if (previewButton) previewButton.disabled = false;
     }
     if (cameraRigColumn) {
       cameraRigColumn.classList.toggle('enabled', triggerEnabled);
@@ -4987,57 +4977,762 @@ function renderRigPreviews(responseJson, requestedRigId) {
   });
 }
 
-async function requestRigPreviews(rigId, intents) {
-  if (rigPreviewInFlight) return;
+function _exposureOptLogContainer() {
+  return document.getElementById('log-container-exposure_opt');
+}
+
+function _exposureOptAddLine(text = '', options = {}) {
+  const container = _exposureOptLogContainer();
+  if (!container) return;
+
+  const line = document.createElement('div');
+  line.textContent = text;
+
+  line.style.fontFamily = 'var(--mono)';
+  line.style.fontSize = '11px';
+  line.style.lineHeight = '1.55';
+  line.style.whiteSpace = 'pre-wrap';
+  line.style.wordBreak = 'break-word';
+
+  if (!text) {
+    line.style.height = '8px';
+  }
+
+  if (options.indent) {
+    line.style.paddingLeft = `${options.indent * 14}px`;
+  }
+
+  if (options.rig) {
+    line.style.color = 'var(--accent)';
+    line.style.fontSize = '14px';
+    line.style.fontWeight = '700';
+    line.style.marginTop = '6px';
+    line.style.marginBottom = '4px';
+  }
+
+  if (options.section) {
+    line.style.color = 'var(--green)';
+    line.style.fontSize = '12px';
+    line.style.fontWeight = '700';
+    line.style.marginTop = '10px';
+    line.style.paddingBottom = '4px';
+    line.style.borderBottom = '1px solid rgba(61,220,132,.35)';
+  }
+
+  if (options.subsection) {
+    line.style.fontWeight = '700';
+    line.style.marginTop = '4px';
+  }
+
+  if (options.dim) {
+    line.style.color = 'var(--text-dim)';
+  }
+
+  if (options.success) {
+    line.style.color = 'var(--green)';
+  }
+
+  if (options.warning) {
+    line.style.color = 'var(--yellow)';
+  }
+
+  if (options.error) {
+    line.style.color = 'var(--red)';
+  }
+
+  container.appendChild(line);
+}
+
+function _exposureOptSeparator() {
+  const container = _exposureOptLogContainer();
+  if (!container) return;
+
+  const line = document.createElement('div');
+  line.style.borderTop = '1px solid var(--border)';
+  line.style.margin = '12px 0';
+  container.appendChild(line);
+}
+
+function _exposureOptFormat(value, digits = 1) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(digits) : 'N/A';
+}
+
+function _exposureOptFormatCeiling(value) {
+  const seconds = Number(value);
+
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return 'N/A';
+  }
+
+  if (seconds >= 1) {
+    return `${seconds.toFixed(2).replace(/\.?0+$/, '')} s`;
+  }
+
+  return `1/${Math.round(1 / seconds)} s`;
+}
+
+function _exposureOptRigIsActive(rigId) {
+  const rig = Array.isArray(rigDevicesState.rigs)
+    ? rigDevicesState.rigs.find(
+        item => Number(item.rig_id) === Number(rigId)
+      )
+    : null;
+
+  return Number(rigId) === 1 || Boolean(rig && rig.enabled === true);
+}
+
+function renderExposureOptHypotheses(intents) {
+  const eclipse = state.eclipse || {};
+  const photo = _readCameraConfig();
+  const photoSelect = document.getElementById('camera-config-select');
+
+  _exposureOptAddLine('HYPOTHESES', {section:true});
+
+  // ================================================================
+  // Eclipse
+  // ================================================================
+
+  _exposureOptAddLine('Eclipse', {subsection:true});
+
+  const eclipseDate =
+    eclipse._date ||
+    eclipse._date_utc ||
+    'N/A';
+
+  _exposureOptAddLine(
+    `Date : ${eclipseDate}`,
+    {indent:1}
+  );
+
+  const location =
+    eclipse._circumstances_location ||
+    eclipse.reference_site ||
+    null;
+
+  if (location) {
+    const lat = location.latitude ?? location.lat ?? null;
+    const lon = location.longitude ?? location.lon ?? null;
+    const alt = location.altitude_m ?? location.alt_m ?? null;
+
+    if (lat != null && lon != null) {
+      _exposureOptAddLine(
+        `Location : ${_exposureOptFormat(lat, 5)}°, ` +
+        `${_exposureOptFormat(lon, 5)}°`,
+        {indent:1}
+      );
+    }
+
+    if (alt != null) {
+      _exposureOptAddLine(
+        `Observer altitude : ${_exposureOptFormat(alt, 0)} m`,
+        {indent:1}
+      );
+    }
+  }
+
+  ['C1', 'C2', 'TMAX', 'C3', 'C4'].forEach(contact => {
+    if (eclipse[contact]) {
+      _exposureOptAddLine(
+        `${contact} : ${eclipse[contact]}`,
+        {indent:1}
+      );
+    }
+  });
+
+  // ================================================================
+  // Photo Setup
+  // ================================================================
+
+  _exposureOptAddLine('');
+  _exposureOptAddLine('Photo Setup', {subsection:true});
+
+  const photoFilename =
+    photoSelect && photoSelect.value
+      ? photoSelect.value
+      : 'current unsaved UI values';
+
+  _exposureOptAddLine(
+    `File : ${photoFilename}`,
+    {indent:1}
+  );
+
+  const phaseLabels = {
+    partial: 'Partial',
+    diamond_ring: 'Diamond Ring',
+    totality: 'Totality'
+  };
+
+  const phases =
+    photo && photo.phases
+      ? photo.phases
+      : {};
+
+  Object.entries(phaseLabels).forEach(([phaseId, label]) => {
+    const cfg = phases[phaseId];
+    if (!cfg) return;
+
+    _exposureOptAddLine(
+      label,
+      {subsection:true, indent:1}
+    );
+
+    _exposureOptAddLine(
+      `ISO : ${cfg.iso ?? 'N/A'}`,
+      {indent:2}
+    );
+
+    _exposureOptAddLine(
+      `Shutter : ${cfg.shutter_max ?? 'N/A'} → ` +
+      `${cfg.shutter_min ?? 'N/A'}`,
+      {indent:2}
+    );
+
+    _exposureOptAddLine(
+      `EV step : ${cfg.step_ev ?? 1}`,
+      {indent:2}
+    );
+
+    if (cfg.interval_s != null) {
+      _exposureOptAddLine(
+        `Interval : ${cfg.interval_s} s`,
+        {indent:2}
+      );
+    }
+
+    if (cfg.duration_s != null) {
+      _exposureOptAddLine(
+        `Duration : ${cfg.duration_s} s`,
+        {indent:2}
+      );
+    }
+  });
+
   if (!Array.isArray(intents) || intents.length === 0) {
-    flash('Configuration/circumstances incomplete', 'red');
+    _exposureOptAddLine(
+      'Preview intents could not be built.',
+      {error:true}
+    );
+  }
+
+  _exposureOptSeparator();
+}
+
+function renderExposureOptPreviewLog(
+  responseText,
+  rigId,
+  options = {}
+) {
+  const container = _exposureOptLogContainer();
+  if (!container) return;
+
+  if (options.clear !== false) {
+    container.innerHTML = '';
+  }
+
+  let payload;
+
+  try {
+    payload = JSON.parse(responseText);
+  } catch (_) {
+    _exposureOptAddLine(
+      `RIG ${rigId} — invalid Preview response`,
+      {error:true}
+    );
     return;
   }
 
-  const previewButtons = Array.from(
-    document.querySelectorAll('.rig-preview-button')
-  );
-  const previousDisabledStates = previewButtons.map(
-    button => button.disabled
+  const rig = Array.isArray(payload.rigs)
+    ? payload.rigs.find(
+        item => Number(item.rig_id) === Number(rigId)
+      )
+    : null;
+
+  if (!rig || !Array.isArray(rig.items)) {
+    _exposureOptAddLine(`RIG ${rigId}`, {rig:true});
+    _exposureOptAddLine(
+      'No Preview result returned.',
+      {indent:1, error:true}
+    );
+    return;
+  }
+
+  const labels = {
+    partial: 'Partial',
+    diamond_ring: 'Diamond Ring',
+    totality: 'Totality'
+  };
+
+  const metadata = rig.metadata || {};
+  const atmos = rig.atmospheric || {};
+
+  // ================================================================
+  // RIG
+  // ================================================================
+
+  _exposureOptAddLine(`RIG ${rigId}`, {rig:true});
+
+  _exposureOptAddLine(
+    `Camera : ${metadata.camera || 'N/A'}`,
+    {indent:1}
   );
 
-  rigPreviewInFlight = true;
-  previewButtons.forEach(button => { button.disabled = true; });
+  _exposureOptAddLine(
+    `Pixel size : ${
+      metadata.pixel_pitch_um == null
+        ? 'N/A'
+        : `${_exposureOptFormat(metadata.pixel_pitch_um, 2)} µm`
+    }`,
+    {indent:1}
+  );
 
-  try {
-    // Preview the values currently visible in this RIG without persisting
-    // them through /api/rigs/photo.
-    const currentRigPhoto = readRigPhotoConfig(rigId);
-    const rigOverride = {
+  _exposureOptAddLine(
+    `Mount : ${metadata.mount || 'N/A'}`,
+    {indent:1}
+  );
+
+  if (metadata.mount_geometry) {
+    _exposureOptAddLine(
+      `Geometry : ${metadata.mount_geometry}`,
+      {indent:1}
+    );
+  }
+
+  if (metadata.mount_tracking) {
+    _exposureOptAddLine(
+      `Tracking : ${metadata.mount_tracking}`,
+      {indent:1}
+    );
+  }
+
+  _exposureOptAddLine(
+    `Focal length : ${
+      metadata.focal_length_mm == null
+        ? 'N/A'
+        : `${metadata.focal_length_mm} mm`
+    }`,
+    {indent:1}
+  );
+
+  // ================================================================
+  // ATMOSPHERIC ATTENUATION
+  // ================================================================
+
+  _exposureOptAddLine(
+    'Atmospheric Attenuation',
+    {section:true}
+  );
+
+  _exposureOptAddLine(
+    `Status : ${atmos.enabled ? 'ON' : 'OFF'}`,
+    {
+      indent:1,
+      success: Boolean(atmos.enabled),
+      dim: !atmos.enabled
+    }
+  );
+
+  if (
+    atmos.sun_altitude_min_deg != null &&
+    atmos.sun_altitude_max_deg != null
+  ) {
+    _exposureOptAddLine(
+      `Sun altitude during eclipse : ` +
+      `${_exposureOptFormat(atmos.sun_altitude_min_deg)}° → ` +
+      `${_exposureOptFormat(atmos.sun_altitude_max_deg)}°`,
+      {indent:1}
+    );
+  }
+
+  rig.items.forEach(item => {
+    const phase =
+      labels[item.phase] ||
+      item.phase ||
+      'Preview';
+
+    const altitude =
+      item.sun_altitude_deg == null
+        ? ''
+        : ` — Sun ${_exposureOptFormat(item.sun_altitude_deg)}°`;
+
+    _exposureOptAddLine(
+      `${phase}${altitude}`,
+      {subsection:true, indent:1}
+    );
+
+    if (!atmos.enabled) {
+      _exposureOptAddLine(
+        'No atmospheric correction',
+        {indent:2, dim:true}
+      );
+      return;
+    }
+
+    const added =
+      Array.isArray(item.atmos_added_lines)
+        ? item.atmos_added_lines
+        : [];
+
+    if (added.length === 0) {
+      _exposureOptAddLine(
+        'No exposure added',
+        {indent:2, dim:true}
+      );
+    } else {
+      _exposureOptAddLine(
+        'Added to exposure list:',
+        {indent:2, success:true}
+      );
+
+      added.forEach(line => {
+        _exposureOptAddLine(
+          line,
+          {indent:3, success:true}
+        );
+      });
+    }
+  });
+
+  // ================================================================
+  // ANTI-BLUR
+  // ================================================================
+
+  _exposureOptAddLine(
+    'Anti-blur',
+    {section:true}
+  );
+
+  _exposureOptAddLine(
+    `Status : ${metadata.anti_trailing_enabled ? 'ON' : 'OFF'}`,
+    {
+      indent:1,
+      success: Boolean(metadata.anti_trailing_enabled),
+      dim: !metadata.anti_trailing_enabled
+    }
+  );
+
+  if (metadata.motion_tolerance_px != null) {
+    _exposureOptAddLine(
+      `Motion tolerance : ${metadata.motion_tolerance_px} px`,
+      {indent:1}
+    );
+  }
+
+  const firstPolicy =
+    rig.items.length
+      ? rig.items[0].motion_policy
+      : 'none';
+
+  const policyLabels = {
+    fixed_trailing: 'Solar trailing limit',
+    field_rotation: 'Field rotation',
+    none: 'No astronomical motion constraint'
+  };
+
+  _exposureOptAddLine(
+    `Active method : ${policyLabels[firstPolicy] || firstPolicy}`,
+    {indent:1}
+  );
+
+  rig.items.forEach(item => {
+    const phase =
+      labels[item.phase] ||
+      item.phase ||
+      'Preview';
+
+    _exposureOptAddLine(
+      phase,
+      {subsection:true, indent:1}
+    );
+
+    if (item.error) {
+      const message =
+        typeof item.error === 'object'
+          ? item.error.message
+          : item.error;
+
+      _exposureOptAddLine(
+        `Error : ${message}`,
+        {indent:2, error:true}
+      );
+
+      return;
+    }
+
+    if (item.motion_policy === 'none') {
+      _exposureOptAddLine(
+        'No anti-blur constraint',
+        {indent:2, dim:true}
+      );
+
+      return;
+    }
+
+    _exposureOptAddLine(
+      `Maximum exposure : ` +
+      `${_exposureOptFormatCeiling(item.motion_ceiling_s)}`,
+      {indent:2}
+    );
+
+    const changes =
+      Array.isArray(item.anti_blur_diff_lines)
+        ? item.anti_blur_diff_lines
+        : [];
+
+    if (changes.length === 0) {
+      _exposureOptAddLine(
+        'No impact',
+        {indent:2, dim:true}
+      );
+    } else {
+      _exposureOptAddLine(
+        `Limiting factor : ${
+          item.motion_policy === 'field_rotation'
+            ? 'Field rotation'
+            : 'Solar trailing'
+        }`,
+        {indent:2, warning:true}
+      );
+
+      changes.forEach(line => {
+        _exposureOptAddLine(
+          line,
+          {indent:3, warning:true}
+        );
+      });
+    }
+
+    const corrections =
+      Array.isArray(item.corrections)
+        ? item.corrections
+        : [];
+
+    if (corrections.includes('iso_compensated')) {
+      _exposureOptAddLine(
+        'ISO compensation applied',
+        {indent:2, success:true}
+      );
+    }
+
+    if (corrections.includes('iso_rounded')) {
+      _exposureOptAddLine(
+        'ISO rounded to supported camera value',
+        {indent:2}
+      );
+    }
+
+    const warnings =
+      Array.isArray(item.warnings)
+        ? item.warnings
+        : [];
+
+    if (warnings.includes('iso_capped')) {
+      _exposureOptAddLine(
+        'ISO maximum reached',
+        {indent:2, error:true}
+      );
+    }
+  });
+
+  if (options.separator !== false) {
+    _exposureOptSeparator();
+  }
+
+  container.scrollTop = container.scrollHeight;
+}
+
+async function _fetchRigPreview(rigId, intents) {
+  const currentRigPhoto = readRigPhotoConfig(rigId);
+
+  const payload = {
+    intents,
+    rig_id: Number(rigId),
+    rig_override: {
       optics: currentRigPhoto.optics,
       photo: currentRigPhoto.photo
-    };
-
-    const response = await fetch('/api/rigs/preview', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        intents,
-        rig_id: Number(rigId),
-        rig_override: rigOverride
-      })
-    });
-
-    const responseJson = await response.text();
-    renderRigPreviews(responseJson, rigId);
-  } catch (error) {
-    const body = document.getElementById(`rig-preview-${rigId}`);
-    if (body) {
-      body.replaceChildren();
-      const message = document.createElement('div');
-      message.textContent = `Error: ${error.message}`;
-      body.appendChild(message);
     }
+  };
+
+  const response = await fetch('/api/rigs/preview', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    let message = responseText;
+
+    try {
+      const errorPayload = JSON.parse(responseText);
+      message = errorPayload.error || responseText;
+    } catch (_) {}
+
+    throw new Error(
+      message || `HTTP ${response.status}`
+    );
+  }
+
+  return responseText;
+}
+
+async function requestRigPreviews(rigId, intents) {
+  if (rigPreviewInFlight) return;
+
+  const container = _exposureOptLogContainer();
+  if (container) container.innerHTML = '';
+
+  renderExposureOptHypotheses(intents);
+
+  if (!_exposureOptRigIsActive(rigId)) {
+    _exposureOptAddLine(`RIG ${rigId}`, {rig:true});
+    _exposureOptAddLine(
+      'Inactive — preview skipped',
+      {indent:1, dim:true}
+    );
+    return;
+  }
+
+  if (!Array.isArray(intents) || intents.length === 0) {
+    flash(
+      'Configuration/circumstances incomplete',
+      'red'
+    );
+    return;
+  }
+
+  const globalButton =
+    document.getElementById(
+      'btn-exposure-opt-preview-all'
+    );
+
+  rigPreviewInFlight = true;
+
+  if (globalButton) {
+    globalButton.disabled = true;
+  }
+
+  try {
+    const responseText =
+      await _fetchRigPreview(rigId, intents);
+
+    renderExposureOptPreviewLog(
+      responseText,
+      rigId,
+      {
+        clear:false,
+        separator:false
+      }
+    );
+
+  } catch (error) {
+    _exposureOptAddLine(`RIG ${rigId}`, {rig:true});
+
+    _exposureOptAddLine(
+      `Preview error : ${error.message}`,
+      {indent:1, error:true}
+    );
+
   } finally {
     rigPreviewInFlight = false;
-    previewButtons.forEach((button, index) => {
-      button.disabled = previousDisabledStates[index];
-    });
+
+    if (globalButton) {
+      globalButton.disabled = false;
+    }
+  }
+}
+
+async function requestAllRigPreviews() {
+  if (rigPreviewInFlight) return;
+
+  const intents = buildPreviewIntents();
+  const container = _exposureOptLogContainer();
+
+  if (container) {
+    container.innerHTML = '';
+  }
+
+  renderExposureOptHypotheses(intents);
+
+  if (!Array.isArray(intents) || intents.length === 0) {
+    flash(
+      'Configuration/circumstances incomplete',
+      'red'
+    );
+    return;
+  }
+
+  const globalButton =
+    document.getElementById(
+      'btn-exposure-opt-preview-all'
+    );
+
+  rigPreviewInFlight = true;
+
+  if (globalButton) {
+    globalButton.disabled = true;
+  }
+
+  try {
+    for (let rigId = 1; rigId <= 4; rigId += 1) {
+
+      if (!_exposureOptRigIsActive(rigId)) {
+        _exposureOptAddLine(
+          `RIG ${rigId}`,
+          {rig:true}
+        );
+
+        _exposureOptAddLine(
+          'Inactive — preview skipped',
+          {indent:1, dim:true}
+        );
+
+        _exposureOptSeparator();
+        continue;
+      }
+
+      try {
+        const responseText =
+          await _fetchRigPreview(
+            rigId,
+            intents
+          );
+
+        renderExposureOptPreviewLog(
+          responseText,
+          rigId,
+          {
+            clear:false,
+            separator:true
+          }
+        );
+
+      } catch (error) {
+        _exposureOptAddLine(
+          `RIG ${rigId}`,
+          {rig:true}
+        );
+
+        _exposureOptAddLine(
+          `Preview error : ${error.message}`,
+          {indent:1, error:true}
+        );
+
+        _exposureOptSeparator();
+      }
+    }
+
+  } finally {
+    rigPreviewInFlight = false;
+
+    if (globalButton) {
+      globalButton.disabled = false;
+    }
+  }
+
+  if (container) {
+    container.scrollTop = 0;
   }
 }
 
@@ -5339,6 +6034,7 @@ function appendLog(text, level = 'info', source = '', ts = '') {
   if (source === 'gps_sync') containerId = 'log-container-gps_sync';
   else if (source === 'calculator') containerId = 'log-container-calculator';
   else if (source === 'trigger') containerId = 'log-container-trigger';
+  else if (source === 'exposure_opt') containerId = 'log-container-exposure_opt';
   
   const containers = document.querySelectorAll(`#${containerId}`);
   if (containers.length === 0) return;
@@ -5352,6 +6048,16 @@ function appendLog(text, level = 'info', source = '', ts = '') {
     if (c.children.length > 600) c.removeChild(c.firstChild);
     c.scrollTop = c.scrollHeight;
   });
+}
+
+function appendExposureOptLog(text, level = 'info') {
+  const now = new Date();
+  const ts = [
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0')
+  ].join(':');
+  appendLog(text, level, 'exposure_opt', ts);
 }
 
 function appendCalcLog(text, level = 'info') {
@@ -5372,6 +6078,7 @@ async function clearLog(source = '') {
   if (source === 'gps_sync') containerId = 'log-container-gps_sync';
   else if (source === 'calculator') containerId = 'log-container-calculator';
   else if (source === 'trigger') containerId = 'log-container-trigger';
+  else if (source === 'exposure_opt') containerId = 'log-container-exposure_opt';
   
   document.querySelectorAll(`#${containerId}`).forEach(c => c.innerHTML = '');
   // Bloquer l'ajout de nouvelles lignes pendant 1s

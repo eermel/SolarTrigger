@@ -55,24 +55,19 @@ def _function_body(name, signature=r"\(.*?\)"):
     return match.group("body")
 
 
-def test_preview_buttons_exist_once_per_rig_and_start_disabled():
+def test_only_one_global_preview_button_is_exposed():
+    assert "rig-preview-button" not in INDEX
+
     buttons = re.findall(
-        r'<button\s+class="[^"]*\brig-preview-button\b[^"]*"'
-        r'(?P<attributes>.*?)>(?P<label>.*?)</button>',
+        r'<button[^>]*id="btn-exposure-opt-preview-all"[^>]*>'
+        r'(?P<label>.*?)</button>',
         INDEX,
         re.DOTALL,
     )
 
-    assert len(buttons) == 4
-
-    for rig_id, (attributes, label) in enumerate(buttons, start=1):
-        assert re.search(rf'\bdata-rig-id="{rig_id}"', attributes)
-        assert re.search(r"\bdisabled\b", attributes)
-        assert (
-            f'onclick="requestRigPreviews({rig_id}, buildPreviewIntents())"'
-            in attributes
-        )
-        assert "Preview" in label
+    assert len(buttons) == 1
+    assert "Preview all active RIGs" in buttons[0]
+    assert 'onclick="requestAllRigPreviews()"' in INDEX
 
 
 def test_cfg_photo_has_per_rig_antiblur_controls():
@@ -185,16 +180,9 @@ def test_preview_buttons_remain_available_independently_of_trigger_enabled():
         in body
     )
 
-    assert re.search(
-        r"if\s*\(cameraColumn\)\s*\{.*?"
-        r"cameraColumn\.classList\.toggle\("
-        r"'enabled',\s*triggerEnabled\)\s*;.*?"
-        r"cameraColumn\.hidden\s*=\s*false\s*;.*?"
-        r"querySelector\('\.rig-preview-button'\).*?"
-        r"previewButton\.disabled\s*=\s*false\s*;",
-        body,
-        re.DOTALL,
-    )
+    assert "cameraColumn.classList.toggle('enabled', triggerEnabled)" in body
+    assert "cameraColumn.hidden = false" in body
+    assert "rig-preview-button" not in body
 
 
 def test_preview_intents_uses_expected_fields_and_contacts():
@@ -283,31 +271,56 @@ def test_preview_phase_inclusion_conditions_are_independent():
 
 
 def test_request_rig_previews_posts_intents_and_targets_requested_rig():
-    body = _request_rig_previews_body()
+    fetch_helper = re.search(
+        r"async function _fetchRigPreview\(rigId, intents\)\s*\{(?P<body>.*?)\n\}",
+        INDEX,
+        re.DOTALL,
+    )
+    assert fetch_helper is not None
+
+    body = fetch_helper.group("body")
+
+    assert re.search(
+        r"const\s+payload\s*=\s*\{.*?"
+        r"intents\s*,.*?"
+        r"rig_id:\s*Number\(rigId\).*?"
+        r"rig_override:\s*\{.*?"
+        r"optics:\s*currentRigPhoto\.optics.*?"
+        r"photo:\s*currentRigPhoto\.photo.*?"
+        r"\}.*?"
+        r"\}",
+        body,
+        re.DOTALL,
+    )
+
+    assert "fetch('/api/rigs/preview'" in body
+
+    request_body = _request_rig_previews_body()
+    assert "await _fetchRigPreview(rigId, intents)" in request_body
 
     assert re.search(
         r"fetch\(\s*'/api/rigs/preview'\s*,\s*\{.*?"
         r"method:\s*'POST'.*?"
         r"headers:\s*\{\s*'Content-Type'\s*:\s*"
         r"'application/json'\s*\}.*?"
-        r"body:\s*JSON\.stringify\(\{.*?"
-        r"intents\s*,.*?"
-        r"rig_id:\s*Number\(rigId\).*?"
-        r"rig_override:\s*rigOverride.*?"
-        r"\}\)",
+        r"body:\s*JSON\.stringify\(payload\)",
         body,
         re.DOTALL,
     )
 
     assert re.search(
-        r"const\s+responseJson\s*=\s*await\s+response\.text\(\)",
+        r"const\s+responseText\s*=\s*await\s+response\.text\(\)",
         body,
     )
 
-    assert "renderRigPreviews(responseJson, rigId)" in body
+    assert "return responseText" in body
+
+    request_body = _request_rig_previews_body()
+    assert "renderExposureOptPreviewLog(" in request_body
+    assert "responseText" in request_body
+    assert "rigId" in request_body
     assert "readRigPhotoConfig(rigId)" in body
     assert "await persistRigPhoto(rigId)" not in body
-    assert "rig_override: rigOverride" in body
     assert "rig_id: Number(rigId)" in body
 
     assert re.search(

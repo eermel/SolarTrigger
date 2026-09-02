@@ -202,6 +202,9 @@ from backend.device_inventory import (
 )
 from backend.eclipse_engine import loader as eclipse_loader
 from backend.preview_context import load_eclipse_context
+from backend.atmo import interpolate_altitude
+from backend.camera_model_resolution import resolve_sensor_entry
+from backend.sensor_db import load_sensor_db
 from backend.preview_materializer import (
     PreviewMaterializationError,
     apply_atmos_if_enabled,
@@ -209,10 +212,12 @@ from backend.preview_materializer import (
     build_exposure_diff_lines,
     compute_iso_and_corrections,
     expand_executable_shutters,
+    format_photo_shutter,
     normalize_intent_plan,
     resolve_policy,
 )
 from backend.motion_exposure_policy import (
+    DEFAULT_SENSOR_DB_PATH,
     compute_motion_exposure_ceiling,
     materialize_exposure_plan,
 )
@@ -671,14 +676,169 @@ def _preview_datetime(value):
     return value.isoformat(timespec="microseconds") + "Z" if value is not None else None
 
 
+def _preview_rig_metadata(rig):
+    devices = rig.get("devices") if isinstance(rig, dict) else {}
+    devices = devices if isinstance(devices, dict) else {}
+
+    camera = devices.get("camera")
+    camera = camera if isinstance(camera, dict) else {}
+
+    manufacturer = camera.get("manufacturer")
+    model = camera.get("model") or camera.get("alias")
+
+    camera_parts = [
+        str(value).strip()
+        for value in (manufacturer, model)
+        if isinstance(value, str) and value.strip()
+    ]
+
+    camera_label = (
+        " ".join(camera_parts)
+        if camera_parts
+        else "Not configured"
+    )
+
+    pixel_pitch_um = None
+
+    if (
+        isinstance(manufacturer, str)
+        and manufacturer.strip()
+        and isinstance(model, str)
+        and model.strip()
+    ):
+        try:
+            db = load_sensor_db(str(DEFAULT_SENSOR_DB_PATH))
+            sensor = resolve_sensor_entry(
+                manufacturer,
+                model,
+                db,
+            )
+            pixel_pitch_um = float(sensor["pixel_pitch_um"])
+        except (KeyError, OSError, TypeError, ValueError):
+            pixel_pitch_um = None
+
+    mount = devices.get("mount")
+    mount = mount if isinstance(mount, dict) else {}
+
+    mount_parts = [
+        str(value).strip()
+        for value in (
+            mount.get("manufacturer"),
+            mount.get("model") or mount.get("alias"),
+        )
+        if isinstance(value, str) and value.strip()
+    ]
+
+    mount_label = (
+        " ".join(mount_parts)
+        if mount_parts
+        else "None / fixed"
+    )
+
+    optics = rig.get("optics")
+    optics = optics if isinstance(optics, dict) else {}
+
+    photo = rig.get("photo")
+    photo = photo if isinstance(photo, dict) else {}
+
+    return {
+        "camera": camera_label,
+        "pixel_pitch_um": pixel_pitch_um,
+        "mount": mount_label,
+        "mount_geometry": mount.get("geometry"),
+        "mount_tracking": mount.get("tracking"),
+        "focal_length_mm": optics.get("focal_length_mm"),
+        "motion_tolerance_px": photo.get("motion_tolerance_px"),
+        "anti_trailing_enabled": (
+            photo.get("anti_trailing_enabled") is True
+        ),
+    }
+
+
+def _preview_atmospheric_summary(rig, context):
+    photo = rig.get("photo") if isinstance(rig, dict) else {}
+
+    enabled = (
+        isinstance(photo, dict)
+        and photo.get("atmos_enabled") is True
+    )
+
+    altitudes = context.get("altitudes", context)
+    values = []
+
+    if isinstance(altitudes, dict):
+        for event in ("C1", "C2", "TMAX", "C3", "C4"):
+            raw = altitudes.get(f"{event}_alt_deg")
+            if raw is None:
+                continue
+            try:
+                values.append(float(raw))
+            except (TypeError, ValueError):
+                pass
+
+    return {
+        "enabled": enabled,
+        "sun_altitude_min_deg": min(values) if values else None,
+        "sun_altitude_max_deg": max(values) if values else None,
+    }
+
+
+def _preview_solar_altitude(target_time, context):
+    timeline = context.get("timeline")
+    altitudes = context.get("altitudes", context)
+
+    if not isinstance(timeline, dict):
+        return None
+    if not isinstance(altitudes, dict):
+        return None
+
+    try:
+        return float(
+            interpolate_altitude(
+                target_time,
+                dict(timeline),
+                dict(altitudes),
+            )
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _preview_atmos_added_lines(before, after, iso):
+    if len(after) <= len(before):
+        return []
+
+    if after[:len(before)] != before:
+        return []
+
+    return [
+        f"+ ({format_photo_shutter(speed)} ; {iso})"
+        for speed in after[len(before):]
+    ]
+
+
 @app.route("/api/rigs/preview", methods=["POST"])
 def api_rigs_preview():
     """Materialize exposure intents from configuration without touching runtime state."""
     payload = request.get_json(silent=True)
     try:
-        config = load_rig_configuration()
+        config = deepcopy(load_rig_configuration())
     except (OSError, json.JSONDecodeError, ValueError):
         return jsonify({"error": "rig configuration could not be loaded"}), 500
+
+    # Preview compatibility only:
+    # historical canonical RIG files may contain sequence.common without
+    # phase objects.  Preview requires them, but this compatibility shape
+    # must never be persisted back to the canonical RIG configuration.
+    sequence = config.get("sequence")
+    if isinstance(sequence, dict):
+        common = sequence.get("common")
+        if isinstance(common, dict):
+            phases = common.setdefault("phases", {})
+            if isinstance(phases, dict):
+                for phase in ("partial", "diamond_ring", "totality"):
+                    phases.setdefault(phase, {})
+
     try:
         intents, preview_rig_id, rig_override = validate_preview_request(
             payload,
@@ -687,9 +847,8 @@ def api_rigs_preview():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    # Preview overrides are deliberately ephemeral. Never mutate the object
-    # returned by the configuration loader and never save this copy.
-    config = deepcopy(config)
+    # Preview overrides are deliberately ephemeral. This configuration is
+    # already a private copy and is never saved.
 
     if preview_rig_id is not None:
         target_rig = next(
@@ -732,6 +891,12 @@ def api_rigs_preview():
     response = []
     for rig in rigs:
         items = []
+        rig_metadata = _preview_rig_metadata(rig)
+        atmospheric_summary = _preview_atmospheric_summary(
+            rig,
+            materializer_context,
+        )
+
         for intent in intents:
             item = {
                 "phase": intent["phase"],
@@ -743,10 +908,28 @@ def api_rigs_preview():
             try:
                 original_plan = normalize_intent_plan(intent)
                 plan = original_plan
+
+                pre_atmos_shutters = expand_executable_shutters(
+                    rig,
+                    original_plan,
+                )
+
                 plan, atmos_applied, theoretical_slowest = apply_atmos_if_enabled(
                     rig, plan, intent["target_time"], materializer_context
                 )
+
+                atmos_shutters = expand_executable_shutters(
+                    rig,
+                    plan,
+                )
+
+                solar_altitude_deg = _preview_solar_altitude(
+                    intent["target_time"],
+                    materializer_context,
+                )
+
                 motion_policy = resolve_policy(rig)
+                motion_ceiling_s = None
                 iso_requested = (
                     int(intent["iso_target"])
                     if intent["iso_target"] is not None
@@ -777,6 +960,7 @@ def api_rigs_preview():
                         policy,
                         intent["target_time"],
                     )
+                    motion_ceiling_s = t_max
 
                     if t_max is not None:
                         regular, fastest, slowest, step, speeds = plan
@@ -828,6 +1012,27 @@ def api_rigs_preview():
                     rig,
                     plan,
                 )
+
+                atmos_added_lines = _preview_atmos_added_lines(
+                    pre_atmos_shutters,
+                    atmos_shutters,
+                    iso_requested,
+                )
+
+                anti_blur_final_iso = (
+                    int(iso_applied)
+                    if iso_applied is not None
+                    else iso_requested
+                )
+
+                anti_blur_diff_lines = build_exposure_diff_lines(
+                    atmos_shutters,
+                    iso_requested,
+                    final_shutters,
+                    anti_blur_final_iso,
+                    final_isos=final_isos,
+                )
+
                 final_iso = (
                     int(iso_applied)
                     if iso_applied is not None
@@ -847,7 +1052,11 @@ def api_rigs_preview():
                     "corrections": corrections,
                     "warnings": warnings,
                     "atmos_applied": atmos_applied,
+                    "sun_altitude_deg": solar_altitude_deg,
+                    "atmos_added_lines": atmos_added_lines,
                     "motion_policy": motion_policy,
+                    "motion_ceiling_s": motion_ceiling_s,
+                    "anti_blur_diff_lines": anti_blur_diff_lines,
                     "diff_lines": diff_lines,
                     "error": None,
                 })
@@ -861,7 +1070,12 @@ def api_rigs_preview():
                 code = getattr(exc, "code", "MATERIALIZATION_ERROR")
                 item["error"] = {"code": code, "message": str(exc)}
             items.append(item)
-        response.append({"rig_id": rig["rig_id"], "items": items})
+        response.append({
+            "rig_id": rig["rig_id"],
+            "metadata": rig_metadata,
+            "atmospheric": atmospheric_summary,
+            "items": items,
+        })
 
     return jsonify({"rigs": response})
 

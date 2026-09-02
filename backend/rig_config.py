@@ -71,7 +71,7 @@ def canonical_rig_defaults(
 
 
 def normalize_rig_defaults(obj: Any) -> Any:
-    """Fill missing optics/photo defaults without overwriting stored values."""
+    """Fill missing canonical defaults without overwriting stored values."""
 
     if not isinstance(obj, dict):
         return obj

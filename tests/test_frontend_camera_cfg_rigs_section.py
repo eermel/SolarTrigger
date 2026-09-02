@@ -40,11 +40,13 @@ def test_exposure_opt_has_four_rig_columns():
     ]
 
 
-def test_exposure_opt_rig_columns_have_preview_controls_and_targets():
+def test_exposure_opt_rig_columns_have_preview_targets_but_no_individual_buttons():
     page = _exposure_page()
 
     for rig_id in range(1, 5):
-        column_start = page.index(f'id="camcfg-rig-column-{rig_id}"')
+        column_start = page.index(
+            f'id="camcfg-rig-column-{rig_id}"'
+        )
 
         if rig_id < 4:
             column_end = page.index(
@@ -52,18 +54,14 @@ def test_exposure_opt_rig_columns_have_preview_controls_and_targets():
                 column_start,
             )
         else:
-            column_end = page.index("</section>", column_start)
+            column_end = page.index(
+                "</section>",
+                column_start,
+            )
 
         column = page[column_start:column_end]
 
-        assert re.search(
-            rf'<button\b'
-            rf'(?=[^>]*class="[^"]*\brig-preview-button\b[^"]*")'
-            rf'(?=[^>]*data-rig-id="{rig_id}")[^>]*>'
-            rf'\s*Preview\s*</button>',
-            column,
-        )
-
+        assert "rig-preview-button" not in column
         assert f'id="rig-preview-{rig_id}"' in column
 
 
@@ -88,4 +86,4 @@ def test_updateRigs_still_controls_exposure_opt_rig_columns():
         in body
     )
     assert "cameraColumn.hidden = false" in body
-    assert "rig-preview-button" in body
+    assert "rig-preview-button" not in body

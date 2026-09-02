@@ -263,3 +263,19 @@ def test_validate_accepts_null_camera_config_before_trigger_execution():
     config["rigs"][0]["devices"]["camera"] = None
 
     assert validate(config) is None
+
+
+def test_load_preserves_sequence_without_adding_preview_phases(tmp_path):
+    config = _minimal_config()
+    assert config["sequence"]["common"] == {}
+
+    path = tmp_path / "rig-config.json"
+    path.write_text(
+        __import__("json").dumps(config),
+        encoding="utf-8",
+    )
+
+    loaded = load(path)
+
+    assert loaded["sequence"] == config["sequence"]
+    assert "phases" not in loaded["sequence"]["common"]
