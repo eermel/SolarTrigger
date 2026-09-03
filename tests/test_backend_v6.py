@@ -194,7 +194,7 @@ def test_watchdog_roundtrip(tmp_path):
     wd.clear(); assert wd.read() is None
 
 
-def _write_test_execution_plan(configs):
+def _write_test_execution_plan(configs, circumstances_file="todayeclipse.json"):
     plan_dir = configs / "execution_plan"
     plan_dir.mkdir(parents=True, exist_ok=True)
     plan_path = plan_dir / "test_execution_plan.json"
@@ -206,6 +206,9 @@ def _write_test_execution_plan(configs):
                 "sequence_start_utc": "2027-08-02T10:00:00.000Z",
                 "sequence_end_utc": "2027-08-02T10:40:00.000Z",
                 "initial_state_required": {},
+                "sources": {
+                    "circumstances_file": circumstances_file,
+                },
                 "commands": [],
             }
         ),
@@ -240,6 +243,7 @@ def test_trigger_service_simulation_builds_safe_command(tmp_path, monkeypatch):
     monkeypatch.setattr('backend.trigger_service.subprocess.Popen', fake_popen)
     svc=TriggerService(store,script,eclipse,events,configs,lambda *a:None,lambda *a:None)
     plan_path = _write_test_execution_plan(configs)
+    svc._active_circumstances_paths[1] = eclipse
     svc._run(
         simulate=True,
         speed=120,
@@ -277,8 +281,15 @@ def test_trigger_service_simulation_does_not_require_gps(tmp_path, monkeypatch):
     camera_cfg=configs/'camera_cfg'
     camera_cfg.mkdir(parents=True)
     (camera_cfg/'camera.json').write_text('{}')
+    circumstances_dir = configs / "circumstances"
+    circumstances_dir.mkdir(parents=True)
+    (circumstances_dir / eclipse.name).write_text(
+        eclipse.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
     plan_path = _write_test_execution_plan(configs)
-    store.set("execution_plan_file", plan_path.name)
+    store.set("execution_plan_file_rig_1", plan_path.name)
     script=tmp_path/'eclipse_trigger.py'; script.write_text('')
     svc=TriggerService(store,script,eclipse,tmp_path/'events',configs,lambda *a:None,lambda *a:None)
     # Evite de lancer un vrai thread : le but est de valider les préconditions.
@@ -287,7 +298,7 @@ def test_trigger_service_simulation_does_not_require_gps(tmp_path, monkeypatch):
         def start(self): pass
     monkeypatch.setattr('backend.trigger_service.threading.Thread', DummyThread)
     assert svc.start(simulate=True, speed=60) is True
-    assert store.snapshot('trigger')['mode'] == 'simulation'
+    assert store.snapshot('trigger')['rigs']['1']['mode'] == 'simulation'
 
 
 def test_trigger_service_real_start_still_requires_gps(tmp_path):
@@ -330,6 +341,7 @@ def test_trigger_service_dryrun_builds_real_camera_command(tmp_path, monkeypatch
     monkeypatch.setattr('backend.trigger_service.subprocess.Popen', fake_popen)
     svc=TriggerService(store,script,eclipse,tmp_path/'events',configs,lambda *a:None,lambda *a:None)
     plan_path = _write_test_execution_plan(configs)
+    svc._active_circumstances_paths[1] = eclipse
     svc._run(
         dry_run=True,
         dry_run_delay=45,
@@ -338,7 +350,7 @@ def test_trigger_service_dryrun_builds_real_camera_command(tmp_path, monkeypatch
     assert '--dry-run' in seen['cmd']
     assert '--dry-run-delay' in seen['cmd']
     assert '--simulate' not in seen['cmd']
-    assert seen['cmd'][seen['cmd'].index('--camera') + 1] == str(camera_file)
+    assert '--camera' not in seen['cmd']
     assert Path(seen['kwargs']['cwd']) == tmp_path
     pythonpath = seen['kwargs']['env']['PYTHONPATH'].split(os.pathsep)
     assert pythonpath[0] == str(tmp_path)

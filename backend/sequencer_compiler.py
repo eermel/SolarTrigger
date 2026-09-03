@@ -2077,18 +2077,28 @@ def build_execution_plan_document(
     if not event_list:
         raise ValueError("execution plan contains no events")
 
-    commands = [
-        command
+    command_entries = [
+        (event, command)
         for event in event_list
         if (command := _execution_command(event)) is not None
     ]
 
-    commands.sort(
+    command_entries.sort(
         key=lambda item: (
-            item["time_utc"],
-            item["rig_id"],
+            item[1]["time_utc"],
+            item[1]["rig_id"],
         )
     )
+
+    commands = [
+        command
+        for _event, command in command_entries
+    ]
+
+    command_phases = [
+        event.phase
+        for event, _command in command_entries
+    ]
 
     if not commands:
         raise ValueError("execution plan contains no executable commands")
@@ -2127,6 +2137,7 @@ def build_execution_plan_document(
         },
 
         "commands": commands,
+        "command_phases": command_phases,
     }
 
 

@@ -22,7 +22,19 @@ DEFAULT_STATE = {
     "focuser_settings": {
         "mode": "slow", "slow_step": 20, "fast_step": 150, "updated_at": None,
     },
-    "trigger": {"running": False, "phase": "idle"},
+    "trigger": {
+        "running": False,
+        "phase": "idle",
+        "rigs": {
+            str(rig_id): {
+                "running": False,
+                "phase": "idle",
+                "mode": None,
+                "speed": None,
+            }
+            for rig_id in range(1, 5)
+        },
+    },
     "gps_sync_running": False,
     "calc_running": False,
 }
@@ -54,7 +66,7 @@ class StateStore:
                         base[key] = val
             except Exception:
                 pass
-        base["trigger"] = {"running": False, "phase": "idle"}
+        base["trigger"] = copy.deepcopy(self._defaults["trigger"])
         base["gps_sync_running"] = False
         base["calc_running"] = False
         base.setdefault("gps", {})["gps_sync_running"] = False
@@ -102,6 +114,29 @@ class StateStore:
             self.save()
         return snap
 
+    def update_trigger_rig(self, rig_id: int, values: dict):
+        """Atomically update runtime trigger state for one RIG."""
+        key = str(rig_id)
+
+        with self.lock:
+            trigger = self._state.setdefault(
+                "trigger",
+                {"running": False, "phase": "idle"},
+            )
+            rigs = trigger.setdefault("rigs", {})
+            rig_state = rigs.setdefault(
+                key,
+                {
+                    "running": False,
+                    "phase": "idle",
+                    "mode": None,
+                    "speed": None,
+                },
+            )
+            rig_state.update(values)
+
+            return copy.deepcopy(rig_state)
+
     def reset_boot_sensitive(self):
         with self.lock:
             gps = self._state.setdefault("gps", {})
@@ -109,7 +144,9 @@ class StateStore:
                         "alt": None, "date": None, "satellites": 0, "hdop": None,
                         "sync_time": None, "timezone": None, "gps_sync_running": False})
             self._state["gps_sync_running"] = False
-            self._state["trigger"] = {"running": False, "phase": "idle"}
+            self._state["trigger"] = copy.deepcopy(
+                self._defaults["trigger"]
+            )
 
     def save(self):
         with self.lock:

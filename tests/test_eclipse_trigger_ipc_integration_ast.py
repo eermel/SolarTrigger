@@ -251,10 +251,13 @@ def test_main_execution_plan_branch_returns_before_legacy_engine():
         and ast.unparse(node.test) == "args.execution_plan"
     )
 
-    assert len(execution_branch.body) == 2
-    assert isinstance(execution_branch.body[0], ast.Expr)
-    assert _call_name(execution_branch.body[0].value) == "_run_execution_plan_v2"
-    assert isinstance(execution_branch.body[1], ast.Return)
+    # L'Execution Plan peut effectuer sa préparation propre
+    # (audio/messages notamment), mais il doit toujours exécuter le moteur
+    # V2 puis retourner immédiatement avant le moteur legacy.
+    assert len(execution_branch.body) >= 2
+    assert isinstance(execution_branch.body[-2], ast.Expr)
+    assert _call_name(execution_branch.body[-2].value) == "_run_execution_plan_v2"
+    assert isinstance(execution_branch.body[-1], ast.Return)
 
 
 def test_execution_plan_failure_exits_process_nonzero():

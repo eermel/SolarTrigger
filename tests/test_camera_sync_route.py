@@ -141,7 +141,7 @@ def test_camera_sync_rejects_running_trigger_without_changing_state(
     camera_sync_client,
 ):
     client, state_store = camera_sync_client
-    state_store.update_section("trigger", {"running": True})
+    state_store.update_trigger_rig(1, {"running": True})
     before = state_store.snapshot()
 
     response = client.post("/api/camera/sync_time")

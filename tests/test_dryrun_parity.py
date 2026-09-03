@@ -35,13 +35,16 @@ def test_service_mapping_keeps_dry_run_on_real_camera_service():
 
 
 def test_dry_run_startup_log_describes_timeline_translation():
-    log_line = next(
-        line for line in SRC.splitlines() if "_log(" in line and "DRY-RUN ×1" in line
-    )
+    marker = "🧪 DRY-RUN ×1"
+    start = SRC.index(marker)
 
-    assert "timeline translatée" in log_line
-    assert "appareil simulé" not in log_line
-    assert "accès matériel caméra totalement désactivé" not in log_line
+    log_block_start = SRC.rfind("_log(", 0, start)
+    log_block_end = SRC.index(")", start) + 1
+    log_block = SRC[log_block_start:log_block_end]
+
+    assert "timeline translatée" in log_block
+    assert "appareil simulé" not in log_block
+    assert "accès matériel caméra totalement désactivé" not in log_block
 
 
 def test_dry_run_cli_help_describes_timeline_translation():
@@ -96,14 +99,6 @@ def test_execution_plan_dry_run_uses_one_uniform_plan_rebase():
         and ast.unparse(node.test) == "args.dry_run"
     )
 
-    calls = [
-        node
-        for node in ast.walk(function)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "rebase_execution_plan"
-    ]
-
     guarded_calls = [
         node
         for node in ast.walk(dry_run_branch)
@@ -112,5 +107,7 @@ def test_execution_plan_dry_run_uses_one_uniform_plan_rebase():
         and node.func.id == "rebase_execution_plan"
     ]
 
-    assert len(calls) == 1
-    assert guarded_calls == calls
+    # Le plan principal ne doit être rebasé qu'une seule fois pour le
+    # dry-run. D'autres rebases peuvent exister dans la fonction, notamment
+    # pour chaque cycle du TOTALITY OVERRIDE.
+    assert len(guarded_calls) == 1

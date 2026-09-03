@@ -49,6 +49,14 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
     camera_cfg.mkdir(parents=True)
     (camera_cfg / "camera.json").write_text("{}", encoding="utf-8")
 
+    circumstances_dir = configs / "circumstances"
+    circumstances_dir.mkdir(parents=True)
+    circumstances_name = "test_circumstances.json"
+    (circumstances_dir / circumstances_name).write_text(
+        eclipse.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
     execution_plan_dir = configs / "execution_plan"
     execution_plan_dir.mkdir(parents=True)
     execution_plan_name = "test_execution_plan.json"
@@ -60,12 +68,15 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
                 "sequence_start_utc": "2027-08-02T10:00:00.000Z",
                 "sequence_end_utc": "2027-08-02T10:40:00.000Z",
                 "initial_state_required": {},
+                "sources": {
+                    "circumstances_file": circumstances_name,
+                },
                 "commands": [],
             }
         ),
         encoding="utf-8",
     )
-    store.set("execution_plan_file", execution_plan_name)
+    store.set("execution_plan_file_rig_1", execution_plan_name)
 
     allow_process_exit = threading.Event()
     process_completed = threading.Event()
@@ -104,9 +115,13 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
     real_validate_start = TriggerService.validate_start
     validate_calls = []
 
-    def counting_validate_start(self, require_gps=True):
+    def counting_validate_start(self, rig_id=1, require_gps=True):
         validate_calls.append(require_gps)
-        return real_validate_start(self, require_gps=require_gps)
+        return real_validate_start(
+            self,
+            rig_id=rig_id,
+            require_gps=require_gps,
+        )
 
     monkeypatch.setattr(TriggerService, "validate_start", counting_validate_start)
 
@@ -122,21 +137,21 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
     )
 
     assert svc.start(simulate=False, dry_run=False) is True
-    assert store.snapshot("trigger")["running"] is True
+    assert store.snapshot("trigger")["rigs"]["1"]["running"] is True
 
     store.update_section("gps", {"connected": False, "synced": False})
     time.sleep(0.05)
 
-    assert store.snapshot("trigger")["running"] is True
+    assert store.snapshot("trigger")["rigs"]["1"]["running"] is True
     assert process_completed.is_set() is False
     assert validate_calls == [True]
 
     allow_process_exit.set()
     deadline = time.monotonic() + 2
-    while store.snapshot("trigger")["running"] and time.monotonic() < deadline:
+    while store.snapshot("trigger")["rigs"]["1"]["running"] and time.monotonic() < deadline:
         time.sleep(0.01)
 
     assert process_completed.is_set() is True
-    assert store.snapshot("trigger")["running"] is False
+    assert store.snapshot("trigger")["rigs"]["1"]["running"] is False
     assert validate_calls == [True]
     assert not any("GPS" in str(entry) for entry in logs)

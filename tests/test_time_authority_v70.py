@@ -149,7 +149,8 @@ def test_frontend_connect_fetches_status_and_reanchors_time():
 def test_gps_sync_is_blocked_while_trigger_runs():
     app = (ROOT/'flask_app/app.py').read_text(encoding='utf-8')
     route = app[app.index('def api_gps_sync():'):app.index('@app.route("/api/gps/state")')]
-    assert 'trigger_state.get("running")' in route
+    assert 'rigs.values()' in route
+    assert 'get("running")' in route
     assert 'TRIGGER_RUNNING' in route
 
 

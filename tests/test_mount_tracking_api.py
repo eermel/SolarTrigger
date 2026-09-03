@@ -162,7 +162,7 @@ def test_tracking_changes_rejected_while_trigger_runs(
 ):
     plugin = TrackingMountPlugin({"toggle": True})
     client, state_store = mount_tracking_api(plugin)
-    state_store.update_section("trigger", {"running": True})
+    state_store.update_trigger_rig(1, {"running": True})
 
     response = client.post(path, json=payload)
 

@@ -1894,6 +1894,35 @@ header {
     <!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->
     <div class="page" id="page-4">
 
+      <div class="controls-rig-selector" role="group" aria-label="Trigger RIG">
+        <button class="btn btn-primary"
+                id="trigger-rig-1"
+                data-trigger-rig-id="1"
+                onclick="selectTriggerRig(1)"
+                disabled hidden>RIG 1</button>
+        <button class="btn btn-primary"
+                id="trigger-rig-2"
+                data-trigger-rig-id="2"
+                onclick="selectTriggerRig(2)"
+                disabled hidden>RIG 2</button>
+        <button class="btn btn-primary"
+                id="trigger-rig-3"
+                data-trigger-rig-id="3"
+                onclick="selectTriggerRig(3)"
+                disabled hidden>RIG 3</button>
+        <button class="btn btn-primary"
+                id="trigger-rig-4"
+                data-trigger-rig-id="4"
+                onclick="selectTriggerRig(4)"
+                disabled hidden>RIG 4</button>
+      </div>
+
+      <div class="controls-target-label"
+           id="trigger-target-label"
+           aria-live="polite">
+        No RIG selected
+      </div>
+
       <!-- ── START / STOP + Fichiers config ── -->
       <div style="display:flex;gap:10px;align-items:stretch">
 
@@ -1901,12 +1930,12 @@ header {
         <div style="display:flex;flex-direction:column;gap:8px;min-width:110px">
           <button class="btn" id="btn-dryrun" onclick="startDryRun()"
                   style="flex:1;background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
-                  title="Same engine and camera as the real run, timeline shifted to now, speed ×1">🧪 DRY-RUN ×1</button>
+                  title="Same execution plan and camera as START, using today UTC date and the original UTC times">🧪 DRY-RUN ×1</button>
           <button class="btn btn-success" id="btn-start" onclick="startTrigger()" style="flex:1">▶ START</button>
           <button class="btn" id="btn-totality-only" onclick="startTotalityOnly()"
                   style="flex:1;background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);
                          color:var(--accent);font-size:11px"
-                  title="Immediate override: stops the current trigger and loops the totality sequence until STOP">⚠ Override for Totality Sequence</button>
+                  title="Immediate photo override: replaces the current photo sequence with the compiled totality sequence; audio continues until STOP">⚠ Override for Totality Sequence</button>
           <button class="btn btn-danger"  id="btn-stop"  onclick="stopTrigger()" style="flex:1">■ STOP</button>
         </div>
 
@@ -1914,27 +1943,15 @@ header {
         <div class="card" style="flex:1;margin:0;padding:12px">
           <div class="card-title" style="margin-bottom:8px">Active configuration</div>
 
-          <!-- Sélecteur circonstances éclipse -->
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Eclipse circumstances</div>
+          <!-- Execution Plan sélectionné pour START / DRY-RUN -->
+          <div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Sequence loader</div>
           <div style="display:flex;gap:6px;margin-bottom:8px">
             <select id="trigger-config-select"
                     style="flex:1;background:var(--bg3);border:1px solid var(--border);
                            border-radius:8px;padding:6px 8px;color:var(--text);
                            font-family:var(--mono);font-size:11px"
-                    onchange="loadTriggerConfig(this.value, this.options[this.selectedIndex].dataset.dir)">
-              <option value="">— Select a file —</option>
-            </select>
-          </div>
-
-          <!-- Sélecteur config appareil -->
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Camera configuration</div>
-          <div style="display:flex;gap:6px;margin-bottom:8px">
-            <select id="trigger-camera-select"
-                    style="flex:1;background:var(--bg3);border:1px solid var(--border);
-                           border-radius:8px;padding:6px 8px;color:var(--text);
-                           font-family:var(--mono);font-size:11px"
-                    onchange="selectTriggerCamera(this.value)">
-              <option value="">— Camera config —</option>
+                    onchange="loadTriggerPlan(this.value)">
+              <option value="">— Select an Execution Plan —</option>
             </select>
           </div>
 
@@ -1986,29 +2003,9 @@ header {
           Eclipse circumstances
           <span id="trigger-eclipse-type" style="font-size:11px;font-family:var(--mono);font-weight:normal;margin-left:8px"></span>
         </div>
-        <!-- TSTART au-dessus des contacts -->
-        <div class="field" style="margin-bottom:10px">
-          <label>TSTART <span style="color:var(--blue);font-size:9px">UTC</span></label>
-          <input type="text" id="ov-tstart" placeholder="HH:MM:SS"
-                 pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?"
-                 style="color:var(--green);font-family:var(--mono)">
-          <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:2px">= C1 − 1h by default</div>
-        </div>
         <!-- Contacts C1..C4 + countdown -->
         <div id="trigger-contacts">
           <div style="color:var(--text-dim);font-size:11px;font-family:var(--mono)">En attente du calcul…</div>
-        </div>
-        <!-- TEND sous les contacts -->
-        <div class="field" style="margin-top:10px">
-          <label>TEND <span style="color:var(--blue);font-size:9px">UTC</span></label>
-          <input type="text" id="ov-tend" placeholder="HH:MM:SS"
-                 pattern="\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?"
-                 style="color:var(--green);font-family:var(--mono)">
-          <div style="font-size:10px;color:var(--text-dim);font-family:var(--mono);margin-top:2px">= C4 + 1h by default</div>
-        </div>
-        <div style="display:flex;gap:6px;margin-top:8px">
-          <button class="btn btn-primary" style="flex:1;font-size:11px;padding:7px 6px"
-            onclick="saveOverrides()">✔ Appliquer</button>
         </div>
       </div>
 
@@ -2038,6 +2035,7 @@ const state = {
   volume:        0.8,
   currentPage:   0,
   phase:         'idle',
+  triggerRigs:   {},
   eclipse:       null,
   gps:           {},
   audioCtx:      null,
@@ -2364,6 +2362,95 @@ async function cleanExposureOptConfigs() {
 
 
 let selectedRigId = 1;
+
+let selectedTriggerRigId = 1;
+
+function selectedTriggerRig() {
+  return rigDevicesState.rigs.find(
+    rig => Number(rig.rig_id) === selectedTriggerRigId
+  ) || null;
+}
+
+function renderTriggerRigSelection() {
+  const selectedRig = selectedTriggerRig();
+  if (!selectedRig) selectedTriggerRigId = null;
+
+  DEFAULT_RIGS.forEach(defaultRig => {
+    const rig = rigDevicesState.rigs.find(
+      candidate => Number(candidate.rig_id) === defaultRig.rig_id
+    );
+
+    const available = Boolean(rig);
+    const button = document.getElementById(
+      `trigger-rig-${defaultRig.rig_id}`
+    );
+
+    if (!button) return;
+
+    button.hidden = !available;
+    button.disabled = !available;
+
+    if (available) {
+      const defaultName = `RIG ${defaultRig.rig_id}`;
+      const rigName = (
+        typeof rig.name === 'string' && rig.name.trim()
+          ? rig.name.trim()
+          : defaultName
+      );
+
+      button.textContent = rigName === defaultName
+        ? defaultName
+        : `${defaultName} — ${rigName}`;
+    }
+
+    button.classList.toggle(
+      'active',
+      available && selectedTriggerRigId === defaultRig.rig_id
+    );
+
+    button.setAttribute(
+      'aria-pressed',
+      available && selectedTriggerRigId === defaultRig.rig_id
+        ? 'true'
+        : 'false'
+    );
+  });
+
+  const targetLabel = document.getElementById(
+    'trigger-target-label'
+  );
+
+  if (!targetLabel) return;
+
+  const rig = selectedTriggerRig();
+
+  if (!rig) {
+    targetLabel.textContent = 'No RIG selected';
+    return;
+  }
+
+  const camera = rig.devices && rig.devices.camera;
+
+  targetLabel.textContent = camera
+    ? `RIG ${selectedTriggerRigId} — Camera : ${rigDeviceDisplayLabel('camera', camera)}`
+    : `RIG ${selectedTriggerRigId} — No camera`;
+}
+
+function selectTriggerRig(rigId) {
+  const numericRigId = Number(rigId);
+
+  const rig = rigDevicesState.rigs.find(
+    candidate => Number(candidate.rig_id) === numericRigId
+  );
+
+  if (!rig) return;
+
+  selectedTriggerRigId = numericRigId;
+  renderTriggerRigSelection();
+  updateSelectedTriggerPhase();
+  loadTriggerConfigList();
+}
+
 
 function selectedControlsRig() {
   return rigDevicesState.rigs.find(rig => Number(rig.rig_id) === selectedRigId) || null;
@@ -2978,6 +3065,7 @@ function updateRigs(rigs) {
     if (toggle) toggle.checked = rig.enabled === true;
   });
   renderControlsRigSelection();
+  renderTriggerRigSelection();
 }
 
 document.addEventListener('change', async event => {
@@ -3338,7 +3426,10 @@ socket.on('status_update', payload => {
   if (d.time)    updateTime(d.time);
   if (d.gps)     updateGPS(d.gps);
   if (d.camera) updateCameraTimeSync(d.camera, d.gps || state.gps || {});
-  if (d.trigger) updatePhase(d.trigger.phase);
+  if (d.trigger && d.trigger.rigs) {
+    state.triggerRigs = d.trigger.rigs;
+    updateSelectedTriggerPhase();
+  }
   if (d.eclipse) updateEclipseSaveFilename(d.eclipse);
   // Restaurer le fichier config caméra sélectionné depuis l'état backend
   if (d.camera_config_file) {
@@ -3361,7 +3452,20 @@ socket.on('gps_update', d => {
   }
   updateGPS(d);
 });
-socket.on('trigger_phase', d => updatePhase(d.phase));
+socket.on('trigger_phase', d => {
+  const rigId = Number(d && d.rig_id);
+  if (!Number.isInteger(rigId) || rigId < 1 || rigId > 4) return;
+
+  const key = String(rigId);
+  state.triggerRigs[key] = {
+    ...(state.triggerRigs[key] || {}),
+    phase: d.phase,
+  };
+
+  if (rigId === selectedTriggerRigId) {
+    updateSelectedTriggerPhase();
+  }
+});
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) _reanchorClockFromStatus();
@@ -3489,7 +3593,11 @@ socket.on('play_sound', d => {
     absoluteMotion = data.moving === true && (data.motion_command === 'go' || data.motion_command === 'home')
       ? data.motion_command
       : null;
-    const controlsEnabled = active && state.phase === 'idle';
+    const selectedRig = selectedControlsRig();
+    const triggerState = selectedRig
+      ? (state.triggerRigs[String(selectedRig.rig_id)] || {})
+      : {};
+    const controlsEnabled = active && triggerState.running !== true;
     [goButton, homeButton].forEach(button => {
       const isCancel = button.dataset.focuserAction === absoluteMotion;
       button.textContent = isCancel ? 'Cancel' : (button.dataset.focuserAction === 'go' ? 'Go' : 'Home');
@@ -3667,7 +3775,16 @@ socket.on('play_sound', d => {
   const slewButtons = Array.from(document.querySelectorAll('.mount-slew-button'));
   let homing = false;
   let trackingEnabled = false;
-  let triggerRunning = state.phase !== 'idle';
+
+  function selectedMountTriggerRunning() {
+    const rig = selectedControlsRig();
+    if (!rig) return false;
+
+    const triggerState = state.triggerRigs[String(rig.rig_id)] || {};
+    return triggerState.running === true;
+  }
+
+  let triggerRunning = selectedMountTriggerRunning();
   let pollTimer = null;
   let slewSpeedValues = null;
   let activeSlew = null;
@@ -3856,11 +3973,17 @@ socket.on('play_sound', d => {
 
   document.addEventListener('controlsrigchange', () => {
     stopSlewBestEffort();
+    triggerRunning = selectedMountTriggerRunning();
     refreshMount();
   });
   socket.on('connect', refreshMount);
   socket.on('status_update', refreshMount);
   socket.on('trigger_phase', data => {
+    const rigId = Number(data && data.rig_id);
+    const rig = selectedControlsRig();
+
+    if (!rig || Number(rig.rig_id) !== rigId) return;
+
     triggerRunning = data.phase !== 'idle';
     refreshMount();
   });
@@ -4131,6 +4254,12 @@ const PHASE_LABELS = {
   totality:     '🌑 TOTALITY',
   partial_end:  'PARTIAL END',
 };
+
+function updateSelectedTriggerPhase() {
+  const key = String(selectedTriggerRigId || '');
+  const rigState = state.triggerRigs[key] || {};
+  updatePhase(rigState.phase || 'idle');
+}
 
 function updatePhase(phase) {
   state.phase = phase;
@@ -4674,91 +4803,98 @@ async function syncCameraTime() {
 }
 
 async function loadTriggerConfigList() {
+  const sel = document.getElementById('trigger-config-select');
+  if (!sel) return;
+
+  const rig = selectedTriggerRig();
+  if (!rig) {
+    sel.innerHTML = '<option value="">— No active RIG —</option>';
+    sel.disabled = true;
+    return;
+  }
+
+  sel.disabled = false;
+
   try {
-    const r = await fetch('/api/configs/list_eclipse');
+    const r = await fetch('/api/configs/execution_plan/list');
     const d = await r.json();
-    const sel = document.getElementById('trigger-config-select');
-    if (!sel) return;
-    sel.innerHTML = '';
-    let activeFilename = null;
-    (d.files || []).forEach(f => {
+
+    if (!r.ok || d.error) {
+      throw new Error(d.error || `HTTP error ${r.status}`);
+    }
+
+    sel.innerHTML = '<option value="">— Select an Execution Plan —</option>';
+
+    (d.files || []).forEach(filename => {
       const opt = document.createElement('option');
-      opt.value = f.name;
-      opt.dataset.dir = f.dir;
-      opt.textContent = f.name;
+      opt.value = filename;
+      opt.textContent = filename;
       sel.appendChild(opt);
-      if (f.active) activeFilename = f.name;
     });
-    if (activeFilename !== null) sel.value = activeFilename;
-    else sel.selectedIndex = -1;
-  } catch(e) {}
-  // Charger aussi la liste des configs appareil
-  try {
-    const r2 = await fetch('/api/configs/list_camera');
-    const d2 = await r2.json();
-    const sel2 = document.getElementById('trigger-camera-select');
-    if (!sel2) return;
-    sel2.innerHTML = '<option value="">— Camera config —</option>';
-    (d2.files || []).forEach(f => {
-      const opt = document.createElement('option');
-      opt.value = f; opt.textContent = f;
-      sel2.appendChild(opt);
-    });
-    // Restaurer la sélection backend après reconstruction de la liste.
-    _restoreTriggerCameraSelect();
-  } catch(e) {}
-}
 
-let _triggerCameraConfigFile = null;
+    const active = d.active
+      ? d.active[String(selectedTriggerRigId)]
+      : '';
 
-function _restoreTriggerCameraSelect() {
-  const sel = document.getElementById('trigger-camera-select');
-  if (!sel || !_triggerCameraConfigFile) return;
-
-  const option = Array.from(sel.options).find(
-    o => o.value === _triggerCameraConfigFile
-  );
-
-  if (option) {
-    sel.value = _triggerCameraConfigFile;
+    if (
+      active &&
+      Array.from(sel.options).some(opt => opt.value === active)
+    ) {
+      sel.value = active;
+    } else {
+      sel.value = '';
+    }
+  } catch (e) {
+    flash(`Execution Plan list: ${e.message}`, 'red');
   }
 }
 
-async function selectTriggerCamera(filename) {
+async function loadTriggerPlan(filename) {
   if (!filename) return;
 
-  // Mémoriser immédiatement le choix opérateur.
-  _triggerCameraConfigFile = filename;
+  const rig = selectedTriggerRig();
+  if (!rig) {
+    flash('No active RIG selected', 'red');
+    return;
+  }
 
   try {
-    const r = await fetch('/api/trigger/select_camera', {
+    const r = await fetch('/api/trigger/select_execution_plan', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ filename })
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        rig_id: selectedTriggerRigId,
+        filename
+      })
     });
-    const d = await r.json();
-    if (d.error) flash(d.error, 'red');
-    else flash(`📷 Camera config : ${filename}`, 'green');
-  } catch(e) { flash('Network error', 'red'); }
-}
 
-async function loadTriggerConfig(filename, dir) {
-  if (!filename) return;
-  try {
-    const r = await fetch('/api/trigger/select', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename, dir: dir || 'configs' })
-    });
     const d = await r.json();
-    if (!r.ok || d.error) { flash(d.error || `HTTP error ${r.status}`, 'red'); return; }
-    flash(`📂 ${filename} loaded`, 'green');
-    await Promise.all([loadTriggerConfigList(), loadEclipseData()]);
-  } catch(e) { flash('Network error', 'red'); }
+
+    if (!r.ok || d.error) {
+      flash(d.error || `HTTP error ${r.status}`, 'red');
+      await loadTriggerConfigList();
+      return;
+    }
+
+    flash(
+      `RIG ${selectedTriggerRigId} — Execution Plan loaded: ${filename}`,
+      'green'
+    );
+
+    if (d.circumstances) {
+      renderContacts(d.circumstances);
+    }
+  } catch (e) {
+    flash('Network error', 'red');
+  }
 }
 
 async function startTrigger() {
-  const r = await fetch('/api/trigger/start', { method: 'POST' });
+  const r = await fetch('/api/trigger/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({rig_id: selectedTriggerRigId})
+  });
   const d = await r.json();
   if (d.error) {
     flash(d.error, 'red');
@@ -4774,17 +4910,34 @@ async function startTrigger() {
 }
 
 async function startDryRun() {
-  if (!confirm('🧪 Start a DRY-RUN ×1?\nSame camera, phases and intervals as the real run.\nOnly the timeline will be shifted to now.')) return;
+  if (!confirm(
+    '🧪 Start a DRY-RUN ×1?\n' +
+    'The selected Execution Plan will run at its original UTC times,\n' +
+    'using today\'s UTC date. Sounds are included.'
+  )) return;
+
   const r = await fetch('/api/trigger/dryrun', {
-    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({delay_s: 30})
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({rig_id: selectedTriggerRigId})
   });
+
   const d = await r.json();
+
   if (d.error) {
-    flash(d.error, 'red');
-    if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE') setTimeout(() => showTab(1), 1500);
-    else if (d.code === 'JSON_INVALID') setTimeout(() => showTab(2), 1500);
+    flash(d.message || d.error, 'red');
+
+    if (
+      d.code === 'GPS_NOT_SYNCED' ||
+      d.code === 'GPS_SYNC_STALE'
+    ) {
+      setTimeout(() => showTab(1), 1500);
+    }
   } else {
-    flash('Dry-run ×1 started — TSTART in 30 s', 'blue');
+    flash(
+      'Dry-run ×1 started — today UTC, original plan times',
+      'blue'
+    );
   }
 }
 
@@ -4795,7 +4948,11 @@ async function stopTrigger() {
   if (!confirm('⚠️ Stop / force-stop the trigger?')) return;
   btn.textContent = '⏳ Stopping…';
   try {
-    const r = await fetch('/api/trigger/stop', { method: 'POST' });
+    const r = await fetch('/api/trigger/stop', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rig_id: selectedTriggerRigId})
+    });
     const d = await r.json();
     if (d.status === 'not_running') {
       flash('Trigger not active', 'yellow');
@@ -4809,19 +4966,30 @@ async function stopTrigger() {
 }
 
 async function startTotalityOnly() {
-  if (!confirm('🌑 Totality-only mode:\nStops the current trigger and starts the totality sequence in a loop.\nPress STOP to stop.')) return;
-  // Arrêter le trigger en cours si actif
-  try { await fetch('/api/trigger/stop', { method: 'POST' }); } catch(e) {}
-  await new Promise(r => setTimeout(r, 1500)); // laisser le temps au script de s'arrêter
-  // Lancer le mode totalité uniquement
+  if (!confirm(
+    '🌑 Override with Totality Sequence?\n' +
+    'The current PHOTO sequence will be replaced immediately.\n' +
+    'Audio announcements will continue.\n' +
+    'Press STOP to stop photos for this RIG. Audio continues.'
+  )) return;
+
   try {
-    const r = await fetch('/api/trigger/totality_only', { method: 'POST' });
+    const r = await fetch('/api/trigger/totality_only', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rig_id: selectedTriggerRigId})
+    });
+
     const d = await r.json();
-    if (d.status === 'ok') {
-      flash('🌑 Totality-only mode started', 'orange');
+
+    if (r.ok && d.status === 'ok') {
+      flash(
+        '🌑 Totality photo override active — audio continues',
+        'orange'
+      );
       document.getElementById('btn-totality-only').style.opacity = '0.5';
     } else {
-      flash('Error: ' + (d.error || 'unknown'), 'red');
+      flash(d.error || 'Totality override failed', 'red');
     }
   } catch(e) {
     flash('Network error', 'red');

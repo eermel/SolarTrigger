@@ -151,6 +151,14 @@ def _make_service(tmp_path, runtime):
     camera_configs.mkdir(parents=True)
     (camera_configs / "camera.json").write_text("{}", encoding="utf-8")
 
+    circumstances_dir = configs / "circumstances"
+    circumstances_dir.mkdir(parents=True)
+    circumstances_name = "test_circumstances.json"
+    (circumstances_dir / circumstances_name).write_text(
+        eclipse.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
     execution_plan_dir = configs / "execution_plan"
     execution_plan_dir.mkdir(parents=True)
     execution_plan_name = "test_execution_plan.json"
@@ -162,12 +170,15 @@ def _make_service(tmp_path, runtime):
                 "sequence_start_utc": "2027-08-02T10:00:00.000Z",
                 "sequence_end_utc": "2027-08-02T10:40:00.000Z",
                 "initial_state_required": {},
+                "sources": {
+                    "circumstances_file": circumstances_name,
+                },
                 "commands": [],
             }
         ),
         encoding="utf-8",
     )
-    store.set("execution_plan_file", execution_plan_name)
+    store.set("execution_plan_file_rig_1", execution_plan_name)
 
     service = TriggerService(
         store,
@@ -266,7 +277,7 @@ def test_ipc_startup_failure_prevents_child_process(tmp_path, monkeypatch):
 
     assert popen_called is False
     assert service._starting is False
-    assert service.state.snapshot("trigger")["running"] is False
+    assert service.state.snapshot("trigger")["rigs"]["1"]["running"] is False
     assert runtime._ipc_server is None
     assert not (tmp_path / "ipc" / "camera-ipc-4321.sock").exists()
 
@@ -315,7 +326,7 @@ def test_clean_exit_revokes_session_stops_service_and_removes_socket(
     assert runtime._ipc_server is None
     assert socket_seen is not None
     assert not socket_seen.exists()
-    assert service.state.snapshot("trigger") == {
+    assert service.state.snapshot("trigger")["rigs"]["1"] == {
         "running": False,
         "phase": "idle",
         "mode": None,
@@ -382,7 +393,12 @@ def test_forced_stop_terminates_then_kills_and_closes_session(tmp_path, monkeypa
     while runtime._ipc_server is not None and time.monotonic() < deadline:
         time.sleep(0.01)
 
-    assert result == {"status": "stopped", "forced": True, "still_running": False}
+    assert result == {
+        "status": "stopped",
+        "rig_id": 1,
+        "forced": True,
+        "still_running": False,
+    }
     assert proc.terminated is True
     assert proc.killed is True
     assert runtime._ipc_server is None

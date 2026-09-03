@@ -198,10 +198,12 @@ class ExecutionPlanRuntime:
         clock,
         camera_client,
         log_fn: Callable[[str], None] = print,
+        stop_event=None,
     ) -> None:
         self.clock = clock
         self.camera = camera_client
         self.log = log_fn
+        self.stop_event = stop_event
         self._timing_samples: list[float] = []
         self._timing_lock = threading.Lock()
 
@@ -286,6 +288,12 @@ class ExecutionPlanRuntime:
 
             self._execute_command(command)
 
+    def _stop_requested(self) -> bool:
+        return (
+            self.stop_event is not None
+            and self.stop_event.is_set()
+        )
+
     def _wait_until(self, target: datetime) -> bool:
         remaining = self.clock.remaining(target)
 
@@ -294,10 +302,13 @@ class ExecutionPlanRuntime:
 
         # Fine enough for USB dispatch timing without busy-waiting.
         while remaining > 0:
+            if self._stop_requested():
+                return False
+
             self.clock.sleep(min(remaining, 0.02))
             remaining = self.clock.remaining(target)
 
-        return True
+        return not self._stop_requested()
 
     def _execute_command(self, command: dict[str, Any]) -> None:
         rig_id = command["rig_id"]
@@ -321,6 +332,12 @@ class ExecutionPlanRuntime:
 
     def _run_rig(self, rig_id: int, commands: list[dict[str, Any]]) -> None:
         for command in commands:
+            if self._stop_requested():
+                self.log(
+                    f"EXECUTION_PLAN rig={rig_id} scheduler interrupted"
+                )
+                return
+
             target = command["time"]
 
             # Reprise absolue : aucune commande passée n'est rejouée.
@@ -333,6 +350,12 @@ class ExecutionPlanRuntime:
                 continue
 
             self._wait_until(target)
+
+            if self._stop_requested():
+                self.log(
+                    f"EXECUTION_PLAN rig={rig_id} scheduler interrupted"
+                )
+                return
 
             dispatch_time = self.clock.now()
             lateness_ms = (

@@ -100,7 +100,7 @@ def _client(monkeypatch, workers):
         "emit",
         lambda event, payload, **kwargs: emitted.append((event, payload, kwargs)),
     )
-    monkeypatch.setitem(flask_module._state["trigger"], "running", False)
+    flask_module._state_store.reset_boot_sensitive()
     flask_module.app.config.update(TESTING=True)
     return flask_module.app.test_client(), runtime, emitted
 

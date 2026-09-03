@@ -278,7 +278,7 @@ def test_sync_time_only_enforces_rig_enabled(monkeypatch):
     worker = FakeCameraWorker({"status": "ok"})
     client, _runtime = _client(monkeypatch, _rig_config(), {1: worker})
     monkeypatch.setitem(flask_module._state["gps"], "utc_offset_minutes", 0)
-    monkeypatch.setitem(flask_module._state["trigger"], "running", True)
+    flask_module._state_store.update_trigger_rig(2, {"running": True})
     monkeypatch.setitem(flask_module._state["camera"], "active", False)
 
     response = client.post("/api/rigs/1/camera/sync_time")

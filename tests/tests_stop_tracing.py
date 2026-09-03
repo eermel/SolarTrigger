@@ -71,7 +71,7 @@ def _client(monkeypatch, worker):
         lambda kind, payload: events.append((kind, payload)),
     )
     monkeypatch.setattr(flask_module.socketio, "emit", lambda *_args, **_kwargs: None)
-    monkeypatch.setitem(flask_module._state["trigger"], "running", False)
+    flask_module._state_store.reset_boot_sensitive()
     flask_module.app.config.update(TESTING=True)
     return flask_module.app.test_client(), events
 

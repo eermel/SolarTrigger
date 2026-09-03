@@ -59,11 +59,17 @@ def test_calculator_json_keeps_ms_and_location(tmp_path):
     assert 'contacts_utc' not in cfg
 
 
-def test_frontend_accepts_decimal_contact_input_and_dryrun_route():
+def test_frontend_preserves_decimal_contacts_and_dryrun_route():
     root=Path(__file__).resolve().parents[1]
     html=(root/'flask_app/templates/index.html').read_text(encoding='utf-8')
     app=(root/'flask_app/app.py').read_text(encoding='utf-8')
-    assert r'(?:\.\d{1,3})?' in html
+
+    # Les contacts ne sont plus validés par l'ancien regexp d'input.
+    # Leur parsing numérique accepte les secondes décimales et leur
+    # restitution conserve la précision milliseconde.
+    assert "hms.split(':').map(Number)" in html
+    assert "sec.toFixed(3)" in html
+
     assert '/api/trigger/dryrun' in html
     assert '@app.route("/api/trigger/dryrun"' in app
 

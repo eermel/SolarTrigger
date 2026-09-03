@@ -50,6 +50,18 @@ def _configure_trigger_route(
 
     state_store = StateStore(tmp_path / "state.json")
 
+    circumstances_dir = configs_dir / "circumstances"
+    circumstances_dir.mkdir(parents=True)
+
+    circumstances_filename = "test_circumstances.json"
+    circumstances_path = circumstances_dir / circumstances_filename
+
+    if circumstances:
+        circumstances_path.write_text(
+            eclipse_file.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
     execution_plan_dir = configs_dir / "execution_plan"
     execution_plan_dir.mkdir(parents=True)
     execution_plan_name = "test_execution_plan.json"
@@ -61,12 +73,15 @@ def _configure_trigger_route(
                 "sequence_start_utc": "2027-08-02T10:00:00.000Z",
                 "sequence_end_utc": "2027-08-02T10:40:00.000Z",
                 "initial_state_required": {},
+                "sources": {
+                    "circumstances_file": circumstances_filename,
+                },
                 "commands": [],
             }
         ),
         encoding="utf-8",
     )
-    state_store.set("execution_plan_file", execution_plan_name)
+    state_store.set("execution_plan_file_rig_1", execution_plan_name)
 
     state_store.update_section(
         "gps", {"synced": True, "sync_time": datetime.now().astimezone().isoformat()}
@@ -103,27 +118,44 @@ def _configure_trigger_route(
     return flask_module.app.test_client()
 
 
-def test_trigger_start_rejects_missing_circumstances(tmp_path, monkeypatch):
-    client = _configure_trigger_route(tmp_path, monkeypatch, circumstances=False)
+def test_trigger_start_rejects_missing_execution_plan_circumstances(
+    tmp_path, monkeypatch
+):
+    client = _configure_trigger_route(
+        tmp_path,
+        monkeypatch,
+        circumstances=False,
+    )
 
     response = client.post("/api/trigger/start")
 
-    assert response.status_code == 409
+    assert response.status_code == 400
     assert response.get_json() == {
-        "error": "CIRCUMSTANCES_NOT_LOADED",
-        "message": "Aucune circonstance d’éclipse sélectionnée",
+        "error": (
+            "Circumstances du plan introuvables : "
+            "test_circumstances.json"
+        ),
+        "code": "EXECUTION_PLAN_CIRCUMSTANCES_NOT_FOUND",
+        "rig_id": 1,
     }
 
 
-def test_trigger_start_rejects_missing_capture(tmp_path, monkeypatch):
-    client = _configure_trigger_route(tmp_path, monkeypatch, capture=False)
+def test_trigger_start_does_not_require_legacy_global_capture(
+    tmp_path, monkeypatch
+):
+    client = _configure_trigger_route(
+        tmp_path,
+        monkeypatch,
+        capture=False,
+    )
 
     response = client.post("/api/trigger/start")
 
-    assert response.status_code == 409
+    assert response.status_code == 200
     assert response.get_json() == {
-        "error": "CAPTURE_NOT_LOADED",
-        "message": "Aucune configuration de capture sélectionnée",
+        "status": "started",
+        "mode": "real",
+        "rig_id": 1,
     }
 
 
@@ -140,7 +172,11 @@ def test_trigger_start_accepts_operator_selected_circumstances_date(
     response = client.post("/api/trigger/start")
 
     assert response.status_code == 200
-    assert response.get_json() == {"status": "started", "mode": "real"}
+    assert response.get_json() == {
+        "status": "started",
+        "mode": "real",
+        "rig_id": 1,
+    }
 
 
 def test_trigger_start_succeeds_when_preconditions_are_met(tmp_path, monkeypatch):
@@ -149,7 +185,11 @@ def test_trigger_start_succeeds_when_preconditions_are_met(tmp_path, monkeypatch
     response = client.post("/api/trigger/start")
 
     assert response.status_code == 200
-    assert response.get_json() == {"status": "started", "mode": "real"}
+    assert response.get_json() == {
+        "status": "started",
+        "mode": "real",
+        "rig_id": 1,
+    }
 
 
 def test_trigger_select_updates_persists_and_emits_circumstances(tmp_path, monkeypatch):
@@ -338,7 +378,11 @@ def test_trigger_start_accepts_legacy_capture_directory(tmp_path, monkeypatch):
     response = client.post("/api/trigger/start")
 
     assert response.status_code == 200
-    assert response.get_json() == {"status": "started", "mode": "real"}
+    assert response.get_json() == {
+        "status": "started",
+        "mode": "real",
+        "rig_id": 1,
+    }
 
 
 def test_boot_restores_valid_persisted_trigger_selections(tmp_path, monkeypatch):
@@ -447,6 +491,7 @@ def test_trigger_dryrun_accepts_circumstances_from_another_date(tmp_path, monkey
         "mode": "dryrun",
         "speed": 1.0,
         "delay_s": 0.0,
+        "rig_id": 1,
     }
 
 

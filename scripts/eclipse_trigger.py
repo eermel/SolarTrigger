@@ -105,6 +105,7 @@ gp.check_result(gp.use_python_logging(mapping={
 from fractions import Fraction
 import subprocess
 import math
+import signal
 
 # Configuration audio - méthode C par défaut pour sortie jack
 SOUND_METHOD_DEFAULT = "C"  # C: Jack, A: Events, B: SocketIO
@@ -145,6 +146,21 @@ from backend import audio_service
 
 _runtime_clock = RuntimeClock()
 _watchdog = TriggerWatchdog(Path(__file__).resolve().parent.parent / "trigger_state.json", _runtime_clock)
+
+_photo_override_event = threading.Event()
+
+
+def _request_totality_override(_sig=None, _frame=None):
+    _photo_override_event.set()
+    _log(
+        f"{Colors.ORANGE}TOTALITY OVERRIDE requested — "
+        f"photo scheduler interruption{Colors.RESET}"
+    )
+
+
+if hasattr(signal, "SIGUSR1"):
+    signal.signal(signal.SIGUSR1, _request_totality_override)
+
 
 C3_OVERFLOW_GRACE_S = 1.0
 SHORT_EXPOSURE_MAX_S = 0.5
@@ -596,8 +612,21 @@ _timeline_cfg.update({
 })
 _timeline = build_timeline(_timeline_cfg, fallback_date=now().date())
 if args.dry_run:
-    _timeline = rebase_timeline(_timeline, now() + timedelta(seconds=float(args.dry_run_delay)))
-    _log(f"🧪 DRY-RUN ×1 — même moteur et même caméra, timeline translatée, TSTART dans {args.dry_run_delay:g}s")
+    current_utc = now()
+    original_start = _timeline["TSTART"]
+
+    dry_start = original_start.replace(
+        year=current_utc.year,
+        month=current_utc.month,
+        day=current_utc.day,
+    )
+
+    _timeline = rebase_timeline(_timeline, dry_start)
+
+    _log(
+        "🧪 DRY-RUN ×1 — timeline translatée sur aujourd'hui, "
+        "intervalles inchangés"
+    )
 
 try:
     _rig_configuration = load_rig_configuration()
@@ -1720,21 +1749,123 @@ class _SimulationExecutionCamera:
         }
 
 
+def _execution_plan_for_phase(plan, phase_name):
+    phases = plan.get("command_phases")
+    public_commands = plan.get("commands")
+    runtime_commands = plan.get("_commands_runtime")
+
+    if not isinstance(phases, list):
+        raise RuntimeError("execution plan missing command_phases metadata")
+    if not isinstance(public_commands, list):
+        raise RuntimeError("execution plan commands missing")
+    if not isinstance(runtime_commands, list):
+        raise RuntimeError("execution plan was not loaded by runtime loader")
+
+    if not (
+        len(phases)
+        == len(public_commands)
+        == len(runtime_commands)
+    ):
+        raise RuntimeError("execution plan phase metadata is inconsistent")
+
+    indexes = [
+        index
+        for index, phase in enumerate(phases)
+        if phase == phase_name
+    ]
+
+    if not indexes:
+        raise RuntimeError(
+            f"execution plan contains no {phase_name!r} phase"
+        )
+
+    selected_public = [public_commands[i] for i in indexes]
+    selected_runtime = [runtime_commands[i] for i in indexes]
+
+    initial = {
+        str(rig_id): dict(state)
+        for rig_id, state in (
+            plan.get("initial_state_required") or {}
+        ).items()
+        if isinstance(state, dict)
+    }
+
+    first_phase_index_by_rig = {}
+    for i in indexes:
+        rig_id = public_commands[i]["rig_id"]
+        first_phase_index_by_rig.setdefault(rig_id, i)
+
+    for i, command in enumerate(public_commands):
+        rig_id = command["rig_id"]
+        first_index = first_phase_index_by_rig.get(rig_id)
+
+        if first_index is None or i >= first_index:
+            continue
+        if command["action"] != "SET":
+            continue
+
+        params = command.get("params") or {}
+        parameter = params.get("parameter")
+
+        if isinstance(parameter, str) and parameter:
+            initial.setdefault(str(rig_id), {})[parameter] = params.get("value")
+
+    first_time = min(c["time"] for c in selected_runtime)
+    last_time = max(c["time"] for c in selected_runtime)
+
+    result = dict(plan)
+    result["commands"] = selected_public
+    result["_commands_runtime"] = selected_runtime
+    result["command_phases"] = [phases[i] for i in indexes]
+    result["initial_state_required"] = initial
+
+    result["sequence_start_utc"] = (
+        first_time.replace(tzinfo=timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+    result["sequence_end_utc"] = (
+        last_time.replace(tzinfo=timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+    return result
+
+
 def _run_execution_plan_v2():
     plan = load_execution_plan(args.execution_plan)
 
     if args.dry_run:
-        new_start = now() + timedelta(
-            seconds=float(args.dry_run_delay)
+        sequence_start_raw = plan.get("sequence_start_utc")
+
+        if not isinstance(sequence_start_raw, str):
+            raise RuntimeError(
+                "execution plan missing sequence_start_utc"
+            )
+
+        sequence_start = datetime.fromisoformat(
+            sequence_start_raw.replace("Z", "+00:00")
+        ).astimezone(timezone.utc).replace(tzinfo=None)
+
+        current_utc = now()
+
+        new_start = sequence_start.replace(
+            year=current_utc.year,
+            month=current_utc.month,
+            day=current_utc.day,
         )
+
         plan = rebase_execution_plan(
             plan,
             new_start,
         )
+
         _log(
             f"{Colors.PINK}🧪 EXECUTION PLAN DRY-RUN ×1 — "
-            f"timeline translatée, début dans "
-            f"{args.dry_run_delay:g}s{Colors.RESET}"
+            f"date UTC remplacée par aujourd'hui, "
+            f"heures inchangées{Colors.RESET}"
         )
 
     if _sim_mode:
@@ -1783,10 +1914,13 @@ def _run_execution_plan_v2():
             f"{rig_snapshot['rig_ids']}{Colors.RESET}"
         )
 
+    _photo_override_event.clear()
+
     runtime = ExecutionPlanRuntime(
         clock=_runtime_clock,
         camera_client=camera,
         log_fn=_log,
+        stop_event=_photo_override_event,
     )
 
     # Établi avant les commandes horodatées. Aucun initialize() legacy :
@@ -1798,6 +1932,46 @@ def _run_execution_plan_v2():
     )
 
     runtime.run(plan)
+
+    if _photo_override_event.is_set():
+        totality_plan = _execution_plan_for_phase(
+            plan,
+            "totality",
+        )
+
+        _log(
+            f"{Colors.ORANGE}🌑 TOTALITY OVERRIDE — "
+            f"compiled execution plan{Colors.RESET}"
+        )
+
+        cycle = 0
+
+        while True:
+            cycle += 1
+            _photo_override_event.clear()
+
+            cycle_plan = rebase_execution_plan(
+                totality_plan,
+                now() + timedelta(milliseconds=50),
+            )
+
+            totality_runtime = ExecutionPlanRuntime(
+                clock=_runtime_clock,
+                camera_client=camera,
+                log_fn=_log,
+                stop_event=_photo_override_event,
+            )
+
+            totality_runtime.prepare_for_execution(
+                cycle_plan
+            )
+
+            _log(
+                f"{Colors.ORANGE}🌑 TOTALITY OVERRIDE "
+                f"cycle {cycle}{Colors.RESET}"
+            )
+
+            totality_runtime.run(cycle_plan)
 
     _log(
         f"{Colors.GREEN}✅ EXECUTION PLAN V2 TERMINÉ{Colors.RESET}"
@@ -1814,6 +1988,27 @@ def main():
         print(f"{Colors.PINK}#{Colors.RESET}")
 
         if args.execution_plan:
+            _log(
+                f"{Colors.BLUE}Sons — Jack (pygame ALSA) : "
+                f"{audio_service.SOUNDS_ENABLED}{Colors.RESET}"
+            )
+
+            thread_alertes = threading.Thread(
+                target=ecouter_alertes,
+                daemon=True,
+                name="audio-alert-scheduler",
+            )
+            audio_service.register_thread(thread_alertes)
+            thread_alertes.start()
+
+            thread_messages = threading.Thread(
+                target=afficher_messages_temps,
+                daemon=True,
+                name="message-scheduler",
+            )
+            audio_service.register_thread(thread_messages)
+            thread_messages.start()
+
             _run_execution_plan_v2()
             return
 

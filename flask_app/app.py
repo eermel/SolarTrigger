@@ -439,24 +439,28 @@ def _selected_device_plugin(category):
     return str(selection.get("plugin") or "none")
 
 
-def _trigger_running_response():
-    """Return a conflict response while hardware motion is unsafe."""
+def _trigger_running_response(rig_id=1):
+    """Return a conflict response while this RIG is triggering."""
     trigger_state = _state_store.snapshot("trigger") or {}
-    if trigger_state.get("running"):
+    rigs = trigger_state.get("rigs") or {}
+    rig_state = rigs.get(str(rig_id)) or {}
+
+    if rig_state.get("running"):
         return jsonify({
             "error": "Mouvement du focuser interdit pendant un trigger actif.",
             "code": "TRIGGER_RUNNING",
+            "rig_id": rig_id,
         }), 409
     return None
 
 
-def _focuser_post_guard(movement=False, require_active=True):
+def _focuser_post_guard(movement=False, require_active=True, rig_id=1):
     if require_active:
         inactive = require_device_active("focuser")
         if inactive is not None:
             return inactive
     if movement:
-        return _trigger_running_response()
+        return _trigger_running_response(rig_id)
     return None
 
 
@@ -1654,7 +1658,11 @@ def _rig_focuser_guard(rig_id, *, movement=False):
     worker, error = _rig_focuser_worker(rig_id)
     if error is not None:
         return None, error
-    guarded = _focuser_post_guard(movement=movement, require_active=False)
+    guarded = _focuser_post_guard(
+        movement=movement,
+        require_active=False,
+        rig_id=rig_id,
+    )
     return (None, guarded) if guarded is not None else (worker, None)
 
 
@@ -1895,7 +1903,9 @@ def _rig_mount_tracking_guard(rig_id):
     if error is not None:
         return None, error
     trigger_state = _state_store.snapshot("trigger") or {}
-    if trigger_state.get("running"):
+    rigs = trigger_state.get("rigs") or {}
+    rig_state = rigs.get(str(rig_id)) or {}
+    if rig_state.get("running"):
         exc = RuntimeError(
             "Mount tracking changes are forbidden during an active trigger."
         )
@@ -2060,7 +2070,8 @@ def _mount_tracking_guard():
     if inactive is not None:
         return inactive
     trigger_state = _state_store.snapshot("trigger") or {}
-    if trigger_state.get("running"):
+    rigs = trigger_state.get("rigs") or {}
+    if (rigs.get("1") or {}).get("running"):
         return jsonify({
             "error": "Mount tracking changes are forbidden during an active trigger.",
             "code": "TRIGGER_RUNNING",
@@ -2286,7 +2297,8 @@ def _start_gps_sync(mode):
     if inactive is not None:
         return inactive
     trigger_state = _state_store.snapshot("trigger") or {}
-    if trigger_state.get("running"):
+    rigs = trigger_state.get("rigs") or {}
+    if any((rig or {}).get("running") for rig in rigs.values()):
         return jsonify({"error": "Synchronisation GPS interdite pendant un trigger actif.", "code": "TRIGGER_RUNNING"}), 409
     if not _gps_controller.start(timeout_s=60.0, mode=mode):
         return jsonify({"error": "Synchronisation GPS déjà en cours."}), 409
@@ -2585,6 +2597,15 @@ def api_rig_camera_sync_time(rig_id):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
+    trigger_state = _state_store.snapshot("trigger") or {}
+    rigs = trigger_state.get("rigs") or {}
+    if (rigs.get(str(rig_id)) or {}).get("running"):
+        return jsonify({
+            "error": "Synchronisation caméra interdite pendant un trigger actif.",
+            "code": "TRIGGER_RUNNING",
+            "rig_id": rig_id,
+        }), 409
+
     gps_state = _state_store.snapshot("gps") or {}
     utc_offset_minutes = gps_state.get("utc_offset_minutes")
     if utc_offset_minutes is None:
@@ -2623,10 +2644,12 @@ def api_camera_sync_time():
     if inactive is not None:
         return inactive
     trigger_state = _state_store.snapshot("trigger") or {}
-    if trigger_state.get("running"):
+    rigs = trigger_state.get("rigs") or {}
+    if (rigs.get("1") or {}).get("running"):
         return jsonify({
             "error": "Synchronisation caméra interdite pendant un trigger actif.",
             "code": "TRIGGER_RUNNING",
+            "rig_id": 1,
         }), 409
 
     if not _camera_sync_lock.acquire(blocking=False):
@@ -2821,7 +2844,8 @@ def api_system_erase_persistent_data_and_reboot():
         }), 400
 
     trigger_state = _state_store.snapshot("trigger") or {}
-    if trigger_state.get("running"):
+    rigs = trigger_state.get("rigs") or {}
+    if any((rig or {}).get("running") for rig in rigs.values()):
         return jsonify({
             "error": "Persistent data cannot be erased while a trigger is running.",
             "code": "TRIGGER_RUNNING",
@@ -3464,6 +3488,126 @@ def api_configs_load_circumstances(filename):
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+
+
+@app.route("/api/configs/execution_plan/list", methods=["GET"])
+def api_configs_execution_plan_list():
+    base_dir = CONFIGS_DIR / "execution_plan"
+
+    active = {
+        str(rig_id): _state_store.get(
+            f"execution_plan_file_rig_{rig_id}"
+        ) or ""
+        for rig_id in range(1, 5)
+    }
+
+    files = []
+    if base_dir.exists():
+        files = sorted(
+            entry.name
+            for entry in base_dir.iterdir()
+            if (
+                not entry.is_symlink()
+                and entry.is_file()
+                and entry.suffix.lower() == ".json"
+            )
+        )
+
+    return jsonify({
+        "files": files,
+        "active": active,
+    })
+
+
+@app.route("/api/trigger/select_execution_plan", methods=["POST"])
+def api_trigger_select_execution_plan():
+    body = request.get_json(silent=True) or {}
+
+    rig_id = body.get("rig_id")
+    filename = str(body.get("filename", "")).strip()
+
+    if (
+        not isinstance(rig_id, int)
+        or isinstance(rig_id, bool)
+        or not 1 <= rig_id <= 4
+    ):
+        return jsonify({"error": "Invalid RIG id"}), 400
+
+    if (
+        not filename
+        or Path(filename).name != filename
+        or not filename.endswith(".json")
+    ):
+        return jsonify({"error": "Invalid Execution Plan filename"}), 400
+
+    path = CONFIGS_DIR / "execution_plan" / filename
+
+    if path.is_symlink() or not path.is_file():
+        return jsonify({
+            "error": f"Execution Plan not found: {filename}"
+        }), 404
+
+    try:
+        plan = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return jsonify({
+            "error": f"Invalid Execution Plan: {exc}"
+        }), 400
+
+    if (
+        not isinstance(plan, dict)
+        or plan.get("schema_version") != 2
+        or plan.get("config_type") != "execution_plan"
+        or not isinstance(plan.get("commands"), list)
+    ):
+        return jsonify({"error": "Incompatible Execution Plan"}), 400
+
+    plan_rig_ids = {
+        command.get("rig_id")
+        for command in plan.get("commands", [])
+        if isinstance(command, dict)
+    }
+
+    plan_rig_ids.discard(None)
+
+    if plan_rig_ids and plan_rig_ids != {rig_id}:
+        return jsonify({
+            "error": (
+                f"Execution Plan incompatible with RIG {rig_id}: "
+                f"contains RIG(s) {sorted(plan_rig_ids)}"
+            )
+        }), 409
+
+    circumstances = None
+    sources = plan.get("sources") or {}
+    circumstances_name = sources.get("circumstances_file")
+
+    if isinstance(circumstances_name, str) and circumstances_name:
+        circumstances_path = _resolve_config_file(
+            Path(circumstances_name).name,
+            "circumstances",
+        )
+
+        if circumstances_path.is_file():
+            try:
+                circumstances = json.loads(
+                    circumstances_path.read_text(encoding="utf-8")
+                )
+            except Exception:
+                circumstances = None
+
+    _state_store.set(
+        f"execution_plan_file_rig_{rig_id}",
+        filename,
+        persist=True,
+    )
+
+    return jsonify({
+        "status": "ok",
+        "rig_id": rig_id,
+        "filename": filename,
+        "circumstances": circumstances,
+    })
 
 
 @app.route("/api/configs/execution_plan/clean", methods=["POST"])
@@ -4180,12 +4324,23 @@ def api_trigger_select_camera():
 
 @app.route("/api/trigger/totality_only", methods=["POST"])
 def api_trigger_totality_only():
-    """Lance la séquence de secours via TriggerService."""
-    if not TOTALITY_ONLY_SCRIPT.exists():
-        return jsonify({"error": f"Script introuvable : {TOTALITY_ONLY_SCRIPT}"}), 404
-    if not _trigger_service.start_totality_only(TOTALITY_ONLY_SCRIPT):
-        return jsonify({"error": "Trigger déjà en cours — arrêtez-le d'abord"}), 409
-    return jsonify({"status": "ok"})
+    """Override photo-only d'un seul RIG; audio global conservé."""
+    payload = request.get_json(silent=True) or {}
+    rig_id = payload.get("rig_id", 1)
+
+    if not _trigger_service.override_totality(rig_id=rig_id):
+        return jsonify({
+            "error": f"Aucun trigger actif à préempter pour RIG {rig_id}",
+            "code": "TRIGGER_NOT_RUNNING",
+            "rig_id": rig_id,
+        }), 409
+
+    return jsonify({
+        "status": "ok",
+        "mode": "totality_override",
+        "rig_id": rig_id,
+        "audio_preserved": True,
+    })
 
 def _emit_trigger(event, payload):
     socketio.emit(event, payload, namespace="/")
@@ -4197,15 +4352,29 @@ _trigger_service = TriggerService(
 
 @app.route("/api/trigger/start", methods=["POST"])
 def api_trigger_start():
-    """Démarrage RÉEL uniquement. La simulation possède une route séparée."""
+    """Démarrage réel d'un seul RIG."""
+    payload = request.get_json(silent=True) or {}
+    rig_id = payload.get("rig_id", 1)
+
     try:
-        if not _trigger_service.start(simulate=False):
-            return jsonify({"error": "Trigger déjà en cours."}), 409
-        return jsonify({"status": "started", "mode": "real"})
+        if not _trigger_service.start(rig_id=rig_id, simulate=False):
+            return jsonify({
+                "error": f"Trigger RIG {rig_id} déjà en cours.",
+                "rig_id": rig_id,
+            }), 409
+
+        return jsonify({
+            "status": "started",
+            "mode": "real",
+            "rig_id": rig_id,
+        })
+
     except TriggerValidationError as exc:
-        if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
-            return jsonify({"error": exc.code, "message": str(exc)}), 409
-        return jsonify({"error": str(exc), "code": exc.code}), 400
+        return jsonify({
+            "error": str(exc),
+            "code": exc.code,
+            "rig_id": rig_id,
+        }), 400
 
 @app.route("/api/trigger/simulate", methods=["POST"])
 def api_trigger_simulate():
@@ -4223,21 +4392,42 @@ def api_trigger_simulate():
 
 @app.route("/api/trigger/dryrun", methods=["POST"])
 def api_trigger_dryrun():
-    """Dry-run ×1 : même moteur et même matériel que le réel, seule la timeline est translatée."""
+    """Dry-run ×1 d'un seul RIG."""
     payload = request.get_json(silent=True) or {}
+    rig_id = payload.get("rig_id", 1)
     delay = payload.get("delay_s", 30.0)
+
     try:
-        if not _trigger_service.start(dry_run=True, dry_run_delay=delay):
-            return jsonify({"error": "Trigger déjà en cours."}), 409
-        return jsonify({"status": "started", "mode": "dryrun", "speed": 1.0, "delay_s": float(delay)})
+        if not _trigger_service.start(
+            rig_id=rig_id,
+            dry_run=True,
+            dry_run_delay=delay,
+        ):
+            return jsonify({
+                "error": f"Trigger RIG {rig_id} déjà en cours.",
+                "rig_id": rig_id,
+            }), 409
+
+        return jsonify({
+            "status": "started",
+            "mode": "dryrun",
+            "speed": 1.0,
+            "delay_s": float(delay),
+            "rig_id": rig_id,
+        })
+
     except TriggerValidationError as exc:
-        if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
-            return jsonify({"error": exc.code, "message": str(exc)}), 409
-        return jsonify({"error": str(exc), "code": exc.code}), 400
+        return jsonify({
+            "error": str(exc),
+            "code": exc.code,
+            "rig_id": rig_id,
+        }), 400
 
 @app.route("/api/trigger/stop", methods=["POST"])
 def api_trigger_stop():
-    return jsonify(_trigger_service.stop())
+    payload = request.get_json(silent=True) or {}
+    rig_id = payload.get("rig_id", 1)
+    return jsonify(_trigger_service.stop(rig_id=rig_id))
 
 @app.route("/api/trigger/status")
 def api_trigger_status():
