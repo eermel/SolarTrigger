@@ -130,7 +130,6 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
         store,
         script,
         eclipse,
-        tmp_path / "events.log",
         configs,
         lambda *args: logs.append(args),
         lambda *args: None,

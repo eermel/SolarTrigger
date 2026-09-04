@@ -3343,7 +3343,7 @@ async function refreshRigDevices(silent = false) {
 
 const SOUND_FILES = ['filters_on.wav','filters_off.wav','10minutes.wav','5minutes.wav',
                      '2minutes.wav','60seconds.wav','30seconds.wav','10seconds.wav',
-                     '1.wav','2.wav','3.wav','4.wav','5.wav','contact.wav','batterie.wav'];
+                     '1.wav','2.wav','3.wav','4.wav','5.wav','contact.wav'];
 
 function initAudio() {
   if (state.audioCtx) {
@@ -3679,11 +3679,6 @@ socket.on('log_history', lines => {
     });
   });
 });
-// Sons reçus du Pi (mode A relay ou mode B)
-socket.on('play_sound', d => {
-  if (d.file) playSound(d.file);
-});
-
 // FOCUSER UI START
 (() => {
   const section = document.getElementById('focuser-section');
@@ -4122,25 +4117,6 @@ socket.on('play_sound', d => {
   refreshMount();
 })();
 // MOUNT UI END
-
-// Batterie
-socket.on('battery_update', d => updateBattery(d.percent));
-socket.on('battery_alert', d => {
-  updateBattery(d.percent);
-  const banner = document.getElementById('battery-alert-banner');
-  if (d.level === 'critical') {
-    banner.style.display = '';
-    banner.textContent   = `⚠⚠⚠ CRITICAL BATTERY ${d.percent}% — REPLACE NOW ⚠⚠⚠`;
-    banner.style.borderColor = 'var(--red)';
-    flash(`⚠ CRITICAL BATTERY ${d.percent}%`, 'red');
-    playSound('10seconds.wav');
-  } else {
-    banner.style.display = '';
-    banner.textContent   = `⚠ Battery ${d.percent}% — replace between two photos before C2-10min`;
-    banner.style.borderColor = 'var(--yellow)';
-    flash(`⚠ Low battery ${d.percent}%`, 'yellow');
-  }
-});
 
 // ════════════════════════════════════════════════════════════════
 // HORLOGE — démarre après le premier recalage sur le Pi
@@ -5163,10 +5139,9 @@ function updateBattery(pct) {
   bar.style.width = `${Math.min(pct, 100)}%`;
 
   let color, msgText = '';
-  if      (pct > 50) { color = 'var(--green)';  msgText = ''; }
+  if      (pct > 50) { color = 'var(--green)';   msgText = ''; }
   else if (pct > 20) { color = 'var(--yellow)';  msgText = 'Battery OK'; }
-  else if (pct > 20) { color = 'var(--accent)';  msgText = '⚠ Low — prepare replacement'; }
-  else               { color = 'var(--red)';      msgText = '⚠⚠ CRITICAL — replace as soon as possible'; }
+  else               { color = 'var(--red)';     msgText = '⚠⚠ CRITICAL — replace as soon as possible'; }
 
   el.style.color    = color;
   bar.style.background = color;

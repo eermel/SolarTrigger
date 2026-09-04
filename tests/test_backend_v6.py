@@ -242,7 +242,7 @@ def test_trigger_service_simulation_builds_safe_command(tmp_path, monkeypatch):
         seen['kwargs']=kwargs
         return Proc()
     monkeypatch.setattr('backend.trigger_service.subprocess.Popen', fake_popen)
-    svc=TriggerService(store,script,eclipse,events,configs,lambda *a:None,lambda *a:None)
+    svc=TriggerService(store,script,eclipse,configs,lambda *a:None,lambda *a:None)
     plan_path = _write_test_execution_plan(configs)
     svc._active_circumstances_paths[1] = eclipse
     svc._run(
@@ -260,7 +260,7 @@ def test_trigger_service_simulation_builds_safe_command(tmp_path, monkeypatch):
 def test_trigger_service_rejects_bad_simulation_speed(tmp_path):
     from backend.trigger_service import TriggerService
     store=StateStore(tmp_path/'state.json')
-    svc=TriggerService(store,tmp_path/'x.py',tmp_path/'x.json',tmp_path/'events',tmp_path,lambda *a:None,lambda *a:None)
+    svc=TriggerService(store,tmp_path/'x.py',tmp_path/'x.json',tmp_path,lambda *a:None,lambda *a:None)
     with pytest.raises(TriggerValidationError) as exc:
         svc.start(simulate=True, speed=0)
     assert exc.value.code == 'SIM_SPEED_INVALID'
@@ -292,7 +292,7 @@ def test_trigger_service_simulation_does_not_require_gps(tmp_path, monkeypatch):
     plan_path = _write_test_execution_plan(configs)
     store.set("execution_plan_file_rig_1", plan_path.name)
     script=tmp_path/'eclipse_trigger.py'; script.write_text('')
-    svc=TriggerService(store,script,eclipse,tmp_path/'events',configs,lambda *a:None,lambda *a:None)
+    svc=TriggerService(store,script,eclipse,configs,lambda *a:None,lambda *a:None)
     # Evite de lancer un vrai thread : le but est de valider les préconditions.
     class DummyThread:
         def __init__(self, *a, **k): pass
@@ -310,7 +310,7 @@ def test_trigger_service_real_start_still_requires_gps(tmp_path):
     eclipse.write_text(json.dumps({
         'TSTART':'10:00:00','C1':'10:10:00','C2':'10:20:00','C3':'10:21:00','C4':'10:30:00','TEND':'10:40:00'
     }))
-    svc=TriggerService(store,tmp_path/'eclipse_trigger.py',eclipse,tmp_path/'events',tmp_path,lambda *a:None,lambda *a:None)
+    svc=TriggerService(store,tmp_path/'eclipse_trigger.py',eclipse,tmp_path,lambda *a:None,lambda *a:None)
     with pytest.raises(TriggerValidationError) as exc:
         svc.start(simulate=False)
     assert exc.value.code == 'GPS_NOT_SYNCED'
@@ -340,7 +340,7 @@ def test_trigger_service_dryrun_builds_real_camera_command(tmp_path, monkeypatch
         seen['kwargs']=kwargs
         return Proc()
     monkeypatch.setattr('backend.trigger_service.subprocess.Popen', fake_popen)
-    svc=TriggerService(store,script,eclipse,tmp_path/'events',configs,lambda *a:None,lambda *a:None)
+    svc=TriggerService(store,script,eclipse,configs,lambda *a:None,lambda *a:None)
     plan_path = _write_test_execution_plan(configs)
     svc._active_circumstances_paths[1] = eclipse
     svc._run(
@@ -370,7 +370,6 @@ def test_totality_override_signals_only_selected_rig(tmp_path):
         store,
         tmp_path / "scripts" / "eclipse_trigger.py",
         tmp_path / "todayeclipse.json",
-        tmp_path / "events.log",
         tmp_path / "configs",
         lambda *args: None,
         lambda event, payload: emitted.append((event, payload)),
@@ -418,7 +417,6 @@ def test_totality_override_rejects_inactive_or_invalid_rig(tmp_path):
         store,
         tmp_path / "scripts" / "eclipse_trigger.py",
         tmp_path / "todayeclipse.json",
-        tmp_path / "events.log",
         tmp_path / "configs",
         lambda *args: None,
         lambda *args: None,

@@ -100,7 +100,6 @@ def _configure_trigger_route(
         state_store,
         tmp_path / "eclipse_trigger.py",
         eclipse_file,
-        tmp_path / "events.log",
         configs_dir,
         lambda *args: None,
         lambda *args: None,

@@ -1566,12 +1566,6 @@ def _shutdown_audio_threads(timeout=5.0):
     """Arrête les alertes audio et attend les lectures en cours."""
     audio_service.shutdown(timeout)
 
-def _emettre_evenement_batterie(pct):
-    """Conservé pour compatibilité — Jack uniquement."""
-    pass
-def _emettre_evenement_alerte_batterie(pct, niveau):
-    """Conservé pour compatibilité — Jack uniquement."""
-    pass
 def jouer_son_en_thread(nom_fichier):
     """Déclenche un son via Jack (pygame/ALSA) dans un thread daemon."""
     def _run():
@@ -1606,7 +1600,7 @@ def ecouter_alertes():
         audio_service.wait_stop(0.1 if _sim_mode else 0.5)
 
 def get_battery_level(camera_service):
-    """Read battery through the active camera plugin and emit UI events."""
+    """Read and log battery level through the active camera plugin."""
     if _sim_mode or camera_service is None:
         return None
     try:
@@ -1622,10 +1616,6 @@ def get_battery_level(camera_service):
             _log(f"{Colors.JAUNE}Batterie : {pct}% avertissement{Colors.RESET}")
         else:
             _log(f"{Colors.RED}!!! BATTERIE FAIBLE : {pct}% CHANGER !!{Colors.RESET}")
-            t = now()
-            if not (C2 - timedelta(minutes=3) <= t <= C3 + timedelta(minutes=3)):
-                jouer_son_en_thread("battery_low.wav")
-        _emettre_evenement_batterie(pct)
         return pct
     except Exception as exc:
         _log(f"{Colors.YELLOW}Batterie plugin : {exc}{Colors.RESET}")

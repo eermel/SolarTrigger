@@ -184,7 +184,6 @@ def _make_service(tmp_path, runtime):
         store,
         trigger_script,
         eclipse,
-        tmp_path / "events.log",
         configs,
         lambda *args: None,
         lambda *args: None,

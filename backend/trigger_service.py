@@ -211,11 +211,11 @@ def validate_execution_rig(config, rig_id):
 
 class TriggerService:
     """Owns trigger process lifecycle; Flask is only an HTTP adapter."""
-    def __init__(self, state_store, trigger_script, json_file, events_file, configs_dir,
+    def __init__(self, state_store, trigger_script, json_file, configs_dir,
                  log_fn, emit_fn, line_level_fn=None, line_clean_fn=None,
                  camera_runtime=None, rig_config_loader=None):
         self.state=state_store; self.trigger_script=trigger_script; self.json_file=json_file
-        self.events_file=events_file; self.configs_dir=configs_dir; self.log=log_fn; self.emit=emit_fn
+        self.configs_dir=configs_dir; self.log=log_fn; self.emit=emit_fn
         self.project_dir=self.trigger_script.resolve().parent.parent
         self.line_level_fn=line_level_fn or (lambda _: "info")
         self.line_clean_fn=line_clean_fn or (lambda x:x)
@@ -514,8 +514,6 @@ class TriggerService:
                     raise
             gen=ecl.get("_generated_utc", ""); today=datetime.now(timezone.utc).strftime("%Y-%m-%d")
             if gen and today not in gen: self.log(f"⚠️ todayeclipse.json généré le {gen[:10]} — éclipse pas aujourd'hui ?", "warning", "trigger")
-            try: self.events_file.write_text("", encoding="utf-8")
-            except Exception: pass
             mode="simulation" if simulate else ("dryrun" if dry_run else "real")
             try:
                 self.state.update_trigger_rig(

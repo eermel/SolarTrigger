@@ -175,7 +175,6 @@ GPS_SCRIPT     = SCRIPTS_DIR / "gps_sync.py"
 GPS_CONFIG_FILE = TRIGGER_DIR / "configs" / "gps_default.json"
 MOUNT_CONFIG_FILE = TRIGGER_DIR / "configs" / "mount_default.json"
 JSON_FILE      = TRIGGER_DIR / "todayeclipse.json"
-EVENTS_FILE    = TRIGGER_DIR / "sound_events.jsonl"
 SOUNDS_DIR     = TRIGGER_DIR / "Sounds"
 STATIC_DIR     = BASE_DIR / "static"
 STATIC_SOUNDS  = STATIC_DIR / "sounds"
@@ -2813,7 +2812,6 @@ def _erase_all_persistent_data():
         STATE_FILE.with_suffix(STATE_FILE.suffix + ".tmp"),
         LOGS_BUFFER_FILE,
         JSON_FILE,
-        EVENTS_FILE,
         TRIGGER_DIR / "configs" / "rig" / "default.json",
     ]
 
@@ -4909,7 +4907,7 @@ def _emit_trigger(event, payload):
     socketio.emit(event, payload, namespace="/")
 
 _trigger_service = TriggerService(
-    _state_store, TRIGGER_SCRIPT, JSON_FILE, EVENTS_FILE, CONFIGS_DIR,
+    _state_store, TRIGGER_SCRIPT, JSON_FILE, CONFIGS_DIR,
     log_fn=_append_log, emit_fn=_emit_trigger,
     line_level_fn=_ansi_to_level, line_clean_fn=_clean)
 
@@ -5037,98 +5035,6 @@ def on_connect(auth=None):
     if history:
         emit("log_history", history)
 
-@socketio.on("trigger_sound")
-def on_trigger_sound(data):
-    """Mode B : reçu du trigger, relayé à tous les clients web."""
-    socketio.emit("play_sound", {
-        "file":      data.get("file"),
-        "timestamp": data.get("timestamp"),
-    })
-
-@socketio.on("trigger_battery")
-def on_trigger_battery(data):
-    """Mode B : niveau batterie reçu du trigger."""
-    pct = data.get("percent")
-    with _state_lock:
-        _state["camera"]["battery"] = f"{pct}%"
-    _save_state()
-    socketio.emit("battery_update", {
-        "percent":   pct,
-        "timestamp": data.get("timestamp"),
-    })
-
-@socketio.on("trigger_battery_alert")
-def on_trigger_battery_alert(data):
-    """Mode B : alerte batterie reçue du trigger."""
-    pct   = data.get("percent")
-    level = data.get("level")
-    socketio.emit("battery_alert", {"percent": pct, "level": level})
-    msg = (f"⚠⚠⚠ BATTERIE CRITIQUE {pct}% — CHANGEZ MAINTENANT"
-           if level == "critical"
-           else f"⚠ Batterie faible {pct}% — changez avant C2-10min")
-    _append_log(msg, "error" if level == "critical" else "warning", "batterie")
-
-# ══════════════════════════════════════════════════════════════════════════════
-# THREADS DE FOND
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _thread_mode_a_watcher():
-    """Mode A : surveille sound_events.jsonl et relaie sons + batterie aux clients."""
-    log.info("Mode A watcher démarré.")
-    # Initialiser à la fin du fichier pour ne pas rejouer les anciens événements au reboot
-    last_pos = 0
-    if EVENTS_FILE.exists():
-        last_pos = EVENTS_FILE.stat().st_size
-    while True:
-        try:
-            if EVENTS_FILE.exists():
-                with open(EVENTS_FILE, encoding="utf-8") as f:
-                    f.seek(last_pos)
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            event = json.loads(line)
-                            etype = event.get("type")
-
-                            if etype == "sound":
-                                socketio.emit("play_sound", {
-                                    "file":      event["file"],
-                                    "timestamp": event.get("timestamp"),
-                                })
-
-                            elif etype == "battery":
-                                pct = event.get("percent")
-                                with _state_lock:
-                                    _state["camera"]["battery"] = f"{pct}%"
-                                _save_state()
-                                socketio.emit("battery_update", {
-                                    "percent":   pct,
-                                    "timestamp": event.get("timestamp"),
-                                })
-
-                            elif etype == "battery_alert":
-                                pct   = event.get("percent")
-                                level = event.get("level")   # "warning" ou "critical"
-                                socketio.emit("battery_alert", {
-                                    "percent":   pct,
-                                    "level":     level,
-                                    "timestamp": event.get("timestamp"),
-                                })
-                                msg = (f"⚠⚠⚠ BATTERIE CRITIQUE {pct}% — CHANGEZ MAINTENANT"
-                                       if level == "critical"
-                                       else f"⚠ Batterie faible {pct}% — changez avant C2-10min")
-                                lvl = "error" if level == "critical" else "warning"
-                                _append_log(msg, lvl, "batterie")
-
-                        except json.JSONDecodeError:
-                            pass
-                    last_pos = f.tell()
-        except Exception:
-            pass
-        time.sleep(0.3)
-
 def _thread_status_broadcast():
     """Diffuse heure locale + UTC + état système toutes les secondes."""
     while True:
@@ -5198,7 +5104,6 @@ def _restore_persisted_trigger_selections():
 
 
 def start_background_threads():
-    threading.Thread(target=_thread_mode_a_watcher,  daemon=True).start()
     threading.Thread(target=_thread_status_broadcast, daemon=True).start()
     threading.Thread(target=_thread_camera_poll,      daemon=True).start()
     threading.Thread(target=_trim_log_file,           daemon=True).start()
