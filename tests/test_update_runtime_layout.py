@@ -17,6 +17,12 @@ RUNTIME_SCRIPTS = (
 )
 
 
+def test_update_uses_build_commit_not_manual_version():
+    assert "BUILD_COMMIT" in UPDATE
+    assert "PACKAGE_VERSION" not in UPDATE
+    assert '"$PACKAGE_DIR/VERSION"' not in UPDATE
+
+
 def test_update_uses_single_application_root():
     assert 'APP_DIR="$USER_HOME/solar-eclipse-trigger-prod"' in UPDATE
     assert 'CONFIGS_DIR="$APP_DIR/configs"' in UPDATE

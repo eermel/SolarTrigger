@@ -46,9 +46,14 @@ SCRIPTS_DIR="$APP_DIR/scripts"
 CONFIGS_DIR="$APP_DIR/configs"
 VENV_DIR="$APP_DIR/venv"
 
-PACKAGE_VERSION="unknown"
-if [ -f "$PACKAGE_DIR/VERSION" ]; then
-    PACKAGE_VERSION=$(tr -d '[:space:]' < "$PACKAGE_DIR/VERSION")
+BUILD_COMMIT=""
+
+if command -v git >/dev/null 2>&1; then
+    BUILD_COMMIT=$(git -C "$PACKAGE_DIR" rev-parse HEAD 2>/dev/null || true)
+fi
+
+if [ -z "$BUILD_COMMIT" ] && [ -f "$PACKAGE_DIR/BUILD_COMMIT" ]; then
+    BUILD_COMMIT=$(tr -d '[:space:]' < "$PACKAGE_DIR/BUILD_COMMIT")
 fi
 
 
@@ -58,7 +63,7 @@ echo "  ║   SolarEclipse — Mise à jour rapide   ║"
 echo "  ╚════════════════════════════════════════╝"
 echo -e "${NC}"
 
-info "Version     : $PACKAGE_VERSION"
+info "Build commit: ${BUILD_COMMIT:-unknown}"
 info "Package     : $PACKAGE_DIR"
 info "Application : $APP_DIR"
 info "Scripts     : $SCRIPTS_DIR"
@@ -207,11 +212,17 @@ ok "  WAV → $APP_DIR/Sounds"
 ok "  WAV → $APP_DIR/static/sounds"
 
 
-# ── 7. Marqueur de version ──────────────────────────────────────────────────
+# ── 7. Métadonnée de build ──────────────────────────────────────────────────
 
-if [ -f "$PACKAGE_DIR/VERSION" ]; then
-    cp -a "$PACKAGE_DIR/VERSION" "$APP_DIR/VERSION"
-    ok "Version déployée : $PACKAGE_VERSION"
+# Migration : VERSION était un marqueur manuel et n'est plus utilisé.
+rm -f "$APP_DIR/VERSION"
+
+if [ -n "$BUILD_COMMIT" ]; then
+    printf '%s\n' "$BUILD_COMMIT" > "$APP_DIR/BUILD_COMMIT"
+    ok "Build commit déployé : $BUILD_COMMIT"
+else
+    rm -f "$APP_DIR/BUILD_COMMIT"
+    warn "Build commit indéterminable."
 fi
 
 
@@ -227,6 +238,10 @@ if [ "${SOLARECLIPSE_TEST_MODE:-0}" != "1" ]; then
         "$APP_DIR/static" \
         "$APP_DIR/Sounds" \
         "$CONFIGS_DIR"
+
+    if [ -f "$APP_DIR/BUILD_COMMIT" ]; then
+        chown "$CURRENT_USER:$CURRENT_USER" "$APP_DIR/BUILD_COMMIT"
+    fi
 fi
 
 chmod 755 "$CONFIGS_DIR"
@@ -288,7 +303,7 @@ fi
 
 
 echo ""
-echo -e "${GREEN}Mise à jour $PACKAGE_VERSION terminée.${NC}"
+echo -e "${GREEN}Mise à jour terminée.${NC}"
 echo "Vérification :"
-echo "  cat $APP_DIR/VERSION"
+echo "  cat $APP_DIR/BUILD_COMMIT"
 echo "  systemctl status solareclipse.service --no-pager"

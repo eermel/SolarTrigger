@@ -16,8 +16,9 @@ def test_fast_update_restarts_flask_and_checks_active():
     assert "systemctl is-active --quiet solareclipse.service" in SCRIPT
 
 
-def test_fast_update_writes_deployed_version_marker():
-    assert '"$APP_DIR/VERSION"' in SCRIPT
+def test_fast_update_writes_build_commit_marker():
+    assert '"$APP_DIR/BUILD_COMMIT"' in SCRIPT
+    assert "PACKAGE_VERSION" not in SCRIPT
 
 
 def test_fast_update_validates_critical_python_files():

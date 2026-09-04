@@ -11,7 +11,7 @@ SCRIPT = (
 
 
 def test_deploy_writes_build_metadata():
-    assert '"$SRC/VERSION"' in SCRIPT
+    assert '"$SRC/VERSION"' not in SCRIPT
 
     assert (
         'BUILD_COMMIT="$(git -C "$SRC" rev-parse HEAD)"'
@@ -29,3 +29,5 @@ def test_deploy_writes_build_metadata():
         "cat > '$DST/BUILD_COMMIT'"
         in SCRIPT
     )
+
+    assert "rm -f '$DST/VERSION'" in SCRIPT

@@ -17,6 +17,18 @@ RUNTIME_SCRIPTS = (
 )
 
 
+def test_installer_uses_build_commit_not_manual_version():
+    assert "BUILD_COMMIT" in INSTALLER
+    assert "v6.0" not in INSTALLER
+
+    # VERSION n'est plus une source de métadonnée.
+    assert '"$PACKAGE_DIR/VERSION"' not in INSTALLER
+    assert "PACKAGE_VERSION" not in INSTALLER
+
+    # Une ancienne installation doit être nettoyée.
+    assert 'rm -f "$APP_DIR/VERSION"' in INSTALLER
+
+
 def test_installer_uses_one_application_root():
     assert 'APP_DIR="$USER_HOME/solar-eclipse-trigger-prod"' in INSTALLER
     assert 'VENV_DIR="$APP_DIR/venv"' in INSTALLER

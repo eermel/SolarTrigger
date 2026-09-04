@@ -35,7 +35,6 @@ required=(
     "$SRC/flask_app/templates/index.html"
     "$SRC/Sounds"
     "$SRC/configs/camera_timing"
-    "$SRC/VERSION"
 )
 
 for path in "${required[@]}"; do
@@ -133,13 +132,13 @@ echo "=== build metadata ==="
 
 BUILD_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
 
-rsync "${RSYNC_OPTS[@]}"     "$SRC/VERSION"     "$DST_HOST:$DST/VERSION"
-
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Would write BUILD_COMMIT=$BUILD_COMMIT"
+    echo "Would remove legacy $DST/VERSION"
 else
-    printf '%s
-' "$BUILD_COMMIT" |         ssh "$DST_HOST" "cat > '$DST/BUILD_COMMIT'"
+    printf '%s\n' "$BUILD_COMMIT" | \
+        ssh "$DST_HOST" \
+        "cat > '$DST/BUILD_COMMIT' && rm -f '$DST/VERSION'"
 fi
 
 echo

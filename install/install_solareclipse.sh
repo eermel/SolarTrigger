@@ -51,6 +51,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(dirname "$SCRIPT_DIR")"   # dossier parent = solareclipse_package/
 source "$SCRIPT_DIR/datasets_sync.sh"
 
+BUILD_COMMIT=""
+
+if command -v git >/dev/null 2>&1; then
+    BUILD_COMMIT=$(git -C "$PACKAGE_DIR" rev-parse HEAD 2>/dev/null || true)
+fi
+
+if [ -z "$BUILD_COMMIT" ] && [ -f "$PACKAGE_DIR/BUILD_COMMIT" ]; then
+    BUILD_COMMIT=$(tr -d '[:space:]' < "$PACKAGE_DIR/BUILD_COMMIT")
+fi
+
 # ── Répertoire applicatif unique ─────────────────────────────────────────────
 APP_DIR="$USER_HOME/solar-eclipse-trigger-prod"
 SCRIPTS_DIR="$APP_DIR/scripts"
@@ -63,7 +73,7 @@ FLASK_PORT=5000
 
 echo -e "${CYAN}"
 echo "  ╔════════════════════════════════════════════════════╗"
-echo "  ║   SolarEclipse — Installation Raspberry Pi v6.0 ║"
+echo "  ║   SolarEclipse — Installation Raspberry Pi      ║"
 echo "  ║   Utilisateur : $CURRENT_USER"
 echo "  ╚════════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -536,6 +546,18 @@ if [ -f "$PACKAGE_DIR/flask_app/app.py" ] &&    [ -f "$PACKAGE_DIR/flask_app/tem
     success "app.py + index.html → $APP_DIR"
 else
     error "Runtime Flask incomplet dans $PACKAGE_DIR/flask_app"
+fi
+
+# Métadonnée logicielle unique : commit source du build.
+# Migration d'une éventuelle ancienne installation.
+rm -f "$APP_DIR/VERSION"
+
+if [ -n "$BUILD_COMMIT" ]; then
+    printf '%s\n' "$BUILD_COMMIT" > "$APP_DIR/BUILD_COMMIT"
+    success "Build commit → $BUILD_COMMIT"
+else
+    rm -f "$APP_DIR/BUILD_COMMIT"
+    warning "Build commit indéterminable."
 fi
 
 chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"

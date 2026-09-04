@@ -236,17 +236,6 @@ def build_software_metadata(
         else PROJECT_ROOT
     )
 
-    version = ""
-
-    try:
-        version = (
-            root / "VERSION"
-        ).read_text(
-            encoding="utf-8"
-        ).strip()
-    except OSError:
-        pass
-
     commit = ""
 
     try:
@@ -297,8 +286,6 @@ def build_software_metadata(
             commit = ""
 
     result = {
-        "solartrigger_version":
-            version or "unknown",
         "solartrigger_commit":
             commit or "unknown",
     }

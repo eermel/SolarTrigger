@@ -206,7 +206,6 @@ def test_text_plan_roundtrip_preserves_contract(
             tzinfo=timezone.utc,
         ),
         software={
-            "solartrigger_version": "7.1",
             "solartrigger_commit":
                 "deadbeef",
         },
@@ -238,9 +237,10 @@ def test_text_plan_roundtrip_preserves_contract(
         in text
     )
     assert (
-        '# plan.solartrigger_version="7.1"'
+        '# plan.solartrigger_commit="deadbeef"'
         in text
     )
+    assert "solartrigger_version" not in text
     assert (
         '# @phase="totality"'
         in text
