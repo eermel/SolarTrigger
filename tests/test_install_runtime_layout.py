@@ -17,6 +17,15 @@ RUNTIME_SCRIPTS = (
 )
 
 
+def test_installer_does_not_install_unused_socketio_client_dependencies():
+    assert "requests \\" not in INSTALLER
+    assert "python-socketio[client]" not in INSTALLER
+
+    # Le serveur Socket.IO et son transport WebSocket restent requis.
+    assert "flask-socketio" in INSTALLER
+    assert "simple-websocket" in INSTALLER
+
+
 def test_installer_uses_build_commit_not_manual_version():
     assert "BUILD_COMMIT" in INSTALLER
     assert "v6.0" not in INSTALLER

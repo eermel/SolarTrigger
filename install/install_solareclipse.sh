@@ -585,10 +585,8 @@ sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install \
     pygame \
     pyserial \
     gunicorn \
-    requests \
     pytz \
-    timezonefinder \
-    "python-socketio[client]"
+    timezonefinder
 success "Environnement virtuel → $VENV_DIR"
 
 # Fichier wsgi.py
