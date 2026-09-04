@@ -127,6 +127,25 @@ def test_trigger_start_rejects_missing_execution_plan_circumstances(
         circumstances=False,
     )
 
+    # Un ancien fichier placé directement sous configs/ ne doit plus
+    # être accepté : configs/circumstances/ est l'unique emplacement valide.
+    legacy_root_file = (
+        tmp_path / "configs" / "test_circumstances.json"
+    )
+    legacy_root_file.write_text(
+        json.dumps(
+            {
+                "TSTART": "10:00:00",
+                "C1": "10:10:00",
+                "C2": "10:20:00",
+                "C3": "10:21:00",
+                "C4": "10:30:00",
+                "TEND": "10:40:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
     response = client.post("/api/trigger/start")
 
     assert response.status_code == 400

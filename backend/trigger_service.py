@@ -422,15 +422,12 @@ class TriggerService:
 
         filename = filename.strip()
 
-        candidates = (
-            self.configs_dir / "circumstances" / filename,
-            self.configs_dir / filename,
+        circumstances_path = (
+            self.configs_dir / "circumstances" / filename
         )
 
-        circumstances_path = next(
-            (path for path in candidates if path.is_file()),
-            None,
-        )
+        if not circumstances_path.is_file():
+            circumstances_path = None
 
         if circumstances_path is None:
             raise TriggerValidationError(
