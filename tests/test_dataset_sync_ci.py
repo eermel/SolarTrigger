@@ -12,7 +12,6 @@ import sys
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DATASETS_SYNC = REPOSITORY_ROOT / "install" / "datasets_sync.sh"
-UPDATE_FILES = REPOSITORY_ROOT / "install" / "update_files.sh"
 KNOWN_DATASET = "2025-03-29.json"
 
 
@@ -127,54 +126,6 @@ def test_dataset_sync_rejects_missing_referenced_dataset(tmp_path: Path) -> None
 
     assert result.returncode != 0
     assert "missing dataset" in combined_output(result)
-
-
-def test_update_files_test_mode_never_invokes_system_services(
-    tmp_path: Path,
-) -> None:
-    app_dir = tmp_path / "app"
-    sentinel_dir = tmp_path / "service-sentinels"
-    bin_dir = tmp_path / "bin"
-
-    app_dir.mkdir()
-    bin_dir.mkdir()
-    sentinel_dir.mkdir()
-
-    for command in ("systemctl", "nginx"):
-        executable = bin_dir / command
-        executable.write_text(
-            "#!/bin/sh\n"
-            f"touch '{sentinel_dir / command}'\n"
-            "exit 97\n",
-            encoding="utf-8",
-        )
-        executable.chmod(0o755)
-
-    environment = os.environ.copy()
-    environment.update(
-        PATH=f"{bin_dir}{os.pathsep}{environment['PATH']}",
-        SOLARECLIPSE_TEST_MODE="1",
-        SOLARECLIPSE_SKIP_SERVICE_RESTART="1",
-        SOLARECLIPSE_TEST_PACKAGE_DIR=str(REPOSITORY_ROOT),
-        SOLARECLIPSE_TEST_APP_DIR=str(app_dir),
-    )
-
-    result = subprocess.run(
-        ["bash", str(UPDATE_FILES)],
-        cwd=REPOSITORY_ROOT,
-        env=environment,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, combined_output(result)
-    assert not any(sentinel_dir.iterdir())
-    assert "ignor" in combined_output(result)
-
-    assert (
-        app_dir / "data" / "eclipses" / KNOWN_DATASET
-    ).is_file()
 
 
 def test_installer_sources_and_calls_shared_dataset_helper() -> None:

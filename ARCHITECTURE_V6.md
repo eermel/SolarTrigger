@@ -53,20 +53,15 @@ plugins/
 - Installateur complet : restart du service Flask après mise à jour.
 - Permissions exécutables des scripts d installation conservées dans le ZIP.
 
-## Mise à jour rapide — v6.3
+## Déploiement applicatif
 
-Depuis la v6.3, `install/update_files.sh` déploie systématiquement les trois couches
-applicatives utilisées par Flask et le trigger : `backend/`, `services/` et `plugins/`.
-Cela évite un mélange de versions entre `flask_app/app.py` et le backend installé dans
-`~/python_solareclipsetrigger`.
+L'ancien mécanisme de mise à jour rapide a été supprimé.
+Les mises à jour applicatives sont désormais déployées depuis la VM avec
+`tools/deploy-prod.sh`.
 
-Le script copie aussi `VERSION` dans les deux installations actives :
+L'installation complète d'une Raspberry Pi reste assurée par
+`install/install_solareclipse.sh`.
 
-- `~/python_solareclipsetrigger/VERSION`
-- `~/flaskapp_solareclipsetrigger/VERSION`
-
-Il compile les fichiers Python critiques avant de redémarrer `solareclipse.service`,
-puis vérifie que le service est réellement actif.
 
 ## v6.4 — intégration CameraPlugin dans le moteur
 

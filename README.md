@@ -71,14 +71,6 @@ chmod +x install_python_deps.sh
 ./install_python_deps.sh
 ```
 
-### Variables de test de la mise à jour
-
-Pour tester `install/update_files.sh` sans cibler l'installation réelle, définir
-`SOLARECLIPSE_TEST_MODE=1`. Les chemins peuvent alors être redirigés avec
-`SOLARECLIPSE_TEST_PACKAGE_DIR`, `SOLARECLIPSE_TEST_TRIGGER_DIR` et
-`SOLARECLIPSE_TEST_FLASK_DIR`. `SOLARECLIPSE_SKIP_SERVICE_RESTART=1` désactive
-uniquement le redémarrage des services. La copie et la validation ne sont jamais
-ignorées ; sans ces variables, le comportement de production reste inchangé.
 
 ---
 
@@ -401,16 +393,13 @@ La version 6.0 introduit un backend séparé de Flask : état/persistance, journ
 La simulation backend est maintenant explicitement séparée du démarrage réel via `POST /api/trigger/simulate` (JSON optionnel `{"speed":60}`). Le mode simulation n'accède jamais à la caméra réelle.
 
 
-## Mise à jour rapide v6.3
+## Déploiement applicatif courant
 
-Pour une mise à jour applicative mineure :
+Les mises à jour applicatives sont déployées depuis la VM avec `tools/deploy-prod.sh`.
 
-```bash
-cd ~/solareclipse_package
-sudo ./install/update_files.sh
-```
+Pour une installation complète ou une modification des dépendances système,
+systemd, nginx, udev, gpsd ou chrony, utiliser `install/install_solareclipse.sh`.
 
-Le script met à jour `scripts/`, `backend/`, `services/`, `plugins/`, Flask, les tests et les assets, puis redémarre et contrôle `solareclipse.service`. Une réinstallation complète reste nécessaire si les dépendances système, systemd, nginx, udev, gpsd ou chrony changent.
 
 
 ## v6.5
