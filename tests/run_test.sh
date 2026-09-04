@@ -5,8 +5,7 @@
 #   Version : 1.0.00
 # ============================================================
 #
-# Les tests caméra ont besoin que python3-gphoto2 charge la libgphoto2
-# compilée dans /usr/local (support Sony A7V), pas la version système.
+# Les tests caméra utilisent le module gphoto2 du venv SolarTrigger.
 # Ce script positionne LD_LIBRARY_PATH / CAMLIBS / IOLIBS automatiquement,
 # puis lance le test demandé depuis le dossier parent (où est plugins/).
 #
@@ -42,8 +41,23 @@ shift
 # imports 'from plugins.xxx import ...' fonctionnent.
 if [ ! -d "plugins" ]; then
     echo "ERREUR : ce script doit être lancé depuis le dossier qui contient plugins/"
-    echo "         (par ex. ~/python_solareclipsetrigger/)"
+    echo "         (par ex. ~/dev/solar-eclipse-trigger/)"
     exit 1
 fi
 
-python3 "tests/$TEST_FILE" "$@"
+if [ -n "${SOLARECLIPSE_PYTHON:-}" ]; then
+    PYTHON_BIN="$SOLARECLIPSE_PYTHON"
+elif [ -x "./venv/bin/python" ]; then
+    PYTHON_BIN="./venv/bin/python"
+elif [ -x "$HOME/solar-eclipse-trigger-prod/venv/bin/python" ]; then
+    PYTHON_BIN="$HOME/solar-eclipse-trigger-prod/venv/bin/python"
+else
+    PYTHON_BIN="$(command -v python3 || true)"
+fi
+
+if [ -z "$PYTHON_BIN" ] || [ ! -x "$PYTHON_BIN" ]; then
+    echo "ERREUR : interpréteur Python introuvable."
+    exit 1
+fi
+
+"$PYTHON_BIN" "tests/$TEST_FILE" "$@"

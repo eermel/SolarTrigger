@@ -17,6 +17,16 @@ RUNTIME_SCRIPTS = (
 )
 
 
+def test_installer_does_not_install_duplicate_system_python_bindings():
+    assert "python3-gphoto2" not in INSTALLER
+    assert "python3-pygame" not in INSTALLER
+
+    # Les bindings utilisés par SolarTrigger sont installés dans son venv.
+    assert "    gphoto2 \\" in INSTALLER
+    assert "    pygame \\" in INSTALLER
+    assert "    pyserial \\" in INSTALLER
+
+
 def test_installer_does_not_install_unused_socketio_client_dependencies():
     assert "requests \\" not in INSTALLER
     assert "python-socketio[client]" not in INSTALLER

@@ -36,7 +36,7 @@ def _open_camera():
     try:
         import gphoto2 as gp
     except ImportError:
-        sys.exit("python3-gphoto2 requis pour dialoguer avec le boitier.")
+        sys.exit("module Python gphoto2 requis pour dialoguer avec le boitier.")
     try:
         cam = gp.Camera()
         cam.init()

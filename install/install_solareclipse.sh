@@ -249,7 +249,6 @@ step "ÉTAPE 3 — Installation des dépendances système"
 
 apt install -y \
     python3 python3-pip python3-venv \
-    python3-gphoto2 python3-pygame \
     gphoto2 libgphoto2-dev \
     screen curl wget \
     gpsd gpsd-clients chrony socat \
