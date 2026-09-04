@@ -17,7 +17,7 @@
 #     3b. libgphoto2 2.5.34 compilée (support Sony A7V / ILCE-7M5)
 #     3c. SDK ZWO EAF pour focuseur (optionnel, depuis vendor/eaf_sdk/)
 #     4. Scripts SolarEclipse + backend/services/plugins
-#     5. Flask + Nginx + gunicorn/eventlet (portail web + WebSocket)
+#     5. Flask + Nginx + gunicorn/gthread (portail web + WebSocket)
 #     6. GPS (gpsd + chrony + service boot + udev BU-353N5)
 #     7. Scripts raccourcis ~/bin/
 # ============================================================
@@ -51,13 +51,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(dirname "$SCRIPT_DIR")"   # dossier parent = solareclipse_package/
 source "$SCRIPT_DIR/datasets_sync.sh"
 
-# ── Répertoires cibles ────────────────────────────────────────────────────────
-TRIGGER_DIR="$USER_HOME/python_solareclipsetrigger"   # scripts Python + jubier + sons
-FLASK_DIR="$USER_HOME/flaskapp_solareclipsetrigger"   # app Flask / portail web
-CONFIGS_DIR="$TRIGGER_DIR/configs"                       # configs JSON éclipse + caméra
-VENV_DIR="$FLASK_DIR/venv"
-JUBIER_DIR="$TRIGGER_DIR/jubier_files"
-SOUNDS_DIR="$TRIGGER_DIR/Sounds"
+# ── Répertoire applicatif unique ─────────────────────────────────────────────
+APP_DIR="$USER_HOME/solar-eclipse-trigger-prod"
+SCRIPTS_DIR="$APP_DIR/scripts"
+CONFIGS_DIR="$APP_DIR/configs"
+VENV_DIR="$APP_DIR/venv"
+SOUNDS_DIR="$APP_DIR/Sounds"
+
 DOMAIN="eclipse.local"
 FLASK_PORT=5000
 
@@ -67,9 +67,8 @@ echo "  ║   SolarEclipse — Installation Raspberry Pi v6.0 ║"
 echo "  ║   Utilisateur : $CURRENT_USER"
 echo "  ╚════════════════════════════════════════════════════╝"
 echo -e "${NC}"
-info "Répertoire package : $PACKAGE_DIR"
-info "Répertoire scripts : $TRIGGER_DIR"
-info "Répertoire Flask   : $FLASK_DIR"
+info "Répertoire package     : $PACKAGE_DIR"
+info "Répertoire application : $APP_DIR"
 echo ""
 
 # ════════════════════════════════════════════════════════════
@@ -457,113 +456,90 @@ fi
 
 
 # ════════════════════════════════════════════════════════════
-# ÉTAPE 4 — Copie des scripts SolarEclipse
+# ÉTAPE 4 — Installation du runtime SolarEclipse
 # ════════════════════════════════════════════════════════════
-step "ÉTAPE 4 — Installation des scripts SolarEclipse"
+step "ÉTAPE 4 — Installation du runtime SolarEclipse"
 
-mkdir -p "$TRIGGER_DIR" "$JUBIER_DIR" "$SOUNDS_DIR" "$CONFIGS_DIR"
+mkdir -p "$APP_DIR"
+mkdir -p "$SCRIPTS_DIR"
+mkdir -p "$CONFIGS_DIR"
+mkdir -p "$SOUNDS_DIR"
+mkdir -p "$APP_DIR/templates"
+mkdir -p "$APP_DIR/static/sounds"
 
-# Scripts Python
-if [ -d "$PACKAGE_DIR/scripts" ]; then
-    cp "$PACKAGE_DIR/scripts/"*.py "$TRIGGER_DIR/"
-    success "Scripts Python → $TRIGGER_DIR"
-else
-    warning "Dossier scripts/ introuvable dans $PACKAGE_DIR"
-fi
+# Scripts strictement nécessaires au runtime.
+RUNTIME_SCRIPTS=(
+    "__init__.py"
+    "camera_ipc_client.py"
+    "eclipse_calculator_py.py"
+    "eclipse_trigger.py"
+    "fanout_camera_adapter.py"
+    "gps_sync.py"
+)
 
-# Dossier plugins/ (caméra, monture, focuseur) → à côté des scripts Python
-# pour que eclipse_trigger.py puisse faire 'from plugins.camera import ...'
-if [ -d "$PACKAGE_DIR/plugins" ]; then
-    rm -rf "$TRIGGER_DIR/plugins"
-    cp -r "$PACKAGE_DIR/plugins" "$TRIGGER_DIR/"
-    find "$TRIGGER_DIR/plugins" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-    success "Plugins (caméra/monture/focuseur) → $TRIGGER_DIR/plugins"
-else
-    warning "Dossier plugins/ introuvable dans $PACKAGE_DIR"
-fi
+for script in "${RUNTIME_SCRIPTS[@]}"; do
+    src="$PACKAGE_DIR/scripts/$script"
+    if [ ! -f "$src" ]; then
+        error "Script runtime manquant : $src"
+    fi
+    cp "$src" "$SCRIPTS_DIR/$script"
+done
+success "Scripts runtime → $SCRIPTS_DIR"
 
-# Dossier services/ (couche applicative au-dessus des plugins)
-if [ -d "$PACKAGE_DIR/services" ]; then
-    rm -rf "$TRIGGER_DIR/services"
-    cp -r "$PACKAGE_DIR/services" "$TRIGGER_DIR/"
-    find "$TRIGGER_DIR/services" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-    success "Services applicatifs → $TRIGGER_DIR/services"
-else
-    warning "Dossier services/ introuvable dans $PACKAGE_DIR"
-fi
+# Couches applicatives Python.
+for component in backend services plugins; do
+    src="$PACKAGE_DIR/$component"
+    if [ ! -d "$src" ]; then
+        error "Composant runtime manquant : $src"
+    fi
 
-# Backend v6 (état, orchestration GPS/trigger, runtime partagé)
-if [ -d "$PACKAGE_DIR/backend" ]; then
-    rm -rf "$TRIGGER_DIR/backend"
-    cp -r "$PACKAGE_DIR/backend" "$TRIGGER_DIR/"
-    find "$TRIGGER_DIR/backend" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-    success "Backend v6 → $TRIGGER_DIR/backend"
-else
-    warning "Dossier backend/ introuvable dans $PACKAGE_DIR"
-fi
+    rm -rf "$APP_DIR/$component"
+    cp -r "$src" "$APP_DIR/"
+    find "$APP_DIR/$component"         -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+done
+success "Backend / services / plugins → $APP_DIR"
 
-sync_eclipse_datasets "$PACKAGE_DIR" "$TRIGGER_DIR"
+# Datasets d'éclipses nécessaires au moteur Python.
+sync_eclipse_datasets "$PACKAGE_DIR" "$APP_DIR"
 
-# Dossier tests/ (harnais de diagnostic caméra/monture/focuseur)
-if [ -d "$PACKAGE_DIR/tests" ]; then
-    rm -rf "$TRIGGER_DIR/tests"
-    cp -r "$PACKAGE_DIR/tests" "$TRIGGER_DIR/"
-    chmod +x "$TRIGGER_DIR/tests/run_test.sh" 2>/dev/null || true
-    success "Tests de diagnostic → $TRIGGER_DIR/tests"
-fi
-
-# Fichiers JS Jubier
-if [ -d "$PACKAGE_DIR/jubier_files" ]; then
-    cp "$PACKAGE_DIR/jubier_files/"* "$JUBIER_DIR/"
-    success "Fichiers Jubier → $JUBIER_DIR"
-else
-    warning "Dossier jubier_files/ introuvable dans $PACKAGE_DIR"
-fi
-
-# Fichiers WAV
+# Sons runtime et sons servis par Flask.
 if [ -d "$PACKAGE_DIR/Sounds" ]; then
     cp "$PACKAGE_DIR/Sounds/"*.wav "$SOUNDS_DIR/"
-    success "Fichiers audio → $SOUNDS_DIR"
+    cp "$PACKAGE_DIR/Sounds/"*.wav "$APP_DIR/static/sounds/"
+    success "Fichiers audio → $SOUNDS_DIR + $APP_DIR/static/sounds"
 else
-    warning "Dossier Sounds/ introuvable dans $PACKAGE_DIR"
+    error "Dossier Sounds/ introuvable dans $PACKAGE_DIR"
 fi
 
-# Configs JSON runtime → ~/python_solareclipsetrigger/configs/
+# Configurations livrées avec le package.
 if [ -d "$PACKAGE_DIR/configs" ]; then
-    rm -rf "$CONFIGS_DIR"
-    cp -a "$PACKAGE_DIR/configs" "$TRIGGER_DIR/"
+    cp -a "$PACKAGE_DIR/configs/." "$CONFIGS_DIR/"
     chown -R "$CURRENT_USER:$CURRENT_USER" "$CONFIGS_DIR"
     chmod 755 "$CONFIGS_DIR"
     success "Fichiers JSON de config → $CONFIGS_DIR"
 else
-    warning "Dossier configs/ introuvable dans $PACKAGE_DIR"
+    error "Dossier configs/ introuvable dans $PACKAGE_DIR"
 fi
 
-# App Flask + template
-if [ -f "$PACKAGE_DIR/flask_app/app.py" ]; then
-    mkdir -p "$FLASK_DIR/templates"
-    cp "$PACKAGE_DIR/flask_app/app.py" "$FLASK_DIR/"
-    cp "$PACKAGE_DIR/flask_app/templates/index.html" "$FLASK_DIR/templates/"
-    success "app.py + index.html → $FLASK_DIR"
+# Application Flask et template principal.
+if [ -f "$PACKAGE_DIR/flask_app/app.py" ] &&    [ -f "$PACKAGE_DIR/flask_app/templates/index.html" ]; then
+    cp "$PACKAGE_DIR/flask_app/app.py" "$APP_DIR/app.py"
+    cp "$PACKAGE_DIR/flask_app/templates/index.html" "$APP_DIR/templates/index.html"
+    success "app.py + index.html → $APP_DIR"
 else
-    warning "flask_app/app.py introuvable dans $PACKAGE_DIR"
+    error "Runtime Flask incomplet dans $PACKAGE_DIR/flask_app"
 fi
 
-chown -R "$CURRENT_USER:$CURRENT_USER" "$TRIGGER_DIR"
+chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"
 
 # ════════════════════════════════════════════════════════════
-# ÉTAPE 5 — Flask + Nginx + gunicorn/eventlet
+# ÉTAPE 5 — Flask + Nginx + gunicorn/gthread
 # ════════════════════════════════════════════════════════════
 step "ÉTAPE 5 — Configuration Flask / Nginx / gunicorn"
 
-mkdir -p "$FLASK_DIR/static/sounds" "$FLASK_DIR/templates"
-chown -R "$CURRENT_USER:$CURRENT_USER" "$FLASK_DIR"
-
-# Copier les sons dans static/ pour que Flask puisse les servir à l'iPhone
-cp "$SOUNDS_DIR/"*.wav "$FLASK_DIR/static/sounds/" 2>/dev/null || true
-chown "$CURRENT_USER:$CURRENT_USER" "$FLASK_DIR/static/sounds/"*.wav 2>/dev/null || true
-chmod 644 "$FLASK_DIR/static/sounds/"*.wav 2>/dev/null || true
-chmod 755 "$FLASK_DIR/static/sounds/" "$FLASK_DIR/static/" 2>/dev/null || true
+chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"
+chmod 644 "$APP_DIR/static/sounds/"*.wav 2>/dev/null || true
+chmod 755 "$APP_DIR/static/sounds" "$APP_DIR/static" 2>/dev/null || true
 # Nginx (www-data) doit pouvoir traverser le home directory
 chmod o+x "/home/$CURRENT_USER"
 
@@ -573,9 +549,8 @@ sudo -u "$CURRENT_USER" HOME="$USER_HOME" python3 -m venv "$VENV_DIR"
 sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install --upgrade pip -q
 sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install \
     Flask \
-    uWSGI \
     flask-socketio \
-    eventlet \
+    simple-websocket \
     gphoto2 \
     pygame \
     pyserial \
@@ -587,26 +562,14 @@ sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install \
 success "Environnement virtuel → $VENV_DIR"
 
 # Fichier wsgi.py
-cat > "$FLASK_DIR/wsgi.py" <<EOL
+cat > "$APP_DIR/wsgi.py" <<EOL
 from app import app, socketio
 
 if __name__ == "__main__":
     socketio.run(app)
 EOL
 
-# uwsgi.ini (conservé pour référence / compatibilité)
-cat > "$FLASK_DIR/uwsgi.ini" <<EOL
-[uwsgi]
-module = wsgi:app
-master = true
-processes = 2
-socket = $FLASK_DIR/solareclipse.sock
-chmod-socket = 660
-vacuum = true
-die-on-term = true
-EOL
-
-# Configuration Nginx — proxy vers gunicorn/eventlet (supporte WebSocket)
+# Configuration Nginx — proxy vers gunicorn/gthread (supporte WebSocket)
 cat > /etc/nginx/sites-available/solareclipse <<EOL
 server {
     listen 80;
@@ -633,7 +596,7 @@ server {
 
     # Fichiers statiques (sons WAV, CSS, JS) — servis directement par Nginx
     location /static/ {
-        alias $FLASK_DIR/static/;
+        alias $APP_DIR/static/;
         expires 1h;
         add_header Cache-Control "public";
     }
@@ -645,19 +608,47 @@ ln -sf /etc/nginx/sites-available/solareclipse /etc/nginx/sites-enabled/
 nginx -t && systemctl restart nginx
 success "Nginx configuré → proxy Flask:$FLASK_PORT"
 
-# Service systemd portal — gunicorn + eventlet (WebSocket natif)
+# Résoudre les chemins CAMLIBS / IOLIBS réels de la libgphoto2 compilée.
+# Le trigger étant désormais lancé par le portail, cet environnement doit
+# appartenir au service principal solareclipse.service.
+CAMLIBS_DIR=$(find /usr/local/lib/libgphoto2 \
+    -maxdepth 1 -mindepth 1 -type d 2>/dev/null \
+    | sort -V | tail -1)
+
+IOLIBS_DIR=$(find /usr/local/lib/libgphoto2_port \
+    -maxdepth 1 -mindepth 1 -type d 2>/dev/null \
+    | sort -V | tail -1)
+
+if [ -n "$CAMLIBS_DIR" ]; then
+    CAMLIBS_ENV_LINE="Environment=\"CAMLIBS=$CAMLIBS_DIR\""
+else
+    CAMLIBS_ENV_LINE="# CAMLIBS non défini (libgphoto2 système utilisée)"
+fi
+
+if [ -n "$IOLIBS_DIR" ]; then
+    IOLIBS_ENV_LINE="Environment=\"IOLIBS=$IOLIBS_DIR\""
+else
+    IOLIBS_ENV_LINE="# IOLIBS non défini (libgphoto2 système utilisée)"
+fi
+
+# Service systemd principal.
 cat > /etc/systemd/system/solareclipse.service <<EOL
 [Unit]
-Description=SolarEclipse Portal (Flask + SocketIO)
-After=local-fs.target
-Wants=local-fs.target
+Description=SolarEclipse Portal
+After=network.target local-fs.target indiserver-eqmod.service
+Wants=network.target indiserver-eqmod.service
 
 [Service]
+Type=simple
 User=$CURRENT_USER
 Group=$CURRENT_USER
-WorkingDirectory=$FLASK_DIR
-Environment="PATH=$VENV_DIR/bin"
+WorkingDirectory=$APP_DIR
+Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONPATH=$APP_DIR"
+Environment="LD_LIBRARY_PATH=/usr/local/lib"
+${CAMLIBS_ENV_LINE}
+${IOLIBS_ENV_LINE}
 ExecStart=$VENV_DIR/bin/gunicorn \
     --worker-class gthread \
     --workers 1 \
@@ -665,6 +656,7 @@ ExecStart=$VENV_DIR/bin/gunicorn \
     --bind 0.0.0.0:$FLASK_PORT \
     --timeout 120 \
     wsgi:app
+
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -675,49 +667,10 @@ SyslogIdentifier=solareclipse-portal
 WantedBy=multi-user.target
 EOL
 
-# Service systemd trigger — PAS activé au boot, lancé manuellement via l'UI
-# Résoudre les chemins CAMLIBS / IOLIBS réels de la libgphoto2 compilée
-# (les numéros de version des sous-dossiers varient selon la release).
-CAMLIBS_DIR=$(find /usr/local/lib/libgphoto2 -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1)
-IOLIBS_DIR=$(find /usr/local/lib/libgphoto2_port -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1)
-if [ -n "$CAMLIBS_DIR" ]; then
-    CAMLIBS_ENV_LINE="Environment=\"CAMLIBS=$CAMLIBS_DIR\""
-else
-    CAMLIBS_ENV_LINE="# CAMLIBS non défini (libgphoto2 système utilisée)"
-fi
-if [ -n "$IOLIBS_DIR" ]; then
-    IOLIBS_ENV_LINE="Environment=\"IOLIBS=$IOLIBS_DIR\""
-else
-    IOLIBS_ENV_LINE="# IOLIBS non défini (libgphoto2 système utilisée)"
-fi
-
-cat > /etc/systemd/system/solareclipse-trigger.service <<EOL
-[Unit]
-Description=SolarEclipse Trigger (déclenchement photo)
-After=solareclipse.service
-Wants=solareclipse.service
-
-[Service]
-User=$CURRENT_USER
-WorkingDirectory=$TRIGGER_DIR
-# Utiliser la libgphoto2 compilée dans /usr/local (support Sony A7V) plutôt que
-# la version système. Sans ces variables, python3-gphoto2 charge l'ancienne lib
-# et le Sony ILCE-7M5 n'est pas reconnu. Les chemins CAMLIBS/IOLIBS exacts sont
-# résolus à l'install (versions variables) et injectés ci-dessous.
-Environment="LD_LIBRARY_PATH=/usr/local/lib"
-${CAMLIBS_ENV_LINE}
-${IOLIBS_ENV_LINE}
-ExecStartPre=/bin/test -f $TRIGGER_DIR/todayeclipse.json
-ExecStart=$TRIGGER_DIR/venv/bin/python3 \
-    $TRIGGER_DIR/eclipse_trigger.py \
-    --file $TRIGGER_DIR/todayeclipse.json
-Restart=on-failure
-RestartSec=3
-SuccessExitStatus=0
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=solareclipse-trigger
-EOL
+# L'ancien service trigger autonome n'existe plus dans l'architecture actuelle.
+# Ces commandes rendent aussi une réinstallation propre sur une ancienne Pi.
+systemctl disable --now solareclipse-trigger.service 2>/dev/null || true
+rm -f /etc/systemd/system/solareclipse-trigger.service
 
 # Service INDI pour la monture EQMod. Le groupe principal est résolu à
 # l'installation ; l'accès série est fourni par l'appartenance à dialout.
@@ -743,9 +696,8 @@ systemctl start indiserver-eqmod.service
 success "Service indiserver-eqmod démarré et activé au boot."
 systemctl enable solareclipse.service
 systemctl restart solareclipse.service && success "Service solareclipse démarré/rechargé et activé au boot." \
-    || warning "Service solareclipse non démarré — vérifier app.py dans $FLASK_DIR"
-# Le trigger n'est PAS activé au boot — lancé depuis l'UI uniquement
-success "Service solareclipse-trigger installé (lancement manuel uniquement — pas de démarrage auto)."
+    || warning "Service solareclipse non démarré — vérifier app.py dans $APP_DIR"
+# Le déclenchement photo est géré par le portail via TriggerService.
 # Override systemd nginx : démarrer après gunicorn
 mkdir -p /etc/systemd/system/nginx.service.d
 cat > /etc/systemd/system/nginx.service.d/after-solareclipse.conf <<EOF
@@ -799,7 +751,7 @@ udevadm control --reload-rules
 udevadm trigger --subsystem-match=tty 2>/dev/null || true
 
 success "GPS (gpsd socket + chrony + udev) configurés."
-info "Sync heure GPS → portail web onglet GPS, ou : sudo python3 $TRIGGER_DIR/gps_sync.py"
+info "Sync heure GPS → portail web onglet GPS, ou : sudo $VENV_DIR/bin/python3 $SCRIPTS_DIR/gps_sync.py"
 
 # ════════════════════════════════════════════════════════════
 # ÉTAPE 7 — Scripts raccourcis ~/bin/
@@ -812,22 +764,13 @@ mkdir -p "$BIN_DIR"
 cat > "$BIN_DIR/sync_gps.sh" <<EOL
 #!/bin/bash
 echo "Synchronisation GPS BU-353N5..."
-sudo python3 $TRIGGER_DIR/gps_sync.py "\$@"
+sudo "$VENV_DIR/bin/python3" "$SCRIPTS_DIR/gps_sync.py" "\$@"
 EOL
 
 cat > "$BIN_DIR/calcul_eclipse.sh" <<EOL
 #!/bin/bash
 # Usage : calcul_eclipse.sh --lat XX.XXX --lon YY.YYY --alt ZZZ --tz 2 --eclipse 2026-08-12
-cd "$TRIGGER_DIR" || exit 1
-source "$VENV_DIR/bin/activate"
-python3 eclipse_calculator_py.py "\$@"
-EOL
-
-cat > "$BIN_DIR/trigger_eclipse.sh" <<EOL
-#!/bin/bash
-# Usage : trigger_eclipse.sh [--file todayeclipse.json]
-cd "$TRIGGER_DIR" || exit 1
-sudo python3 eclipse_trigger.py "\${@:---file todayeclipse.json}"
+"$VENV_DIR/bin/python3" "$SCRIPTS_DIR/eclipse_calculator_py.py" "\$@"
 EOL
 
 cat > "$BIN_DIR/start_portal.sh" <<EOL
@@ -905,14 +848,13 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 echo -e "  ${CYAN}Portail web${NC}     : ${YELLOW}http://$NEW_HOSTNAME.local${NC}"
 echo -e "  ${CYAN}Hotspot WiFi${NC}    : ${YELLOW}$WIFI_SSID${NC} / ${YELLOW}$WIFI_PASS${NC}"
-echo -e "  ${CYAN}Scripts Python${NC}  : ${YELLOW}$TRIGGER_DIR${NC}"
-echo -e "  ${CYAN}Flask / Portail${NC} : ${YELLOW}$FLASK_DIR${NC}"
+echo -e "  ${CYAN}Application${NC}     : ${YELLOW}$APP_DIR${NC}"
+echo -e "  ${CYAN}Scripts runtime${NC} : ${YELLOW}$SCRIPTS_DIR${NC}"
 echo -e "  ${CYAN}Fichiers audio${NC}  : ${YELLOW}$SOUNDS_DIR${NC}"
 echo ""
 echo -e "  ${CYAN}Commandes rapides :${NC}"
 echo -e "    ${YELLOW}sync_gps.sh${NC}                                  # Sync heure GPS"
 echo -e "    ${YELLOW}calcul_eclipse.sh --lat X --lon Y --tz 2${NC}    # Calcul C1..C4"
-echo -e "    ${YELLOW}trigger_eclipse.sh${NC}                           # Déclencher"
 echo -e "    ${YELLOW}start_portal.sh${NC}  /  ${YELLOW}stop_portal.sh${NC}          # Portail web"
 echo ""
 echo -e "  ${YELLOW}➤  Lancer le portail : ${YELLOW}start_portal.sh${NC}"

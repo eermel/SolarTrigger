@@ -129,15 +129,17 @@ def test_dataset_sync_rejects_missing_referenced_dataset(tmp_path: Path) -> None
     assert "missing dataset" in combined_output(result)
 
 
-def test_update_files_test_mode_never_invokes_system_services(tmp_path: Path) -> None:
-    trigger_dir = tmp_path / "trigger"
-    flask_dir = tmp_path / "flask"
+def test_update_files_test_mode_never_invokes_system_services(
+    tmp_path: Path,
+) -> None:
+    app_dir = tmp_path / "app"
     sentinel_dir = tmp_path / "service-sentinels"
     bin_dir = tmp_path / "bin"
-    trigger_dir.mkdir()
-    flask_dir.mkdir()
+
+    app_dir.mkdir()
     bin_dir.mkdir()
     sentinel_dir.mkdir()
+
     for command in ("systemctl", "nginx"):
         executable = bin_dir / command
         executable.write_text(
@@ -154,9 +156,9 @@ def test_update_files_test_mode_never_invokes_system_services(tmp_path: Path) ->
         SOLARECLIPSE_TEST_MODE="1",
         SOLARECLIPSE_SKIP_SERVICE_RESTART="1",
         SOLARECLIPSE_TEST_PACKAGE_DIR=str(REPOSITORY_ROOT),
-        SOLARECLIPSE_TEST_TRIGGER_DIR=str(trigger_dir),
-        SOLARECLIPSE_TEST_FLASK_DIR=str(flask_dir),
+        SOLARECLIPSE_TEST_APP_DIR=str(app_dir),
     )
+
     result = subprocess.run(
         ["bash", str(UPDATE_FILES)],
         cwd=REPOSITORY_ROOT,
@@ -169,7 +171,10 @@ def test_update_files_test_mode_never_invokes_system_services(tmp_path: Path) ->
     assert result.returncode == 0, combined_output(result)
     assert not any(sentinel_dir.iterdir())
     assert "ignor" in combined_output(result)
-    assert (trigger_dir / "data" / "eclipses" / KNOWN_DATASET).is_file()
+
+    assert (
+        app_dir / "data" / "eclipses" / KNOWN_DATASET
+    ).is_file()
 
 
 def test_installer_sources_and_calls_shared_dataset_helper() -> None:
@@ -178,4 +183,4 @@ def test_installer_sources_and_calls_shared_dataset_helper() -> None:
     )
 
     assert 'source "$SCRIPT_DIR/datasets_sync.sh"' in installer
-    assert 'sync_eclipse_datasets "$PACKAGE_DIR" "$TRIGGER_DIR"' in installer
+    assert 'sync_eclipse_datasets "$PACKAGE_DIR" "$APP_DIR"' in installer
