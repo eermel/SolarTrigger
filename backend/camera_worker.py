@@ -76,11 +76,35 @@ class CameraWorker:
         *args,
         priority: int | None = None,
         worker_deadline: float | None = None,
+        recover_connection: bool = False,
         **kwargs,
     ) -> Any:
         def invoke():
-            method = getattr(self._ensure_service(), method_name)
-            return method(*args, **kwargs)
+            service = self._ensure_service()
+
+            try:
+                if (
+                    recover_connection
+                    and not getattr(service, "connected", True)
+                ):
+                    service.connect()
+
+                method = getattr(service, method_name)
+                return method(*args, **kwargs)
+
+            except Exception:
+                if recover_connection:
+                    invalidator = getattr(
+                        service,
+                        "invalidate_connection",
+                        None,
+                    )
+                    if callable(invalidator):
+                        try:
+                            invalidator()
+                        except Exception:
+                            pass
+                raise
 
         if priority is None:
             future = self._worker.submit(invoke)
@@ -170,6 +194,7 @@ class CameraWorker:
             value,
             fallback_parameter=fallback_parameter,
             priority=PRIORITY_SEQUENCER,
+            recover_connection=True,
         )
 
     def execute_photo(self, params):
@@ -177,6 +202,7 @@ class CameraWorker:
             "execute_photo",
             params,
             priority=PRIORITY_SEQUENCER,
+            recover_connection=True,
         )
 
     def get_battery_level(self):

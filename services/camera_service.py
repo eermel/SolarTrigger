@@ -226,14 +226,28 @@ class CameraService:
         return self.plugin
 
     def reconnect(self):
-        if self.camera is None:
-            return self.connect()
-        self.camera.init()
-        if self.plugin is None:
-            self.plugin = self.plugin_loader(self.camera, self.log)
-        if self.plugin is None:
-            raise RuntimeError(f"Plugin caméra perdu pour '{self.model}'")
-        return self.plugin
+        """Re-acquire the physical camera from a fresh transport handle."""
+        self.invalidate_connection()
+        return self.connect()
+
+    def invalidate_connection(self):
+        """Forget a stale camera transport after an I/O/device failure.
+
+        Deliberately preserve _last_phase_settings: the physical camera keeps
+        its exposure state across the battery swap. ExecutionPlanRuntime is
+        responsible for replaying only SET commands that actually failed while
+        the camera was absent.
+        """
+        camera = self.camera
+        self.camera = None
+        self.plugin = None
+        self.model = ""
+
+        if camera is not None:
+            try:
+                camera.exit()
+            except Exception:
+                pass
 
     def release(self):
         if self.camera is not None:

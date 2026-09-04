@@ -330,7 +330,58 @@ class ExecutionPlanRuntime:
 
         raise ExecutionPlanError(f"unsupported action: {action}")
 
+    @staticmethod
+    def _camera_error_code(exc: BaseException) -> str:
+        code = getattr(exc, "code", None)
+        if isinstance(code, str) and code:
+            return code
+        return type(exc).__name__
+
+    @staticmethod
+    def _remember_pending_set(
+        pending_sets: dict[str, dict[str, Any]],
+        command: dict[str, Any],
+    ) -> None:
+        parameter = command["params"]["parameter"]
+
+        # Last desired value wins. Reinsert it so dict order also reflects
+        # the chronological order of the most recent SET commands.
+        pending_sets.pop(parameter, None)
+        pending_sets[parameter] = command
+
+    def _flush_pending_sets(
+        self,
+        rig_id: int,
+        pending_sets: dict[str, dict[str, Any]],
+    ) -> bool:
+        """Replay only SET commands missed while the camera was unavailable."""
+        for parameter, command in list(pending_sets.items()):
+            try:
+                self._execute_command(command)
+            except ExecutionPlanError:
+                raise
+            except Exception as exc:
+                self.log(
+                    f"WARNING execution_plan rig={rig_id} "
+                    f"pending_set_failed parameter={parameter} "
+                    f"index={command['index']} "
+                    f"code={self._camera_error_code(exc)}"
+                )
+                return False
+
+            pending_sets.pop(parameter, None)
+
+            self.log(
+                f"EXECUTION_PLAN rig={rig_id} "
+                f"pending_set_applied parameter={parameter} "
+                f"index={command['index']}"
+            )
+
+        return True
+
     def _run_rig(self, rig_id: int, commands: list[dict[str, Any]]) -> None:
+        pending_sets: dict[str, dict[str, Any]] = {}
+
         for command in commands:
             if self._stop_requested():
                 self.log(
@@ -365,15 +416,66 @@ class ExecutionPlanRuntime:
             with self._timing_lock:
                 self._timing_samples.append(lateness_ms)
 
+            action = command["action"]
+
             self.log(
                 f"EXECUTION_PLAN rig={rig_id} "
-                f"action={command['action']} "
+                f"action={action} "
                 f"scheduled={target.isoformat()}Z "
                 f"dispatch={dispatch_time.isoformat()}Z "
                 f"lateness_ms={lateness_ms:+.3f}"
             )
 
-            self._execute_command(command)
+            # A SET missed while the body was powered off must be restored
+            # before taking a later photo. We do not restore every setting:
+            # only commands that demonstrably failed are replayed.
+            if action == "PHOTO" and pending_sets:
+                if not self._flush_pending_sets(rig_id, pending_sets):
+                    self.log(
+                        f"WARNING execution_plan rig={rig_id} "
+                        f"action=PHOTO index={command['index']} "
+                        f"photo_lost=1 reason=pending_set"
+                    )
+                    continue
+
+            try:
+                self._execute_command(command)
+
+            except ExecutionPlanError:
+                # Structural/programming errors remain fatal.
+                raise
+
+            except Exception as exc:
+                code = self._camera_error_code(exc)
+
+                if action == "SET":
+                    self._remember_pending_set(
+                        pending_sets,
+                        command,
+                    )
+                    self.log(
+                        f"WARNING execution_plan rig={rig_id} "
+                        f"action=SET index={command['index']} "
+                        f"parameter={command['params']['parameter']} "
+                        f"code={code} set_pending=1"
+                    )
+                else:
+                    # Never replay this PHOTO automatically: after a transport
+                    # failure its physical shutter outcome may be unknowable.
+                    self.log(
+                        f"WARNING execution_plan rig={rig_id} "
+                        f"action=PHOTO index={command['index']} "
+                        f"code={code} photo_lost=1"
+                    )
+
+                continue
+
+            if action == "SET":
+                # A newer successful SET supersedes an older failed one.
+                pending_sets.pop(
+                    command["params"]["parameter"],
+                    None,
+                )
 
     def run(self, plan: dict[str, Any]) -> None:
         with self._timing_lock:
