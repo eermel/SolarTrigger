@@ -46,6 +46,7 @@ if (typeof io !== 'function') {
   --mono:      'Share Tech Mono', monospace;
   --sans:      'Exo 2', sans-serif;
   --tab-h:     60px;
+  --btn-h:     30px;
   --safe-b:    env(safe-area-inset-bottom, 0px);
 }
 
@@ -288,7 +289,8 @@ header {
 /* ── BOUTONS ── */
 .btn {
   display: flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 13px 18px; border-radius: 10px;
+  height: var(--btn-h); min-height: var(--btn-h);
+  padding: 0 18px; border-radius: 10px;
   font-family: var(--sans); font-size: 13px; font-weight: 700;
   letter-spacing: .06em; cursor: pointer; border: none;
   transition: all .15s; -webkit-tap-highlight-color: transparent;
@@ -327,7 +329,7 @@ header {
   display: none !important;
 }
 .controls-rig-selector { display: flex; gap: 8px; margin-bottom: 8px; }
-.controls-rig-selector .btn { flex: 1; padding: 9px 8px; }
+.controls-rig-selector .btn { flex: 1; padding: 0 8px; }
 .controls-rig-selector .btn.active {
   background: linear-gradient(135deg, #5a3200, #8b4f00);
   color: var(--accent);
@@ -377,9 +379,8 @@ header {
 
 #devices-rescan,
 #erase-persistent-data-reboot {
-  padding: 7px 10px;
+  padding: 0 10px;
   font-size: 11px;
-  min-height: 0;
 }
 
 .devices-reset-card {
@@ -639,7 +640,7 @@ header {
 }
 .mount-slew-button {
   min-width: 48px;
-  min-height: 48px;
+  min-height: var(--btn-h);
   padding: 0;
   user-select: none;
   -webkit-user-select: none;
@@ -668,9 +669,8 @@ header {
 #btn-gps-sync-time-location,
 #btn-gps-sync-time,
 #btn-gps-get-location {
-  padding: 7px 10px;
+  padding: 0 10px;
   font-size: 11px;
-  min-height: 0;
 }
 
 
@@ -751,8 +751,7 @@ header {
 }
 
 .cam-rig-button {
-  padding: 7px 10px;
-  min-height: 0;
+  padding: 0 10px;
   font-size: 11px;
 }
 
@@ -786,8 +785,8 @@ header {
  * retain the exact same physical height as RUN ALL SEQUENCERS.
  */
 .sequencer-plan-rig-row .btn {
-  height: 36px;
-  min-height: 36px;
+  height: var(--btn-h);
+  min-height: var(--btn-h);
   padding: 0 4px;
   gap: 3px;
   font-size: 9px;
@@ -797,8 +796,8 @@ header {
 }
 
 #btn-run-all-sequencers {
-  height: 36px;
-  min-height: 36px;
+  height: var(--btn-h);
+  min-height: var(--btn-h);
   line-height: 1;
   white-space: nowrap;
 }
@@ -1511,7 +1510,7 @@ header {
             <option value="">— Exposure Optimization file —</option>
           </select>
 
-          <div class="stat-label">Sequence margin</div>
+          <div class="stat-label">Sequence margin (min)</div>
           <div style="display:flex;align-items:center;gap:8px" class="field">
             <input
               id="sequencer-margin-min"
@@ -1525,7 +1524,7 @@ header {
               font-size:10px;
               color:var(--text-dim);
             ">
-              min — START = C1 − margin / END = C4 + margin
+              TSTART = C1 - margin / END = C4 + margin
             </span>
           </div>
 

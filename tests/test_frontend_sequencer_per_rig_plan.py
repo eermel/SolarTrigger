@@ -71,7 +71,10 @@ def test_sequencer_action_buttons_are_compact_and_equal_height():
         "#btn-run-all-sequencers {"
         in HTML
     )
-    assert "height: 36px;" in HTML
+    assert "--btn-h:     30px;" in HTML
+    assert "height: var(--btn-h);" in HTML
+    assert "min-height: var(--btn-h);" in HTML
+    assert "height: 36px;" not in HTML
     assert "font-size: 9px;" in HTML
     assert "white-space: nowrap;" in HTML
 
@@ -90,3 +93,10 @@ def test_section_titles_and_labels_are_high_visibility():
     # Destructive actions retain their explicit warning colour.
     assert ".devices-reset-card .card-title {" in HTML
     assert "color: var(--red) !important;" in HTML
+
+def test_sequencer_margin_labels_are_explicit():
+    assert "Sequence margin (min)" in HTML
+    assert "TSTART = C1 - margin / END = C4 + margin" in HTML
+
+    assert ">Sequence margin</div>" not in HTML
+    assert "min — START = C1 − margin / END = C4 + margin" not in HTML

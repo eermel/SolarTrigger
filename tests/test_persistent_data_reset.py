@@ -11,11 +11,15 @@ def test_devices_panel_has_vertical_spacing():
     assert "gap: 12px;" in INDEX
 
 
-def test_devices_refresh_matches_compact_gps_buttons():
+def test_devices_refresh_and_reset_use_shared_button_height():
+    assert "--btn-h:     30px;" in INDEX
+    assert ".btn {" in INDEX
+    assert "height: var(--btn-h); min-height: var(--btn-h);" in INDEX
+
     assert "#devices-rescan," in INDEX
-    assert "padding: 7px 10px;" in INDEX
+    assert "#erase-persistent-data-reboot {" in INDEX
+    assert "padding: 0 10px;" in INDEX
     assert "font-size: 11px;" in INDEX
-    assert "min-height: 0;" in INDEX
 
 
 def test_devices_has_destructive_persistent_reset_button():
