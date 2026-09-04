@@ -1438,7 +1438,7 @@ header {
         ">
 
           <div class="stat-label">Eclipse circumstances</div>
-          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-circumstances-select" onchange="updateSequencerOutputFilename()">
+          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-circumstances-select" onchange="updateSequencerPlanFilenames()">
             <option value="">— Circumstances file —</option>
           </select>
 
@@ -1523,47 +1523,64 @@ header {
       </div>
 
 
-      <!-- Run Sequencer -->
+      <!-- Per-RIG Execution Plans -->
       <div class="card">
         <div class="card-title">Execution Plan</div>
 
-        <div class="field" style="margin-bottom:10px">
-          <label for="sequencer-output-filename">
-            Execution Plan filename
-          </label>
+        <div class="field" style="margin-bottom:12px">
+          <label for="sequencer-plan-name">Plan name</label>
           <input
-            id="sequencer-output-filename"
+            id="sequencer-plan-name"
             type="text"
             value=""
-            placeholder="exec_plan_YYYYMMDD_RIG1_"
+            placeholder="egypt"
+            maxlength="80"
             autocomplete="off"
             spellcheck="false"
+            oninput="renderSequencerPlanFilenames()"
             style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:11px 12px;color:var(--text);font-family:var(--mono);font-size:14px;width:100%;outline:none;box-sizing:border-box;">
         </div>
 
-        <div style="
-          display:flex;
-          gap:6px;
-          align-items:stretch;
-        ">
-          <button
-            class="btn btn-success"
-            id="btn-run-sequencer"
-            type="button"
-            style="flex:1;font-size:11px;padding:7px 10px"
-            onclick="runSequencer()">
-            ▶ RUN SEQUENCER
-          </button>
+        <div id="sequencer-plan-rig-rows" style="display:flex;flex-direction:column;gap:8px">
 
-          <button
-            class="btn btn-secondary"
-            id="btn-clean-execution-plans"
-            type="button"
-            style="font-size:11px;padding:7px 10px"
-            onclick="cleanExecutionPlans()">
-            🧹 CLEAN
-          </button>
+          <div class="sequencer-plan-rig-row" data-rig-id="1" style="display:grid;grid-template-columns:50px minmax(0,1fr) 64px 72px;gap:6px;align-items:center">
+            <span style="font-family:var(--mono);font-size:11px">RIG 1</span>
+            <input id="sequencer-plan-prefix-1" type="text" readonly aria-label="RIG 1 Execution Plan filename" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px;width:100%;box-sizing:border-box">
+            <button class="btn btn-success" id="btn-run-sequencer-rig-1" type="button" onclick="runSequencerRig(1)">▶ RUN</button>
+            <button class="btn btn-secondary" id="btn-clean-execution-plans-rig-1" type="button" onclick="cleanExecutionPlansForRig(1)">🧹 CLEAN</button>
+          </div>
+
+          <div class="sequencer-plan-rig-row" data-rig-id="2" style="display:grid;grid-template-columns:50px minmax(0,1fr) 64px 72px;gap:6px;align-items:center">
+            <span style="font-family:var(--mono);font-size:11px">RIG 2</span>
+            <input id="sequencer-plan-prefix-2" type="text" readonly aria-label="RIG 2 Execution Plan filename" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px;width:100%;box-sizing:border-box">
+            <button class="btn btn-success" id="btn-run-sequencer-rig-2" type="button" onclick="runSequencerRig(2)">▶ RUN</button>
+            <button class="btn btn-secondary" id="btn-clean-execution-plans-rig-2" type="button" onclick="cleanExecutionPlansForRig(2)">🧹 CLEAN</button>
+          </div>
+
+          <div class="sequencer-plan-rig-row" data-rig-id="3" style="display:grid;grid-template-columns:50px minmax(0,1fr) 64px 72px;gap:6px;align-items:center">
+            <span style="font-family:var(--mono);font-size:11px">RIG 3</span>
+            <input id="sequencer-plan-prefix-3" type="text" readonly aria-label="RIG 3 Execution Plan filename" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px;width:100%;box-sizing:border-box">
+            <button class="btn btn-success" id="btn-run-sequencer-rig-3" type="button" onclick="runSequencerRig(3)">▶ RUN</button>
+            <button class="btn btn-secondary" id="btn-clean-execution-plans-rig-3" type="button" onclick="cleanExecutionPlansForRig(3)">🧹 CLEAN</button>
+          </div>
+
+          <div class="sequencer-plan-rig-row" data-rig-id="4" style="display:grid;grid-template-columns:50px minmax(0,1fr) 64px 72px;gap:6px;align-items:center">
+            <span style="font-family:var(--mono);font-size:11px">RIG 4</span>
+            <input id="sequencer-plan-prefix-4" type="text" readonly aria-label="RIG 4 Execution Plan filename" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px;width:100%;box-sizing:border-box">
+            <button class="btn btn-success" id="btn-run-sequencer-rig-4" type="button" onclick="runSequencerRig(4)">▶ RUN</button>
+            <button class="btn btn-secondary" id="btn-clean-execution-plans-rig-4" type="button" onclick="cleanExecutionPlansForRig(4)">🧹 CLEAN</button>
+          </div>
+
         </div>
+
+        <button
+          class="btn btn-success btn-full"
+          id="btn-run-all-sequencers"
+          type="button"
+          style="margin-top:12px;font-size:11px;padding:9px 10px"
+          onclick="runAllSequencers()">
+          ▶ RUN ALL SEQUENCERS
+        </button>
       </div>
 
 
@@ -6607,6 +6624,7 @@ async function erasePersistentDataAndReboot() {
 let sequencerCircumstances = null;
 let sequencerPhotoConfig = null;
 let sequencerExposureOptConfig = null;
+let sequencerPlanDate = '';
 
 
 function _sequencerParseClock(value) {
@@ -6794,7 +6812,7 @@ async function loadSequencerConfigLists() {
 
     ]);
 
-    await updateSequencerOutputFilename();
+    await updateSequencerPlanFilenames();
 
   } catch (error) {
     appendSequencerLog(
@@ -6805,32 +6823,265 @@ async function loadSequencerConfigLists() {
 }
 
 
-function _sequencerActiveRigNames() {
-  const rigs = ['RIG1'];
-
-  for (let rigId = 2; rigId <= 4; rigId += 1) {
-    const control = document.getElementById(`rig-switch-${rigId}`);
-
-    if (control && control.checked) {
-      rigs.push(`RIG${rigId}`);
-    }
-  }
-
-  return rigs;
+function _sequencerRigById(rigId) {
+  return (rigDevicesState.rigs || []).find(
+    rig => Number(rig.rig_id) === Number(rigId)
+  ) || null;
 }
 
 
-async function updateSequencerOutputFilename() {
-  const outputInput =
-    document.getElementById('sequencer-output-filename');
+function _sequencerRigIsActive(rigId) {
+  const rig = _sequencerRigById(rigId);
 
-  const circumstancesSelect =
-    document.getElementById('sequencer-circumstances-select');
+  return (
+    Number(rigId) === 1 ||
+    Boolean(rig && rig.enabled === true)
+  );
+}
 
-  if (!outputInput || !circumstancesSelect) return;
 
-  const filename = circumstancesSelect.value;
-  if (!filename) return;
+function _sequencerSlug(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/[^A-Za-z0-9_-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^[_-]+|[_-]+$/g, '')
+    .slice(0, 80);
+}
+
+
+function _sequencerCameraBrand(rig) {
+  const camera =
+    rig &&
+    rig.devices &&
+    rig.devices.camera;
+
+  if (!camera) return '';
+
+  const raw = String(
+    camera.manufacturer ||
+    camera.vendor ||
+    camera.brand ||
+    ''
+  ).trim().toUpperCase();
+
+  if (!raw) return '';
+
+  const rules = [
+    ['SONY', 'SONY'],
+    ['NIKON', 'NIKON'],
+    ['CANON', 'CANON'],
+    ['FUJIFILM', 'FUJIFILM'],
+    ['FUJI', 'FUJIFILM'],
+    ['PANASONIC', 'PANASONIC'],
+    ['OM DIGITAL', 'OM_SYSTEM'],
+    ['OM SYSTEM', 'OM_SYSTEM'],
+    ['OLYMPUS', 'OLYMPUS'],
+    ['PENTAX', 'PENTAX'],
+    ['RICOH', 'RICOH'],
+    ['LEICA', 'LEICA'],
+    ['HASSELBLAD', 'HASSELBLAD'],
+    ['SIGMA', 'SIGMA'],
+  ];
+
+  const found = rules.find(
+    ([marker]) => raw.includes(marker)
+  );
+
+  return found
+    ? found[1]
+    : _sequencerSlug(raw).toUpperCase();
+}
+
+
+function _sequencerPlanName() {
+  const input =
+    document.getElementById(
+      'sequencer-plan-name'
+    );
+
+  return _sequencerSlug(
+    input ? input.value : ''
+  );
+}
+
+
+function _sequencerPlanPrefix(rigId) {
+  const rig =
+    _sequencerRigById(rigId);
+
+  const brand =
+    _sequencerCameraBrand(rig);
+
+  const name =
+    _sequencerPlanName();
+
+  if (
+    !sequencerPlanDate ||
+    !brand ||
+    !name
+  ) {
+    return '';
+  }
+
+  return (
+    `exec_plan_${sequencerPlanDate}_` +
+    `RIG${rigId}_${brand}_${name}`
+  );
+}
+
+
+function _sequencerRigCanCompile(rigId) {
+  const rig =
+    _sequencerRigById(rigId);
+
+  if (
+    !rig ||
+    !_sequencerRigIsActive(rigId)
+  ) {
+    return false;
+  }
+
+  const camera =
+    rig.devices &&
+    rig.devices.camera;
+
+  const backend =
+    camera &&
+    String(
+      camera.backend || ''
+    ).trim().toLowerCase();
+
+  const manufacturer =
+    camera && (
+      camera.manufacturer ||
+      camera.vendor ||
+      camera.brand
+    );
+
+  const model =
+    camera &&
+    camera.model;
+
+  const focal = Number(
+    rig.optics &&
+    rig.optics.focal_length_mm
+  );
+
+  return Boolean(
+    camera &&
+    backend &&
+    !['none', 'external'].includes(
+      backend
+    ) &&
+    manufacturer &&
+    model &&
+    Number.isFinite(focal) &&
+    focal > 0
+  );
+}
+
+
+function renderSequencerPlanFilenames() {
+  for (
+    let rigId = 1;
+    rigId <= 4;
+    rigId += 1
+  ) {
+    const field =
+      document.getElementById(
+        `sequencer-plan-prefix-${rigId}`
+      );
+
+    const runButton =
+      document.getElementById(
+        `btn-run-sequencer-rig-${rigId}`
+      );
+
+    const row =
+      document.querySelector(
+        `.sequencer-plan-rig-row[data-rig-id="${rigId}"]`
+      );
+
+    const prefix =
+      _sequencerPlanPrefix(rigId);
+
+    const active =
+      _sequencerRigIsActive(rigId);
+
+    const canCompile =
+      Boolean(prefix) &&
+      _sequencerRigCanCompile(rigId);
+
+    if (field) {
+      field.value = prefix;
+
+      field.placeholder =
+        !active
+          ? 'RIG inactive'
+          : (
+              !_sequencerCameraBrand(
+                _sequencerRigById(rigId)
+              )
+                ? 'Camera manufacturer not configured'
+                : 'Select circumstances and enter a plan name'
+            );
+    }
+
+    if (runButton) {
+      runButton.disabled =
+        !canCompile;
+    }
+
+    if (row) {
+      row.style.opacity =
+        active ? '1' : '.55';
+    }
+  }
+
+  const allButton =
+    document.getElementById(
+      'btn-run-all-sequencers'
+    );
+
+  if (allButton) {
+    const activeRigIds =
+      [1, 2, 3, 4].filter(
+        _sequencerRigIsActive
+      );
+
+    allButton.disabled = (
+      !_sequencerPlanName() ||
+      !sequencerPlanDate ||
+      activeRigIds.length === 0 ||
+      activeRigIds.some(
+        rigId =>
+          !_sequencerRigCanCompile(
+            rigId
+          )
+      )
+    );
+  }
+}
+
+
+async function updateSequencerPlanFilenames() {
+  const select =
+    document.getElementById(
+      'sequencer-circumstances-select'
+    );
+
+  const filename =
+    select ? select.value : '';
+
+  sequencerPlanDate = '';
+
+  if (!filename) {
+    renderSequencerPlanFilenames();
+    return;
+  }
 
   try {
     const response = await fetch(
@@ -6838,11 +7089,13 @@ async function updateSequencerOutputFilename() {
       encodeURIComponent(filename)
     );
 
-    const circumstances = await response.json();
+    const circumstances =
+      await response.json();
 
     if (!response.ok) {
       throw new Error(
-        circumstances.error || `HTTP error ${response.status}`
+        circumstances.error ||
+        `HTTP error ${response.status}`
       );
     }
 
@@ -6853,9 +7106,10 @@ async function updateSequencerOutputFilename() {
       circumstances.eclipse_date ||
       '';
 
-    const match = String(rawDate).match(
-      /^(\d{4})-(\d{2})-(\d{2})/
-    );
+    const match =
+      String(rawDate).match(
+        /^(\d{4})-(\d{2})-(\d{2})/
+      );
 
     if (!match) {
       throw new Error(
@@ -6863,103 +7117,122 @@ async function updateSequencerOutputFilename() {
       );
     }
 
-    const yyyymmdd = match[1] + match[2] + match[3];
+    sequencerCircumstances =
+      circumstances;
 
-    const rigNames = _sequencerActiveRigNames();
+    sequencerPlanDate =
+      match[1] +
+      match[2] +
+      match[3];
 
-    const prefix =
-      `exec_plan_${yyyymmdd}_${rigNames.join('_')}_`;
-
-    const oldPrefix =
-      outputInput.dataset.autoPrefix || '';
-
-    let suffix = '';
-
-    if (
-      oldPrefix &&
-      outputInput.value.startsWith(oldPrefix)
-    ) {
-      suffix = outputInput.value.slice(oldPrefix.length);
-    }
-
-    outputInput.dataset.autoPrefix = prefix;
-    outputInput.value = prefix + suffix;
+    renderSequencer();
 
   } catch (error) {
     appendSequencerLog(
       `Execution Plan filename: ${error.message}`,
       'error'
     );
+
+    renderSequencerPlanFilenames();
   }
 }
 
 
-async function cleanExecutionPlans() {
+async function cleanExecutionPlansForRig(
+  rigId
+) {
   if (!confirm(
-    'Delete all generated Execution Plan files?'
+    `Delete generated Execution Plan files for RIG ${rigId} only?`
   )) {
     return;
   }
 
   const button =
-    document.getElementById('btn-clean-execution-plans');
+    document.getElementById(
+      `btn-clean-execution-plans-rig-${rigId}`
+    );
 
-  if (button) button.disabled = true;
+  if (button) {
+    button.disabled = true;
+  }
 
   try {
     const response = await fetch(
       '/api/configs/execution_plan/clean',
-      {method: 'POST'}
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type':
+            'application/json'
+        },
+        body: JSON.stringify({
+          rig_id: rigId
+        }),
+      }
     );
 
-    const result = await response.json();
+    const result =
+      await response.json();
 
-    if (!response.ok || result.status !== 'ok') {
+    if (
+      !response.ok ||
+      result.status !== 'ok'
+    ) {
       throw new Error(
-        result.error || `HTTP error ${response.status}`
+        result.error ||
+        `HTTP error ${response.status}`
       );
     }
 
     appendSequencerLog(
-      `${result.deleted || 0} Execution Plan file(s) deleted`,
+      `RIG ${rigId}: ` +
+      `${result.deleted || 0} ` +
+      'Execution Plan file(s) deleted',
       'success'
     );
 
     flash(
-      `${result.deleted || 0} Execution Plan file(s) deleted`,
+      `RIG ${rigId}: ` +
+      `${result.deleted || 0} ` +
+      'plan file(s) deleted',
       'green'
     );
 
+    await loadTriggerConfigList();
+
   } catch (error) {
     appendSequencerLog(
-      `Execution Plan CLEAN: ${error.message}`,
+      `RIG ${rigId} CLEAN: ` +
+      error.message,
       'error'
     );
 
     flash(
-      `Execution Plan CLEAN: ${error.message}`,
+      `RIG ${rigId} CLEAN: ` +
+      error.message,
       'red'
     );
 
   } finally {
-    if (button) button.disabled = false;
+    renderSequencerPlanFilenames();
   }
 }
 
 
-/*
- * Keep the automatic filename synchronized with the RIG switches.
- * RIG1 is always part of the trigger and therefore always appears.
- */
-document.addEventListener('change', event => {
-  if (
-    event.target &&
-    event.target.classList &&
-    event.target.classList.contains('rig-switch')
-  ) {
-    updateSequencerOutputFilename();
+document.addEventListener(
+  'change',
+  event => {
+    if (
+      event.target &&
+      event.target.classList &&
+      event.target.classList.contains(
+        'rig-switch'
+      )
+    ) {
+      renderSequencerPlanFilenames();
+    }
   }
-});
+);
 
 
 function readSequenceConfig() {
@@ -7110,6 +7383,7 @@ async function loadSequenceConfig(filename) {
           : 60;
     }
 
+    await updateSequencerPlanFilenames();
     renderSequencer();
 
     appendSequencerLog(
@@ -7431,251 +7705,409 @@ function renderSequencer() {
   );
 
   renderSequencerRigSummary();
+  renderSequencerPlanFilenames();
 }
 
 
-async function runSequencer() {
-  const config = readSequenceConfig();
+async function _sequencerLoadInputs(
+  config
+) {
+  const [
+    circumstancesResponse,
+    photoResponse,
+    exposureResponse,
+  ] = await Promise.all([
+    fetch(
+      '/api/configs/load_circumstances/' +
+      encodeURIComponent(
+        config.circumstances_file
+      )
+    ),
+    fetch(
+      '/api/configs/load_photo/' +
+      encodeURIComponent(
+        config.photo_setup_file
+      )
+    ),
+    fetch(
+      '/api/configs/load_exposure_opt/' +
+      encodeURIComponent(
+        config.exposure_opt_file
+      )
+    ),
+  ]);
 
+  const [
+    circumstances,
+    photo,
+    exposure,
+  ] = await Promise.all([
+    circumstancesResponse.json(),
+    photoResponse.json(),
+    exposureResponse.json(),
+  ]);
+
+  if (!circumstancesResponse.ok) {
+    throw new Error(
+      'Circumstances: ' +
+      (
+        circumstances.error ||
+        `HTTP ${circumstancesResponse.status}`
+      )
+    );
+  }
+
+  if (!photoResponse.ok) {
+    throw new Error(
+      'Photo Setup: ' +
+      (
+        photo.error ||
+        `HTTP ${photoResponse.status}`
+      )
+    );
+  }
+
+  if (!exposureResponse.ok) {
+    throw new Error(
+      'Exposure Optimization: ' +
+      (
+        exposure.error ||
+        `HTTP ${exposureResponse.status}`
+      )
+    );
+  }
+
+  sequencerCircumstances =
+    circumstances;
+
+  sequencerPhotoConfig =
+    photo;
+
+  sequencerExposureOptConfig =
+    exposure;
+
+  const rawDate =
+    circumstances._date ||
+    circumstances._date_utc ||
+    circumstances.date ||
+    circumstances.eclipse_date ||
+    '';
+
+  const match =
+    String(rawDate).match(
+      /^(\d{4})-(\d{2})-(\d{2})/
+    );
+
+  if (!match) {
+    throw new Error(
+      'Eclipse date missing or invalid in circumstances file'
+    );
+  }
+
+  sequencerPlanDate =
+    match[1] +
+    match[2] +
+    match[3];
+
+  renderSequencer();
+}
+
+
+function _sequencerValidateRunInputs(
+  config
+) {
   if (
     !config.circumstances_file ||
     !config.photo_setup_file ||
     !config.exposure_opt_file
   ) {
-    flash('Select all Sequencer input files first', 'red');
-    return;
+    throw new Error(
+      'Select all Sequencer input files first'
+    );
   }
 
-  const outputInput =
-    document.getElementById('sequencer-output-filename');
+  const planName =
+    _sequencerPlanName();
 
-  let outputFilename =
-    outputInput && outputInput.value
-      ? outputInput.value.trim()
-      : '';
-
-  if (!outputFilename) {
-    flash('Enter an Execution Plan filename', 'red');
-    return;
+  if (!planName) {
+    throw new Error(
+      'Enter an Execution Plan name'
+    );
   }
 
-  /*
-   * The UI never displays ".json".
-   * The API accepts the logical name and adds the extension itself.
-   */
-  outputFilename = outputFilename.replace(/\.json$/i, '');
+  return planName;
+}
 
-  if (outputInput) {
-    outputInput.value = outputFilename;
+
+async function _compileSequencerRig(
+  rigId,
+  config,
+  planName,
+  showCommandLines = true
+) {
+  if (!_sequencerRigCanCompile(rigId)) {
+    throw new Error(
+      `RIG ${rigId} is inactive or incomplete`
+    );
   }
 
-  const activeRigs = (rigDevicesState.rigs || []).filter(
-    rig =>
-      Number(rig.rig_id) === 1 ||
-      rig.enabled === true
-  );
-
-  const logContainer =
-    document.getElementById('log-container-sequencer');
-
-  if (logContainer) {
-    logContainer.innerHTML = '';
-  }
-
-  appendSequencerLog('Sequencer compilation started', 'info');
   appendSequencerLog(
-    `Sequence margin: ${config.sequence_margin_min} min`,
+    `RIG ${rigId}: compilation started`,
     'info'
   );
 
-  appendSequencerLog(
-    `Execution Plan: ${outputFilename}`,
-    'info'
-  );
-  appendSequencerLog(
-    `Circumstances: ${config.circumstances_file}`,
-    'info'
-  );
-  appendSequencerLog(
-    `Photo Setup: ${config.photo_setup_file}`,
-    'info'
-  );
-  appendSequencerLog(
-    `Exposure Optimization: ${config.exposure_opt_file}`,
-    'info'
-  );
-
-  appendSequencerLog(
-    `Active RIGs: ${
-      activeRigs.map(rig => `RIG ${rig.rig_id}`).join(', ')
-    }`,
-    'info'
-  );
-
-  const button =
-    document.getElementById('btn-run-sequencer');
-
-  if (button) button.disabled = true;
-
-  try {
-    /*
-     * Keep the selected source configurations visible in the
-     * Sequencer timeline. These GETs are read-only.
-     */
-    const [
-      circumstancesResponse,
-      photoResponse,
-      exposureResponse,
-    ] = await Promise.all([
-      fetch(
-        '/api/configs/load_circumstances/' +
-        encodeURIComponent(config.circumstances_file)
-      ),
-      fetch(
-        '/api/configs/load_photo/' +
-        encodeURIComponent(config.photo_setup_file)
-      ),
-      fetch(
-        '/api/configs/load_exposure_opt/' +
-        encodeURIComponent(config.exposure_opt_file)
-      ),
-    ]);
-
-    const [
-      circumstances,
-      photo,
-      exposure,
-    ] = await Promise.all([
-      circumstancesResponse.json(),
-      photoResponse.json(),
-      exposureResponse.json(),
-    ]);
-
-    if (!circumstancesResponse.ok) {
-      throw new Error(
-        `Circumstances: ${
-          circumstances.error ||
-          `HTTP ${circumstancesResponse.status}`
-        }`
-      );
+  const response = await fetch(
+    '/api/sequencer/compile',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type':
+          'application/json',
+      },
+      body: JSON.stringify({
+        rig_id: rigId,
+        plan_name: planName,
+        circumstances_file:
+          config.circumstances_file,
+        photo_setup_file:
+          config.photo_setup_file,
+        exposure_opt_file:
+          config.exposure_opt_file,
+        sequence_margin_min:
+          config.sequence_margin_min,
+      }),
     }
+  );
 
-    if (!photoResponse.ok) {
-      throw new Error(
-        `Photo Setup: ${
-          photo.error ||
-          `HTTP ${photoResponse.status}`
-        }`
-      );
-    }
+  const result =
+    await response.json();
 
-    if (!exposureResponse.ok) {
-      throw new Error(
-        `Exposure Optimization: ${
-          exposure.error ||
-          `HTTP ${exposureResponse.status}`
-        }`
-      );
-    }
+  if (
+    !response.ok ||
+    result.status !== 'ok'
+  ) {
+    throw new Error(
+      result.error ||
+      `HTTP error ${response.status}`
+    );
+  }
 
-    sequencerCircumstances = circumstances;
-    sequencerPhotoConfig = photo;
-    sequencerExposureOptConfig = exposure;
-
-    renderSequencer();
-
-    appendSequencerLog(
-      'Input files validated',
-      'success'
+  const field =
+    document.getElementById(
+      `sequencer-plan-prefix-${rigId}`
     );
 
-    const compileResponse = await fetch(
-      '/api/sequencer/compile',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          circumstances_file:
-            config.circumstances_file,
-          photo_setup_file:
-            config.photo_setup_file,
-          exposure_opt_file:
-            config.exposure_opt_file,
-          sequence_margin_min:
-            config.sequence_margin_min,
-          output_filename:
-            outputFilename,
-        }),
+  if (
+    field &&
+    result.filename
+  ) {
+    field.value =
+      result.filename.replace(
+        /\.plan$/i,
+        ''
+      );
+  }
+
+  appendSequencerLog(
+    `RIG ${rigId}: saved ` +
+    `${result.filename} ` +
+    `(${result.command_count || 0} commands)`,
+    'success'
+  );
+
+  if (showCommandLines) {
+    appendSequencerLog(
+      `──── RIG ${rigId} EXECUTION PLAN ────`,
+      'info'
+    );
+
+    (result.lines || []).forEach(
+      line => {
+        appendSequencerLog(
+          line,
+          'info'
+        );
       }
     );
+  }
 
-    const result = await compileResponse.json();
+  return result;
+}
 
-    if (!compileResponse.ok || result.status !== 'ok') {
-      throw new Error(
-        result.error ||
-        `HTTP error ${compileResponse.status}`
+
+async function runSequencerRig(
+  rigId
+) {
+  const config =
+    readSequenceConfig();
+
+  const button =
+    document.getElementById(
+      `btn-run-sequencer-rig-${rigId}`
+    );
+
+  if (button) {
+    button.disabled = true;
+  }
+
+  try {
+    const planName =
+      _sequencerValidateRunInputs(
+        config
       );
-    }
 
-    appendSequencerLog(
-      `Execution plan saved: ${result.filename}`,
-      'success'
+    await _sequencerLoadInputs(
+      config
     );
 
-    const plan = result.plan || {};
-
-    appendSequencerLog(
-      `Targets: ${
-        Array.isArray(plan.targets)
-          ? plan.targets.length
-          : 0
-      }`,
-      'info'
+    await _compileSequencerRig(
+      rigId,
+      config,
+      planName,
+      true
     );
 
-    appendSequencerLog(
-      `Operations: ${
-        Array.isArray(plan.events)
-          ? plan.events.length
-          : 0
-      }`,
-      'info'
-    );
-
-    appendSequencerLog(
-      '──── EXECUTION PLAN ────',
-      'info'
-    );
-
-    (result.lines || []).forEach(line => {
-      appendSequencerLog(line, 'info');
-    });
-
-    appendSequencerLog(
-      'Sequencer compilation completed successfully',
-      'success'
-    );
+    await loadTriggerConfigList();
 
     flash(
-      `Execution plan generated: ${result.filename}`,
+      `RIG ${rigId} Execution Plan generated`,
       'green'
     );
 
   } catch (error) {
     appendSequencerLog(
-      `Sequencer failed: ${error.message}`,
+      `RIG ${rigId}: Sequencer failed: ` +
+      error.message,
       'error'
     );
 
-    flash(`Sequencer: ${error.message}`, 'red');
+    flash(
+      `RIG ${rigId}: ${error.message}`,
+      'red'
+    );
 
   } finally {
-    if (button) button.disabled = false;
+    renderSequencerPlanFilenames();
   }
 }
+
+
+async function runAllSequencers() {
+  const config =
+    readSequenceConfig();
+
+  const button =
+    document.getElementById(
+      'btn-run-all-sequencers'
+    );
+
+  if (button) {
+    button.disabled = true;
+  }
+
+  const successes = [];
+  const failures = [];
+
+  try {
+    const planName =
+      _sequencerValidateRunInputs(
+        config
+      );
+
+    await _sequencerLoadInputs(
+      config
+    );
+
+    const activeRigIds =
+      [1, 2, 3, 4].filter(
+        _sequencerRigIsActive
+      );
+
+    appendSequencerLog(
+      'Run all: ' +
+      activeRigIds
+        .map(id => `RIG ${id}`)
+        .join(', '),
+      'info'
+    );
+
+    /*
+     * Deliberately sequential.
+     * A failure on one RIG does not prevent
+     * compilation of the following RIGs.
+     */
+    for (const rigId of activeRigIds) {
+      try {
+        const result =
+          await _compileSequencerRig(
+            rigId,
+            config,
+            planName,
+            false
+          );
+
+        successes.push(result);
+
+      } catch (error) {
+        failures.push({
+          rigId,
+          error,
+        });
+
+        appendSequencerLog(
+          `RIG ${rigId}: ${error.message}`,
+          'error'
+        );
+      }
+    }
+
+    await loadTriggerConfigList();
+
+    appendSequencerLog(
+      'Run all completed: ' +
+      `${successes.length} success, ` +
+      `${failures.length} failure(s)`,
+      failures.length
+        ? 'error'
+        : 'success'
+    );
+
+    if (failures.length) {
+      const failedIds =
+        failures
+          .map(item => item.rigId)
+          .join(', ');
+
+      flash(
+        'Run all completed with failures: ' +
+        `RIG ${failedIds}`,
+        'yellow'
+      );
+    } else {
+      flash(
+        `${successes.length} ` +
+        'Execution Plan(s) generated',
+        'green'
+      );
+    }
+
+  } catch (error) {
+    appendSequencerLog(
+      'Run all failed before compilation: ' +
+      error.message,
+      'error'
+    );
+
+    flash(
+      `Sequencer: ${error.message}`,
+      'red'
+    );
+
+  } finally {
+    renderSequencerPlanFilenames();
+  }
+}
+
 
 // ════════════════════════════════════════════════════════════════
 // NAVIGATION

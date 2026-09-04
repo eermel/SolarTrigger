@@ -3,6 +3,7 @@ from pathlib import Path
 import json, os, subprocess, sys, threading, time
 from datetime import datetime, timezone
 from backend.timeline import build_timeline, parse_date_from_config, sequence_seconds
+from backend.execution_plan_runtime import load_execution_plan
 
 class TriggerValidationError(RuntimeError):
     def __init__(self, message, code="TRIGGER_INVALID"):
@@ -317,21 +318,44 @@ class TriggerService:
             )
 
         try:
-            plan = json.loads(path.read_text(encoding="utf-8"))
+            plan = load_execution_plan(path)
         except Exception as exc:
             raise TriggerValidationError(
-                f"Plan d'exécution illisible pour RIG {rig_id} : {filename}",
+                f"Plan d'exécution illisible "
+                f"pour RIG {rig_id} : {filename}",
                 "EXECUTION_PLAN_INVALID",
             ) from exc
 
-        if (
-            not isinstance(plan, dict)
-            or plan.get("schema_version") != 2
-            or plan.get("config_type") != "execution_plan"
-            or not isinstance(plan.get("commands"), list)
-        ):
+        plan_rig_ids = {
+            command.get("rig_id")
+            for command in plan.get(
+                "commands",
+                [],
+            )
+            if isinstance(command, dict)
+        }
+
+        plan_rig_ids.discard(None)
+
+        if path.suffix.lower() == ".plan":
+            incompatible_rig = (
+                plan_rig_ids != {rig_id}
+            )
+        else:
+            # Legacy schema-v2 JSON plans historically allowed an empty
+            # command list. Preserve that behaviour during migration.
+            #
+            # If a legacy JSON plan does contain explicit RIG ids, they must
+            # still all match the selected RIG.
+            incompatible_rig = (
+                bool(plan_rig_ids)
+                and plan_rig_ids != {rig_id}
+            )
+
+        if incompatible_rig:
             raise TriggerValidationError(
-                f"Plan d'exécution incompatible pour RIG {rig_id} : {filename}",
+                f"Plan d'exécution incompatible "
+                f"pour RIG {rig_id} : {filename}",
                 "EXECUTION_PLAN_INVALID",
             )
 
@@ -374,7 +398,9 @@ class TriggerService:
         plan_path = self._resolve_execution_plan(rig_id)
 
         try:
-            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan = load_execution_plan(
+                plan_path
+            )
         except Exception as exc:
             raise TriggerValidationError(
                 "Plan d'exécution illisible.",

@@ -7,6 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from backend.execution_plan_text import (
+    ExecutionPlanTextError,
+    parse_execution_plan_text,
+)
+
 
 class ExecutionPlanError(RuntimeError):
     pass
@@ -32,9 +37,32 @@ def load_execution_plan(path: str | Path) -> dict[str, Any]:
     path = Path(path)
 
     try:
-        plan = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ExecutionPlanError(f"cannot load execution plan: {path}") from exc
+        raw = path.read_text(
+            encoding="utf-8"
+        )
+    except OSError as exc:
+        raise ExecutionPlanError(
+            f"cannot load execution plan: {path}"
+        ) from exc
+
+    if path.suffix.lower() == ".plan":
+        try:
+            plan = parse_execution_plan_text(
+                raw
+            )
+        except ExecutionPlanTextError as exc:
+            raise ExecutionPlanError(
+                f"cannot load execution plan: "
+                f"{path}: {exc}"
+            ) from exc
+    else:
+        try:
+            plan = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ExecutionPlanError(
+                f"cannot load execution plan: "
+                f"{path}"
+            ) from exc
 
     if not isinstance(plan, dict):
         raise ExecutionPlanError("execution plan root must be an object")

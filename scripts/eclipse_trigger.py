@@ -254,7 +254,7 @@ def parse_arguments():
         "--execution-plan",
         type=str,
         default=None,
-        help="Plan d'exécution Sequencer schema v2",
+        help="Execution Plan (.plan or legacy schema-v2 JSON)",
     )
     parser.add_argument("--interact",  action="store_true",  help="Enable interact mode")
     parser.add_argument("--debug",     action="store_true",  help="Enable debug mode (contacts dans 15s)")

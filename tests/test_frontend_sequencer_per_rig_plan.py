@@ -1,0 +1,62 @@
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+HTML = (
+    ROOT
+    / "flask_app"
+    / "templates"
+    / "index.html"
+).read_text(encoding="utf-8")
+
+
+def test_execution_plan_ui_is_per_rig():
+    assert (
+        'id="sequencer-plan-name"'
+        in HTML
+    )
+
+    for rig_id in range(1, 5):
+        assert (
+            f'id="sequencer-plan-prefix-{rig_id}"'
+            in HTML
+        )
+        assert (
+            f"runSequencerRig({rig_id})"
+            in HTML
+        )
+        assert (
+            f"cleanExecutionPlansForRig({rig_id})"
+            in HTML
+        )
+
+
+def test_run_all_replaces_old_global_run():
+    assert (
+        'id="btn-run-all-sequencers"'
+        in HTML
+    )
+    assert (
+        "RUN ALL SEQUENCERS"
+        in HTML
+    )
+    assert (
+        'id="btn-run-sequencer"'
+        not in HTML
+    )
+    assert (
+        'id="sequencer-output-filename"'
+        not in HTML
+    )
+
+
+def test_filename_prefix_contains_required_parts():
+    assert (
+        "`exec_plan_${sequencerPlanDate}_`"
+        in HTML
+    )
+    assert (
+        "`RIG${rigId}_${brand}_${name}`"
+        in HTML
+    )

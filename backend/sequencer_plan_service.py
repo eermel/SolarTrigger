@@ -19,6 +19,7 @@ from backend.camera_timing import load_camera_timing_profile
 from backend.preview_context import load_eclipse_context
 from backend.rig_runtime import load_rig_configuration
 from backend.sequencer_compiler import (
+    apply_exposure_optimization,
     audit_materialized_capture,
     build_execution_plan_document,
     compile_and_merge_scheduled_rigs,
@@ -501,7 +502,151 @@ def compile_execution_plan_from_files(
     return plan, format_execution_plan_lines(plan)
 
 
+def compile_rig_execution_plan_from_files(
+    *,
+    configs_dir: str | Path,
+    rig_id: int,
+    circumstances_file: str,
+    photo_setup_file: str,
+    exposure_opt_file: str,
+    sequence_margin_min: int | float,
+    rig_config: dict[str, Any] | None = None,
+    sequence_file: str | None = None,
+) -> tuple[
+    dict[str, Any],
+    list[str],
+    dict[str, Any],
+]:
+    """Compile one independent RIG and build its audit context."""
+
+    if (
+        not isinstance(rig_id, int)
+        or isinstance(rig_id, bool)
+        or not 1 <= rig_id <= 4
+    ):
+        raise SequencerCompileError(
+            f"invalid RIG id: {rig_id!r}"
+        )
+
+    configs_dir = Path(configs_dir)
+
+    config = deepcopy(
+        load_rig_configuration()
+        if rig_config is None
+        else rig_config
+    )
+
+    rigs = config.get("rigs")
+
+    if not isinstance(rigs, list):
+        raise SequencerCompileError(
+            "RIG configuration contains no rigs"
+        )
+
+    rig = next(
+        (
+            item
+            for item in rigs
+            if isinstance(item, dict)
+            and item.get("rig_id") == rig_id
+        ),
+        None,
+    )
+
+    if rig is None:
+        raise SequencerCompileError(
+            f"RIG {rig_id} not found"
+        )
+
+    if not sequencer_rig_is_active(rig):
+        raise SequencerCompileError(
+            f"RIG {rig_id} is not active"
+        )
+
+    single_config = deepcopy(config)
+    single_config["rigs"] = [
+        deepcopy(rig)
+    ]
+
+    plan, lines = (
+        compile_execution_plan_from_files(
+            configs_dir=configs_dir,
+            circumstances_file=
+                circumstances_file,
+            photo_setup_file=
+                photo_setup_file,
+            exposure_opt_file=
+                exposure_opt_file,
+            sequence_margin_min=
+                sequence_margin_min,
+            rig_config=single_config,
+            sequence_file=sequence_file,
+        )
+    )
+
+    circumstances_path = _safe_child(
+        configs_dir / "circumstances",
+        circumstances_file.strip(),
+        "circumstances",
+    )
+
+    photo_path = _safe_child(
+        configs_dir / "photo_cfg",
+        photo_setup_file.strip(),
+        "Photo Setup",
+    )
+
+    exposure_path = _safe_child(
+        configs_dir / "exposure_opt",
+        exposure_opt_file.strip(),
+        "Exposure Optimization",
+    )
+
+    circumstances = _load_json_object(
+        circumstances_path,
+        "circumstances",
+    )
+
+    photo_setup = _load_json_object(
+        photo_path,
+        "Photo Setup",
+    )
+
+    exposure_opt = _load_json_object(
+        exposure_path,
+        "Exposure Optimization",
+    )
+
+    try:
+        effective_rig = (
+            apply_exposure_optimization(
+                rig,
+                exposure_opt,
+            )
+        )
+    except (
+        TypeError,
+        ValueError,
+        KeyError,
+    ) as exc:
+        raise SequencerCompileError(
+            "Exposure Optimization failed "
+            f"for RIG {rig_id}: {exc}"
+        ) from exc
+
+    context = {
+        "circumstances": circumstances,
+        "photo_setup": photo_setup,
+        "exposure_opt": exposure_opt,
+        "rig": deepcopy(rig),
+        "effective_rig": effective_rig,
+    }
+
+    return plan, lines, context
+
+
 __all__ = [
     "SequencerCompileError",
     "compile_execution_plan_from_files",
+    "compile_rig_execution_plan_from_files",
 ]

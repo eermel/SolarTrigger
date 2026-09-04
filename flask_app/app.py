@@ -235,6 +235,18 @@ from backend.rig_manager import RigManager
 from backend.sequencer_plan_service import (
     SequencerCompileError,
     compile_execution_plan_from_files,
+    compile_rig_execution_plan_from_files,
+)
+from backend.execution_plan_runtime import (
+    ExecutionPlanError,
+    load_execution_plan,
+)
+from backend.execution_plan_text import (
+    ExecutionPlanTextError,
+    build_execution_plan_filename,
+    is_generated_plan_for_rig,
+    normalize_plan_name,
+    render_execution_plan_text,
 )
 
 from backend.rig_runtime import (
@@ -3490,18 +3502,28 @@ def api_configs_load_circumstances(filename):
 
 
 
-@app.route("/api/configs/execution_plan/list", methods=["GET"])
+@app.route(
+    "/api/configs/execution_plan/list",
+    methods=["GET"],
+)
 def api_configs_execution_plan_list():
-    base_dir = CONFIGS_DIR / "execution_plan"
+    base_dir = (
+        CONFIGS_DIR
+        / "execution_plan"
+    )
 
     active = {
-        str(rig_id): _state_store.get(
-            f"execution_plan_file_rig_{rig_id}"
-        ) or ""
+        str(rig_id): (
+            _state_store.get(
+                f"execution_plan_file_rig_{rig_id}"
+            )
+            or ""
+        )
         for rig_id in range(1, 5)
     }
 
     files = []
+
     if base_dir.exists():
         files = sorted(
             entry.name
@@ -3509,89 +3531,160 @@ def api_configs_execution_plan_list():
             if (
                 not entry.is_symlink()
                 and entry.is_file()
-                and entry.suffix.lower() == ".json"
+                and entry.suffix.lower()
+                in {".json", ".plan"}
             )
         )
 
-    return jsonify({
-        "files": files,
-        "active": active,
-    })
+    return jsonify(
+        {
+            "files": files,
+            "active": active,
+        }
+    )
 
 
-@app.route("/api/trigger/select_execution_plan", methods=["POST"])
+@app.route(
+    "/api/trigger/select_execution_plan",
+    methods=["POST"],
+)
 def api_trigger_select_execution_plan():
-    body = request.get_json(silent=True) or {}
+    body = (
+        request.get_json(silent=True)
+        or {}
+    )
 
     rig_id = body.get("rig_id")
-    filename = str(body.get("filename", "")).strip()
+    filename = str(
+        body.get("filename", "")
+    ).strip()
 
     if (
         not isinstance(rig_id, int)
         or isinstance(rig_id, bool)
         or not 1 <= rig_id <= 4
     ):
-        return jsonify({"error": "Invalid RIG id"}), 400
+        return jsonify(
+            {"error": "Invalid RIG id"}
+        ), 400
 
     if (
         not filename
         or Path(filename).name != filename
-        or not filename.endswith(".json")
+        or Path(filename).suffix.lower()
+        not in {".json", ".plan"}
     ):
-        return jsonify({"error": "Invalid Execution Plan filename"}), 400
+        return jsonify(
+            {
+                "error":
+                    "Invalid Execution Plan filename"
+            }
+        ), 400
 
-    path = CONFIGS_DIR / "execution_plan" / filename
-
-    if path.is_symlink() or not path.is_file():
-        return jsonify({
-            "error": f"Execution Plan not found: {filename}"
-        }), 404
-
-    try:
-        plan = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        return jsonify({
-            "error": f"Invalid Execution Plan: {exc}"
-        }), 400
+    path = (
+        CONFIGS_DIR
+        / "execution_plan"
+        / filename
+    )
 
     if (
-        not isinstance(plan, dict)
-        or plan.get("schema_version") != 2
-        or plan.get("config_type") != "execution_plan"
-        or not isinstance(plan.get("commands"), list)
+        path.is_symlink()
+        or not path.is_file()
     ):
-        return jsonify({"error": "Incompatible Execution Plan"}), 400
+        return jsonify(
+            {
+                "error":
+                    f"Execution Plan not found: "
+                    f"{filename}"
+            }
+        ), 404
+
+    try:
+        plan = load_execution_plan(path)
+    except (
+        ExecutionPlanError,
+        OSError,
+        ValueError,
+    ) as exc:
+        return jsonify(
+            {
+                "error":
+                    f"Invalid Execution Plan: "
+                    f"{exc}"
+            }
+        ), 400
 
     plan_rig_ids = {
         command.get("rig_id")
-        for command in plan.get("commands", [])
+        for command in plan.get(
+            "commands",
+            [],
+        )
         if isinstance(command, dict)
     }
 
     plan_rig_ids.discard(None)
 
-    if plan_rig_ids and plan_rig_ids != {rig_id}:
-        return jsonify({
-            "error": (
-                f"Execution Plan incompatible with RIG {rig_id}: "
-                f"contains RIG(s) {sorted(plan_rig_ids)}"
-            )
-        }), 409
+    if path.suffix.lower() == ".plan":
+        incompatible_rig = (
+            plan_rig_ids != {rig_id}
+        )
+    else:
+        # Legacy JSON plans may have no executable command in old fixtures
+        # and saved configurations. Explicit RIG ids, when present, remain
+        # subject to the normal single-RIG compatibility check.
+        incompatible_rig = (
+            bool(plan_rig_ids)
+            and plan_rig_ids != {rig_id}
+        )
+
+    if incompatible_rig:
+        return jsonify(
+            {
+                "error": (
+                    "Execution Plan incompatible "
+                    f"with RIG {rig_id}: "
+                    "contains RIG(s) "
+                    f"{sorted(plan_rig_ids)}"
+                )
+            }
+        ), 409
 
     circumstances = None
-    sources = plan.get("sources") or {}
-    circumstances_name = sources.get("circumstances_file")
 
-    if isinstance(circumstances_name, str) and circumstances_name:
-        circumstances_path = _resolve_config_file(
-            Path(circumstances_name).name,
-            "circumstances",
+    sources = (
+        plan.get("sources")
+        or {}
+    )
+
+    circumstances_name = (
+        sources.get(
+            "circumstances_file"
+        )
+    )
+
+    if (
+        isinstance(
+            circumstances_name,
+            str,
+        )
+        and circumstances_name
+    ):
+        circumstances_path = (
+            _resolve_config_file(
+                Path(
+                    circumstances_name
+                ).name,
+                "circumstances",
+            )
         )
 
         if circumstances_path.is_file():
             try:
                 circumstances = json.loads(
-                    circumstances_path.read_text(encoding="utf-8")
+                    circumstances_path.read_text(
+                        encoding="utf-8"
+                    )
                 )
             except Exception:
                 circumstances = None
@@ -3602,18 +3695,48 @@ def api_trigger_select_execution_plan():
         persist=True,
     )
 
-    return jsonify({
-        "status": "ok",
-        "rig_id": rig_id,
-        "filename": filename,
-        "circumstances": circumstances,
-    })
+    return jsonify(
+        {
+            "status": "ok",
+            "rig_id": rig_id,
+            "filename": filename,
+            "circumstances":
+                circumstances,
+        }
+    )
 
 
-@app.route("/api/configs/execution_plan/clean", methods=["POST"])
+@app.route(
+    "/api/configs/execution_plan/clean",
+    methods=["POST"],
+)
 def api_configs_execution_plan_clean():
-    """Delete generated execution plans only."""
-    base_dir = CONFIGS_DIR / "execution_plan"
+    """Delete plans globally or for one RIG only."""
+
+    body = (
+        request.get_json(silent=True)
+        or {}
+    )
+
+    rig_id = body.get("rig_id")
+
+    if (
+        rig_id is not None
+        and (
+            not isinstance(rig_id, int)
+            or isinstance(rig_id, bool)
+            or not 1 <= rig_id <= 4
+        )
+    ):
+        return jsonify(
+            {"error": "Invalid RIG id"}
+        ), 400
+
+    base_dir = (
+        CONFIGS_DIR
+        / "execution_plan"
+    )
+
     deleted = []
     errors = []
 
@@ -3622,20 +3745,36 @@ def api_configs_execution_plan_clean():
             if (
                 entry.is_symlink()
                 or not entry.is_file()
-                or entry.suffix.lower() != ".json"
+                or entry.suffix.lower()
+                not in {".json", ".plan"}
+            ):
+                continue
+
+            if (
+                rig_id is not None
+                and not is_generated_plan_for_rig(
+                    entry.name,
+                    rig_id,
+                )
             ):
                 continue
 
             try:
                 entry.unlink()
-                deleted.append(entry.name)
+                deleted.append(
+                    entry.name
+                )
             except OSError as exc:
-                errors.append({
-                    "file": entry.name,
-                    "error": str(exc),
-                })
+                errors.append(
+                    {
+                        "file": entry.name,
+                        "error": str(exc),
+                    }
+                )
 
-    active_plan = _state_store.get("execution_plan_file")
+    active_plan = _state_store.get(
+        "execution_plan_file"
+    )
 
     if active_plan in deleted:
         _state_store.set(
@@ -3644,112 +3783,525 @@ def api_configs_execution_plan_clean():
             persist=True,
         )
 
-    return jsonify({
-        "status": "ok",
-        "deleted": len(deleted),
-        "files": deleted,
-        "errors": errors,
-    })
+    rig_ids = (
+        [rig_id]
+        if rig_id is not None
+        else list(range(1, 5))
+    )
+
+    for candidate in rig_ids:
+        key = (
+            f"execution_plan_file_rig_"
+            f"{candidate}"
+        )
+
+        if _state_store.get(key) in deleted:
+            _state_store.set(
+                key,
+                "",
+                persist=True,
+            )
+
+    return jsonify(
+        {
+            "status": "ok",
+            "rig_id": rig_id,
+            "deleted": len(deleted),
+            "files": deleted,
+            "errors": errors,
+        }
+    )
 
 
-@app.route("/api/sequencer/compile", methods=["POST"])
-def api_sequencer_compile():
-    """Compile and persist a deterministic execution plan.
+def _api_sequencer_compile_rig(body):
+    """Compile and persist one canonical .plan."""
 
-    This route never initializes or triggers camera hardware.
-    """
-    body = request.get_json(silent=True) or {}
+    rig_id = body.get("rig_id")
+
+    if (
+        not isinstance(rig_id, int)
+        or isinstance(rig_id, bool)
+        or not 1 <= rig_id <= 4
+    ):
+        return jsonify(
+            {"error": "Invalid RIG id"}
+        ), 400
+
+    try:
+        plan_name = normalize_plan_name(
+            body.get("plan_name")
+        )
+    except ExecutionPlanTextError as exc:
+        return jsonify(
+            {"error": str(exc)}
+        ), 400
 
     required_files = {
-        "circumstances_file": body.get("circumstances_file"),
-        "photo_setup_file": body.get("photo_setup_file"),
-        "exposure_opt_file": body.get("exposure_opt_file"),
+        "circumstances_file":
+            body.get(
+                "circumstances_file"
+            ),
+        "photo_setup_file":
+            body.get(
+                "photo_setup_file"
+            ),
+        "exposure_opt_file":
+            body.get(
+                "exposure_opt_file"
+            ),
     }
 
     normalized_files = {}
 
-    for field, raw_value in required_files.items():
-        if not isinstance(raw_value, str) or not raw_value.strip():
-            return jsonify({
-                "error": f"Missing Sequencer input: {field}",
-            }), 400
+    for field, raw_value in (
+        required_files.items()
+    ):
+        if (
+            not isinstance(
+                raw_value,
+                str,
+            )
+            or not raw_value.strip()
+        ):
+            return jsonify(
+                {
+                    "error":
+                        "Missing Sequencer input: "
+                        f"{field}"
+                }
+            ), 400
 
         filename = raw_value.strip()
 
         if Path(filename).name != filename:
-            return jsonify({
-                "error": f"Invalid Sequencer input filename: {field}",
-            }), 400
+            return jsonify(
+                {
+                    "error":
+                        "Invalid Sequencer input "
+                        f"filename: {field}"
+                }
+            ), 400
 
-        normalized_files[field] = filename
+        normalized_files[
+            field
+        ] = filename
 
-    raw_margin = body.get("sequence_margin_min")
+    margin = body.get(
+        "sequence_margin_min"
+    )
+
+    if (
+        isinstance(margin, bool)
+        or not isinstance(
+            margin,
+            (int, float),
+        )
+        or margin < 0
+    ):
+        return jsonify(
+            {
+                "error":
+                    "Invalid Sequencer input: "
+                    "sequence_margin_min"
+            }
+        ), 400
+
+    raw_sequence_file = (
+        body.get("sequence_file")
+    )
+
+    sequence_file = None
+
+    if (
+        isinstance(
+            raw_sequence_file,
+            str,
+        )
+        and raw_sequence_file.strip()
+    ):
+        sequence_file = (
+            raw_sequence_file.strip()
+        )
+
+        if (
+            Path(sequence_file).name
+            != sequence_file
+        ):
+            return jsonify(
+                {
+                    "error":
+                        "Invalid Sequencer input "
+                        "filename: sequence_file"
+                }
+            ), 400
+
+    try:
+        (
+            plan,
+            lines,
+            context,
+        ) = (
+            compile_rig_execution_plan_from_files(
+                configs_dir=CONFIGS_DIR,
+                rig_id=rig_id,
+                circumstances_file=(
+                    normalized_files[
+                        "circumstances_file"
+                    ]
+                ),
+                photo_setup_file=(
+                    normalized_files[
+                        "photo_setup_file"
+                    ]
+                ),
+                exposure_opt_file=(
+                    normalized_files[
+                        "exposure_opt_file"
+                    ]
+                ),
+                sequence_margin_min=
+                    margin,
+                sequence_file=
+                    sequence_file,
+            )
+        )
+
+        filename = (
+            build_execution_plan_filename(
+                circumstances=context[
+                    "circumstances"
+                ],
+                rig=context["rig"],
+                plan_name=plan_name,
+            )
+        )
+
+        text_plan = (
+            render_execution_plan_text(
+                plan,
+                filename=filename,
+                context=context,
+            )
+        )
+
+    except (
+        SequencerCompileError,
+        ExecutionPlanTextError,
+    ) as exc:
+        return jsonify(
+            {
+                "error": str(exc),
+                "code":
+                    "SEQUENCER_COMPILE_FAILED",
+            }
+        ), 400
+
+    except Exception as exc:
+        return jsonify(
+            {
+                "error": str(exc),
+                "code":
+                    "SEQUENCER_COMPILE_ERROR",
+            }
+        ), 500
+
+    output_dir = (
+        CONFIGS_DIR
+        / "execution_plan"
+    )
+
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    destination = (
+        output_dir / filename
+    )
+
+    temporary = (
+        output_dir
+        / f".{filename}.tmp"
+    )
+
+    try:
+        temporary.write_text(
+            text_plan,
+            encoding="utf-8",
+        )
+
+        os.replace(
+            temporary,
+            destination,
+        )
+
+    except OSError as exc:
+        try:
+            temporary.unlink(
+                missing_ok=True
+            )
+        except OSError:
+            pass
+
+        return jsonify(
+            {
+                "error":
+                    "execution plan could not "
+                    f"be saved: {exc}",
+                "code":
+                    "SEQUENCER_SAVE_FAILED",
+            }
+        ), 500
+
+    _state_store.set(
+        f"execution_plan_file_rig_{rig_id}",
+        filename,
+        persist=True,
+    )
+
+    return jsonify(
+        {
+            "status": "ok",
+            "rig_id": rig_id,
+            "filename": filename,
+            "command_count": len(
+                plan.get(
+                    "commands",
+                    [],
+                )
+            ),
+            "sequence_start_utc":
+                plan.get(
+                    "sequence_start_utc"
+                ),
+            "sequence_end_utc":
+                plan.get(
+                    "sequence_end_utc"
+                ),
+            "lines": lines,
+        }
+    )
+
+
+@app.route(
+    "/api/sequencer/compile",
+    methods=["POST"],
+)
+def api_sequencer_compile():
+    """New per-RIG .plan + legacy JSON compatibility."""
+
+    body = (
+        request.get_json(silent=True)
+        or {}
+    )
+
+    if (
+        "rig_id" in body
+        or "plan_name" in body
+    ):
+        return _api_sequencer_compile_rig(
+            body
+        )
+
+    # Legacy route retained during migration.
+    required_files = {
+        "circumstances_file":
+            body.get(
+                "circumstances_file"
+            ),
+        "photo_setup_file":
+            body.get(
+                "photo_setup_file"
+            ),
+        "exposure_opt_file":
+            body.get(
+                "exposure_opt_file"
+            ),
+    }
+
+    normalized_files = {}
+
+    for field, raw_value in (
+        required_files.items()
+    ):
+        if (
+            not isinstance(
+                raw_value,
+                str,
+            )
+            or not raw_value.strip()
+        ):
+            return jsonify(
+                {
+                    "error":
+                        "Missing Sequencer input: "
+                        f"{field}"
+                }
+            ), 400
+
+        filename = raw_value.strip()
+
+        if Path(filename).name != filename:
+            return jsonify(
+                {
+                    "error":
+                        "Invalid Sequencer input "
+                        f"filename: {field}"
+                }
+            ), 400
+
+        normalized_files[
+            field
+        ] = filename
+
+    raw_margin = body.get(
+        "sequence_margin_min"
+    )
 
     if (
         isinstance(raw_margin, bool)
-        or not isinstance(raw_margin, (int, float))
+        or not isinstance(
+            raw_margin,
+            (int, float),
+        )
         or raw_margin < 0
     ):
-        return jsonify({
-            "error": "Invalid Sequencer input: sequence_margin_min",
-        }), 400
+        return jsonify(
+            {
+                "error":
+                    "Invalid Sequencer input: "
+                    "sequence_margin_min"
+            }
+        ), 400
 
-    raw_output_name = body.get("output_filename")
+    raw_output_name = (
+        body.get("output_filename")
+    )
 
-    if not isinstance(raw_output_name, str) or not raw_output_name.strip():
-        return jsonify({
-            "error": "Missing Sequencer input: output_filename",
-        }), 400
+    if (
+        not isinstance(
+            raw_output_name,
+            str,
+        )
+        or not raw_output_name.strip()
+    ):
+        return jsonify(
+            {
+                "error":
+                    "Missing Sequencer input: "
+                    "output_filename"
+            }
+        ), 400
 
-    output_name = raw_output_name.strip()
+    output_name = (
+        raw_output_name.strip()
+    )
 
-    if not output_name.lower().endswith(".json"):
+    if not output_name.lower().endswith(
+        ".json"
+    ):
         output_name += ".json"
 
     if (
-        Path(output_name).name != output_name
-        or output_name in {".json", "..json"}
+        Path(output_name).name
+        != output_name
+        or output_name
+        in {".json", "..json"}
         or ".." in output_name
     ):
-        return jsonify({
-            "error": "Invalid execution plan filename",
-        }), 400
+        return jsonify(
+            {
+                "error":
+                    "Invalid execution plan "
+                    "filename"
+            }
+        ), 400
 
-    raw_sequence_file = body.get("sequence_file")
+    raw_sequence_file = (
+        body.get("sequence_file")
+    )
     sequence_file = None
 
-    if isinstance(raw_sequence_file, str) and raw_sequence_file.strip():
-        sequence_file = raw_sequence_file.strip()
+    if (
+        isinstance(
+            raw_sequence_file,
+            str,
+        )
+        and raw_sequence_file.strip()
+    ):
+        sequence_file = (
+            raw_sequence_file.strip()
+        )
 
-        if Path(sequence_file).name != sequence_file:
-            return jsonify({
-                "error": "Invalid Sequencer input filename: sequence_file",
-            }), 400
+        if (
+            Path(sequence_file).name
+            != sequence_file
+        ):
+            return jsonify(
+                {
+                    "error":
+                        "Invalid Sequencer input "
+                        "filename: sequence_file"
+                }
+            ), 400
 
     try:
-        plan, lines = compile_execution_plan_from_files(
-            configs_dir=CONFIGS_DIR,
-            circumstances_file=normalized_files["circumstances_file"],
-            photo_setup_file=normalized_files["photo_setup_file"],
-            exposure_opt_file=normalized_files["exposure_opt_file"],
-            sequence_margin_min=raw_margin,
-            sequence_file=sequence_file,
+        plan, lines = (
+            compile_execution_plan_from_files(
+                configs_dir=CONFIGS_DIR,
+                circumstances_file=(
+                    normalized_files[
+                        "circumstances_file"
+                    ]
+                ),
+                photo_setup_file=(
+                    normalized_files[
+                        "photo_setup_file"
+                    ]
+                ),
+                exposure_opt_file=(
+                    normalized_files[
+                        "exposure_opt_file"
+                    ]
+                ),
+                sequence_margin_min=
+                    raw_margin,
+                sequence_file=
+                    sequence_file,
+            )
         )
+
     except SequencerCompileError as exc:
-        return jsonify({
-            "error": str(exc),
-            "code": "SEQUENCER_COMPILE_FAILED",
-        }), 400
+        return jsonify(
+            {
+                "error": str(exc),
+                "code":
+                    "SEQUENCER_COMPILE_FAILED",
+            }
+        ), 400
+
     except Exception as exc:
-        return jsonify({
-            "error": str(exc),
-            "code": "SEQUENCER_COMPILE_ERROR",
-        }), 500
+        return jsonify(
+            {
+                "error": str(exc),
+                "code":
+                    "SEQUENCER_COMPILE_ERROR",
+            }
+        ), 500
 
-    output_dir = CONFIGS_DIR / "execution_plan"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = (
+        CONFIGS_DIR
+        / "execution_plan"
+    )
 
-    destination = output_dir / output_name
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    destination = (
+        output_dir / output_name
+    )
 
     try:
         with destination.open(
@@ -3763,20 +4315,32 @@ def api_sequencer_compile():
                 ensure_ascii=False,
             )
             handle.write("\n")
+
     except OSError as exc:
-        return jsonify({
-            "error": f"execution plan could not be saved: {exc}",
-            "code": "SEQUENCER_SAVE_FAILED",
-        }), 500
+        return jsonify(
+            {
+                "error":
+                    "execution plan could not "
+                    f"be saved: {exc}",
+                "code":
+                    "SEQUENCER_SAVE_FAILED",
+            }
+        ), 500
 
-    _state_store.set("execution_plan_file", output_name, persist=True)
+    _state_store.set(
+        "execution_plan_file",
+        output_name,
+        persist=True,
+    )
 
-    return jsonify({
-        "status": "ok",
-        "filename": output_name,
-        "plan": plan,
-        "lines": lines,
-    })
+    return jsonify(
+        {
+            "status": "ok",
+            "filename": output_name,
+            "plan": plan,
+            "lines": lines,
+        }
+    )
 
 
 @app.route("/api/configs/list_camera_timing", methods=["GET"])
