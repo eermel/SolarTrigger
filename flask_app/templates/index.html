@@ -392,6 +392,14 @@ header {
 }
 .rig-column { min-width: 0; transition: border-color .2s, opacity .2s; }
 .rig-column.enabled { border-color: var(--green); }
+.rig-column:not(.enabled) { opacity: .55; }
+
+.camcfg-rig-column {
+  transition: border-color .2s, opacity .2s;
+}
+.camcfg-rig-column:not(.enabled) {
+  opacity: .55;
+}
 .rig-mode-switch { margin-left: auto; }
 .rig-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rig-body { display: flex; flex-direction: column; gap: 8px; transition: opacity .2s; }
@@ -2425,22 +2433,53 @@ let selectedRigId = 1;
 
 let selectedTriggerRigId = 1;
 
+
+function rigIsOperationallyActive(rig) {
+  if (!rig) return false;
+
+  const rigId = Number(rig.rig_id);
+
+  return (
+    rigId === 1 ||
+    rig.enabled === true
+  );
+}
+
+
+function firstOperationalRigId() {
+  const rig = (rigDevicesState.rigs || []).find(
+    candidate => rigIsOperationallyActive(candidate)
+  );
+
+  return rig
+    ? Number(rig.rig_id)
+    : null;
+}
+
+
 function selectedTriggerRig() {
   return rigDevicesState.rigs.find(
-    rig => Number(rig.rig_id) === selectedTriggerRigId
+    rig =>
+      Number(rig.rig_id) === selectedTriggerRigId &&
+      rigIsOperationallyActive(rig)
   ) || null;
 }
 
 function renderTriggerRigSelection() {
-  const selectedRig = selectedTriggerRig();
-  if (!selectedRig) selectedTriggerRigId = null;
+  let selectedRig = selectedTriggerRig();
+
+  if (!selectedRig) {
+    selectedTriggerRigId = firstOperationalRigId();
+    selectedRig = selectedTriggerRig();
+  }
 
   DEFAULT_RIGS.forEach(defaultRig => {
     const rig = rigDevicesState.rigs.find(
       candidate => Number(candidate.rig_id) === defaultRig.rig_id
     );
 
-    const available = Boolean(rig);
+    const available = rigIsOperationallyActive(rig);
+
     const button = document.getElementById(
       `trigger-rig-${defaultRig.rig_id}`
     );
@@ -2503,7 +2542,7 @@ function selectTriggerRig(rigId) {
     candidate => Number(candidate.rig_id) === numericRigId
   );
 
-  if (!rig) return;
+  if (!rigIsOperationallyActive(rig)) return;
 
   selectedTriggerRigId = numericRigId;
   renderTriggerRigSelection();
@@ -2513,7 +2552,11 @@ function selectTriggerRig(rigId) {
 
 
 function selectedControlsRig() {
-  return rigDevicesState.rigs.find(rig => Number(rig.rig_id) === selectedRigId) || null;
+  return rigDevicesState.rigs.find(
+    rig =>
+      Number(rig.rig_id) === selectedRigId &&
+      rigIsOperationallyActive(rig)
+  ) || null;
 }
 
 function selectedPilotableMountRig() {
@@ -2552,12 +2595,19 @@ function renderSelectedMountAvailability() {
 }
 
 function renderControlsRigSelection() {
-  const selectedRig = selectedControlsRig();
-  if (!selectedRig) selectedRigId = null;
+  let selectedRig = selectedControlsRig();
+
+  if (!selectedRig) {
+    selectedRigId = firstOperationalRigId();
+    selectedRig = selectedControlsRig();
+  }
 
   DEFAULT_RIGS.forEach(defaultRig => {
-    const rig = rigDevicesState.rigs.find(candidate => Number(candidate.rig_id) === defaultRig.rig_id);
-    const available = Boolean(rig);
+    const rig = rigDevicesState.rigs.find(
+      candidate => Number(candidate.rig_id) === defaultRig.rig_id
+    );
+
+    const available = rigIsOperationallyActive(rig);
     const button = document.getElementById(`controls-rig-${defaultRig.rig_id}`);
     if (!button) return;
     button.hidden = !available;
@@ -2598,8 +2648,13 @@ function renderControlsRigSelection() {
 
 function selectControlsRig(rigId) {
   const numericRigId = Number(rigId);
-  const rig = rigDevicesState.rigs.find(candidate => Number(candidate.rig_id) === numericRigId);
-  if (!rig) return;
+
+  const rig = rigDevicesState.rigs.find(
+    candidate => Number(candidate.rig_id) === numericRigId
+  );
+
+  if (!rigIsOperationallyActive(rig)) return;
+
   selectedRigId = numericRigId;
   renderControlsRigSelection();
 }
@@ -3096,7 +3151,12 @@ function updateRigs(rigs) {
     }
     if (cameraRigColumn) {
       cameraRigColumn.classList.toggle('enabled', triggerEnabled);
-      cameraRigColumn.hidden = false;
+
+      /*
+       * Camera is an operational screen:
+       * inactive RIGs must not be displayed.
+       */
+      cameraRigColumn.hidden = !triggerEnabled;
 
       const defaultName = `RIG ${defaultRig.rig_id}`;
 
@@ -3173,6 +3233,10 @@ function updateControlsVisibility(devices) {
   const mountActive = Boolean(currentDevices && currentDevices.mount && currentDevices.mount.active === true);
 
   const rigControlsActive = rigDevicesState.rigs.some(rig => {
+    if (!rigIsOperationallyActive(rig)) {
+      return false;
+    }
+
     const rigDevices = rig && rig.devices ? rig.devices : {};
     const mount = rigDevices.mount;
     const mountBackend = mount && mount.backend;

@@ -18,7 +18,7 @@ def _update_rigs_body():
     return update_rigs.group("body")
 
 
-def test_update_rigs_toggles_camera_rig_columns():
+def test_update_rigs_hides_inactive_camera_rig_columns():
     body = _update_rigs_body()
 
     assert re.search(
@@ -36,7 +36,10 @@ def test_update_rigs_toggles_camera_rig_columns():
         r"'enabled',\s*triggerEnabled\)",
         body,
     )
-    assert re.search(r"cameraRigColumn\.hidden\s*=\s*false", body)
+    assert re.search(
+        r"cameraRigColumn\.hidden\s*=\s*!triggerEnabled",
+        body,
+    )
 
 def test_update_rigs_does_not_add_camera_polling():
     body = _update_rigs_body()

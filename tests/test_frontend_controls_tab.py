@@ -131,10 +131,13 @@ def test_controls_panel_has_four_exclusive_rig_buttons_and_target_label():
     assert re.search(r"let\s+selectedRigId\s*=\s*1\s*;", INDEX)
 
 
-def test_controls_rig_rendering_depends_on_rig_existence_not_trigger_enabled():
+def test_controls_rig_rendering_only_exposes_operational_rigs():
     source = _function_source("renderControlsRigSelection")
 
-    assert re.search(r"const\s+available\s*=\s*Boolean\(rig\)", source)
+    assert re.search(
+        r"const\s+available\s*=\s*rigIsOperationallyActive\(rig\)",
+        source,
+    )
     assert re.search(r"button\.hidden\s*=\s*!available", source)
     assert re.search(r"button\.disabled\s*=\s*!available", source)
     assert re.search(
@@ -142,14 +145,15 @@ def test_controls_rig_rendering_depends_on_rig_existence_not_trigger_enabled():
         r"available\s*&&\s*selectedRigId\s*===\s*defaultRig\.rig_id\)",
         source,
     )
-    assert "rig.enabled" not in source
 
 
-def test_controls_rig_selection_accepts_disabled_configured_rigs_and_has_no_network_calls():
+def test_controls_rig_selection_rejects_inactive_rigs_without_network_calls():
     source = _function_source("selectControlsRig")
 
-    assert re.search(r"if\s*\(!rig\)\s*return", source)
-    assert "rig.enabled" not in source
+    assert re.search(
+        r"if\s*\(!rigIsOperationallyActive\(rig\)\)\s*return",
+        source,
+    )
     assert re.search(r"selectedRigId\s*=\s*numericRigId", source)
     assert "fetch(" not in source
     assert not re.search(r"/api/", source)
@@ -219,38 +223,31 @@ def test_mount_controls_are_reenabled_when_cached_mount_becomes_pilotable():
     )
 
 
-def test_disabled_selected_rig_is_cleared_without_commands_or_auto_selection():
+def test_disabled_selected_rig_falls_back_to_active_rig_without_commands():
     selection_source = _function_source("renderControlsRigSelection")
     update_source = _function_source("updateRigs")
     visibility_source = _controls_visibility_source()
 
-    rigs = [
-        {"rig_id": 1, "enabled": True},
-        {"rig_id": 2, "enabled": False},
-        {"rig_id": 3, "enabled": True},
-    ]
-    selected_rig_id = 2
-    selected_rig = next(
-        (
-            rig
-            for rig in rigs
-            if rig["rig_id"] == selected_rig_id and rig["enabled"] is True
-        ),
-        None,
+    assert (
+        "selectedRigId = firstOperationalRigId();"
+        in selection_source
     )
-    if selected_rig is None:
-        selected_rig_id = None
-
-    assert selected_rig_id is None
-    assert re.search(r"if\s*\(!selectedRig\)\s*selectedRigId\s*=\s*null", selection_source)
-    assert "No RIG selected" in selection_source
+    assert (
+        "selectedRig = selectedControlsRig();"
+        in selection_source
+    )
     assert "renderSelectedMountAvailability()" in selection_source
+    assert "renderSelectedFocuserAvailability()" in selection_source
     assert "renderControlsRigSelection()" in update_source
     assert "renderControlsRigSelection()" in visibility_source
-    assert re.findall(r"selectedRigId\s*=(?!=)\s*([^;]+);", selection_source) == ["null"]
+
+    # Passive selection fallback must never command hardware or call the API.
     for source in (selection_source, update_source, visibility_source):
         assert "fetch(" not in source
-        assert not re.search(r"/api/|postMount\(|mountUrl\(", source)
+        assert not re.search(
+            r"/api/|postMount\(|mountUrl\(",
+            source,
+        )
 
 
 def test_passive_rig_updates_refresh_cached_mount_label_without_fetch():
