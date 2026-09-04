@@ -245,8 +245,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Total Solar Eclipse Automatic Script",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog="Exemple : python3 monscript.py --file espagne.json\n"
-               "          python3 monscript.py --file espagne.json --debug"
+        epilog="Exemple : python3 scripts/eclipse_trigger.py --file configs/circumstances/dryrun_short.json\n"
+               "          python3 scripts/eclipse_trigger.py --file configs/circumstances/dryrun_short.json --debug"
     )
     parser.add_argument("--file",   type=str, default=None, help="Fichier JSON circonstances éclipse")
     parser.add_argument("--camera", type=str, default=None, help="Fichier JSON configuration appareil photo")
