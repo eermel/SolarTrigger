@@ -318,6 +318,14 @@ header {
 }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn-full { width: 100%; }
+
+/*
+ * HTML hidden must always win over component display rules
+ * such as .btn { display:flex }.
+ */
+[hidden] {
+  display: none !important;
+}
 .controls-rig-selector { display: flex; gap: 8px; margin-bottom: 8px; }
 .controls-rig-selector .btn { flex: 1; padding: 9px 8px; }
 .controls-rig-selector .btn.active {

@@ -97,3 +97,14 @@ def test_selection_falls_back_to_first_active_rig():
         "selectedRigId = firstOperationalRigId();"
         in HTML
     )
+
+
+def test_hidden_attribute_cannot_be_overridden_by_button_display_css():
+    assert (
+        "[hidden] {"
+        in HTML
+    )
+    assert (
+        "display: none !important;"
+        in HTML
+    )
