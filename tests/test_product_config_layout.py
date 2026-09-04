@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -39,3 +40,29 @@ def test_product_config_tree_contains_only_product_resources():
     }
 
     assert expected_files <= actual_files
+
+def test_photo_default_shutter_limits_are_not_inverted():
+    config = json.loads(
+        (CONFIGS / "photo_cfg" / "photo_default.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    expected = {
+        "partial": {
+            "shutter_min": "1/250",
+            "shutter_max": "1/1000",
+        },
+        "diamond_ring": {
+            "shutter_min": "1/250",
+            "shutter_max": "1/1000",
+        },
+        "totality": {
+            "shutter_min": "4",
+            "shutter_max": "1/4000",
+        },
+    }
+
+    for phase, limits in expected.items():
+        assert config["phases"][phase]["shutter_min"] == limits["shutter_min"]
+        assert config["phases"][phase]["shutter_max"] == limits["shutter_max"]
