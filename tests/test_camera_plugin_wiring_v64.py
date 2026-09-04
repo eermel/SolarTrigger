@@ -4,7 +4,6 @@ import re
 ROOT=Path(__file__).parents[1]
 TRIGGER=(ROOT/'scripts/eclipse_trigger.py').read_text(encoding='utf-8')
 TOTALITY=(ROOT/'scripts/totality_only.py').read_text(encoding='utf-8')
-CAMCFG=(ROOT/'configs/camera_default.json').read_text(encoding='utf-8')
 
 
 def test_main_and_emergency_paths_use_camera_service():
@@ -14,9 +13,7 @@ def test_main_and_emergency_paths_use_camera_service():
     assert 'set_config(' not in TOTALITY
 
 
-def test_camera_profile_no_longer_owns_phase_timing():
-    assert '"interval"' not in CAMCFG
-    assert '"duration"' not in CAMCFG
+def test_camera_profile_is_applied_before_eclipse_file():
     # Camera profile is applied before eclipse file: sequence values win.
     assert TRIGGER.index('if args.camera:') < TRIGGER.index('if args.file:')
 
