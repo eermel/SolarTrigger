@@ -33,7 +33,7 @@ required=(
     "$SRC/scripts"
     "$SRC/flask_app/app.py"
     "$SRC/flask_app/templates/index.html"
-    "$SRC/static"
+    "$SRC/Sounds"
     "$SRC/configs/camera_timing"
     "$SRC/VERSION"
 )
@@ -75,8 +75,15 @@ rsync "${RSYNC_OPTS[@]}" \
     "$DST_HOST:$DST/plugins/"
 
 echo
-echo "=== scripts ==="
+echo "=== runtime scripts ==="
 rsync "${RSYNC_OPTS[@]}" \
+    --include='/__init__.py' \
+    --include='/camera_ipc_client.py' \
+    --include='/eclipse_calculator_py.py' \
+    --include='/eclipse_trigger.py' \
+    --include='/fanout_camera_adapter.py' \
+    --include='/gps_sync.py' \
+    --exclude='/*' \
     "$SRC/scripts/" \
     "$DST_HOST:$DST/scripts/"
 
@@ -93,10 +100,27 @@ rsync "${RSYNC_OPTS[@]}" \
     "$DST_HOST:$DST/templates/index.html"
 
 echo
-echo "=== static ==="
+echo "=== sound directories ==="
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "Would ensure:"
+    echo "  $DST/Sounds"
+    echo "  $DST/static/sounds"
+else
+    ssh "$DST_HOST" \
+        "mkdir -p '$DST/Sounds' '$DST/static/sounds'"
+fi
+
+echo
+echo "=== runtime sounds ==="
 rsync "${RSYNC_OPTS[@]}" \
-    "$SRC/static/" \
-    "$DST_HOST:$DST/static/"
+    "$SRC/Sounds/" \
+    "$DST_HOST:$DST/Sounds/"
+
+echo
+echo "=== web sounds ==="
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/Sounds/" \
+    "$DST_HOST:$DST/static/sounds/"
 
 echo
 echo "=== camera timing profiles ==="
