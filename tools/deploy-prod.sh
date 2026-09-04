@@ -26,6 +26,15 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     RSYNC_OPTS+=(-n)
 fi
 
+RUNTIME_SCRIPTS=(
+    "__init__.py"
+    "camera_ipc_client.py"
+    "eclipse_calculator_py.py"
+    "eclipse_trigger.py"
+    "fanout_camera_adapter.py"
+    "gps_sync.py"
+)
+
 required=(
     "$SRC/backend"
     "$SRC/services"
@@ -40,6 +49,15 @@ required=(
 for path in "${required[@]}"; do
     if [[ ! -e "$path" ]]; then
         echo "ERROR: required source missing: $path" >&2
+        exit 1
+    fi
+done
+
+for script in "${RUNTIME_SCRIPTS[@]}"; do
+    src="$SRC/scripts/$script"
+
+    if [[ ! -f "$src" ]]; then
+        echo "ERROR: required runtime script missing: $src" >&2
         exit 1
     fi
 done
@@ -75,15 +93,23 @@ rsync "${RSYNC_OPTS[@]}" \
 
 echo
 echo "=== runtime scripts ==="
+
+RUNTIME_SCRIPT_SOURCES=()
+
+for script in "${RUNTIME_SCRIPTS[@]}"; do
+    RUNTIME_SCRIPT_SOURCES+=("$SRC/scripts/$script")
+done
+
+# scripts/ appartient entièrement au runtime : aucune relique DEV ne doit survivre.
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "Would replace $DST/scripts with exactly ${#RUNTIME_SCRIPTS[@]} runtime scripts"
+else
+    ssh "$DST_HOST" \
+        "rm -rf '$DST/scripts' && mkdir -p '$DST/scripts'"
+fi
+
 rsync "${RSYNC_OPTS[@]}" \
-    --include='/__init__.py' \
-    --include='/camera_ipc_client.py' \
-    --include='/eclipse_calculator_py.py' \
-    --include='/eclipse_trigger.py' \
-    --include='/fanout_camera_adapter.py' \
-    --include='/gps_sync.py' \
-    --exclude='/*' \
-    "$SRC/scripts/" \
+    "${RUNTIME_SCRIPT_SOURCES[@]}" \
     "$DST_HOST:$DST/scripts/"
 
 echo
