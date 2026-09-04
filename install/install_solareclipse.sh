@@ -567,14 +567,6 @@ chmod 755 "$FLASK_DIR/static/sounds/" "$FLASK_DIR/static/" 2>/dev/null || true
 # Nginx (www-data) doit pouvoir traverser le home directory
 chmod o+x "/home/$CURRENT_USER"
 
-# Copier socket.io.min.js dans static/ (mode offline — pas de CDN sur le Pi)
-if [ -f "$PACKAGE_DIR/static/socket.io.min.js" ]; then
-    cp "$PACKAGE_DIR/static/socket.io.min.js" "$FLASK_DIR/static/"
-    success "socket.io.min.js → $FLASK_DIR/static/"
-else
-    warning "static/socket.io.min.js introuvable dans $PACKAGE_DIR — le portail utilisera la version inline de index.html"
-fi
-
 # Environnement virtuel Python
 info "Création de l'environnement virtuel Python..."
 sudo -u "$CURRENT_USER" HOME="$USER_HOME" python3 -m venv "$VENV_DIR"

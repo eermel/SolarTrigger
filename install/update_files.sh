@@ -118,9 +118,6 @@ info "Copie de l'application Flask..."
 mkdir -p "$FLASK_DIR/templates" "$FLASK_DIR/static" "$FLASK_DIR/static/sounds"
 cp -a "$PACKAGE_DIR/flask_app/app.py" "$FLASK_DIR/"
 cp -a "$PACKAGE_DIR/flask_app/templates/index.html" "$FLASK_DIR/templates/"
-if [ -f "$PACKAGE_DIR/static/socket.io.min.js" ]; then
-    cp -a "$PACKAGE_DIR/static/socket.io.min.js" "$FLASK_DIR/static/"
-fi
 ok "  app.py + index.html + assets → $FLASK_DIR"
 
 # ── 3. Configs JSON runtime → TRIGGER_DIR/configs/
