@@ -461,7 +461,6 @@ fi
 step "ÉTAPE 4 — Installation du runtime SolarEclipse"
 
 mkdir -p "$APP_DIR"
-mkdir -p "$SCRIPTS_DIR"
 mkdir -p "$CONFIGS_DIR"
 mkdir -p "$SOUNDS_DIR"
 mkdir -p "$APP_DIR/templates"
@@ -477,11 +476,20 @@ RUNTIME_SCRIPTS=(
     "gps_sync.py"
 )
 
+# Valider le package complet avant de remplacer le runtime existant.
 for script in "${RUNTIME_SCRIPTS[@]}"; do
     src="$PACKAGE_DIR/scripts/$script"
     if [ ! -f "$src" ]; then
         error "Script runtime manquant : $src"
     fi
+done
+
+# scripts/ appartient entièrement au runtime : aucune relique DEV ne doit survivre.
+rm -rf "$SCRIPTS_DIR"
+mkdir -p "$SCRIPTS_DIR"
+
+for script in "${RUNTIME_SCRIPTS[@]}"; do
+    src="$PACKAGE_DIR/scripts/$script"
     cp "$src" "$SCRIPTS_DIR/$script"
 done
 success "Scripts runtime → $SCRIPTS_DIR"

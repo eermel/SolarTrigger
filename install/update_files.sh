@@ -104,8 +104,6 @@ sync_app_dir "plugins"
 
 info "Copie des scripts runtime..."
 
-mkdir -p "$SCRIPTS_DIR"
-
 RUNTIME_SCRIPTS=(
     "__init__.py"
     "camera_ipc_client.py"
@@ -115,22 +113,24 @@ RUNTIME_SCRIPTS=(
     "gps_sync.py"
 )
 
+# Valider le package complet avant de remplacer le runtime existant.
 for script in "${RUNTIME_SCRIPTS[@]}"; do
     src="$PACKAGE_DIR/scripts/$script"
 
     if [ ! -f "$src" ]; then
         err "Script runtime manquant : $src"
     fi
+done
 
+# scripts/ appartient entièrement au runtime : aucune relique DEV ne doit survivre.
+rm -rf "$SCRIPTS_DIR"
+mkdir -p "$SCRIPTS_DIR"
+
+for script in "${RUNTIME_SCRIPTS[@]}"; do
+    src="$PACKAGE_DIR/scripts/$script"
     cp -a "$src" "$SCRIPTS_DIR/$script"
     ok "  $script"
 done
-
-find "$SCRIPTS_DIR" \
-    -name "__pycache__" \
-    -type d \
-    -exec rm -rf {} + \
-    2>/dev/null || true
 
 
 # ── 3. Datasets éclipse ──────────────────────────────────────────────────────

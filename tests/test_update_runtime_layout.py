@@ -49,6 +49,20 @@ def test_update_deploys_only_runtime_scripts():
         assert filename not in UPDATE
 
 
+def test_update_recreates_runtime_scripts_directory_after_preflight():
+    cleanup = 'rm -rf "$SCRIPTS_DIR"'
+    missing = 'err "Script runtime manquant : $src"'
+    copy = 'cp -a "$src" "$SCRIPTS_DIR/$script"'
+
+    assert cleanup in UPDATE
+    assert missing in UPDATE
+    assert copy in UPDATE
+
+    # Ne jamais détruire le runtime existant avant validation du package.
+    assert UPDATE.index(missing) < UPDATE.index(cleanup)
+    assert UPDATE.index(cleanup) < UPDATE.index(copy)
+
+
 def test_update_does_not_deploy_tests_or_jubier():
     assert '"$PACKAGE_DIR/tests"' not in UPDATE
     assert '"$PACKAGE_DIR/jubier_files"' not in UPDATE

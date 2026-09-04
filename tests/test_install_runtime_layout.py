@@ -35,6 +35,20 @@ def test_installer_preserves_runtime_scripts_directory():
         assert filename in INSTALLER
 
 
+def test_installer_recreates_runtime_scripts_directory_after_preflight():
+    cleanup = 'rm -rf "$SCRIPTS_DIR"'
+    missing = 'error "Script runtime manquant : $src"'
+    copy = 'cp "$src" "$SCRIPTS_DIR/$script"'
+
+    assert cleanup in INSTALLER
+    assert missing in INSTALLER
+    assert copy in INSTALLER
+
+    # Ne jamais détruire le runtime existant avant validation du package.
+    assert INSTALLER.index(missing) < INSTALLER.index(cleanup)
+    assert INSTALLER.index(cleanup) < INSTALLER.index(copy)
+
+
 def test_installer_does_not_install_dev_only_assets():
     assert '"$PACKAGE_DIR/jubier_files"' not in INSTALLER
     assert 'cp -r "$PACKAGE_DIR/tests"' not in INSTALLER
