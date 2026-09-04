@@ -6,6 +6,8 @@ import json
 import threading
 from pathlib import Path
 
+from backend.runtime_paths import RIG_TRACES_FILE
+
 
 class RigTraceLog:
     """Append structured trace entries to a JSONL file."""
@@ -36,6 +38,5 @@ def get_default_log() -> RigTraceLog:
     if _default_log is None:
         with _default_log_lock:
             if _default_log is None:
-                path = Path(__file__).resolve().parents[1] / "rig_traces.jsonl"
-                _default_log = RigTraceLog(path)
+                _default_log = RigTraceLog(RIG_TRACES_FILE)
     return _default_log

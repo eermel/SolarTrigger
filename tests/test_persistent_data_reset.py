@@ -35,6 +35,7 @@ def test_backend_has_reset_and_reboot_endpoint():
     assert "def _erase_all_persistent_data():" in APP
     assert '["sudo", "-n", "/usr/bin/systemctl", "reboot"]' in APP
 
-
-def test_bundled_dryrun_circumstances_are_preserved():
-    assert 'if path.name == "dryrun_short.json":' in APP
+def test_reset_targets_only_application_var():
+    assert "reset_application_var(VAR_DIR)" in APP
+    assert 'TRIGGER_DIR / "configs" / "rig"' not in APP
+    assert 'path.name == "dryrun_short.json"' not in APP

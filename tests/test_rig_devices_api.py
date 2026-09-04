@@ -118,7 +118,7 @@ def _persisted_rig_config():
 @pytest.fixture
 def persisted_rig_api(tmp_path, monkeypatch):
     config = _persisted_rig_config()
-    config_path = tmp_path / "configs" / "rig" / "default.json"
+    config_path = tmp_path / "var" / "generated" / "rig" / "default.json"
     config_path.parent.mkdir(parents=True)
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 

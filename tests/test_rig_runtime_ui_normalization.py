@@ -31,7 +31,9 @@ def test_missing_v2_config_migrates_legacy_state_and_normalizes_four_slots(
         circumstances,
     )
 
-    state_store = StateStore(tmp_path / "flask_app" / "state.json")
+    state_store = StateStore(
+        tmp_path / "var" / "state" / "state.json"
+    )
     state_store.set(
         "devices",
         {
@@ -64,11 +66,14 @@ def test_missing_v2_config_migrates_legacy_state_and_normalizes_four_slots(
     assert len(migration_calls) == 1
     migrated_store, configs_dir = migration_calls[0]
     assert isinstance(migrated_store, StateStore)
-    assert migrated_store.path == tmp_path / "flask_app" / "state.json"
+    assert migrated_store.path == (
+        tmp_path / "var" / "state" / "state.json"
+    )
     assert configs_dir == tmp_path / "configs"
     config_path = (
         tmp_path
-        / "configs"
+        / "var"
+        / "generated"
         / "rig"
         / "default.json"
     )

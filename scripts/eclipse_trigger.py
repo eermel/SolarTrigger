@@ -124,6 +124,7 @@ logging.basicConfig(
 # ══════════════════════════════════════════════════════════════════════════════
 from pathlib import Path
 from backend.trigger_runtime import RuntimeClock, TriggerWatchdog
+from backend.runtime_paths import TRIGGER_STATE_FILE
 from backend.execution_plan_runtime import (
     ExecutionPlanRuntime,
     load_execution_plan,
@@ -145,7 +146,7 @@ from backend.rig_runtime import load_rig_configuration
 from backend import audio_service
 
 _runtime_clock = RuntimeClock()
-_watchdog = TriggerWatchdog(Path(__file__).resolve().parent.parent / "trigger_state.json", _runtime_clock)
+_watchdog = TriggerWatchdog(TRIGGER_STATE_FILE, _runtime_clock)
 
 _photo_override_event = threading.Event()
 
@@ -245,8 +246,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Total Solar Eclipse Automatic Script",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog="Exemple : python3 scripts/eclipse_trigger.py --file configs/circumstances/dryrun_short.json\n"
-               "          python3 scripts/eclipse_trigger.py --file configs/circumstances/dryrun_short.json --debug"
+        epilog="Exemple : python3 scripts/eclipse_trigger.py --file var/generated/circumstances/eclipse.json\n"
+               "          python3 scripts/eclipse_trigger.py --file var/generated/circumstances/eclipse.json --debug"
     )
     parser.add_argument("--file",   type=str, default=None, help="Fichier JSON circonstances éclipse")
     parser.add_argument("--camera", type=str, default=None, help="Fichier JSON configuration appareil photo")

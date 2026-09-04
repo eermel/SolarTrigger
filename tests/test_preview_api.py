@@ -74,7 +74,7 @@ def _regular_intent(**updates):
 @pytest.fixture
 def preview_api(tmp_path, monkeypatch):
     def make_client(*, atmos_enabled, include_atmosphere=True):
-        config_path = tmp_path / "configs" / "rig" / "default.json"
+        config_path = tmp_path / "var" / "generated" / "rig" / "default.json"
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(
             json.dumps(_configuration(atmos_enabled)), encoding="utf-8"
@@ -97,10 +97,20 @@ def preview_api(tmp_path, monkeypatch):
                 "C4_alt_deg": 25.0,
                 "_circumstances_location": {"altitude_m": 120.0},
             })
-        eclipse_path = tmp_path / "todayeclipse.json"
-        eclipse_path.write_text(json.dumps(circumstances), encoding="utf-8")
+        eclipse_path = (
+            tmp_path
+            / "var"
+            / "generated"
+            / "todayeclipse.json"
+        )
+        eclipse_path.parent.mkdir(parents=True, exist_ok=True)
+        eclipse_path.write_text(
+            json.dumps(circumstances),
+            encoding="utf-8",
+        )
 
         monkeypatch.setattr(rig_runtime, "TRIGGER_DIR", tmp_path)
+        monkeypatch.setattr(rig_runtime, "_rig_manager", None)
         monkeypatch.setattr(flask_module, "JSON_FILE", eclipse_path)
         return flask_module.app.test_client()
 

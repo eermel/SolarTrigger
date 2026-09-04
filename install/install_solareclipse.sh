@@ -65,6 +65,7 @@ fi
 APP_DIR="$USER_HOME/solar-eclipse-trigger-prod"
 SCRIPTS_DIR="$APP_DIR/scripts"
 CONFIGS_DIR="$APP_DIR/configs"
+VAR_DIR="$APP_DIR/var"
 VENV_DIR="$APP_DIR/venv"
 SOUNDS_DIR="$APP_DIR/Sounds"
 
@@ -470,10 +471,14 @@ fi
 step "ÉTAPE 4 — Installation du runtime SolarEclipse"
 
 mkdir -p "$APP_DIR"
-mkdir -p "$CONFIGS_DIR"
 mkdir -p "$SOUNDS_DIR"
 mkdir -p "$APP_DIR/templates"
 mkdir -p "$APP_DIR/static/sounds"
+
+# Données mutables SolarTrigger.
+# Une installation neuve doit démarrer même si var/ n'existe pas.
+# Une réinstallation ne détruit jamais un var/ existant.
+mkdir -p     "$VAR_DIR/state"     "$VAR_DIR/logs"     "$VAR_DIR/generated/rig"     "$VAR_DIR/generated/camera_cfg"     "$VAR_DIR/generated/circumstances"     "$VAR_DIR/generated/photo_cfg"     "$VAR_DIR/generated/exposure_opt"     "$VAR_DIR/generated/sequence"     "$VAR_DIR/generated/execution_plan"
 
 # Scripts strictement nécessaires au runtime.
 RUNTIME_SCRIPTS=(
@@ -528,12 +533,16 @@ else
     error "Dossier Sounds/ introuvable dans $PACKAGE_DIR"
 fi
 
-# Configurations livrées avec le package.
+# Configurations PRODUIT livrées avec le package.
+# configs/ ne contient aucune persistance : on peut donc le remplacer
+# entièrement et supprimer d'éventuelles reliques de l'ancien layout.
 if [ -d "$PACKAGE_DIR/configs" ]; then
+    rm -rf "$CONFIGS_DIR"
+    mkdir -p "$CONFIGS_DIR"
     cp -a "$PACKAGE_DIR/configs/." "$CONFIGS_DIR/"
     chown -R "$CURRENT_USER:$CURRENT_USER" "$CONFIGS_DIR"
     chmod 755 "$CONFIGS_DIR"
-    success "Fichiers JSON de config → $CONFIGS_DIR"
+    success "Configurations produit → $CONFIGS_DIR"
 else
     error "Dossier configs/ introuvable dans $PACKAGE_DIR"
 fi

@@ -5,15 +5,37 @@ from backend.state_store import StateStore
 
 
 def _client(monkeypatch, tmp_path):
+    generated_dir = (
+        tmp_path
+        / "var"
+        / "generated"
+    )
+    product_configs_dir = tmp_path / "configs"
+
+    monkeypatch.setattr(
+        app_module,
+        "TRIGGER_DIR",
+        tmp_path,
+    )
     monkeypatch.setattr(
         app_module,
         "CONFIGS_DIR",
-        tmp_path / "configs",
+        generated_dir,
+    )
+    monkeypatch.setattr(
+        app_module,
+        "PRODUCT_CONFIGS_DIR",
+        product_configs_dir,
     )
     monkeypatch.setattr(
         app_module,
         "_state_store",
-        StateStore(tmp_path / "state.json"),
+        StateStore(
+            tmp_path
+            / "var"
+            / "state"
+            / "state.json"
+        ),
     )
     return app_module.app.test_client()
 
@@ -74,17 +96,31 @@ def test_compile_route_persists_execution_plan(
     assert data["lines"] == lines
 
     assert received == {
-        "configs_dir": tmp_path / "configs",
+        "configs_dir": (
+            tmp_path
+            / "var"
+            / "generated"
+        ),
         "circumstances_file": "test.json",
         "photo_setup_file": "photo.json",
         "exposure_opt_file": "expo.json",
         "sequence_margin_min": 5,
         "sequence_file": None,
+        "camera_timing_dir": (
+            tmp_path
+            / "configs"
+            / "camera_timing"
+        ),
+        "product_configs_dir": (
+            tmp_path
+            / "configs"
+        ),
     }
 
     saved = (
         tmp_path
-        / "configs"
+        / "var"
+        / "generated"
         / "execution_plan"
         / "my_execution_plan.json"
     )
@@ -95,7 +131,12 @@ def test_compile_route_persists_execution_plan(
         saved.read_text(encoding="utf-8")
     ) == plan
 
-    state_file = tmp_path / "state.json"
+    state_file = (
+        tmp_path
+        / "var"
+        / "state"
+        / "state.json"
+    )
     assert state_file.exists()
 
     restored = StateStore(state_file)
@@ -167,7 +208,8 @@ def test_compile_route_adds_json_extension(
 
     assert (
         tmp_path
-        / "configs"
+        / "var"
+        / "generated"
         / "execution_plan"
         / "user_selected_plan.json"
     ).exists()

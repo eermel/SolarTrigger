@@ -43,7 +43,7 @@ required=(
     "$SRC/flask_app/app.py"
     "$SRC/flask_app/templates/index.html"
     "$SRC/Sounds"
-    "$SRC/configs/camera_timing"
+    "$SRC/configs"
 )
 
 for path in "${required[@]}"; do
@@ -148,10 +148,12 @@ rsync "${RSYNC_OPTS[@]}" \
     "$DST_HOST:$DST/static/sounds/"
 
 echo
-echo "=== camera timing profiles ==="
-rsync "${RSYNC_OPTS[@]}" \
-    "$SRC/configs/camera_timing/" \
-    "$DST_HOST:$DST/configs/camera_timing/"
+echo "=== product configs ==="
+# configs/ est désormais 100 % produit et peut être synchronisé exactement.
+# Cela supprime aussi les anciens fichiers runtime qui vivaient autrefois ici.
+rsync "${RSYNC_OPTS[@]}" --delete \
+    "$SRC/configs/" \
+    "$DST_HOST:$DST/configs/"
 
 echo
 echo "=== build metadata ==="
@@ -171,13 +173,9 @@ echo
 echo "=== Complete ==="
 echo
 echo "NEVER DEPLOYED BY THIS SCRIPT:"
-echo "  state.json"
-echo "  configs/rig/default.json"
-echo "  configs/execution_plan/"
-echo "  configs/circumstances/"
-echo "  configs/photo_cfg/"
-echo "  logs / runtime data"
+echo "  var/   (all persistent/generated/runtime application data)"
 echo "  venv"
 echo
-echo "No --delete is used."
+echo "--delete is used ONLY for product configs/."
+echo "var/ is never synchronized or deleted."
 echo "Service is NOT restarted automatically."

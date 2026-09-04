@@ -20,3 +20,6 @@ flask_app/logs_buffer.jsonl
 
 # Runtime RIG configuration
 configs/rig/default.json
+
+# SolarTrigger mutable runtime data
+/var/

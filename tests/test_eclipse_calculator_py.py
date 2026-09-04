@@ -76,12 +76,18 @@ def test_cli_generates_trigger_json_for_minimal_eclipses(tmp_path, date_iso):
             assert isinstance(data[f"{event}_alt_deg"], float)
 
 
-def test_default_output_is_under_dataset_out_directory():
-    path = eclipse_calculator_py.default_output_path("2027-08-02", 25.5, -3.25)
+def test_default_output_is_under_application_var():
+    path = eclipse_calculator_py.default_output_path(
+        "2027-08-02",
+        25.5,
+        -3.25,
+    )
 
     assert path == (
         eclipse_calculator_py.REPOSITORY_ROOT
-        / "data/eclipses/out/2027-08-02_25.5_-3.25.json"
+        / "var"
+        / "generated"
+        / "todayeclipse.json"
     )
 
 

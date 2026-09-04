@@ -245,7 +245,9 @@ def save(path: str | PathLike[str], obj: Any) -> None:
     """Validate *obj* and write it as indented UTF-8 JSON to *path*."""
 
     validate(obj)
-    with Path(path).open("w", encoding="utf-8") as stream:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("w", encoding="utf-8") as stream:
         json.dump(obj, stream, ensure_ascii=False, indent=2)
         stream.write("\n")
 

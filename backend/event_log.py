@@ -22,6 +22,7 @@ class EventLog:
         with self.lock:
             self.buffer.append(entry)
             try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
                 with self.path.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
             except Exception: pass
@@ -38,5 +39,9 @@ class EventLog:
             try:
                 lines = self.path.read_text(encoding="utf-8").splitlines(True)
                 if len(lines) > self.size:
-                    self.path.write_text("".join(lines[-self.size:]), encoding="utf-8")
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
+                    self.path.write_text(
+                        "".join(lines[-self.size:]),
+                        encoding="utf-8",
+                    )
             except Exception: pass

@@ -18,6 +18,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from backend.eclipse_engine.compute import compute_local_circumstances
 from backend.eclipse_engine.loader import EclipseDataError, load_eclipse
+from backend.runtime_paths import TODAY_ECLIPSE_FILE
 
 
 EVENTS = ("C1", "C2", "TMAX", "C3", "C4")
@@ -146,7 +147,8 @@ def build_trigger_config(
 
 
 def default_output_path(date_iso: str, latitude: float, longitude: float) -> Path:
-    return REPOSITORY_ROOT / "data" / "eclipses" / "out" / f"{date_iso}_{latitude:g}_{longitude:g}.json"
+    """Return the canonical mutable output path."""
+    return TODAY_ECLIPSE_FILE
 
 
 def _parser() -> argparse.ArgumentParser:

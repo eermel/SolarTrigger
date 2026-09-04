@@ -13,14 +13,19 @@ from backend.state_store import StateStore
 TRIGGER_DIR = Path(__file__).resolve().parent.parent
 
 def _resolve_state_file(trigger_dir: Path) -> Path:
-    """Resolve StateStore path for source and installed PROD layouts."""
-    root_app = trigger_dir / "app.py"
-    source_app = trigger_dir / "flask_app" / "app.py"
+    """Return the canonical persistent StateStore path."""
+    return Path(trigger_dir) / "var" / "state" / "state.json"
 
-    if root_app.is_file() and not source_app.is_file():
-        return trigger_dir / "state.json"
 
-    return trigger_dir / "flask_app" / "state.json"
+def _resolve_generated_dir(trigger_dir: Path) -> Path:
+    """Return the canonical generated-data directory."""
+    return Path(trigger_dir) / "var" / "generated"
+
+
+def _resolve_rig_config_file(trigger_dir: Path) -> Path:
+    """Return the canonical persisted RIG configuration path."""
+    return _resolve_generated_dir(trigger_dir) / "rig" / "default.json"
+
 
 _rig_manager: RigManager | None = None
 _rig_manager_lock = threading.Lock()
@@ -29,7 +34,7 @@ _rig_manager_lock = threading.Lock()
 def load_rig_configuration() -> dict:
     """Load canonical RIG configuration, creating it once from legacy state."""
 
-    rig_config_path = TRIGGER_DIR / "configs" / "rig" / "default.json"
+    rig_config_path = _resolve_rig_config_file(TRIGGER_DIR)
 
     if rig_config_path.exists():
         return load(rig_config_path)

@@ -213,9 +213,19 @@ class TriggerService:
     """Owns trigger process lifecycle; Flask is only an HTTP adapter."""
     def __init__(self, state_store, trigger_script, json_file, configs_dir,
                  log_fn, emit_fn, line_level_fn=None, line_clean_fn=None,
-                 camera_runtime=None, rig_config_loader=None):
-        self.state=state_store; self.trigger_script=trigger_script; self.json_file=json_file
-        self.configs_dir=configs_dir; self.log=log_fn; self.emit=emit_fn
+                 camera_runtime=None, rig_config_loader=None,
+                 product_configs_dir=None):
+        self.state = state_store
+        self.trigger_script = Path(trigger_script)
+        self.json_file = Path(json_file)
+        self.configs_dir = Path(configs_dir)
+        self.product_configs_dir = (
+            Path(product_configs_dir)
+            if product_configs_dir is not None
+            else self.configs_dir
+        )
+        self.log = log_fn
+        self.emit = emit_fn
         self.project_dir=self.trigger_script.resolve().parent.parent
         self.line_level_fn=line_level_fn or (lambda _: "info")
         self.line_clean_fn=line_clean_fn or (lambda x:x)
@@ -274,11 +284,25 @@ class TriggerService:
     def _resolve_camera_config(self, camera_config_file):
         if not camera_config_file:
             return None
+
         filename = Path(camera_config_file).name
-        for subdir in ("camera_cfg", "capture"):
-            candidate = self.configs_dir / subdir / filename
-            if candidate.exists():
-                return candidate
+
+        generated = (
+            self.configs_dir
+            / "camera_cfg"
+            / filename
+        )
+        if generated.is_file():
+            return generated
+
+        bundled = (
+            self.product_configs_dir
+            / "capture"
+            / filename
+        )
+        if bundled.is_file():
+            return bundled
+
         return None
 
     def _resolve_execution_plan(self, rig_id=1):

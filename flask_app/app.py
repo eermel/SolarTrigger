@@ -10,9 +10,9 @@ Changelog :
   2.53 - Suppression des routes /api/debug/logs et /api/debug/logs/clear
 
 Persistance :
-  state.json        → GPS, éclipse calculée, statuts — survit au reboot Pi
-  logs_buffer.jsonl → ring buffer 500 dernières lignes de log
-  todayeclipse.json → généré par eclipse_calculator_py.py
+  var/state/state.json              → état persistant
+  var/logs/logs_buffer.jsonl          → ring buffer des logs
+  var/generated/todayeclipse.json     → circonstances générées
 
 À la reconnexion d'un client :
   - État GPS complet restauré
@@ -174,20 +174,30 @@ CALC_SCRIPT    = SCRIPTS_DIR / "eclipse_calculator_py.py"
 GPS_SCRIPT     = SCRIPTS_DIR / "gps_sync.py"
 GPS_CONFIG_FILE = TRIGGER_DIR / "configs" / "gps_default.json"
 MOUNT_CONFIG_FILE = TRIGGER_DIR / "configs" / "mount_default.json"
-JSON_FILE      = TRIGGER_DIR / "todayeclipse.json"
 SOUNDS_DIR     = TRIGGER_DIR / "Sounds"
 STATIC_DIR     = BASE_DIR / "static"
 STATIC_SOUNDS  = STATIC_DIR / "sounds"
-
-# Fichiers de persistance
-STATE_FILE      = BASE_DIR / "state.json"        # état GPS + éclipse + statuts
-LOGS_BUFFER_FILE = BASE_DIR / "logs_buffer.jsonl" # ring buffer logs
 
 LOG_BUFFER_SIZE = 500   # lignes conservées en mémoire et sur disque
 
 # Backend v6 : Flask est un adaptateur HTTP/SocketIO.
 if str(TRIGGER_DIR) not in sys.path:
     sys.path.insert(0, str(TRIGGER_DIR))
+
+from backend.runtime_paths import (
+    CONFIGS_DIR as PRODUCT_CONFIGS_DIR,
+    GENERATED_DIR,
+    LOGS_BUFFER_FILE,
+    STATE_FILE,
+    TODAY_ECLIPSE_FILE,
+    VAR_DIR,
+    ensure_var_layout,
+)
+from backend.persistent_reset import reset_application_var
+
+ensure_var_layout()
+JSON_FILE = TODAY_ECLIPSE_FILE
+
 from backend.state_store import StateStore
 from backend.event_log import EventLog
 from backend.gps_controller import GpsController
@@ -248,6 +258,7 @@ from backend.execution_plan_text import (
 )
 
 from backend.rig_runtime import (
+    _resolve_rig_config_file,
     get_rig_manager,
     load_rig_configuration,
     normalize_rigs_for_ui,
@@ -1236,7 +1247,7 @@ def api_rig_devices_post():
         log.warning("Chargement de la configuration rigs impossible : %s", exc)
         return jsonify({"error": "rig configuration could not be loaded"}), 500
 
-    config_path = TRIGGER_DIR / "configs" / "rig" / "default.json"
+    config_path = _resolve_rig_config_file(TRIGGER_DIR)
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
         save_rig_config(config_path, config)
@@ -1360,7 +1371,7 @@ def api_rig_photo_post():
         log.warning("Chargement de la configuration rigs impossible : %s", exc)
         return jsonify({"error": "rig configuration could not be loaded"}), 500
 
-    config_path = TRIGGER_DIR / "configs" / "rig" / "default.json"
+    config_path = _resolve_rig_config_file(TRIGGER_DIR)
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
         save_rig_config(config_path, config)
@@ -2804,42 +2815,12 @@ def api_eclipse_calculate():
 
 
 def _erase_all_persistent_data():
-    """Erase user/runtime persistent data while preserving bundled defaults."""
-    removed = []
+    """Erase the complete SolarTrigger mutable application tree."""
+    existed = VAR_DIR.exists() or VAR_DIR.is_symlink()
 
-    files = [
-        STATE_FILE,
-        STATE_FILE.with_suffix(STATE_FILE.suffix + ".tmp"),
-        LOGS_BUFFER_FILE,
-        JSON_FILE,
-        TRIGGER_DIR / "configs" / "rig" / "default.json",
-    ]
+    reset_application_var(VAR_DIR)
 
-    for path in files:
-        try:
-            if path.exists():
-                path.unlink()
-                removed.append(str(path))
-        except OSError as exc:
-            log.error("Unable to remove persistent file %s: %s", path, exc)
-            raise
-
-    camera_cfg_dir = TRIGGER_DIR / "configs" / "camera_cfg"
-    if camera_cfg_dir.exists():
-        for path in camera_cfg_dir.glob("*.json"):
-            path.unlink()
-            removed.append(str(path))
-
-    circumstances_dir = TRIGGER_DIR / "configs" / "circumstances"
-    if circumstances_dir.exists():
-        for path in circumstances_dir.glob("*.json"):
-            # Bundled dry-run fixture, not user persistence.
-            if path.name == "dryrun_short.json":
-                continue
-            path.unlink()
-            removed.append(str(path))
-
-    return removed
+    return [str(VAR_DIR)] if existed else []
 
 
 @app.route("/api/system/erase-persistent-data-and-reboot", methods=["POST"])
@@ -2959,6 +2940,7 @@ def api_eclipse_override():
 
     # Sauvegarder
     try:
+        JSON_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(JSON_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         with _state_lock:
@@ -2991,8 +2973,10 @@ def api_eclipse_override():
         return jsonify({"error": str(e)}), 500
 
 # ── Routes configs JSON ──────────────────────────────────────────────────────
-CONFIGS_DIR = PROJECT_DIR / "configs"
-CONFIGS_DIR.mkdir(parents=True, exist_ok=True)  # créer si absent
+# Mutable configurations generated by the UI/runtime.
+# Product configuration files live under PRODUCT_CONFIGS_DIR and are read-only.
+CONFIGS_DIR = GENERATED_DIR
+CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
 
 def _unique_config_files(*patterns):
     """Retourne, par nom, les JSON trouvés par les motifs indiqués."""
@@ -3061,7 +3045,11 @@ def api_configs_list_eclipse():
             })
 
         if JSON_FILE.is_file():
-            add_file(JSON_FILE, "trigger", TRIGGER_DIR.resolve())
+            add_file(
+                JSON_FILE,
+                "trigger",
+                JSON_FILE.parent.resolve(),
+            )
 
         for path in _unique_config_files("circumstances/*.json"):
             if not _is_circumstances_config(path):
@@ -3099,15 +3087,24 @@ def api_configs_circumstances_clean():
 
 @app.route("/api/configs/list_photo", methods=["GET"])
 def api_configs_list_photo():
-    """List Photo Setup configurations stored in photo_cfg/."""
+    """List generated Photo Setup files plus the bundled default."""
     try:
         base_dir = CONFIGS_DIR / "photo_cfg"
-        files = sorted(
+        files = {
             path.name
             for path in base_dir.glob("*.json")
             if path.is_file()
+        }
+
+        bundled_default = (
+            PRODUCT_CONFIGS_DIR
+            / "photo_cfg"
+            / "photo_default.json"
         )
-        return jsonify({"files": files})
+        if bundled_default.is_file():
+            files.add(bundled_default.name)
+
+        return jsonify({"files": sorted(files)})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -3118,7 +3115,18 @@ def api_configs_load_photo(filename):
     try:
         filename = Path(filename).name
         path = CONFIGS_DIR / "photo_cfg" / filename
-        if not path.exists() or not path.is_file() or path.suffix.lower() != ".json":
+
+        if (
+            not path.is_file()
+            and filename == "photo_default.json"
+        ):
+            path = (
+                PRODUCT_CONFIGS_DIR
+                / "photo_cfg"
+                / "photo_default.json"
+            )
+
+        if not path.is_file() or path.suffix.lower() != ".json":
             return jsonify({"error": "Fichier introuvable"}), 404
 
         with open(path, encoding="utf-8") as handle:
@@ -3940,6 +3948,11 @@ def _api_sequencer_compile_rig(body):
         ) = (
             compile_rig_execution_plan_from_files(
                 configs_dir=CONFIGS_DIR,
+                camera_timing_dir=(
+                    PRODUCT_CONFIGS_DIR
+                    / "camera_timing"
+                ),
+                product_configs_dir=PRODUCT_CONFIGS_DIR,
                 rig_id=rig_id,
                 circumstances_file=(
                     normalized_files[
@@ -4246,6 +4259,11 @@ def api_sequencer_compile():
         plan, lines = (
             compile_execution_plan_from_files(
                 configs_dir=CONFIGS_DIR,
+                camera_timing_dir=(
+                    PRODUCT_CONFIGS_DIR
+                    / "camera_timing"
+                ),
+                product_configs_dir=PRODUCT_CONFIGS_DIR,
                 circumstances_file=(
                     normalized_files[
                         "circumstances_file"
@@ -4344,7 +4362,7 @@ def api_sequencer_compile():
 def api_configs_list_camera_timing():
     """List calibrated camera timing profiles."""
     try:
-        base_dir = CONFIGS_DIR / "camera_timing"
+        base_dir = PRODUCT_CONFIGS_DIR / "camera_timing"
         files = sorted(
             path.name
             for path in base_dir.glob("*.json")
@@ -4817,6 +4835,7 @@ def api_trigger_select():
     # Copier comme todayeclipse.json si ce n'est pas déjà lui
     if src != JSON_FILE:
         import shutil as _shutil
+        JSON_FILE.parent.mkdir(parents=True, exist_ok=True)
         _shutil.copy2(src, JSON_FILE)
 
     with _state_lock:
@@ -4907,9 +4926,16 @@ def _emit_trigger(event, payload):
     socketio.emit(event, payload, namespace="/")
 
 _trigger_service = TriggerService(
-    _state_store, TRIGGER_SCRIPT, JSON_FILE, CONFIGS_DIR,
-    log_fn=_append_log, emit_fn=_emit_trigger,
-    line_level_fn=_ansi_to_level, line_clean_fn=_clean)
+    _state_store,
+    TRIGGER_SCRIPT,
+    JSON_FILE,
+    CONFIGS_DIR,
+    log_fn=_append_log,
+    emit_fn=_emit_trigger,
+    line_level_fn=_ansi_to_level,
+    line_clean_fn=_clean,
+    product_configs_dir=PRODUCT_CONFIGS_DIR,
+)
 
 @app.route("/api/trigger/start", methods=["POST"])
 def api_trigger_start():

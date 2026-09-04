@@ -40,7 +40,13 @@ def _config():
 
 
 def _write_canonical_config(root, config):
-    path = root / "configs" / "rig" / "default.json"
+    path = (
+        root
+        / "var"
+        / "generated"
+        / "rig"
+        / "default.json"
+    )
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(config), encoding="utf-8")
     return path
@@ -90,14 +96,15 @@ def test_missing_canonical_config_persists_legacy_migration(
 
     assert calls == [
         (
-            tmp_path / "flask_app" / "state.json",
+            tmp_path / "var" / "state" / "state.json",
             tmp_path / "configs",
         )
     ]
 
     config_path = (
         tmp_path
-        / "configs"
+        / "var"
+        / "generated"
         / "rig"
         / "default.json"
     )
@@ -147,16 +154,19 @@ def test_preparing_rigs_for_ui_creates_no_services_or_legacy_rig_state(
     tmp_path, monkeypatch
 ):
     _write_canonical_config(tmp_path, _config())
-    legacy_path = tmp_path / "flask_app" / "state.json"
-    legacy_path.parent.mkdir(parents=True)
-    legacy_path.write_text(json.dumps({"gps": {"connected": False}}), encoding="utf-8")
-    original_legacy = legacy_path.read_bytes()
+    state_path = tmp_path / "var" / "state" / "state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps({"gps": {"connected": False}}),
+        encoding="utf-8",
+    )
+    original_state = state_path.read_bytes()
 
     def unexpected_service(*_args, **_kwargs):
         pytest.fail("preparing rigs for UI must not instantiate hardware services")
 
     def unexpected_state_write(*_args, **_kwargs):
-        pytest.fail("preparing rigs for UI must not update legacy state.json")
+        pytest.fail("preparing rigs for UI must not update persistent state.json")
 
     monkeypatch.setattr(camera_service, "CameraService", unexpected_service)
     monkeypatch.setattr(mount_service, "MountService", unexpected_service)
@@ -174,4 +184,4 @@ def test_preparing_rigs_for_ui_creates_no_services_or_legacy_rig_state(
         {"rig_id": 3, "name": "RIG 3", "enabled": False},
         {"rig_id": 4, "name": "RIG 4", "enabled": False},
     ]
-    assert legacy_path.read_bytes() == original_legacy
+    assert state_path.read_bytes() == original_state

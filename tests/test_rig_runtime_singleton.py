@@ -50,7 +50,8 @@ def test_get_rig_manager_is_cached_and_reset_reloads_canonical_config(
 
     config_path = (
         tmp_path
-        / "configs"
+        / "var"
+        / "generated"
         / "rig"
         / "default.json"
     )

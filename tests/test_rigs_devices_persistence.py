@@ -68,7 +68,7 @@ def _configuration():
 @pytest.fixture
 def persistence_api(tmp_path, monkeypatch):
     original = _configuration()
-    config_path = tmp_path / "configs" / "rig" / "default.json"
+    config_path = tmp_path / "var" / "generated" / "rig" / "default.json"
     config_path.parent.mkdir(parents=True)
     config_path.write_text(json.dumps(original, indent=2) + "\n", encoding="utf-8")
 

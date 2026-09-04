@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from threading import Lock
 
+from backend.runtime_paths import RIG_TRACES_FILE
 
-TRIGGER_DIR = Path(__file__).resolve().parent.parent
-_PATH = TRIGGER_DIR / "rig_traces.jsonl"
+
+_PATH = RIG_TRACES_FILE
 _LOCK = Lock()
 
 
@@ -19,6 +19,7 @@ def append(event: dict) -> dict:
     event.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
     line = json.dumps(event, separators=(",", ":"))
     with _LOCK:
+        _PATH.parent.mkdir(parents=True, exist_ok=True)
         with _PATH.open("a", encoding="utf-8") as trace_file:
             trace_file.write(f"{line}\n")
     return event

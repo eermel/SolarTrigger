@@ -84,6 +84,34 @@ def _safe_child(base: Path, filename: str, description: str) -> Path:
     return path
 
 
+def _resolve_photo_config_path(
+    generated_configs_dir: Path,
+    product_configs_dir: Path | None,
+    filename: str,
+) -> Path:
+    """Resolve user Photo Setup first, then bundled photo_default.json only."""
+    generated = _safe_child(
+        generated_configs_dir / "photo_cfg",
+        filename,
+        "Photo Setup",
+    )
+
+    if generated.is_file():
+        return generated
+
+    if (
+        product_configs_dir is not None
+        and Path(filename).name == "photo_default.json"
+    ):
+        return _safe_child(
+            product_configs_dir / "photo_cfg",
+            filename,
+            "Photo Setup",
+        )
+
+    return generated
+
+
 def _active_rigs(config: dict[str, Any]) -> list[dict[str, Any]]:
     rigs = config.get("rigs")
 
@@ -324,10 +352,22 @@ def compile_execution_plan_from_files(
     sequence_margin_min: int | float,
     rig_config: dict[str, Any] | None = None,
     sequence_file: str | None = None,
+    camera_timing_dir: str | Path | None = None,
+    product_configs_dir: str | Path | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Compile one complete execution plan without touching hardware."""
 
     configs_dir = Path(configs_dir)
+    camera_timing_dir = (
+        Path(camera_timing_dir)
+        if camera_timing_dir is not None
+        else configs_dir / "camera_timing"
+    )
+    product_configs_dir = (
+        Path(product_configs_dir)
+        if product_configs_dir is not None
+        else None
+    )
 
     required = {
         "circumstances_file": circumstances_file,
@@ -360,10 +400,10 @@ def compile_execution_plan_from_files(
         "circumstances",
     )
 
-    photo_path = _safe_child(
-        configs_dir / "photo_cfg",
+    photo_path = _resolve_photo_config_path(
+        configs_dir,
+        product_configs_dir,
         photo_setup_file,
-        "Photo Setup",
     )
 
     exposure_path = _safe_child(
@@ -440,7 +480,7 @@ def compile_execution_plan_from_files(
 
     timing_profiles, resolved_timing_files = _load_timing_profiles(
         active_rigs=active_rigs,
-        timing_dir=configs_dir / "camera_timing",
+        timing_dir=camera_timing_dir,
     )
 
     try:
@@ -512,6 +552,8 @@ def compile_rig_execution_plan_from_files(
     sequence_margin_min: int | float,
     rig_config: dict[str, Any] | None = None,
     sequence_file: str | None = None,
+    camera_timing_dir: str | Path | None = None,
+    product_configs_dir: str | Path | None = None,
 ) -> tuple[
     dict[str, Any],
     list[str],
@@ -581,6 +623,8 @@ def compile_rig_execution_plan_from_files(
                 sequence_margin_min,
             rig_config=single_config,
             sequence_file=sequence_file,
+            camera_timing_dir=camera_timing_dir,
+            product_configs_dir=product_configs_dir,
         )
     )
 
@@ -590,10 +634,14 @@ def compile_rig_execution_plan_from_files(
         "circumstances",
     )
 
-    photo_path = _safe_child(
-        configs_dir / "photo_cfg",
+    photo_path = _resolve_photo_config_path(
+        configs_dir,
+        (
+            Path(product_configs_dir)
+            if product_configs_dir is not None
+            else None
+        ),
         photo_setup_file.strip(),
-        "Photo Setup",
     )
 
     exposure_path = _safe_child(
