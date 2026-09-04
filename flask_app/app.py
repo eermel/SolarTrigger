@@ -170,7 +170,6 @@ PROJECT_DIR = (
 TRIGGER_DIR    = PROJECT_DIR
 SCRIPTS_DIR    = PROJECT_DIR / "scripts"
 TRIGGER_SCRIPT = SCRIPTS_DIR / "eclipse_trigger.py"
-TOTALITY_ONLY_SCRIPT = SCRIPTS_DIR / "totality_only.py"
 CALC_SCRIPT    = SCRIPTS_DIR / "eclipse_calculator_py.py"
 GPS_SCRIPT     = SCRIPTS_DIR / "gps_sync.py"
 GPS_CONFIG_FILE = TRIGGER_DIR / "configs" / "gps_default.json"

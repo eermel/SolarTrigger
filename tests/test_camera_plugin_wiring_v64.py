@@ -3,14 +3,10 @@ import re
 
 ROOT=Path(__file__).parents[1]
 TRIGGER=(ROOT/'scripts/eclipse_trigger.py').read_text(encoding='utf-8')
-TOTALITY=(ROOT/'scripts/totality_only.py').read_text(encoding='utf-8')
-
-
-def test_main_and_emergency_paths_use_camera_service():
-    assert 'CameraService' in TRIGGER
-    assert 'CameraService' in TOTALITY
-    assert 'trigger_capture' not in TOTALITY
-    assert 'set_config(' not in TOTALITY
+def test_main_trigger_contains_totality_override_path():
+    assert '_photo_override_event' in TRIGGER
+    assert 'SIGUSR1' in TRIGGER
+    assert 'TOTALITY OVERRIDE' in TRIGGER
 
 
 def test_camera_profile_is_applied_before_eclipse_file():

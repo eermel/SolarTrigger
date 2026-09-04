@@ -1,5 +1,6 @@
 import json
 import os
+import signal
 import sys
 import threading
 import types
@@ -356,156 +357,77 @@ def test_trigger_service_dryrun_builds_real_camera_command(tmp_path, monkeypatch
     assert pythonpath[0] == str(tmp_path)
 
 
-def test_trigger_service_totality_uses_project_runtime_environment(
-    tmp_path, monkeypatch
-):
+def test_totality_override_signals_only_selected_rig(tmp_path):
     from backend.trigger_service import TriggerService
 
+    if not hasattr(signal, "SIGUSR1"):
+        pytest.skip("SIGUSR1 unavailable")
+
     store = StateStore(tmp_path / "state.json")
+    emitted = []
 
-    scripts = tmp_path / "scripts"
-    scripts.mkdir()
-    trigger_script = scripts / "eclipse_trigger.py"
-    trigger_script.write_text("", encoding="utf-8")
-    totality_script = scripts / "totality_only.py"
-    totality_script.write_text("", encoding="utf-8")
-
-    configs = tmp_path / "configs"
-    camera_cfg = configs / "camera_cfg"
-    camera_cfg.mkdir(parents=True)
-
-    camera_file = camera_cfg / "camera.json"
-    camera_file.write_text("{}", encoding="utf-8")
-    store.set("camera_config_file", "camera.json")
-
-    seen = {}
-
-    class Stdout:
-        def readline(self):
-            return ""
+    svc = TriggerService(
+        store,
+        tmp_path / "scripts" / "eclipse_trigger.py",
+        tmp_path / "todayeclipse.json",
+        tmp_path / "events.log",
+        tmp_path / "configs",
+        lambda *args: None,
+        lambda event, payload: emitted.append((event, payload)),
+    )
 
     class Proc:
-        returncode = 0
-        stdout = Stdout()
+        def __init__(self):
+            self.signals = []
 
         def poll(self):
-            return 0
+            return None
 
-        def wait(self, timeout=None):
-            return 0
+        def send_signal(self, sig):
+            self.signals.append(sig)
 
-    def fake_popen(cmd, **kwargs):
-        seen["cmd"] = cmd
-        seen["kwargs"] = kwargs
-        return Proc()
+    rig1 = Proc()
+    rig2 = Proc()
 
-    monkeypatch.setattr(
-        "backend.trigger_service.subprocess.Popen",
-        fake_popen,
+    svc._procs[1] = rig1
+    svc._procs[2] = rig2
+
+    assert svc.override_totality(rig_id=2) is True
+
+    assert rig1.signals == []
+    assert rig2.signals == [signal.SIGUSR1]
+
+    trigger = store.snapshot("trigger")
+    assert trigger["rigs"]["2"]["phase"] == "totality_override"
+
+    assert emitted[-1] == (
+        "trigger_phase",
+        {
+            "rig_id": 2,
+            "phase": "totality_override",
+        },
     )
 
-    svc = TriggerService(
-        store,
-        trigger_script,
-        tmp_path / "todayeclipse.json",
-        tmp_path / "events.log",
-        configs,
-        lambda *args: None,
-        lambda *args: None,
-    )
 
-    svc._run_totality(totality_script)
-
-    assert seen["cmd"][0:3] == [
-        sys.executable,
-        "-u",
-        str(totality_script),
-    ]
-    assert seen["cmd"][seen["cmd"].index("--camera") + 1] == str(camera_file)
-
-    assert Path(seen["kwargs"]["cwd"]) == tmp_path
-
-    pythonpath = seen["kwargs"]["env"]["PYTHONPATH"].split(os.pathsep)
-    assert pythonpath[0] == str(tmp_path)
-
-
-def test_totality_only_preempts_running_trigger(tmp_path, monkeypatch):
+def test_totality_override_rejects_inactive_or_invalid_rig(tmp_path):
     from backend.trigger_service import TriggerService
 
     store = StateStore(tmp_path / "state.json")
-    store.set(
-        "trigger",
-        {"running": True, "phase": "partial", "mode": "real", "speed": 1.0},
-    )
-
-    scripts = tmp_path / "scripts"
-    scripts.mkdir()
-    trigger_script = scripts / "eclipse_trigger.py"
-    trigger_script.write_text("", encoding="utf-8")
-    totality_script = scripts / "totality_only.py"
-    totality_script.write_text("", encoding="utf-8")
-
-    configs = tmp_path / "configs"
-    configs.mkdir()
 
     svc = TriggerService(
         store,
-        trigger_script,
+        tmp_path / "scripts" / "eclipse_trigger.py",
         tmp_path / "todayeclipse.json",
         tmp_path / "events.log",
-        configs,
+        tmp_path / "configs",
         lambda *args: None,
         lambda *args: None,
     )
 
-    class OldProc:
-        def __init__(self):
-            self.returncode = None
-            self.terminated = False
-            self.killed = False
-
-        def poll(self):
-            return self.returncode
-
-        def terminate(self):
-            self.terminated = True
-            self.returncode = -15
-
-        def kill(self):
-            self.killed = True
-            self.returncode = -9
-
-        def wait(self, timeout=None):
-            return self.returncode
-
-    old_proc = OldProc()
-    svc._proc = old_proc
-
-    launched = []
-
-    def fake_run_totality(script_path):
-        launched.append(script_path)
-
-    monkeypatch.setattr(svc, "_run_totality", fake_run_totality)
-
-    class ImmediateThread:
-        def __init__(self, *, target, args, name, daemon):
-            self.target = target
-            self.args = args
-
-        def start(self):
-            self.target(*self.args)
-
-    monkeypatch.setattr(
-        "backend.trigger_service.threading.Thread",
-        ImmediateThread,
-    )
-
-    assert svc.start_totality_only(totality_script) is True
-    assert old_proc.terminated is True
-    assert old_proc.killed is False
-    assert launched == [totality_script]
-
+    assert svc.override_totality(rig_id=3) is False
+    assert svc.override_totality(rig_id=0) is False
+    assert svc.override_totality(rig_id=5) is False
+    assert svc.override_totality(rig_id=True) is False
 
 
 def test_eclipse_validation_accepts_partial_without_c2_c3():

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-import json, os, subprocess, sys, threading, time
+import json, os, signal, subprocess, sys, threading, time
 from datetime import datetime, timezone
 from backend.timeline import build_timeline, parse_date_from_config, sequence_seconds
 from backend.execution_plan_runtime import load_execution_plan
@@ -739,116 +739,6 @@ class TriggerService:
         )
 
         return True
-
-    def start_totality_only(self, script_path):
-        """Préempte le trigger courant puis démarre le mode secours totalité."""
-
-        with self._lock:
-            old_proc = self._proc
-
-        if old_proc is not None and old_proc.poll() is None:
-            self.log(
-                "🌑 Totalité secours demandée — arrêt du trigger en cours.",
-                "warning",
-                "trigger",
-            )
-
-            try:
-                old_proc.terminate()
-            except Exception:
-                pass
-
-            try:
-                old_proc.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.log(
-                    "⚠️ Trigger précédent non arrêté après 3 s — SIGKILL.",
-                    "warning",
-                    "trigger",
-                )
-                try:
-                    old_proc.kill()
-                    old_proc.wait(timeout=2)
-                except Exception:
-                    pass
-
-            if old_proc.poll() is None:
-                self.log(
-                    "❌ Impossible d'arrêter le trigger courant — totalité non lancée.",
-                    "error",
-                    "trigger",
-                )
-                return False
-
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            with self._lock:
-                if self._proc is None:
-                    break
-            time.sleep(0.02)
-
-        with self._lock:
-            if self._proc is not None and self._proc.poll() is None:
-                return False
-
-            self._proc = None
-            self._starting = True
-
-            threading.Thread(
-                target=self._run_totality,
-                args=(script_path,),
-                name="totality-only-process",
-                daemon=True,
-            ).start()
-
-        return True
-
-    def _run_totality(self, script_path):
-        proc=None
-        try:
-            cmd=[sys.executable,"-u",str(script_path)]
-            cfg=self.state.get("camera_config_file")
-            camera_config_path=self._resolve_camera_config(cfg)
-            if camera_config_path is not None:
-                cmd += ["--camera",str(camera_config_path)]
-            env=self._subprocess_env()
-            proc=subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                cwd=str(self.project_dir),
-                env=env,
-            )
-            with self._lock: self._proc=proc
-            self.state.set("trigger", {"running":True,"phase":"totality"}); self.emit("trigger_phase",{"phase":"totality"})
-            self.log("🌑 Totalité uniquement — démarrage","info","trigger")
-            for raw in iter(proc.stdout.readline, ""):
-                line=raw.rstrip()
-                if line: self.log(self.line_clean_fn(line),self.line_level_fn(line),"trigger")
-            proc.wait()
-        except Exception as exc:
-            self.log(f"Erreur totality_only : {exc}","error","trigger")
-        finally:
-            with self._lock:
-                owns_process = self._proc is proc
-                if owns_process:
-                    self._proc = None
-                    self._starting = False
-
-            if owns_process:
-                self.state.set(
-                    "trigger",
-                    {"running":False,"phase":"idle","mode":None,"speed":None},
-                )
-                self.emit("trigger_phase", {"phase":"idle"})
-
-            self.log(
-                "■ Totalité uniquement terminée.",
-                "info",
-                "trigger",
-            )
 
     def stop(self, rig_id=1):
         if (

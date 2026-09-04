@@ -78,7 +78,6 @@ SCRIPTS=(
     eclipse_trigger.py
     eclipse_calculator_py.py
     gps_sync.py
-    totality_only.py
     generate_debug_realistic.py
     generate_debug_total.py
     generate_debug_partial.py
