@@ -60,3 +60,33 @@ def test_filename_prefix_contains_required_parts():
         "`RIG${rigId}_${brand}_${name}`"
         in HTML
     )
+
+
+def test_sequencer_action_buttons_are_compact_and_equal_height():
+    assert (
+        ".sequencer-plan-rig-row .btn {"
+        in HTML
+    )
+    assert (
+        "#btn-run-all-sequencers {"
+        in HTML
+    )
+    assert "height: 36px;" in HTML
+    assert "font-size: 9px;" in HTML
+    assert "white-space: nowrap;" in HTML
+
+
+def test_section_titles_and_labels_are_high_visibility():
+    assert ".card-title," in HTML
+    assert ".phase-section-title," in HTML
+    assert ".camcfg-subsection-title," in HTML
+    assert ".field label," in HTML
+    assert ".stat-label," in HTML
+    assert ".cam-rig-meta-label {" in HTML
+
+    assert "color: #fff !important;" in HTML
+    assert "font-weight: 700;" in HTML
+
+    # Destructive actions retain their explicit warning colour.
+    assert ".devices-reset-card .card-title {" in HTML
+    assert "color: var(--red) !important;" in HTML

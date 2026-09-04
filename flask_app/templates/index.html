@@ -744,6 +744,49 @@ header {
   font-weight: 700;
 }
 
+
+/* ── VISUAL HIERARCHY ────────────────────────────────────────
+ * Section/subsection titles and labels must remain immediately
+ * readable outdoors and on the iPad.
+ */
+.card-title,
+.phase-section-title,
+.camcfg-subsection-title,
+.field label,
+.stat-label,
+.cam-rig-meta-label {
+  color: #fff !important;
+  font-weight: 700;
+}
+
+/* Preserve explicit destructive-operation semantics. */
+.devices-reset-card .card-title {
+  color: var(--red) !important;
+}
+
+
+/* ── SEQUENCER PER-RIG ACTIONS ───────────────────────────────
+ * RIG RUN/CLEAN buttons use a compact single-line label but
+ * retain the exact same physical height as RUN ALL SEQUENCERS.
+ */
+.sequencer-plan-rig-row .btn {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 4px;
+  gap: 3px;
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+#btn-run-all-sequencers {
+  height: 36px;
+  min-height: 36px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 </style>
 </head>
 <body>
