@@ -19,7 +19,7 @@ def test_socketio_is_served_as_local_static_asset():
     assert socket_code.lstrip().startswith("!function(")
 
     assert (
-        "{{ url_for('static', filename='js/socket.io.min.js') }}"
+        "/static/js/socket.io.min.js"
         in HTML
     )
 
@@ -41,7 +41,7 @@ def test_solartrigger_javascript_is_served_as_local_static_asset():
     assert "function flash(" in code
 
     assert (
-        "{{ url_for('static', filename='js/solartrigger.js') }}"
+        "/static/js/solartrigger.js"
         in HTML
     )
 
@@ -84,7 +84,7 @@ def test_stylesheet_is_served_as_local_static_asset():
     assert ".flash" in css
 
     assert (
-        "{{ url_for('static', filename='css/solartrigger.css') }}"
+        "/static/css/solartrigger.css"
         in HTML
     )
 
@@ -126,3 +126,9 @@ def test_deploy_script_syncs_frontend_static_assets():
 
     assert '"$SRC/flask_app/static/css/"' in deploy
     assert '"$DST_HOST:$DST/static/css/"' in deploy
+
+
+def test_raw_index_contains_no_jinja_expressions():
+    # La route "/" sert index.html avec send_from_directory(), pas render_template().
+    assert "{{" not in HTML
+    assert "{%" not in HTML
