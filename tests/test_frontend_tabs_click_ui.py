@@ -23,3 +23,13 @@ def test_tab_icons_and_labels_are_clickable():
     )
 
     assert len(tabs) == 9
+
+
+def test_flash_notification_never_blocks_tab_clicks():
+    start = HTML.index(".flash {")
+    end = HTML.index("}", start)
+    flash_css = HTML[start:end]
+
+    assert "position: fixed;" in flash_css
+    assert "z-index: 100;" in flash_css
+    assert "pointer-events: none;" in flash_css
