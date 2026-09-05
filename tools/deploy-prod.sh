@@ -192,6 +192,6 @@ echo "NEVER DEPLOYED BY THIS SCRIPT:"
 echo "  var/   (all persistent/generated/runtime application data)"
 echo "  venv"
 echo
-echo "--delete is used ONLY for product configs/."
+echo "--delete is used ONLY for product configs/ and frontend static assets (js/css)."
 echo "var/ is never synchronized or deleted."
 echo "Service is NOT restarted automatically."
