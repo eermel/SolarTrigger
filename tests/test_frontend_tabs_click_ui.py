@@ -1,0 +1,25 @@
+import re
+from pathlib import Path
+
+
+HTML = (
+    Path(__file__).resolve().parents[1]
+    / "flask_app"
+    / "templates"
+    / "index.html"
+).read_text(encoding="utf-8")
+
+
+def test_tab_icons_and_labels_are_clickable():
+    # Les enfants du bouton doivent rester des cibles normales.
+    # Leur clic remonte naturellement au <button class="tab">.
+    assert "#tabs .tab > svg," not in HTML
+    assert "#tabs .tab > span {" not in HTML
+
+    tabs = re.findall(
+        r'<button\b[^>]*class="[^"]*\btab\b[^"]*"'
+        r'[^>]*onclick="showTab\([^)]*\)"[^>]*>',
+        HTML,
+    )
+
+    assert len(tabs) == 9
