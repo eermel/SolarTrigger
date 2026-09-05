@@ -104,3 +104,20 @@ def test_trigger_ui_is_simplified_and_ordered(monkeypatch):
         "clearDebugFiles(",
     ):
         assert removed_handler not in html
+
+def test_trigger_log_clear_uses_standard_button():
+    html = (
+        Path(__file__).resolve().parents[1]
+        / "flask_app"
+        / "templates"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+
+    start = html.index("<span>Trigger log</span>")
+    end = html.index('id="log-container-trigger"', start)
+    trigger_log = html[start:end]
+
+    assert '<button class="btn btn-secondary"' in trigger_log
+    assert 'onclick="clearLog(\'trigger\')"' in trigger_log
+    assert ">CLEAR</button>" in trigger_log
+    assert "cursor:pointer" not in trigger_log

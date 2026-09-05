@@ -966,7 +966,9 @@ header {
   <div class="card" style="flex-shrink:0" data-device-section="gps">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
       <span>GPS log</span>
-      <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('gps_sync')">clear</span>
+      <button class="btn btn-secondary" type="button"
+        style="font-size:10px;padding:4px 9px"
+        onclick="clearLog('gps_sync')">CLEAR</button>
     </div>
     <div id="log-container-gps_sync" style="height:320px"></div>
   </div>
@@ -2088,7 +2090,9 @@ header {
       <div class="card" style="flex-shrink:0">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
           <span>Trigger log</span>
-          <span style="cursor:pointer;font-size:10px;color:var(--text-dim)" onclick="clearLog('trigger')">clear</span>
+          <button class="btn btn-secondary" type="button"
+        style="font-size:10px;padding:4px 9px"
+        onclick="clearLog('trigger')">CLEAR</button>
         </div>
         <div id="log-container-trigger" style="height:320px"></div>
       </div>

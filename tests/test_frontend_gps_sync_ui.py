@@ -65,3 +65,14 @@ def test_only_combined_gps_sync_action_is_exposed():
     assert 'id="btn-gps-sync-time-location"' in HTML
     assert 'id="btn-gps-sync-time"' not in HTML
     assert 'id="btn-gps-get-location"' not in HTML
+
+def test_gps_log_clear_uses_standard_button():
+    gps_log = block(
+        "<span>GPS log</span>",
+        'id="log-container-gps_sync"',
+    )
+
+    assert '<button class="btn btn-secondary"' in gps_log
+    assert 'onclick="clearLog(\'gps_sync\')"' in gps_log
+    assert ">CLEAR</button>" in gps_log
+    assert "cursor:pointer" not in gps_log
