@@ -1,3 +1,4 @@
+from tests.frontend_source import frontend_source
 from html.parser import HTMLParser
 from pathlib import Path
 import re
@@ -6,7 +7,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-INDEX = (ROOT / "flask_app" / "templates" / "index.html").read_text(encoding="utf-8")
+INDEX = frontend_source()
 
 
 class _NavigationParser(HTMLParser):

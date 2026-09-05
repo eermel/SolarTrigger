@@ -1,12 +1,8 @@
+from tests.frontend_source import frontend_source
 import re
 from pathlib import Path
 
-INDEX = (
-    Path(__file__).resolve().parents[1]
-    / "flask_app"
-    / "templates"
-    / "index.html"
-).read_text(encoding="utf-8")
+INDEX = frontend_source()
 
 
 def test_save_circumstances_controls_match_camera_configuration_pattern():

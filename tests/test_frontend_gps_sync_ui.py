@@ -1,12 +1,8 @@
+from tests.frontend_source import frontend_source
 from pathlib import Path
 
 
-HTML = (
-    Path(__file__).resolve().parents[1]
-    / "flask_app"
-    / "templates"
-    / "index.html"
-).read_text(encoding="utf-8")
+HTML = frontend_source()
 
 
 def block(start_text, end_text):

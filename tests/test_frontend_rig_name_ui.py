@@ -1,11 +1,7 @@
+from tests.frontend_source import frontend_source
 from pathlib import Path
 
-INDEX = (
-    Path(__file__).resolve().parents[1]
-    / "flask_app"
-    / "templates"
-    / "index.html"
-).read_text(encoding="utf-8")
+INDEX = frontend_source()
 
 
 def test_devices_rig_switches_have_no_visible_on_off_labels():

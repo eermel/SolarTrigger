@@ -1,7 +1,8 @@
+from tests.frontend_source import frontend_source
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INDEX = (ROOT / "flask_app/templates/index.html").read_text(encoding="utf-8")
+INDEX = frontend_source()
 APP = (ROOT / "flask_app/app.py").read_text(encoding="utf-8")
 
 

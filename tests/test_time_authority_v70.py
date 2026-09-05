@@ -1,3 +1,4 @@
+from tests.frontend_source import frontend_source
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import re
@@ -73,7 +74,7 @@ def test_numeric_deadline_uses_monotonic(monkeypatch):
 
 
 def test_frontend_time_authority_does_not_use_browser_wall_clock_offset():
-    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    html = frontend_source()
     update_time = re.search(
         r"function updateTime\(t\)\s*\{(?P<body>.*?)\n\}",
         html,
@@ -103,7 +104,7 @@ def test_frontend_time_authority_does_not_use_browser_wall_clock_offset():
 
 
 def test_frontend_displays_recompute_time_from_anchor_on_every_refresh():
-    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    html = frontend_source()
     tick_clock_body = html[
         html.index('function _tickClock() {'):html.index('function _updateGpsBadge(')
     ]
@@ -126,7 +127,7 @@ def test_frontend_displays_recompute_time_from_anchor_on_every_refresh():
 
 
 def test_header_clock_does_not_use_browser_locale_or_timezone_offset():
-    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    html = frontend_source()
     header_clock = html[
         html.index('function _tickClock() {'):html.index('function _updateGpsBadge(')
     ]
@@ -136,7 +137,7 @@ def test_header_clock_does_not_use_browser_locale_or_timezone_offset():
 
 
 def test_frontend_connect_fetches_status_and_reanchors_time():
-    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    html = frontend_source()
     assert re.search(
         r"socket\.on\(\s*['\"]connect['\"]\s*,\s*async\s*\(\)\s*=>\s*\{.*?"
         r"fetch\(\s*['\"]/api/status['\"]\s*\).*?"
@@ -161,7 +162,7 @@ def test_trigger_uses_independent_date_and_contact_times():
     assert 'contacts_utc' not in src
 
 def test_frontend_timezone_accepts_numeric_and_string_without_ipad_locale():
-    html = (ROOT/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    html = frontend_source()
     assert "typeof tzValue === 'number'" in html
     assert "typeof tzValue === 'string'" in html
     assert 'toLocaleTimeString()' not in html

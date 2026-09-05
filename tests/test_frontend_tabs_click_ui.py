@@ -1,13 +1,9 @@
 import re
-from pathlib import Path
+
+from tests.frontend_source import frontend_source
 
 
-HTML = (
-    Path(__file__).resolve().parents[1]
-    / "flask_app"
-    / "templates"
-    / "index.html"
-).read_text(encoding="utf-8")
+HTML = frontend_source()
 
 
 def test_tab_icons_and_labels_are_clickable():

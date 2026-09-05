@@ -1,14 +1,10 @@
+from tests.frontend_source import frontend_source
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
-HTML = (
-    ROOT
-    / "flask_app"
-    / "templates"
-    / "index.html"
-).read_text(encoding="utf-8")
+HTML = frontend_source()
 
 
 def test_shared_operational_active_rule_exists():

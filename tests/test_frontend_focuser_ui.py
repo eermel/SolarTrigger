@@ -4,6 +4,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = (ROOT / "flask_app" / "templates" / "index.html").read_text()
+SOLARTRIGGER_JS = (
+    ROOT / "flask_app" / "static" / "js" / "solartrigger.js"
+).read_text(encoding="utf-8")
+SOLARTRIGGER_CSS = (
+    ROOT / "flask_app" / "static" / "css" / "solartrigger.css"
+).read_text(encoding="utf-8")
+INDEX += "\n" + SOLARTRIGGER_CSS
 FOCUSER_SERVICE = (ROOT / "plugins" / "focuser" / "zwo_plugin.py").read_text()
 
 
@@ -16,7 +23,7 @@ def _between(text, start, end):
 CAMERA_PANEL = _between(INDEX, '<div class="page" id="page-3"', '<!-- /page-3 CAMÉRA -->')
 CONTROLS_PANEL = _between(INDEX, '<div class="page" id="controls-panel"', '<!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->')
 FOCUSER_HTML = _between(CONTROLS_PANEL, '<!-- ── FOCUSEUR ── -->', '<!-- ── /FOCUSEUR ── -->')
-FOCUSER_JS = _between(INDEX, "// FOCUSER UI START", "// FOCUSER UI END")
+FOCUSER_JS = _between(SOLARTRIGGER_JS, "// FOCUSER UI START", "// FOCUSER UI END")
 TABS = _between(INDEX, '<div id="tabs">', "<!-- PAGES -->")
 
 

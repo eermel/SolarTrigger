@@ -7,6 +7,13 @@ ROOT = Path(__file__).resolve().parents[1]
 INDEX = (ROOT / "flask_app" / "templates" / "index.html").read_text(
     encoding="utf-8"
 )
+SOLARTRIGGER_JS = (
+    ROOT / "flask_app" / "static" / "js" / "solartrigger.js"
+).read_text(encoding="utf-8")
+SOLARTRIGGER_CSS = (
+    ROOT / "flask_app" / "static" / "css" / "solartrigger.css"
+).read_text(encoding="utf-8")
+INDEX += "\n" + SOLARTRIGGER_CSS
 
 
 def _between(text, start, end):
@@ -15,7 +22,7 @@ def _between(text, start, end):
     return match.group("body")
 
 
-MOUNT_JS = _between(INDEX, "// MOUNT UI START", "// MOUNT UI END")
+MOUNT_JS = _between(SOLARTRIGGER_JS, "// MOUNT UI START", "// MOUNT UI END")
 
 
 class _MountDomParser(HTMLParser):

@@ -42,6 +42,8 @@ required=(
     "$SRC/scripts"
     "$SRC/flask_app/app.py"
     "$SRC/flask_app/templates/index.html"
+    "$SRC/flask_app/static/js"
+    "$SRC/flask_app/static/css"
     "$SRC/Sounds"
     "$SRC/configs"
 )
@@ -125,15 +127,29 @@ rsync "${RSYNC_OPTS[@]}" \
     "$DST_HOST:$DST/templates/index.html"
 
 echo
-echo "=== sound directories ==="
+echo "=== static and sound directories ==="
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Would ensure:"
     echo "  $DST/Sounds"
     echo "  $DST/static/sounds"
+    echo "  $DST/static/js"
+    echo "  $DST/static/css"
 else
     ssh "$DST_HOST" \
-        "mkdir -p '$DST/Sounds' '$DST/static/sounds'"
+        "mkdir -p '$DST/Sounds' '$DST/static/sounds' '$DST/static/js' '$DST/static/css'"
 fi
+
+echo
+echo "=== frontend JavaScript ==="
+rsync "${RSYNC_OPTS[@]}" --delete \
+    "$SRC/flask_app/static/js/" \
+    "$DST_HOST:$DST/static/js/"
+
+echo
+echo "=== frontend CSS ==="
+rsync "${RSYNC_OPTS[@]}" --delete \
+    "$SRC/flask_app/static/css/" \
+    "$DST_HOST:$DST/static/css/"
 
 echo
 echo "=== runtime sounds ==="

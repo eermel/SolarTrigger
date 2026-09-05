@@ -473,7 +473,7 @@ step "ÉTAPE 4 — Installation du runtime SolarEclipse"
 mkdir -p "$APP_DIR"
 mkdir -p "$SOUNDS_DIR"
 mkdir -p "$APP_DIR/templates"
-mkdir -p "$APP_DIR/static/sounds"
+mkdir -p "$APP_DIR/static/sounds" "$APP_DIR/static/js" "$APP_DIR/static/css"
 
 # Données mutables SolarTrigger.
 # Une installation neuve doit démarrer même si var/ n'existe pas.
@@ -547,11 +547,21 @@ else
     error "Dossier configs/ introuvable dans $PACKAGE_DIR"
 fi
 
-# Application Flask et template principal.
-if [ -f "$PACKAGE_DIR/flask_app/app.py" ] &&    [ -f "$PACKAGE_DIR/flask_app/templates/index.html" ]; then
+# Application Flask, template principal et assets frontend.
+if [ -f "$PACKAGE_DIR/flask_app/app.py" ] && \
+   [ -f "$PACKAGE_DIR/flask_app/templates/index.html" ] && \
+   [ -d "$PACKAGE_DIR/flask_app/static/js" ] && \
+   [ -d "$PACKAGE_DIR/flask_app/static/css" ]; then
     cp "$PACKAGE_DIR/flask_app/app.py" "$APP_DIR/app.py"
     cp "$PACKAGE_DIR/flask_app/templates/index.html" "$APP_DIR/templates/index.html"
-    success "app.py + index.html → $APP_DIR"
+
+    # Remplacement complet des assets frontend : aucune relique ancienne.
+    rm -rf "$APP_DIR/static/js" "$APP_DIR/static/css"
+    mkdir -p "$APP_DIR/static/js" "$APP_DIR/static/css"
+    cp -a "$PACKAGE_DIR/flask_app/static/js/." "$APP_DIR/static/js/"
+    cp -a "$PACKAGE_DIR/flask_app/static/css/." "$APP_DIR/static/css/"
+
+    success "app.py + index.html + assets CSS/JS → $APP_DIR"
 else
     error "Runtime Flask incomplet dans $PACKAGE_DIR/flask_app"
 fi

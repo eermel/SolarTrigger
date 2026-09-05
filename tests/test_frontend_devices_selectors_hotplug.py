@@ -1,12 +1,11 @@
+from tests.frontend_source import frontend_source
 import re
 from pathlib import Path
 
 import pytest
 
 
-INDEX_HTML = (
-    Path(__file__).resolve().parents[1] / "flask_app" / "templates" / "index.html"
-).read_text(encoding="utf-8")
+INDEX_HTML = frontend_source()
 
 
 def _function(name, *, async_function=False):

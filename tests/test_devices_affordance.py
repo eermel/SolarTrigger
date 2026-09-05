@@ -1,10 +1,9 @@
+from tests.frontend_source import frontend_source
 import re
 from pathlib import Path
 
 
-INDEX_HTML = (
-    Path(__file__).resolve().parents[1] / "flask_app" / "templates" / "index.html"
-).read_text(encoding="utf-8")
+INDEX_HTML = frontend_source()
 
 
 def test_select_chevron_css_does_not_capture_pointer_events():

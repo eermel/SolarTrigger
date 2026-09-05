@@ -1,3 +1,4 @@
+from tests.frontend_source import frontend_source
 from pathlib import Path
 
 
@@ -6,7 +7,7 @@ HTML_PATH = ROOT / "flask_app" / "templates" / "index.html"
 
 
 def _html():
-    return HTML_PATH.read_text(encoding="utf-8")
+    return frontend_source()
 
 
 def test_legacy_trigger_relay_socket_listeners_are_absent():

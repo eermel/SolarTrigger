@@ -1,3 +1,4 @@
+from tests.frontend_source import frontend_source
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import json
@@ -61,7 +62,7 @@ def test_calculator_json_keeps_ms_and_location(tmp_path):
 
 def test_frontend_preserves_decimal_contacts_and_dryrun_route():
     root=Path(__file__).resolve().parents[1]
-    html=(root/'flask_app/templates/index.html').read_text(encoding='utf-8')
+    html=frontend_source()
     app=(root/'flask_app/app.py').read_text(encoding='utf-8')
 
     # Les contacts ne sont plus validés par l'ancien regexp d'input.
