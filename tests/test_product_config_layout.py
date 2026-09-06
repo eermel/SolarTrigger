@@ -54,11 +54,11 @@ def test_photo_default_shutter_limits_are_not_inverted():
             "shutter_max": "1/1000",
         },
         "diamond_ring": {
-            "shutter_min": "1/250",
-            "shutter_max": "1/1000",
+            "shutter_min": "1/500",
+            "shutter_max": "1/8000",
         },
         "totality": {
-            "shutter_min": "4",
+            "shutter_min": "2",
             "shutter_max": "1/4000",
         },
     }
@@ -66,3 +66,7 @@ def test_photo_default_shutter_limits_are_not_inverted():
     for phase, limits in expected.items():
         assert config["phases"][phase]["shutter_min"] == limits["shutter_min"]
         assert config["phases"][phase]["shutter_max"] == limits["shutter_max"]
+
+    # interval=0 has an explicit product meaning:
+    # repeat Diamond Ring groups at maximum camera throughput.
+    assert config["phases"]["diamond_ring"]["interval_s"] == 0

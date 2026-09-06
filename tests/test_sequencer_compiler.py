@@ -1576,16 +1576,11 @@ def test_pre_c2_bracket_is_skipped_if_it_blocks_totality_preparation():
         ),
     )
 
-    c3 = replace(
-        base,
-        target=replace(
-            base.target,
-            phase="diamond_ring",
-            phase_window="phase_3a",
-            sequence_index=0,
-            target_time=datetime(2027, 8, 2, 10, 4, 10),
-            deadline=datetime(2027, 8, 2, 10, 4, 13),
-        ),
+    c3 = _safe_contact_sony_capture(
+        phase_window="phase_3a",
+        target_time=datetime(2027, 8, 2, 10, 4, 10),
+        deadline=datetime(2027, 8, 2, 10, 4, 13),
+        continuous=False,
     )
 
     captures = [pre_c2, totality, c3]
@@ -1693,16 +1688,11 @@ def test_totality_reserves_generic_margin_before_c3_preparation():
         ),
     )
 
-    c3 = replace(
-        base,
-        target=replace(
-            base.target,
-            phase="diamond_ring",
-            phase_window="phase_3a",
-            sequence_index=0,
-            target_time=datetime(2027, 8, 2, 10, 4, 10),
-            deadline=datetime(2027, 8, 2, 10, 4, 13),
-        ),
+    c3 = _safe_contact_sony_capture(
+        phase_window="phase_3a",
+        target_time=datetime(2027, 8, 2, 10, 4, 10),
+        deadline=datetime(2027, 8, 2, 10, 4, 13),
+        continuous=False,
     )
 
     initial = derive_initial_state_required({
@@ -1751,3 +1741,341 @@ def test_totality_reserves_generic_margin_before_c3_preparation():
         c3_prepare_start - totality_end
         >= timedelta(milliseconds=250)
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Continuous Diamond Ring / contact transition regression tests
+# ---------------------------------------------------------------------------
+
+def test_zero_interval_diamond_ring_creates_continuous_window():
+    photo = _photo()
+    photo["phases"]["diamond_ring"]["interval_s"] = 0
+
+    targets = compile_capture_targets(
+        _timeline(),
+        photo,
+        sequence_margin_min=2,
+    )
+
+    pre_c2 = [
+        item
+        for item in targets
+        if item.phase_window == "phase_1b"
+    ]
+
+    post_c3 = [
+        item
+        for item in targets
+        if item.phase_window == "phase_3a"
+    ]
+
+    # interval=0 is represented by one logical window marker,
+    # never by an infinite zero-period target generator.
+    assert len(pre_c2) == 1
+    assert len(post_c3) == 1
+
+    assert pre_c2[0].continuous is True
+    assert post_c3[0].continuous is True
+
+    assert pre_c2[0].target_time == datetime(
+        2027, 8, 2, 10, 4, 0
+    )
+    assert pre_c2[0].deadline == datetime(
+        2027, 8, 2, 10, 5, 0
+    )
+
+    assert post_c3[0].target_time == datetime(
+        2027, 8, 2, 10, 7, 0
+    )
+    assert post_c3[0].deadline == datetime(
+        2027, 8, 2, 10, 8, 0
+    )
+
+
+def _safe_contact_sony_capture(
+    *,
+    phase_window,
+    target_time,
+    deadline,
+    continuous=True,
+):
+    target = CaptureTarget(
+        target_time=target_time,
+        phase="diamond_ring",
+        phase_window=phase_window,
+        sequence_index=0,
+        deadline=deadline,
+        continuous=continuous,
+    )
+
+    materialized = materialize_capture_target_for_rig(
+        target,
+        _rig(backend="sony"),
+        {
+            "phases": {
+                "diamond_ring": {
+                    "enabled": True,
+                    "interval_s": 0 if continuous else 4,
+                    "duration_s": 30,
+                    "iso": 100,
+                    "aperture": "f/8",
+                    "shutter_min": "1/500",
+                    "shutter_max": "1/8000",
+                    "step_ev": 1.0,
+                },
+            },
+        },
+        _exposure_opt(),
+        _eclipse_context(),
+    )
+
+    audited = audit_materialized_sony_capture(
+        materialized
+    )
+
+    assert [
+        item["shutter"]
+        for item in audited.exposure_plan
+    ] == [
+        "1/8000",
+        "1/4000",
+        "1/2000",
+        "1/1000",
+        "1/500",
+    ]
+
+    return audited
+
+
+def _test_totality_capture(c2, c3):
+    target = CaptureTarget(
+        target_time=c2,
+        phase="totality",
+        phase_window="phase_2",
+        sequence_index=0,
+        deadline=c3,
+    )
+
+    materialized = materialize_capture_target_for_rig(
+        target,
+        _rig(backend="sony"),
+        {
+            "phases": {
+                "totality": {
+                    "enabled": True,
+                    "interval_s": 0,
+                    "duration_s": None,
+                    "iso": 100,
+                    "aperture": "f/8",
+                    "shutter_min": "1/1000",
+                    "shutter_max": "1/4000",
+                    "step_ev": 1.0,
+                },
+            },
+        },
+        _exposure_opt(),
+        _eclipse_context(),
+    )
+
+    return audit_materialized_sony_capture(
+        materialized
+    )
+
+
+def test_continuous_dr_crosses_contacts_and_totality_yields_to_c3():
+    from datetime import timedelta
+
+    c2 = datetime(2027, 8, 2, 10, 5, 0)
+    c3 = datetime(2027, 8, 2, 10, 5, 30)
+
+    pre_c2 = _safe_contact_sony_capture(
+        phase_window="phase_1b",
+        target_time=c2 - timedelta(seconds=30),
+        deadline=c2,
+    )
+
+    totality = _test_totality_capture(c2, c3)
+
+    post_c3 = _safe_contact_sony_capture(
+        phase_window="phase_3a",
+        target_time=c3,
+        deadline=c3 + timedelta(seconds=30),
+    )
+
+    merged, _states = compile_and_merge_scheduled_rigs(
+        {
+            1: [
+                pre_c2,
+                totality,
+                post_c3,
+            ],
+        },
+        initial_states={
+            1: {
+                "iso": "100",
+                "capturemode": "Single Shot",
+                "shutterspeed": "1/2000",
+            },
+        },
+        timing_profiles={
+            "sony": _sony_test_timing(),
+        },
+    )
+
+    pre_photos = [
+        event
+        for event in merged
+        if (
+            event.phase_window == "phase_1b"
+            and event.operation.get("action")
+            == "bracket_press"
+        )
+    ]
+
+    totality_photos = [
+        event
+        for event in merged
+        if (
+            event.phase_window == "phase_2"
+            and event.operation.get("action")
+            in {"bracket_press", "trigger_capture"}
+        )
+    ]
+
+    post_photos = [
+        event
+        for event in merged
+        if (
+            event.phase_window == "phase_3a"
+            and event.operation.get("action")
+            == "bracket_press"
+        )
+    ]
+
+    assert len(pre_photos) >= 1
+    assert len(totality_photos) >= 1
+    assert len(post_photos) >= 1
+
+    # Reserved DR contact batches are targeted one second
+    # before C2 and C3.
+    assert any(
+        event.target_time
+        == c2 - timedelta(seconds=1)
+        for event in pre_photos
+    )
+
+    assert any(
+        event.target_time
+        == c3 - timedelta(seconds=1)
+        for event in post_photos
+    )
+
+    # The C2 DR operation is allowed to finish before TOTALITY
+    # begins; TOTALITY is no longer forcibly anchored at C2.
+    c2_contact = next(
+        event
+        for event in pre_photos
+        if event.target_time
+        == c2 - timedelta(seconds=1)
+    )
+
+    c2_contact_end = (
+        c2_contact.command_time
+        + timedelta(
+            milliseconds=c2_contact.duration_ms
+        )
+    )
+
+    first_totality_command = min(
+        event.command_time
+        for event in merged
+        if (
+            event.phase_window == "phase_2"
+            and event.command_time is not None
+        )
+    )
+
+    assert first_totality_command >= c2_contact_end
+
+    # Every accepted TOTALITY PHOTO has completed before C3.
+    for event in totality_photos:
+        assert (
+            event.command_time
+            + timedelta(milliseconds=event.duration_ms)
+            < c3
+        )
+
+    # Every physical view in the C3 DR groups is <= 1/500 s.
+    for event in post_photos:
+        for shutter in event.operation["physical_views"]:
+            if "/" in shutter:
+                numerator, denominator = shutter.split("/", 1)
+                seconds = float(numerator) / float(denominator)
+            else:
+                seconds = float(shutter)
+
+            assert seconds <= (1.0 / 500.0)
+
+
+def test_c3_contact_rejects_any_exposure_slower_than_1_500():
+    from dataclasses import replace
+    from datetime import timedelta
+    from backend.sequencer_compiler import (
+        _validate_c3_contact_exposures,
+    )
+
+    c3 = datetime(2027, 8, 2, 10, 7, 0)
+
+    safe = _safe_contact_sony_capture(
+        phase_window="phase_3a",
+        target_time=c3,
+        deadline=c3 + timedelta(seconds=30),
+    )
+
+    unsafe = replace(
+        safe,
+        exposure_plan=(
+            *safe.exposure_plan,
+            {"shutter": "1/250", "iso": 100},
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"C3 contact exposure slower than 1/500 s",
+    ):
+        _validate_c3_contact_exposures(unsafe)
+
+
+
+def test_contact_rejects_more_than_five_exposures():
+    from dataclasses import replace
+    from datetime import timedelta
+    from backend.sequencer_compiler import (
+        _validate_contact_frame_count,
+    )
+
+    c3 = datetime(2027, 8, 2, 10, 7, 0)
+
+    safe = _safe_contact_sony_capture(
+        phase_window="phase_3a",
+        target_time=c3,
+        deadline=c3 + timedelta(seconds=30),
+    )
+
+    assert len(safe.exposure_plan) == 5
+
+    six_views = replace(
+        safe,
+        exposure_plan=(
+            {"shutter": "1/16000", "iso": 100},
+            *safe.exposure_plan,
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"contact PHOTO exceeds 5 exposures",
+    ):
+        _validate_contact_frame_count(six_views)

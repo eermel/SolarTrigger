@@ -56,8 +56,8 @@ def _build_configs(tmp_path):
                     "duration_s": 30,
                     "iso": 100,
                     "aperture": "f/8",
-                    "shutter_min": "1/60",
-                    "shutter_max": "1/1000",
+                    "shutter_min": "1/500",
+                    "shutter_max": "1/8000",
                     "step_ev": 1.0,
                 },
                 "totality": {

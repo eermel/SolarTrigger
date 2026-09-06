@@ -15,12 +15,12 @@
         },
         "diamond_ring": {
             "enabled": true,
-            "interval_s": 3,
+            "interval_s": 0,
             "duration_s": 30,
             "iso": 100,
             "aperture": "f/8",
-            "shutter_min": "1/250",
-            "shutter_max": "1/1000",
+            "shutter_min": "1/500",
+            "shutter_max": "1/8000",
             "step_ev": 1.0
         },
         "totality": {
@@ -29,7 +29,7 @@
             "duration_s": null,
             "iso": 100,
             "aperture": "f/8",
-            "shutter_min": "4",
+            "shutter_min": "2",
             "shutter_max": "1/4000",
             "step_ev": 1.0
         }

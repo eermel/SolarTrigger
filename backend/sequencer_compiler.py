@@ -15,6 +15,22 @@ from typing import Any, Iterable
 
 CRITICAL_TRANSITION_MARGIN_MS = 250.0
 
+# Contact-transition policy.
+#
+# A continuous Diamond Ring group is deliberately aimed one second before
+# C2/C3. Once the atomic PHOTO has started it is always allowed to finish.
+CONTACT_TRANSITION_LEAD_S = 1.0
+
+# Solar-contact safety invariant:
+# one Diamond Ring/contact atomic group may contain at most five
+# physical exposures.
+CONTACT_MAX_FRAMES = 5
+
+# Hard C3 safety invariant:
+# no exposure slower/longer than 1/500 s may belong to the PHOTO group
+# crossing C3.
+C3_CONTACT_MAX_EXPOSURE_S = 1.0 / 500.0
+
 
 @dataclass(frozen=True)
 class CaptureTarget:
@@ -23,6 +39,7 @@ class CaptureTarget:
     phase_window: str
     sequence_index: int
     deadline: datetime | None = None
+    continuous: bool = False
 
 
 @dataclass(frozen=True)
@@ -110,7 +127,7 @@ def build_sequence_windows(
         "partial.interval_s",
     )
 
-    diamond_interval_s = _positive_number(
+    diamond_interval_s = _nonnegative_number(
         diamond.get("interval_s", diamond.get("interval")),
         "diamond_ring.interval_s",
     )
@@ -173,7 +190,10 @@ def _periodic_targets(
 ) -> Iterable[CaptureTarget]:
     """Generate targets on [start, end), never crossing phase boundary."""
 
-    assert window.interval_s is not None
+    if window.interval_s is None or window.interval_s <= 0:
+        raise ValueError(
+            "periodic capture interval must be strictly positive"
+        )
 
     interval = timedelta(seconds=window.interval_s)
     target = window.start
@@ -229,6 +249,25 @@ def compile_capture_targets(
                     deadline=window.end,
                 )
             )
+
+        elif (
+            window.phase == "diamond_ring"
+            and window.interval_s == 0
+        ):
+            # interval=0 means MAX THROUGHPUT, not a zero-second
+            # periodic timer. Emit one logical marker for the whole
+            # DR window; scheduling repeats the audited atomic PHOTO.
+            targets.append(
+                CaptureTarget(
+                    target_time=window.start,
+                    phase=window.phase,
+                    phase_window=window.name,
+                    sequence_index=0,
+                    deadline=window.end,
+                    continuous=True,
+                )
+            )
+
         else:
             targets.extend(_periodic_targets(window))
 
@@ -1701,6 +1740,397 @@ def _profile_for_capture(
     return profile
 
 
+def _shutter_seconds(value: Any) -> float:
+    """Convert one characterized shutter spelling to exposure seconds."""
+    text = str(value).strip()
+
+    if not text:
+        raise ValueError("empty shutter value")
+
+    try:
+        if "/" in text:
+            numerator, denominator = text.split("/", 1)
+            seconds = float(numerator) / float(denominator)
+        else:
+            seconds = float(text)
+    except (TypeError, ValueError, ZeroDivisionError) as exc:
+        raise ValueError(
+            f"invalid shutter value: {value!r}"
+        ) from exc
+
+    if seconds <= 0:
+        raise ValueError(
+            f"invalid shutter value: {value!r}"
+        )
+
+    return seconds
+
+
+def _validate_contact_frame_count(
+    capture: AuditedRigCapture,
+) -> None:
+    """A contact/DR atomic PHOTO may contain at most five views."""
+
+    count = len(capture.exposure_plan)
+
+    if count > CONTACT_MAX_FRAMES:
+        raise ValueError(
+            f"contact PHOTO exceeds {CONTACT_MAX_FRAMES} exposures "
+            f"for RIG {capture.rig_id}: {count}"
+        )
+
+
+def _validate_c3_contact_exposures(
+    capture: AuditedRigCapture,
+) -> None:
+    """C3 hard safety: contact PHOTO may contain at most 1/500 s."""
+
+    unsafe = [
+        str(exposure.get("shutter"))
+        for exposure in capture.exposure_plan
+        if (
+            _shutter_seconds(exposure.get("shutter"))
+            > C3_CONTACT_MAX_EXPOSURE_S + 1e-12
+        )
+    ]
+
+    if unsafe:
+        raise ValueError(
+            f"C3 contact exposure slower than 1/500 s for "
+            f"RIG {capture.rig_id}: {', '.join(unsafe)}"
+        )
+
+
+def _schedule_reduced_capture(
+    capture: AuditedRigCapture,
+    state: dict[str, str],
+    profile: CameraTimingProfile,
+    *,
+    not_before: datetime | None = None,
+) -> tuple[
+    AuditedRigCapture,
+    dict[str, str],
+    list[ScheduledOperation],
+    datetime,
+    datetime,
+]:
+    """Reduce SETs and optionally shift until its first command can run."""
+
+    reduced, new_state = reduce_audited_capture_operations(
+        capture,
+        state,
+    )
+
+    scheduled = schedule_audited_capture(
+        reduced,
+        profile,
+    )
+
+    start, end = _scheduled_static_bounds(scheduled)
+
+    if not_before is not None and start < not_before:
+        shift = not_before - start
+
+        reduced = replace(
+            reduced,
+            target=replace(
+                reduced.target,
+                target_time=(
+                    reduced.target.target_time + shift
+                ),
+            ),
+        )
+
+        scheduled = schedule_audited_capture(
+            reduced,
+            profile,
+        )
+
+        start, end = _scheduled_static_bounds(scheduled)
+
+    return reduced, new_state, scheduled, start, end
+
+
+def _continuous_contact_capture(
+    capture: AuditedRigCapture,
+    contact_time: datetime,
+    sequence_index: int,
+) -> AuditedRigCapture:
+    """Return the atomic DR group reserved to cross one contact."""
+
+    return replace(
+        capture,
+        target=replace(
+            capture.target,
+            target_time=(
+                contact_time
+                - timedelta(
+                    seconds=CONTACT_TRANSITION_LEAD_S
+                )
+            ),
+            sequence_index=sequence_index,
+        ),
+    )
+
+
+def _schedule_continuous_pre_c2(
+    capture: AuditedRigCapture,
+    state: dict[str, str],
+    profile: CameraTimingProfile,
+    rig_available_at: datetime | None,
+) -> tuple[
+    list[ScheduledOperation],
+    dict[str, str],
+    datetime,
+]:
+    """Fill pre-C2 DR at max throughput, then reserve the C2 group."""
+
+    if capture.target.deadline is None:
+        raise ValueError(
+            f"continuous pre-C2 Diamond Ring deadline missing "
+            f"for RIG {capture.rig_id}"
+        )
+
+    _validate_contact_frame_count(capture)
+
+    c2 = capture.target.deadline
+    window_start = capture.target.target_time
+
+    contact_target_time = (
+        c2
+        - timedelta(seconds=CONTACT_TRANSITION_LEAD_S)
+    )
+
+    if contact_target_time < window_start:
+        contact_target_time = window_start
+
+    result: list[ScheduledOperation] = []
+    current_available = rig_available_at
+    sequence_index = 0
+    next_target_time = window_start
+
+    for _guard in range(10000):
+        candidate = replace(
+            capture,
+            target=replace(
+                capture.target,
+                target_time=next_target_time,
+                sequence_index=sequence_index,
+            ),
+        )
+
+        (
+            reduced_candidate,
+            candidate_state,
+            candidate_scheduled,
+            candidate_start,
+            candidate_end,
+        ) = _schedule_reduced_capture(
+            candidate,
+            state,
+            profile,
+            not_before=current_available,
+        )
+
+        if candidate_end <= candidate_start:
+            raise ValueError(
+                f"continuous Diamond Ring has non-positive "
+                f"duration for RIG {capture.rig_id}"
+            )
+
+        # This slot belongs to the reserved contact PHOTO.
+        if (
+            reduced_candidate.target.target_time
+            >= contact_target_time
+        ):
+            break
+
+        # Determine the exact preparation boundary of the reserved
+        # C2 contact PHOTO assuming this candidate were accepted.
+        contact_after = _continuous_contact_capture(
+            capture,
+            c2,
+            sequence_index + 1,
+        )
+
+        (
+            _reduced_contact_after,
+            _contact_state_after,
+            contact_scheduled_after,
+            contact_start_after,
+            _contact_end_after,
+        ) = _schedule_reduced_capture(
+            contact_after,
+            candidate_state,
+            profile,
+        )
+
+        contact_boundary = (
+            contact_start_after
+            - timedelta(
+                milliseconds=CRITICAL_TRANSITION_MARGIN_MS
+            )
+        )
+
+        if candidate_end > contact_boundary:
+            break
+
+        result.extend(candidate_scheduled)
+
+        state = candidate_state
+        current_available = candidate_end
+        next_target_time = candidate_end
+        sequence_index += 1
+
+    else:
+        raise ValueError(
+            f"continuous Diamond Ring scheduling did not "
+            f"converge for RIG {capture.rig_id}"
+        )
+
+    # Reserved contact group. It is atomic and may finish after C2.
+    contact = _continuous_contact_capture(
+        capture,
+        c2,
+        sequence_index,
+    )
+
+    (
+        _reduced_contact,
+        contact_state,
+        contact_scheduled,
+        contact_start,
+        contact_end,
+    ) = _schedule_reduced_capture(
+        contact,
+        state,
+        profile,
+    )
+
+    if (
+        current_available is not None
+        and contact_start < current_available
+    ):
+        raise ValueError(
+            f"C2 Diamond Ring contact preparation overlaps "
+            f"previous camera operation for RIG {capture.rig_id}"
+        )
+
+    result.extend(contact_scheduled)
+
+    return result, contact_state, contact_end
+
+
+def _schedule_continuous_post_c3(
+    capture: AuditedRigCapture,
+    state: dict[str, str],
+    profile: CameraTimingProfile,
+    rig_available_at: datetime | None,
+) -> tuple[
+    list[ScheduledOperation],
+    dict[str, str],
+    datetime,
+]:
+    """Reserve C3 DR then continue at max throughput after it."""
+
+    if capture.target.deadline is None:
+        raise ValueError(
+            f"continuous post-C3 Diamond Ring deadline missing "
+            f"for RIG {capture.rig_id}"
+        )
+
+    # HARD SAFETY. Never soften or silently truncate this.
+    _validate_contact_frame_count(capture)
+    _validate_c3_contact_exposures(capture)
+
+    c3 = capture.target.target_time
+    result: list[ScheduledOperation] = []
+
+    contact = _continuous_contact_capture(
+        capture,
+        c3,
+        0,
+    )
+
+    (
+        _reduced_contact,
+        contact_state,
+        contact_scheduled,
+        contact_start,
+        contact_end,
+    ) = _schedule_reduced_capture(
+        contact,
+        state,
+        profile,
+    )
+
+    if (
+        rig_available_at is not None
+        and contact_start < rig_available_at
+    ):
+        raise ValueError(
+            f"C3 Diamond Ring contact preparation overlaps "
+            f"previous camera operation for RIG {capture.rig_id}"
+        )
+
+    # Once this PHOTO is launched it is atomic. It is deliberately
+    # allowed to finish after C3 (+1 s is a target, not a cut-off).
+    result.extend(contact_scheduled)
+
+    state = contact_state
+    current_available = contact_end
+    sequence_index = 1
+
+    # Continue ordinary DR groups at maximum physical throughput.
+    for _guard in range(10000):
+        candidate = replace(
+            capture,
+            target=replace(
+                capture.target,
+                target_time=current_available,
+                sequence_index=sequence_index,
+            ),
+        )
+
+        (
+            _reduced_candidate,
+            candidate_state,
+            candidate_scheduled,
+            candidate_start,
+            candidate_end,
+        ) = _schedule_reduced_capture(
+            candidate,
+            state,
+            profile,
+            not_before=current_available,
+        )
+
+        if candidate_end <= candidate_start:
+            raise ValueError(
+                f"continuous Diamond Ring has non-positive "
+                f"duration for RIG {capture.rig_id}"
+            )
+
+        # Only the reserved contact group may overrun a boundary.
+        # Subsequent groups must fit wholly in the DR window.
+        if candidate_end > capture.target.deadline:
+            break
+
+        result.extend(candidate_scheduled)
+
+        state = candidate_state
+        current_available = candidate_end
+        sequence_index += 1
+
+    else:
+        raise ValueError(
+            f"continuous Diamond Ring scheduling did not "
+            f"converge for RIG {capture.rig_id}"
+        )
+
+    return result, state, current_available
+
+
 def compile_and_merge_scheduled_rigs(
     audited_by_rig: dict[int, Iterable[AuditedRigCapture]],
     initial_states: dict[int, dict[str, Any]],
@@ -1711,9 +2141,14 @@ def compile_and_merge_scheduled_rigs(
 ]:
     """Schedule every RIG independently, then merge chronologically.
 
-    TOTALITY is continuous: its physical exposure list is repeated
-    photo-by-photo from C2 until the next photo would collide with the
-    preparation required for the first Diamond Ring capture at C3.
+    TOTALITY is continuous.
+
+    With Diamond Ring interval=0, the audited DR PHOTO is repeated at
+    maximum physical throughput. The same atomic PHOTO is reserved around
+    C2 and C3 instead of creating a separate "transition" recipe.
+
+    C3 is fail-closed: no exposure slower than 1/500 s may belong to the
+    contact PHOTO.
     """
 
     scheduled_by_rig: dict[int, list[ScheduledOperation]] = {}
@@ -1749,7 +2184,59 @@ def compile_and_merge_scheduled_rigs(
                 timing_profiles,
             )
 
+            # ----------------------------------------------------------
+            # PARTIAL / DIAMOND RING
+            # ----------------------------------------------------------
             if capture.target.phase != "totality":
+
+                # Continuous DR = max physical throughput.
+                if (
+                    capture.target.phase == "diamond_ring"
+                    and capture.target.continuous
+                ):
+                    if capture.target.phase_window == "phase_1b":
+                        (
+                            continuous_scheduled,
+                            state,
+                            rig_available_at,
+                        ) = _schedule_continuous_pre_c2(
+                            capture,
+                            state,
+                            profile,
+                            rig_available_at,
+                        )
+
+                        scheduled.extend(continuous_scheduled)
+                        continue
+
+                    if capture.target.phase_window == "phase_3a":
+                        (
+                            continuous_scheduled,
+                            state,
+                            rig_available_at,
+                        ) = _schedule_continuous_post_c3(
+                            capture,
+                            state,
+                            profile,
+                            rig_available_at,
+                        )
+
+                        scheduled.extend(continuous_scheduled)
+                        continue
+
+                    raise ValueError(
+                        f"unsupported continuous Diamond Ring "
+                        f"window: {capture.target.phase_window}"
+                    )
+
+                # The hard C3 rule also applies to legacy periodic DR.
+                if (
+                    capture.target.phase_window == "phase_3a"
+                    and capture.target.sequence_index == 0
+                ):
+                    _validate_contact_frame_count(capture)
+                    _validate_c3_contact_exposures(capture)
+
                 reduced, candidate_state = (
                     reduce_audited_capture_operations(
                         capture,
@@ -1770,9 +2257,6 @@ def compile_and_merge_scheduled_rigs(
                     capture.target.deadline is not None
                     and candidate_end > capture.target.deadline
                 ):
-                    # A camera operation, especially a native bracket,
-                    # is atomic once started. Never launch it unless the
-                    # complete operation fits inside its target window.
                     if (
                         capture.target.phase_window == "phase_3a"
                         and capture.target.sequence_index == 0
@@ -1784,14 +2268,14 @@ def compile_and_merge_scheduled_rigs(
 
                     continue
 
-                # The final pre-C2 Diamond Ring must also leave enough
-                # time for preparation of the first TOTALITY PHOTO.  C2 is a
-                # physical anchor, so a preceding atomic capture is skipped
-                # rather than allowed to consume its preparation interval.
+                # Legacy periodic pre-C2 behaviour remains deterministic:
+                # skip the last periodic slot if it would consume the
+                # preparation of a C2-anchored totality capture.
                 next_totality = next(
                     (
                         item
-                        for item in captures[capture_index + 1:]
+                        for item
+                        in captures[capture_index + 1:]
                         if item.target.phase == "totality"
                     ),
                     None,
@@ -1840,8 +2324,6 @@ def compile_and_merge_scheduled_rigs(
                     rig_available_at is not None
                     and candidate_start < rig_available_at
                 ):
-                    # C3 itself is a hard anchor. It must never disappear
-                    # silently because of an earlier camera operation.
                     if (
                         capture.target.phase_window == "phase_3a"
                         and capture.target.sequence_index == 0
@@ -1851,9 +2333,6 @@ def compile_and_merge_scheduled_rigs(
                             f"previous camera operation for RIG {rig_id}"
                         )
 
-                    # Periodic captures keep their absolute target time.
-                    # If this RIG is still busy, skip this target rather
-                    # than delaying it and corrupting eclipse timing.
                     continue
 
                 scheduled.extend(candidate_scheduled)
@@ -1861,18 +2340,22 @@ def compile_and_merge_scheduled_rigs(
                 rig_available_at = candidate_end
                 continue
 
+            # ----------------------------------------------------------
+            # TOTALITY
+            # ----------------------------------------------------------
             if capture.target.deadline is None:
                 raise ValueError(
                     f"totality deadline missing for RIG {rig_id}"
                 )
 
-            # Find the first C3 Diamond Ring capture for this same RIG.
             c3_capture = next(
                 (
                     item
                     for item in captures[capture_index + 1:]
-                    if item.target.phase_window == "phase_3a"
-                    and item.target.sequence_index == 0
+                    if (
+                        item.target.phase_window == "phase_3a"
+                        and item.target.sequence_index == 0
+                    )
                 ),
                 None,
             )
@@ -1881,6 +2364,9 @@ def compile_and_merge_scheduled_rigs(
                 raise ValueError(
                     f"C3 Diamond Ring capture missing for RIG {rig_id}"
                 )
+
+            if c3_capture.target.continuous:
+                _validate_c3_contact_exposures(c3_capture)
 
             units = _split_totality_single_photos(capture)
 
@@ -1892,9 +2378,6 @@ def compile_and_merge_scheduled_rigs(
             while True:
                 template = units[unit_index]
 
-                # First physical totality photo remains anchored exactly
-                # to C2. Later photos are shifted so their first USB command
-                # starts immediately when the previous photo has finished.
                 provisional_target = (
                     capture.target.target_time
                     if current_end is None
@@ -1927,8 +2410,21 @@ def compile_and_merge_scheduled_rigs(
                     _scheduled_static_bounds(candidate_scheduled)
                 )
 
-                if current_end is not None:
-                    shift = current_end - candidate_start
+                # C2 is no longer required to be the first TOTALITY PHOTO
+                # when an atomic DR contact group is still finishing.
+                #
+                # Start TOTALITY immediately when the RIG becomes free.
+                not_before = (
+                    rig_available_at
+                    if current_end is None
+                    else current_end
+                )
+
+                if (
+                    not_before is not None
+                    and candidate_start < not_before
+                ):
+                    shift = not_before - candidate_start
 
                     candidate = replace(
                         reduced_candidate,
@@ -1951,16 +2447,6 @@ def compile_and_merge_scheduled_rigs(
                 )
 
                 if (
-                    current_end is None
-                    and rig_available_at is not None
-                    and candidate_start < rig_available_at
-                ):
-                    raise ValueError(
-                        f"C2 totality preparation overlaps previous "
-                        f"camera operation for RIG {rig_id}"
-                    )
-
-                if (
                     current_end is not None
                     and candidate_start < current_end
                 ):
@@ -1969,16 +2455,29 @@ def compile_and_merge_scheduled_rigs(
                         f"for RIG {rig_id}"
                     )
 
-                # Compute the exact preparation boundary for C3 using the
-                # camera state that would exist after this candidate photo.
+                # ------------------------------------------------------
+                # Reserve C3 before accepting this TOTALITY PHOTO.
+                # ------------------------------------------------------
                 c3_profile = _profile_for_capture(
                     c3_capture,
                     timing_profiles,
                 )
 
+                if c3_capture.target.continuous:
+                    # First DR group is the C3 transition itself.
+                    c3_for_boundary = (
+                        _continuous_contact_capture(
+                            c3_capture,
+                            totality_deadline,
+                            0,
+                        )
+                    )
+                else:
+                    c3_for_boundary = c3_capture
+
                 reduced_c3, _c3_state = (
                     reduce_audited_capture_operations(
-                        c3_capture,
+                        c3_for_boundary,
                         candidate_state,
                     )
                 )
@@ -1995,7 +2494,9 @@ def compile_and_merge_scheduled_rigs(
                 c3_safety_boundary = (
                     c3_prepare_start
                     - timedelta(
-                        milliseconds=CRITICAL_TRANSITION_MARGIN_MS
+                        milliseconds=(
+                            CRITICAL_TRANSITION_MARGIN_MS
+                        )
                     )
                 )
 
@@ -2004,6 +2505,8 @@ def compile_and_merge_scheduled_rigs(
                     c3_safety_boundary,
                 )
 
+                # Never start a totality PHOTO which cannot finish before
+                # the reserved C3 preparation boundary.
                 if candidate_end > stop_at:
                     break
 
@@ -2013,14 +2516,17 @@ def compile_and_merge_scheduled_rigs(
                 current_end = candidate_end
 
                 photo_index += 1
-                unit_index = (unit_index + 1) % len(units)
+                unit_index = (
+                    (unit_index + 1) % len(units)
+                )
 
                 if current_end >= totality_deadline:
                     break
 
             if photo_index == 0:
                 raise ValueError(
-                    f"no totality photo fits before C3 for RIG {rig_id}"
+                    f"no totality photo fits before C3 "
+                    f"for RIG {rig_id}"
                 )
 
             rig_available_at = current_end
