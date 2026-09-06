@@ -165,16 +165,32 @@ rsync "${RSYNC_OPTS[@]}" \
 
 echo
 echo "=== product configs ==="
-# configs/ est désormais 100 % produit et peut être synchronisé exactement.
-# Cela supprime aussi les anciens fichiers runtime qui vivaient autrefois ici.
+# Les configs produit sont synchronisées exactement, sauf les données
+# issues de la caractérisation caméra, qui sont persistantes et locales à la Pi.
 rsync "${RSYNC_OPTS[@]}" --delete \
+    --exclude='camera_characterization/' \
+    --exclude='camera_profiles/' \
+    --exclude='camera_timing/' \
     "$SRC/configs/" \
     "$DST_HOST:$DST/configs/"
+
+echo
+echo "=== preserved camera characterization data ==="
+echo "  $DST/configs/camera_characterization/"
+echo "  $DST/configs/camera_profiles/"
+echo "  $DST/configs/camera_timing/"
 
 echo
 echo "=== build metadata ==="
 
 BUILD_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
+
+# Un déploiement de validation peut contenir des changements non commités.
+# BUILD_COMMIT doit alors l'indiquer explicitement pour éviter de prétendre
+# que le code PROD correspond exactement au commit Git.
+if [[ -n "$(git -C "$SRC" status --porcelain)" ]]; then
+    BUILD_COMMIT="${BUILD_COMMIT}-dirty"
+fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Would write BUILD_COMMIT=$BUILD_COMMIT"
