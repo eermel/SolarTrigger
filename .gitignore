@@ -26,3 +26,6 @@ configs/rig/default.json
 
 # Raw camera characterization measurement evidence
 /configs/camera_characterization/measurements/
+
+# Local persistent camera characterization history
+/configs/camera_characterization/history.jsonl
