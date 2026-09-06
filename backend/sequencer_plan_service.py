@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from backend.camera_timing import load_camera_timing_profile
+from backend.anchor_sequencer import (
+    build_anchor_first_capture_plan,
+    schedule_anchor_first_capture_plan,
+)
 from backend.preview_context import load_eclipse_context
 from backend.rig_runtime import load_rig_configuration
 from backend.sequencer_compiler import (
@@ -450,46 +454,38 @@ def compile_execution_plan_from_files(
     active_rigs = _active_rigs(config)
     _validate_active_rigs_for_sequencer(active_rigs)
 
-    try:
-        targets = compile_capture_targets(
-            timeline,
-            photo_config,
-            sequence_margin_min=sequence_margin_min,
-        )
-
-        materialized = materialize_capture_targets(
-            targets,
-            active_rigs,
-            photo_config,
-            exposure_opt_config,
-            eclipse_context,
-            eclipse_config=config.get("eclipse"),
-        )
-    except (TypeError, ValueError, KeyError) as exc:
-        raise SequencerCompileError(
-            f"capture materialization failed: {exc}"
-        ) from exc
-
-    audited_by_rig = _group_audited_by_rig(
-        materialized
-    )
-
-    initial_states = derive_initial_state_required(
-        audited_by_rig
-    )
-
+    # Resolve calibrated timings before target generation.  C2/C3 are now
+    # the primary anchors; all other timestamps are derived from them.
     timing_profiles, resolved_timing_files = _load_timing_profiles(
         active_rigs=active_rigs,
         timing_dir=camera_timing_dir,
     )
 
     try:
-        merged, final_states = (
-            compile_and_merge_scheduled_rigs(
-                audited_by_rig,
-                initial_states=initial_states,
-                timing_profiles=timing_profiles,
-            )
+        audited_by_rig = build_anchor_first_capture_plan(
+            timeline=timeline,
+            photo_config=photo_config,
+            sequence_margin_min=sequence_margin_min,
+            active_rigs=active_rigs,
+            exposure_opt_config=exposure_opt_config,
+            eclipse_context=eclipse_context,
+            timing_profiles=timing_profiles,
+            eclipse_config=config.get("eclipse"),
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise SequencerCompileError(
+            f"anchor-first planning failed: {exc}"
+        ) from exc
+
+    initial_states = derive_initial_state_required(
+        audited_by_rig
+    )
+
+    try:
+        merged, final_states = schedule_anchor_first_capture_plan(
+            audited_by_rig,
+            initial_states=initial_states,
+            timing_profiles=timing_profiles,
         )
     except ValueError as exc:
         raise SequencerCompileError(
