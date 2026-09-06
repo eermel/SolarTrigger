@@ -156,6 +156,47 @@ class ProfilePlugin(CameraPlugin):
         _, node = widget(self.camera, spec["path"])
         return node.get_value()
 
+    def _resolve_profile_shutter(self, value):
+        """Resolve a requested shutter to one characterized profile spelling.
+
+        Photographically equivalent spellings such as ``1/2`` and ``5/10``
+        represent the same exposure duration.  The execution plan may use a
+        canonical spelling while gphoto2 exposes another one.  Always return
+        the exact characterized profile key that must be sent at runtime.
+
+        Ambiguous or genuinely unsupported durations fail closed.
+        """
+        requested = str(value)
+        values = self.commands["shutter"]["values"]
+
+        if requested in values:
+            return requested
+
+        try:
+            requested_s = _parse_speed(requested)
+        except (TypeError, ValueError, ZeroDivisionError) as exc:
+            raise ValueError(
+                f"Unsupported profile shutter: {value}"
+            ) from exc
+
+        matches = [
+            str(candidate)
+            for candidate in values
+            if math.isclose(
+                _parse_speed(str(candidate)),
+                requested_s,
+                rel_tol=1e-9,
+                abs_tol=1e-12,
+            )
+        ]
+
+        if len(matches) == 1:
+            return matches[0]
+
+        raise ValueError(
+            f"Unsupported profile shutter: {value}"
+        )
+
     def _live_writable(self, key) -> bool:
         spec = self.commands[key]
         if spec.get("set") is False:
@@ -584,6 +625,8 @@ class ProfilePlugin(CameraPlugin):
         if not plan:
             raise ValueError("empty exposure plan")
 
+        normalized_plan = []
+
         for exposure in plan:
             if (
                 str(exposure["iso"])
@@ -592,14 +635,16 @@ class ProfilePlugin(CameraPlugin):
                 raise ValueError(
                     f"Unsupported profile ISO: {exposure['iso']}"
                 )
-            if (
-                str(exposure["shutter"])
-                not in self.commands["shutter"]["values"]
-            ):
-                raise ValueError(
-                    "Unsupported profile shutter: "
-                    f"{exposure['shutter']}"
+
+            normalized_exposure = dict(exposure)
+            normalized_exposure["shutter"] = (
+                self._resolve_profile_shutter(
+                    exposure["shutter"]
                 )
+            )
+            normalized_plan.append(normalized_exposure)
+
+        plan = normalized_plan
 
         contract = self.profile.get("timing_contract")
         if isinstance(contract, dict):

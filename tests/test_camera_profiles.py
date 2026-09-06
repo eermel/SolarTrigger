@@ -461,3 +461,40 @@ def test_single_shot_operator_instruction_is_unambiguous(profile):
     assert "Single Shot" in message
     assert "Burst" in message
     assert "S / Single Shot" not in message
+
+
+def test_equivalent_shutter_spelling_resolves_to_characterized_value(profile):
+    profile["commands"]["shutter"]["values"]["5/10"] = "5/10"
+
+    plugin = ProfilePlugin(None, profile=profile)
+    capture_intent = SimpleNamespace(
+        exposure_plan=[
+            {"shutter": "1/2", "iso": 100},
+        ]
+    )
+
+    prepared = plugin.prepare_capture(capture_intent)
+
+    photos = [
+        operation
+        for operation in prepared.token[1]
+        if operation["action"] == "trigger_capture"
+    ]
+
+    assert len(photos) == 1
+    assert photos[0]["shutter"] == "5/10"
+
+
+def test_genuinely_unsupported_shutter_still_fails_closed(profile):
+    plugin = ProfilePlugin(None, profile=profile)
+    capture_intent = SimpleNamespace(
+        exposure_plan=[
+            {"shutter": "1/3", "iso": 100},
+        ]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"Unsupported profile shutter: 1/3",
+    ):
+        plugin.prepare_capture(capture_intent)
