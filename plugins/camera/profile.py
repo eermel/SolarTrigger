@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import re
 import time
 
 from .base import (
@@ -108,6 +109,12 @@ def wait_camera_idle(
                 )
 
 
+class CameraPreflightError(RuntimeError):
+    """A required physical camera state cannot be established before START."""
+
+    code = "PREFLIGHT_FAILED"
+
+
 class ProfilePlugin(CameraPlugin):
     def __init__(self, camera, log_fn=print, profile=None):
         super().__init__(camera, log_fn)
@@ -119,20 +126,110 @@ class ProfilePlugin(CameraPlugin):
     def matches(model_string):
         return False  # Factory passes the exact validated model profile.
 
-    def _apply(self, key, value=None):
+    _SEMANTIC = {
+        "shutterspeed": "shutter",
+        "shutterspeed2": "shutter",
+        "iso": "iso",
+        "capturemode": "capture_mode",
+        "f-number": "aperture",
+        "aperture": "aperture",
+        "manual_mode": "manual_mode",
+        "capture_target": "capture_target",
+        "raw": "raw",
+    }
+
+    def _resolved_value(self, key, value=None):
         spec = self.commands[key]
         if value is None:
-            value = spec["value"]
-        else:
-            values = spec.get("values")
-            if values is not None and str(value) not in values:
-                raise ValueError(
-                    f"Uncharacterized {key} value: {value}"
-                )
-            value = (
-                values[str(value)]
-                if values is not None
-                else value
+            if "value" not in spec:
+                raise ValueError(f"No characterized default for {key}")
+            return spec["value"]
+        values = spec.get("values")
+        if values is not None:
+            if str(value) not in values:
+                raise ValueError(f"Uncharacterized {key} value: {value}")
+            return values[str(value)]
+        return value
+
+    def _read(self, key):
+        spec = self.commands[key]
+        _, node = widget(self.camera, spec["path"])
+        return node.get_value()
+
+    def _live_writable(self, key) -> bool:
+        spec = self.commands[key]
+        if spec.get("set") is False:
+            return False
+        _, node = widget(self.camera, spec["path"])
+        try:
+            return not bool(node.get_readonly())
+        except Exception:
+            # Legacy profiles did not persist capability flags.  If the live
+            # widget cannot report readonly state, preserve historical SET
+            # behaviour and let write_checked provide the final proof.
+            return spec.get("set") is not False
+
+    def _display_model(self) -> str:
+        model = str(self.profile.get("model") or "appareil photo")
+        model = re.sub(r"\s*\(PC Control\)\s*$", "", model)
+        return model.replace("Alpha-A", "A")
+
+    def _manual_instruction(self, key, target, actual) -> str:
+        model = self._display_model()
+        if key == "manual_mode" and str(target).casefold() in {"m", "manual"}:
+            return f"Mettre le {model} en mode manuel (M)."
+        if key == "raw":
+            return f"Régler le {model} en RAW (actuel: {actual})."
+        if key == "capture_target":
+            return (
+                f"Régler la destination d'enregistrement du {model} sur "
+                f"{target} (actuel: {actual})."
+            )
+        return (
+            f"Régler physiquement {key}={target} sur le {model} "
+            f"(actuel: {actual})."
+        )
+
+    def _ensure(self, key, value=None) -> bool:
+        """GET first; SET only when the required value is different."""
+        target = self._resolved_value(key, value)
+        actual = self._read(key)
+        if str(actual) == str(target):
+            return False
+
+        if not self._live_writable(key):
+            raise CameraPreflightError(
+                self._manual_instruction(key, target, actual)
+            )
+
+        try:
+            write_checked(self.camera, self.commands[key]["path"], target)
+        except Exception as exc:
+            # Legacy profiles may lack explicit set=false even when gphoto2
+            # exposes a physical-dial setting as superficially writable.  A
+            # failed transition at preflight is still an operator-actionable
+            # physical requirement, not a generic runtime USB error.
+            try:
+                actual = self._read(key)
+            except Exception as read_exc:
+                raise CameraPreflightError(
+                    f"Communication avec {self._display_model()} impossible "
+                    f"pendant le précontrôle de {key}: {read_exc}"
+                ) from exc
+            raise CameraPreflightError(
+                self._manual_instruction(key, target, actual)
+            ) from exc
+        return True
+
+    def _apply(self, key, value=None):
+        """Apply one characterized SET used by the scheduled runtime."""
+        target = self._resolved_value(key, value)
+        if not self._live_writable(key):
+            actual = self._read(key)
+            if str(actual) == str(target):
+                return False
+            raise CameraPreflightError(
+                self._manual_instruction(key, target, actual)
             )
 
         writer = (
@@ -140,7 +237,57 @@ class ProfilePlugin(CameraPlugin):
             if self.profile.get("timing_contract")
             else write_widget
         )
-        writer(self.camera, spec["path"], value)
+        writer(self.camera, self.commands[key]["path"], target)
+        return True
+
+    def preflight(self, required_state=None):
+        """Validate/configure the body before any timed Trigger command runs.
+
+        Characterized invariants are checked with GET first.  A GET-only
+        invariant is accepted when already correct and produces an actionable
+        error when a physical control must be changed.  Dynamic state is then
+        converged to the effective plan state at the current UTC time.
+        """
+        required_state = required_state or {}
+        if not isinstance(required_state, dict):
+            raise ValueError("required_state must be an object")
+
+        changed = []
+        for key in (
+            "manual_mode",
+            "capture_target",
+            "raw",
+            "capture_mode",
+            "self_timer",
+            "time_lapse",
+        ):
+            if key in self.commands and self._ensure(key):
+                changed.append(key)
+
+        for parameter, value in required_state.items():
+            # capture_setup is the old v2 composite macro.  It is not a stable
+            # camera state and therefore is never reconstructed at preflight.
+            if parameter == "capture_setup":
+                continue
+            key = self._SEMANTIC.get(str(parameter))
+            if key is None or key not in self.commands:
+                raise CameraPreflightError(
+                    f"Paramètre requis non caractérisé: {parameter}"
+                )
+            if self._ensure(key, value):
+                changed.append(str(parameter))
+
+        return {
+            "ok": True,
+            "changed": changed,
+            "model": self._display_model(),
+        }
+
+    def get_parameter(self, parameter):
+        key = self._SEMANTIC.get(str(parameter))
+        if key is None or key not in self.commands:
+            raise ValueError(f"Uncharacterized parameter: {parameter}")
+        return self._read(key)
 
     def init_settings(
         self,
@@ -149,23 +296,14 @@ class ProfilePlugin(CameraPlugin):
         image_format="RAW",
         white_balance=None,
     ):
-        for key in (
-            "manual_mode",
-            "capture_target",
-            "raw",
-            "self_timer",
-            "time_lapse",
-        ):
-            if key not in self.commands:
-                continue
-            self._apply(key)
-
-        self._apply("iso", 100 if iso is None else iso)
-
+        required = {
+            "iso": 100 if iso is None else iso,
+        }
         if "capture_mode" in self.commands:
-            self._apply("capture_mode")
-
-        self.set_exposure_settings(aperture=aperture)
+            required["capturemode"] = self.commands["capture_mode"]["value"]
+        if aperture is not None and "aperture" in self.commands:
+            required["f-number"] = aperture
+        return self.preflight(required)
 
     def set_exposure_settings(self, aperture=None, iso=None):
         if iso is not None:
@@ -205,22 +343,18 @@ class ProfilePlugin(CameraPlugin):
             )
             return True
 
-        semantic = {
-            "shutterspeed": "shutter",
-            "iso": "iso",
-            "capturemode": "capture_mode",
-            "f-number": "aperture",
-        }
-
-        if (
-            parameter not in semantic
-            or semantic[parameter] not in self.commands
-        ):
-            raise ValueError(
-                f"Uncharacterized parameter: {parameter}"
+        key = self._SEMANTIC.get(str(parameter))
+        if key is None or key not in self.commands:
+            fallback_key = (
+                self._SEMANTIC.get(str(fallback_parameter))
+                if fallback_parameter is not None
+                else None
             )
+            if fallback_key is None or fallback_key not in self.commands:
+                raise ValueError(f"Uncharacterized parameter: {parameter}")
+            key = fallback_key
 
-        self._apply(semantic[parameter], value)
+        self._apply(key, value)
         return True
 
     def get_battery_level(self):
@@ -777,7 +911,10 @@ class ProfilePlugin(CameraPlugin):
         choices = {}
         costs[-1] = 0.0
 
-        has_capture_mode = "capture_mode" in self.commands
+        has_capture_mode = (
+            "capture_mode" in self.commands
+            and self.commands["capture_mode"].get("set") is not False
+        )
 
         for index in range(len(plan) - 1, -1, -1):
             for frames in choices_by_size:

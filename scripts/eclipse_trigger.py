@@ -1914,9 +1914,16 @@ def _run_execution_plan_v2():
         stop_event=_photo_override_event,
     )
 
-    # Établi avant les commandes horodatées. Aucun initialize() legacy :
-    # seulement les paramètres explicitement requis par le plan.
-    runtime.prepare_for_execution(plan)
+    # Strict preflight before timed commands.  Characterized GET-only
+    # invariants (e.g. an A6600 physical M dial) fail here, before START.
+    try:
+        runtime.prepare_for_execution(plan)
+    except Exception as exc:
+        _log(
+            f"{Colors.RED}PRÉPARATION CAMÉRA IMPOSSIBLE — "
+            f"{exc}{Colors.RESET}"
+        )
+        raise
 
     _log(
         f"{Colors.GREEN}### EXECUTION PLAN V2 START{Colors.RESET}"

@@ -85,7 +85,7 @@ def test_photo_failure_does_not_stop_later_timeline_commands():
     )
 
 
-def test_failed_set_is_retried_before_photo_after_camera_returns():
+def test_failed_set_is_retried_asap_and_preserves_next_photo():
     start = datetime(2027, 8, 2, 10, 0, 0)
     clock = FakeClock(start)
     logs = []
@@ -109,8 +109,8 @@ def test_failed_set_is_retried_before_photo_after_camera_returns():
             )
 
             # SET programmé: caméra absente.
-            # Première PHOTO: caméra encore absente.
-            # Deuxième PHOTO: caméra revenue.
+            # Retry ASAP immédiat: caméra encore absente.
+            # Tentative suivante avant PHOTO1: caméra revenue.
             if self.set_attempts <= 2:
                 raise RuntimeError("camera absent")
 
@@ -146,22 +146,25 @@ def test_failed_set_is_retried_before_photo_after_camera_returns():
 
     runtime.run(plan)
 
-    # SET initial échoué + retry avant PHOTO1 échoué + retry avant PHOTO2 OK.
+    # SET initial échoué, retry ASAP échoué, puis nouvelle tentative avant
+    # PHOTO1 réussie : la première photo est encore future et peut être faite.
     assert camera.calls == [
         ("SET", "iso", "800"),
         ("SET", "iso", "800"),
         ("SET", "iso", "800"),
+        ("PHOTO", "1/250"),
         ("PHOTO", "1/125"),
     ]
 
-    assert any(
+    # PHOTO1 n'est pas perdue : le SET requis a finalement réussi
+    # suffisamment tôt pour permettre son exécution.
+    assert not any(
         "photo_lost=1" in message
-        and "reason=pending_set" in message
         and "index=1" in message
         for message in logs
     )
 
     assert any(
-        "pending_set_applied parameter=iso" in message
+        "pending_set_recovered parameter=iso" in message
         for message in logs
     )

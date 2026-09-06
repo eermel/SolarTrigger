@@ -195,6 +195,22 @@ class CameraWorker:
             worker_deadline=monotonic_deadline,
         )
 
+    def preflight(self, required_state=None):
+        return self._call(
+            "preflight",
+            required_state or {},
+            priority=PRIORITY_SEQUENCER,
+            recover_connection=True,
+        )
+
+    def get_parameter(self, parameter):
+        return self._call(
+            "get_parameter",
+            parameter,
+            priority=PRIORITY_SEQUENCER,
+            recover_connection=True,
+        )
+
     def set_parameter(self, parameter, value, fallback_parameter=None, *, worker_deadline=None, reject_if_busy=False):
         return self._call(
             "set_parameter",

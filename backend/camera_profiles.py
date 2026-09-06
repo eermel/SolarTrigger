@@ -66,6 +66,22 @@ def validate_profile(data):
         ):
             raise ValueError("invalid widget path")
 
+    # Characterization may explicitly distinguish readable and writable
+    # settings.  Missing flags are accepted for legacy profiles; runtime then
+    # uses the live gphoto2 readonly bit as the authority.
+    for key, command in commands.items():
+        if not isinstance(command, dict):
+            continue
+        for capability in ("get", "set"):
+            if capability in command and type(command[capability]) is not bool:
+                raise ValueError(
+                    f"invalid {key}.{capability} capability"
+                )
+        if command.get("set") is False and command.get("get") is False:
+            raise ValueError(
+                f"camera command {key} is neither readable nor writable"
+            )
+
     contract = data.get("timing_contract")
     contract_version = contract.get("version") if isinstance(contract, dict) else None
 

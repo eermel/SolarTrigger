@@ -132,6 +132,43 @@ class CameraIpcClient:
             timeout_s=timeout_s,
         )
 
+    def preflight(
+        self,
+        rig_id: int,
+        required_state: dict[str, Any] | None = None,
+        *,
+        timeout_s: float = 15.0,
+    ) -> Any:
+        return self._call(
+            "camera.preflight",
+            {
+                "rig_id": rig_id,
+                "required_state": dict(required_state or {}),
+            },
+            timeout_s=timeout_s,
+        )
+
+    def get_parameter(
+        self,
+        rig_id: int,
+        parameter: str,
+        *,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+    ) -> Any:
+        result = self._call(
+            "camera.get_parameter",
+            {"rig_id": rig_id, "parameter": parameter},
+            timeout_s=timeout_s,
+        )
+        if not isinstance(result, dict) or "value" not in result:
+            self._fail(
+                "INVALID_RESPONSE",
+                "camera.get_parameter",
+                "camera parameter response is invalid",
+                rig_id=rig_id,
+            )
+        return result["value"]
+
     def set_parameter(
         self,
         rig_id: int,

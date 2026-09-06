@@ -452,61 +452,52 @@ def test_rebase_execution_plan_does_not_mutate_original():
     )
 
 
-def test_prepare_for_execution_replays_past_sets_but_never_past_photos():
+def test_prepare_for_execution_reduces_past_sets_but_never_replays_photos():
     clock = FakeClock(datetime(2027, 8, 2, 10, 0, 5))
-    camera = FakeCamera()
 
+    class PreflightCamera(FakeCamera):
+        def __init__(self):
+            super().__init__()
+            self.preflights = []
+
+        def preflight(self, rig_id, state):
+            self.preflights.append((rig_id, dict(state)))
+
+    camera = PreflightCamera()
     runtime = ExecutionPlanRuntime(
         clock=clock,
         camera_client=camera,
         log_fn=lambda _message: None,
     )
-
     plan = {
-        "initial_state_required": {
-            "1": {
-                "iso": "100",
-            }
-        },
+        "initial_state_required": {"1": {"iso": "100"}},
         "_commands_runtime": [
             {
                 "time": datetime(2027, 8, 2, 10, 0, 1),
                 "rig_id": 1,
                 "action": "SET",
-                "params": {
-                    "parameter": "shutterspeed",
-                    "value": "1/250",
-                },
+                "params": {"parameter": "shutterspeed", "value": "1/250"},
                 "index": 0,
             },
             {
                 "time": datetime(2027, 8, 2, 10, 0, 2),
                 "rig_id": 1,
                 "action": "PHOTO",
-                "params": {
-                    "shutter": "1/250",
-                    "expected_frames": 1,
-                },
+                "params": {"shutter": "1/250", "expected_frames": 1},
                 "index": 1,
             },
             {
                 "time": datetime(2027, 8, 2, 10, 0, 3),
                 "rig_id": 1,
                 "action": "SET",
-                "params": {
-                    "parameter": "iso",
-                    "value": "200",
-                },
+                "params": {"parameter": "iso", "value": "200"},
                 "index": 2,
             },
             {
                 "time": datetime(2027, 8, 2, 10, 0, 10),
                 "rig_id": 1,
                 "action": "SET",
-                "params": {
-                    "parameter": "iso",
-                    "value": "400",
-                },
+                "params": {"parameter": "iso", "value": "400"},
                 "index": 3,
             },
         ],
@@ -514,10 +505,9 @@ def test_prepare_for_execution_replays_past_sets_but_never_past_photos():
 
     runtime.prepare_for_execution(plan)
 
-    assert camera.calls == [
-        ("SET", 1, "iso", "100", None),
-        ("SET", 1, "shutterspeed", "1/250", None),
-        ("SET", 1, "iso", "200", None),
+    assert camera.calls == []
+    assert camera.preflights == [
+        (1, {"iso": "200", "shutterspeed": "1/250"})
     ]
 
 

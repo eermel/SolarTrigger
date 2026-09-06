@@ -1222,10 +1222,22 @@ def reduce_audited_capture_operations(
 
     state = _normalize_camera_state(camera_state)
 
-    stateful = _STATEFUL_SET_PARAMETERS.get(
-        capture.backend,
-        frozenset(),
-    )
+    if capture.backend.startswith("profile-"):
+        # Characterized profiles expose explicit stateful SET operations too.
+        # Deduplicate them exactly as native backends so stable ISO/mode values
+        # are not resent for every capture.
+        stateful = frozenset({
+            "iso",
+            "capturemode",
+            "shutterspeed",
+            "shutterspeed2",
+            "f-number",
+        })
+    else:
+        stateful = _STATEFUL_SET_PARAMETERS.get(
+            capture.backend,
+            frozenset(),
+        )
 
     reduced: list[dict[str, Any]] = []
 
@@ -1257,8 +1269,8 @@ def reduce_audited_capture_operations(
         sony_bracket_centre_set = False
 
         if (
-            capture.backend == "sony"
-            and parameter == "shutterspeed"
+            (capture.backend == "sony" or capture.backend.startswith("profile-"))
+            and parameter in ("shutterspeed", "shutterspeed2")
             and index > 0
             and index + 1 < len(operations)
         ):

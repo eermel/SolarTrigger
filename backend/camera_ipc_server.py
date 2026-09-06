@@ -84,6 +84,8 @@ _PARAM_KEYS = {
         "white_balance",
     },
     "apply_phase_settings": {"rig_id", "aperture", "iso"},
+    "camera.preflight": {"rig_id", "required_state"},
+    "camera.get_parameter": {"rig_id", "parameter"},
     "camera.set_parameter": {
         "rig_id",
         "parameter",
@@ -105,6 +107,8 @@ _REQUIRED_PARAMS = {
     "camera.capabilities": {"rig_id"},
     "camera.initialize": {"rig_id"},
     "apply_phase_settings": {"rig_id"},
+    "camera.preflight": {"rig_id"},
+    "camera.get_parameter": {"rig_id", "parameter"},
     "camera.set_parameter": {"rig_id", "parameter", "value"},
     "camera.execute_photo": {"rig_id", "params"},
     "prepare_capture": {"rig_id", "intent"},
@@ -150,8 +154,7 @@ class CameraIpcServer:
         self._pool: ThreadPoolExecutor | None = None
         self._stopping = threading.Event()
         self._state_lock = threading.RLock()
-        self._active_session: str | None = None
-        self._active_rig_ids: frozenset[int] | None = None
+        self._active_sessions: dict[str, frozenset[int] | None] = {}
         self._tokens: dict[
             str,
             tuple[str | None, int, Any]
@@ -169,6 +172,22 @@ class CameraIpcServer:
         """Compatibility name for callers which treat the path as an endpoint."""
 
         return self._socket_path
+
+    @property
+    def _active_session(self):
+        """Compatibility view for legacy diagnostics/tests."""
+        with self._state_lock:
+            if len(self._active_sessions) != 1:
+                return None
+            return next(iter(self._active_sessions))
+
+    @property
+    def _active_rig_ids(self):
+        """Compatibility allowlist view for a sole active session."""
+        with self._state_lock:
+            if len(self._active_sessions) != 1:
+                return None
+            return next(iter(self._active_sessions.values()))
 
     @staticmethod
     def _select_endpoint_dir(value) -> Path:
@@ -197,7 +216,7 @@ class CameraIpcServer:
         session_id: str | None = None,
         rig_ids=None,
     ) -> str:
-        """Activate the sole client session with an optional RIG allowlist."""
+        """Activate one independent client session with a RIG allowlist."""
 
         candidate = session_id or secrets.token_urlsafe(24)
         if not isinstance(candidate, str) or not candidate:
@@ -225,25 +244,56 @@ class CameraIpcServer:
             allowed = frozenset(requested)
 
         with self._state_lock:
-            if self._active_session not in (None, candidate):
-                raise IpcError("SESSION_ACTIVE", "another camera IPC session is active")
-            self._active_session = candidate
-            self._active_rig_ids = allowed
+            existing = self._active_sessions.get(candidate, ...)
+            if existing is not ...:
+                if existing != allowed:
+                    raise IpcError(
+                        "INVALID_SESSION",
+                        "camera IPC session already has a different RIG allowlist",
+                    )
+                return candidate
+
+            # An unscoped compatibility lease owns every RIG. Scoped Trigger
+            # leases may coexist only when their RIG sets are disjoint.
+            for other_allowed in self._active_sessions.values():
+                if allowed is None or other_allowed is None:
+                    raise IpcError(
+                        "SESSION_ACTIVE",
+                        "another camera IPC session already owns this camera scope",
+                    )
+                if allowed & other_allowed:
+                    raise IpcError(
+                        "SESSION_ACTIVE",
+                        "another camera IPC session already owns one of these RIGs",
+                    )
+
+            self._active_sessions[candidate] = allowed
         return candidate
 
     def revoke_session(self, session_id: str | None = None) -> None:
-        """Revoke a session and purge every prepared capture it owns."""
+        """Revoke one session without disturbing other running RIGs."""
 
         with self._state_lock:
-            target = self._active_session if session_id is None else session_id
-            if target is None or target != self._active_session:
+            if session_id is None:
+                if len(self._active_sessions) != 1:
+                    raise IpcError(
+                        "INVALID_SESSION",
+                        "session_id is required when multiple IPC sessions are active",
+                    )
+                target = next(iter(self._active_sessions))
+            else:
+                target = session_id
+            if target not in self._active_sessions:
                 raise IpcError("INVALID_SESSION", "camera IPC session is not active")
-            self._active_session = None
-            self._active_rig_ids = None
+            allowed = self._active_sessions.pop(target)
             self._tokens = {
                 key: value for key, value in self._tokens.items() if value[0] != target
             }
-            self._rig_iso_targets.clear()
+            if allowed is None:
+                self._rig_iso_targets.clear()
+            else:
+                for rig_id in allowed:
+                    self._rig_iso_targets.pop(rig_id, None)
 
     def start(self) -> Path:
         with self._state_lock:
@@ -284,8 +334,7 @@ class CameraIpcServer:
             pool.shutdown(wait=True, cancel_futures=True)
         self._unlink_own_socket()
         with self._state_lock:
-            self._active_session = None
-            self._active_rig_ids = None
+            self._active_sessions.clear()
             self._tokens.clear()
             self._rig_iso_targets.clear()
 
@@ -403,13 +452,11 @@ class CameraIpcServer:
         session = request.get("session_id")
         if "session_id" in request and (not isinstance(session, str) or not session):
             raise IpcError("INVALID_REQUEST", "session_id must be a non-empty string")
-        self._validate_session(session)
+        allowed = self._validate_session(session)
 
         if operation == "ping":
             return {"ok": True}
         if operation == "list_active_camera_rigs":
-            with self._state_lock:
-                allowed = self._active_rig_ids
             rig_ids = (
                 tuple(sorted(allowed))
                 if allowed is not None
@@ -417,7 +464,7 @@ class CameraIpcServer:
             )
             return {"rig_ids": list(rig_ids)}
         if operation == "camera.capabilities":
-            rig_id, worker = self._worker(params)
+            rig_id, worker = self._worker(params, allowed=allowed)
             worker.connect()
 
             camera_type = None
@@ -463,7 +510,7 @@ class CameraIpcServer:
             self._optional_strings(
                 params, "image_format", "white_balance", nullable=False
             )
-            rig_id, worker = self._worker(params)
+            rig_id, worker = self._worker(params, allowed=allowed)
             plugin = worker.connect()
             self._call_worker(
                 worker.init_settings,
@@ -484,7 +531,7 @@ class CameraIpcServer:
                 raise IpcError(
                     "INVALID_REQUEST", "iso must be a positive base-10 integer string"
                 )
-            rig_id, worker = self._worker(params)
+            rig_id, worker = self._worker(params, allowed=allowed)
             result = self._call_worker(
                 worker.apply_phase_settings,
                 aperture=params.get("aperture"), iso=iso
@@ -493,6 +540,50 @@ class CameraIpcServer:
                 with self._state_lock:
                     self._rig_iso_targets[rig_id] = int(iso)
             return result
+        if operation == "camera.preflight":
+            required_state = params.get("required_state", {})
+            if not isinstance(required_state, dict) or any(
+                not isinstance(key, str) or not key
+                for key in required_state
+            ):
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    "required_state must be an object with string keys",
+                )
+            rig_id, worker = self._worker(params, allowed=allowed)
+            try:
+                result = self._call_worker(
+                    worker.preflight,
+                    required_state,
+                )
+            except IpcError:
+                raise
+            except Exception as exc:
+                # Preserve the operator-actionable message across IPC.
+                raise IpcError("PREFLIGHT_FAILED", str(exc)) from exc
+            return {
+                "rig_id": rig_id,
+                "preflight": result,
+            }
+
+        if operation == "camera.get_parameter":
+            parameter = params.get("parameter")
+            if not isinstance(parameter, str) or not parameter:
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    "parameter must be a non-empty string",
+                )
+            rig_id, worker = self._worker(params, allowed=allowed)
+            result = self._call_worker(
+                worker.get_parameter,
+                parameter,
+            )
+            return {
+                "rig_id": rig_id,
+                "parameter": parameter,
+                "value": result,
+            }
+
         scheduled_options = {}
         if "start_before_monotonic" in params:
             start_before = self._positive_number(params["start_before_monotonic"], "start_before_monotonic")
@@ -519,7 +610,7 @@ class CameraIpcServer:
                     "fallback_parameter must be a non-empty string or null",
                 )
 
-            rig_id, worker = self._worker(params)
+            rig_id, worker = self._worker(params, allowed=allowed)
 
             result = self._call_worker(
                 worker.set_parameter,
@@ -542,7 +633,7 @@ class CameraIpcServer:
                     "params must be an object",
                 )
 
-            rig_id, worker = self._worker(params)
+            rig_id, worker = self._worker(params, allowed=allowed)
 
             result = self._call_worker(
                 worker.execute_photo,
@@ -577,7 +668,7 @@ class CameraIpcServer:
                 intent = CaptureIntent(**intent_values)
             except (TypeError, ValueError) as exc:
                 raise IpcError("INVALID_REQUEST", "invalid capture intent") from exc
-            rig_id, worker = self._worker(params)
+            rig_id, worker = self._worker(params, allowed=allowed)
             policy_getter = getattr(self._runtime, "get_policy_config_for_rig", None)
             policy = policy_getter(rig_id) if policy_getter is not None else None
             version = rig_plan_version(policy if isinstance(policy, dict) else {})
@@ -690,7 +781,7 @@ class CameraIpcServer:
             if not isinstance(token_id, str) or not token_id:
                 raise IpcError("INVALID_REQUEST", "token_id must be a non-empty string")
             deadline = self._deadline(params.get("deadline"))
-            rig_id, worker = self._worker(params)
+            rig_id, worker = self._worker(params, allowed=allowed)
             with self._state_lock:
                 token = self._tokens.get(token_id)
                 if token is None or token[0] != session or token[1] != rig_id:
@@ -765,7 +856,7 @@ class CameraIpcServer:
                     "INVALID_REQUEST", "slowest_override_seconds must be a number"
                 )
             deadline = self._deadline(params.get("deadline"))
-            rig_id, worker = self._worker(params)
+            rig_id, worker = self._worker(params, allowed=allowed)
             metadata = {
                 "rig_id": rig_id,
                 "speeds": speeds,
@@ -1178,18 +1269,26 @@ class CameraIpcServer:
         if not isinstance(intent["phase"], str):
             raise IpcError("INVALID_REQUEST", "phase must be a string")
 
-    def _validate_session(self, session: Any) -> None:
+    def _validate_session(self, session: Any):
         with self._state_lock:
-            active = self._active_session
-        if active is not None and session != active:
-            raise IpcError("INVALID_SESSION", "camera IPC session is not active")
+            if not self._active_sessions:
+                # Compatibility for direct/in-process callers that never
+                # activate an IPC lease.
+                return None
+            if session not in self._active_sessions:
+                raise IpcError("INVALID_SESSION", "camera IPC session is not active")
+            return self._active_sessions[session]
 
-    def _worker(self, params: dict[str, Any]):
+    def _worker(self, params: dict[str, Any], *, allowed=None):
         rig_id = params.get("rig_id")
         if not isinstance(rig_id, int) or isinstance(rig_id, bool) or not 1 <= rig_id <= 4:
             raise IpcError("INVALID_RIG", "rig_id must be an integer from 1 to 4")
-        with self._state_lock:
-            allowed = self._active_rig_ids
+        if allowed is None:
+            # Compatibility for direct in-process calls when exactly one
+            # scoped session exists. Normal IPC dispatch supplies its scope.
+            with self._state_lock:
+                if len(self._active_sessions) == 1:
+                    allowed = next(iter(self._active_sessions.values()))
         if allowed is not None and rig_id not in allowed:
             raise IpcError(
                 "UNKNOWN_RIG",

@@ -235,16 +235,15 @@ class ExecutionPlanRuntime:
         self._timing_samples: list[float] = []
         self._timing_lock = threading.Lock()
 
-    def apply_initial_state(self, plan: dict[str, Any]) -> None:
+    @staticmethod
+    def _normalize_initial_state(plan: dict[str, Any]) -> dict[int, dict[str, Any]]:
         initial = plan.get("initial_state_required", {})
-
         if not isinstance(initial, dict):
             raise ExecutionPlanError(
                 "initial_state_required must be an object"
             )
 
-        normalized_initial = []
-
+        result: dict[int, dict[str, Any]] = {}
         for raw_rig_id, state in initial.items():
             try:
                 rig_id = int(raw_rig_id)
@@ -252,76 +251,103 @@ class ExecutionPlanRuntime:
                 raise ExecutionPlanError(
                     f"invalid initial state rig id: {raw_rig_id!r}"
                 ) from exc
-
-            normalized_initial.append((rig_id, raw_rig_id, state))
-
-        for rig_id, raw_rig_id, state in sorted(normalized_initial):
-
             if rig_id <= 0:
                 raise ExecutionPlanError(
                     f"invalid initial state rig id: {raw_rig_id!r}"
                 )
-
             if not isinstance(state, dict):
                 raise ExecutionPlanError(
                     f"initial state for RIG {rig_id} must be an object"
                 )
-
+            normalized = {}
             for parameter, value in state.items():
                 if not isinstance(parameter, str) or not parameter:
                     raise ExecutionPlanError(
                         f"invalid initial state parameter for RIG {rig_id}"
                     )
+                normalized[parameter] = value
+            result[rig_id] = normalized
+        return result
 
-                self.camera.set_parameter(
-                    rig_id,
-                    parameter,
-                    value,
-                )
-
-    def prepare_for_execution(self, plan: dict[str, Any]) -> None:
-        """Establish the physical state required at the current UTC time.
-
-        The initial state is always established first. When execution starts
-        after some commands have already expired, past SET operations are
-        replayed in their original order so the camera reaches the state that
-        the original uninterrupted timeline would have produced.
-
-        Past PHOTO operations are never replayed.
-        """
-        self.apply_initial_state(plan)
-
+    def _effective_state_at_current_time(
+        self,
+        plan: dict[str, Any],
+    ) -> dict[int, dict[str, Any]]:
+        """Return desired camera state now, without replaying command history."""
+        states = {
+            rig_id: dict(state)
+            for rig_id, state in self._normalize_initial_state(plan).items()
+        }
         commands = plan.get("_commands_runtime")
         if not isinstance(commands, list):
             raise ExecutionPlanError(
                 "execution plan was not loaded by runtime loader"
             )
 
+        # Ensure baseline preflight runs for every RIG present in the plan,
+        # even when there is no initial_state_required entry and no expired SET.
         for command in commands:
-            # Camera SET calls themselves take time. Re-evaluate the clock for
-            # every command so SETs that expire during preparation are also
-            # incorporated into the reconstructed state.
-            if self.clock.remaining(command["time"]) >= 0:
-                break
+            states.setdefault(command["rig_id"], {})
 
+        current = self.clock.now()
+        for command in commands:
+            if command["time"] >= current:
+                break
             if command["action"] != "SET":
                 continue
-            if command["params"].get("timing_contract_version") == 2:
-                # The next complete preparation is the recovery checkpoint.
-                # Never restore historical commands for this contract.
+            parameter = command["params"].get("parameter")
+            # Old contract-v2 capture_setup is a transient macro, not a stable
+            # state.  Never reconstruct it at START/restart.
+            if not isinstance(parameter, str) or parameter == "capture_setup":
+                continue
+            states.setdefault(command["rig_id"], {})[parameter] = (
+                command["params"].get("value")
+            )
+        return states
+
+    def apply_initial_state(self, plan: dict[str, Any]) -> None:
+        """Apply only the declared initial snapshot.
+
+        Kept as a compatibility/public helper for callers and tests.  Normal
+        Trigger startup uses :meth:`prepare_for_execution`, which additionally
+        reduces expired SET history to the effective current state instead of
+        replaying it.
+        """
+        states = self._normalize_initial_state(plan)
+        preflight = getattr(self.camera, "preflight", None)
+        for rig_id, state in sorted(states.items()):
+            if callable(preflight):
+                preflight(rig_id, state)
+                continue
+            for parameter, value in state.items():
+                self.camera.set_parameter(rig_id, parameter, value)
+
+    def prepare_for_execution(self, plan: dict[str, Any]) -> None:
+        """Strict camera preflight before the timed scheduler starts.
+
+        A late START does not replay expired SET/PHOTO commands.  It reduces
+        them to the single effective state required *now*, then asks the camera
+        endpoint to GET/SET/check that state once.  Characterized GET-only
+        invariants (for example Sony A6600 manual mode) fail here with an
+        operator-actionable message, therefore the RIG sequence never starts in
+        an invalid physical configuration.
+        """
+        states = self._effective_state_at_current_time(plan)
+        preflight = getattr(self.camera, "preflight", None)
+
+        for rig_id, state in sorted(states.items()):
+            self.log(
+                f"EXECUTION_PLAN preflight rig={rig_id} "
+                f"state_keys={','.join(sorted(state)) or 'none'}"
+            )
+            if callable(preflight):
+                preflight(rig_id, state)
                 continue
 
-            self.log(
-                f"EXECUTION_PLAN resume_state "
-                f"rig={command['rig_id']} "
-                f"index={command['index']} "
-                f"time={command['time'].isoformat()}Z"
-            )
-
-            self._execute_command(command)
-            if not hasattr(self, "_restored_sets"):
-                self._restored_sets = set()
-            self._restored_sets.add((command["rig_id"], command["index"]))
+            # Compatibility for older test/fake endpoints.  This still applies
+            # one reduced state snapshot and never replays historical commands.
+            for parameter, value in state.items():
+                self.camera.set_parameter(rig_id, parameter, value)
 
     def _stop_requested(self) -> bool:
         return (
@@ -390,13 +416,42 @@ class ExecutionPlanRuntime:
         pending_sets.pop(parameter, None)
         pending_sets[parameter] = command
 
-    def _flush_pending_sets(
+    def _reconcile_pending_sets(
         self,
         rig_id: int,
         pending_sets: dict[str, dict[str, Any]],
     ) -> bool:
-        """Replay only SET commands missed while the camera was unavailable."""
+        """Converge only SETs that actually failed during this run.
+
+        GET is attempted first.  If the failed USB transaction did reach the
+        camera, no duplicate SET is sent.  Otherwise the latest desired value
+        is retried immediately.  Past plan commands that were never attempted
+        are never inserted here.
+        """
+        getter = getattr(self.camera, "get_parameter", None)
+
         for parameter, command in list(pending_sets.items()):
+            desired = command["params"].get("value")
+
+            if callable(getter):
+                try:
+                    actual = getter(rig_id, parameter)
+                except Exception as exc:
+                    self.log(
+                        f"WARNING execution_plan rig={rig_id} "
+                        f"pending_get_failed parameter={parameter} "
+                        f"code={self._camera_error_code(exc)}"
+                    )
+                else:
+                    if str(actual) == str(desired):
+                        pending_sets.pop(parameter, None)
+                        self.log(
+                            f"EXECUTION_PLAN rig={rig_id} "
+                            f"pending_set_already_effective "
+                            f"parameter={parameter} value={desired}"
+                        )
+                        continue
+
             try:
                 self._execute_command(command)
             except ExecutionPlanError:
@@ -404,25 +459,27 @@ class ExecutionPlanRuntime:
             except Exception as exc:
                 self.log(
                     f"WARNING execution_plan rig={rig_id} "
-                    f"pending_set_failed parameter={parameter} "
+                    f"pending_set_retry_failed parameter={parameter} "
                     f"index={command['index']} "
                     f"code={self._camera_error_code(exc)}"
                 )
                 return False
 
             pending_sets.pop(parameter, None)
-
             self.log(
                 f"EXECUTION_PLAN rig={rig_id} "
-                f"pending_set_applied parameter={parameter} "
+                f"pending_set_recovered parameter={parameter} "
                 f"index={command['index']}"
             )
 
-        return True
+        return not pending_sets
 
     def _run_rig(self, rig_id: int, commands: list[dict[str, Any]]) -> None:
         pending_sets: dict[str, dict[str, Any]] = {}
-        guarded = any(c["params"].get("timing_contract_version") == 2 for c in commands)
+        guarded = any(
+            c["params"].get("timing_contract_version") == 2
+            for c in commands
+        )
 
         for command in commands:
             if self._stop_requested():
@@ -433,17 +490,48 @@ class ExecutionPlanRuntime:
 
             target = command["time"]
 
-            # Reprise absolue : aucune commande passée n'est rejouée.
+            # Absolute timeline: an unattempted command whose timestamp is in
+            # the past is permanently discarded.  It is never converted into
+            # pending work and can therefore never be replayed later.
             if self.clock.remaining(target) < 0:
-                if (guarded and command["action"] == "SET" and
-                        (rig_id, command["index"]) not in getattr(self, "_restored_sets", set())):
-                    self._remember_pending_set(pending_sets, command)
                 self.log(
                     f"WARNING execution_plan rig={rig_id} "
                     f"skip_past index={command['index']} "
                     f"time={target.isoformat()}Z"
                 )
                 continue
+
+            # If the next planned SET changes the same parameter again, its
+            # newer desired value supersedes the older failed request.  There
+            # is no reason to recover a state that will never be used by a
+            # future PHOTO.
+            if command["action"] == "SET":
+                parameter = command["params"].get("parameter")
+                previous = pending_sets.get(parameter)
+                if (
+                    previous is not None
+                    and str(previous["params"].get("value"))
+                    != str(command["params"].get("value"))
+                ):
+                    pending_sets.pop(parameter, None)
+                    self.log(
+                        f"EXECUTION_PLAN rig={rig_id} "
+                        f"pending_set_superseded parameter={parameter} "
+                        f"old_index={previous['index']} "
+                        f"new_index={command['index']}"
+                    )
+
+            # A SET that really failed earlier may be retried ASAP.  Reconcile
+            # before waiting so a transient USB outage/battery change can heal
+            # while there is still useful time before the next action.
+            if pending_sets:
+                self._reconcile_pending_sets(rig_id, pending_sets)
+                if self.clock.remaining(target) < 0:
+                    self.log(
+                        f"WARNING execution_plan rig={rig_id} "
+                        f"skip_elapsed_after_recovery index={command['index']}"
+                    )
+                    continue
 
             self._wait_until(target)
 
@@ -453,6 +541,9 @@ class ExecutionPlanRuntime:
                 )
                 return
 
+            # Normal scheduler wake-up can be a few milliseconds late.  That is
+            # still the current command, not catch-up work.  We only reject a
+            # target after an explicit recovery operation has consumed its slot.
             dispatch_time = self.clock.now()
             lateness_ms = (
                 dispatch_time - target
@@ -462,7 +553,6 @@ class ExecutionPlanRuntime:
                 self._timing_samples.append(lateness_ms)
 
             action = command["action"]
-
             self.log(
                 f"EXECUTION_PLAN rig={rig_id} "
                 f"action={action} "
@@ -471,18 +561,19 @@ class ExecutionPlanRuntime:
                 f"lateness_ms={lateness_ms:+.3f}"
             )
 
-            # A SET missed while the body was powered off must be restored
-            # before taking a later photo. We do not restore every setting:
-            # only commands that demonstrably failed are replayed.
-            if action == "PHOTO" and pending_sets and guarded:
-                self.log(f"WARNING execution_plan rig={rig_id} photo_lost=1 reason=unapplied_settings")
-                continue
             if action == "PHOTO" and pending_sets:
-                if not self._flush_pending_sets(rig_id, pending_sets):
+                if not self._reconcile_pending_sets(rig_id, pending_sets):
                     self.log(
                         f"WARNING execution_plan rig={rig_id} "
                         f"action=PHOTO index={command['index']} "
-                        f"photo_lost=1 reason=pending_set"
+                        f"photo_lost=1 reason=unapplied_settings"
+                    )
+                    continue
+                if self.clock.remaining(target) < 0:
+                    self.log(
+                        f"WARNING execution_plan rig={rig_id} "
+                        f"action=PHOTO index={command['index']} "
+                        f"photo_lost=1 reason=recovery_too_late"
                     )
                     continue
 
@@ -490,45 +581,52 @@ class ExecutionPlanRuntime:
                 self._execute_command(command)
 
             except ExecutionPlanError:
-                # Structural/programming errors remain fatal.
+                # Structural/programming errors remain fatal.  USB/IPC camera
+                # errors are operation-scoped and are handled below.
                 raise
 
             except Exception as exc:
                 code = self._camera_error_code(exc)
-                if guarded:
-                    if action == "SET":
-                        self._remember_pending_set(pending_sets, command)
-                    self.log(f"WARNING execution_plan rig={rig_id} command_lost=1 code={code}; continuing absolute timeline")
-                    continue
 
                 if action == "SET":
-                    self._remember_pending_set(
-                        pending_sets,
-                        command,
-                    )
+                    self._remember_pending_set(pending_sets, command)
                     self.log(
                         f"WARNING execution_plan rig={rig_id} "
                         f"action=SET index={command['index']} "
                         f"parameter={command['params']['parameter']} "
-                        f"code={code} set_pending=1"
+                        f"code={code} retry_asap=1"
                     )
+                    # One immediate convergence attempt.  If the body is still
+                    # absent, pending state remains and later future commands
+                    # will try again; the scheduler itself never terminates.
+                    self._reconcile_pending_sets(rig_id, pending_sets)
                 else:
-                    # Never replay this PHOTO automatically: after a transport
-                    # failure its physical shutter outcome may be unknowable.
+                    # Never replay PHOTO.  The shutter may have fired before a
+                    # transport failure made the result unknowable.
                     self.log(
                         f"WARNING execution_plan rig={rig_id} "
                         f"action=PHOTO index={command['index']} "
-                        f"code={code} photo_lost=1"
+                        f"code={code} photo_lost=1; "
+                        "continuing absolute timeline"
                     )
-
                 continue
 
             if guarded:
-                elapsed_ms = (self.clock.now() - dispatch_time).total_seconds() * 1000
-                if elapsed_ms > float(command["params"].get("duration_ms", float("inf"))):
-                    self.log(f"WARNING execution_plan rig={rig_id} budget_overrun_ms={elapsed_ms:.1f}; elapsed commands will be skipped")
+                elapsed_ms = (
+                    self.clock.now() - dispatch_time
+                ).total_seconds() * 1000.0
+                if elapsed_ms > float(
+                    command["params"].get("duration_ms", float("inf"))
+                ):
+                    self.log(
+                        f"WARNING execution_plan rig={rig_id} "
+                        f"budget_overrun_ms={elapsed_ms:.1f}; "
+                        "elapsed commands will be skipped"
+                    )
+
             if action == "SET":
-                # A newer successful SET supersedes an older failed one.
+                # A newer successful SET proves the desired state and
+                # supersedes any older failed request for this parameter.
                 pending_sets.pop(
                     command["params"]["parameter"],
                     None,

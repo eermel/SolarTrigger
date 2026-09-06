@@ -233,10 +233,10 @@ class CameraService:
     def invalidate_connection(self):
         """Forget a stale camera transport after an I/O/device failure.
 
-        Deliberately preserve _last_phase_settings: the physical camera keeps
-        its exposure state across the battery swap. ExecutionPlanRuntime is
-        responsible for replaying only SET commands that actually failed while
-        the camera was absent.
+        Deliberately preserve _last_phase_settings: normal camera bodies keep
+        their photographic settings across a battery swap.  The Trigger keeps
+        its absolute timeline and reconciles only a SET whose result was
+        ambiguous; it never replays past PHOTO commands.
         """
         camera = self.camera
         self.camera = None
@@ -360,6 +360,65 @@ class CameraService:
             # apply_phase_settings() is forced to restore the phase ISO.
             if prepared.materialized is not None:
                 self._last_phase_settings.pop("iso", None)
+
+    def preflight(self, required_state=None):
+        if not self.plugin:
+            raise RuntimeError("caméra non connectée")
+        method = getattr(self.plugin, "preflight", None)
+        if callable(method):
+            return method(required_state or {})
+
+        # Compatibility path for legacy non-profile plugins.  Characterized
+        # profile backends use the GET-first implementation above.  The
+        # fallback converges only the effective current state, never command
+        # history.
+        changed = []
+        for parameter, value in (required_state or {}).items():
+            if parameter == "capture_setup":
+                continue
+            try:
+                actual = self.get_parameter(parameter)
+            except Exception:
+                actual = object()
+            if str(actual) == str(value):
+                continue
+            self.plugin.set_parameter(parameter, value)
+            try:
+                verified = self.get_parameter(parameter)
+            except Exception:
+                verified = value
+            if str(verified) != str(value):
+                raise RuntimeError(
+                    f"camera preflight readback mismatch: "
+                    f"{parameter}={verified!r}, expected={value!r}"
+                )
+            changed.append(parameter)
+        return {"ok": True, "changed": changed}
+
+    def get_parameter(self, parameter):
+        if not self.plugin:
+            raise RuntimeError("caméra non connectée")
+        method = getattr(self.plugin, "get_parameter", None)
+        if callable(method):
+            return method(parameter)
+
+        # Minimal compatibility reader for legacy plugins.
+        names = {
+            "iso": ("iso", "iso2"),
+            "capturemode": ("capturemode", "drivemode"),
+            "shutterspeed": ("shutterspeed", "shutterspeed2", "exptime"),
+            "shutterspeed2": ("shutterspeed2", "shutterspeed", "exptime"),
+            "f-number": ("f-number", "aperture"),
+        }.get(str(parameter))
+        if not names:
+            raise ValueError(f"unsupported readable camera parameter: {parameter}")
+        config = self.camera.get_config()
+        for name in names:
+            try:
+                return config.get_child_by_name(name).get_value()
+            except Exception:
+                continue
+        raise ValueError(f"camera parameter is not readable: {parameter}")
 
     def set_parameter(self, parameter, value, fallback_parameter=None):
         if not self.plugin:
