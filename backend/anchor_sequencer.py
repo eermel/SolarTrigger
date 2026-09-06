@@ -422,6 +422,100 @@ def _place_unit_starting_at(
     return shifted, next_state, start, end
 
 
+def _pack_totality_to_c3_anchor(
+    factory: CaptureFactory,
+    profile: CameraTimingProfile,
+    window: SequenceWindow,
+    *,
+    boundary_start: datetime,
+    c3_capture: AuditedRigCapture,
+    margin: timedelta,
+    initial_state: dict[str, str],
+) -> tuple[list[AuditedRigCapture], dict[str, str]]:
+    """Fill totality greedily up to the *actual* C3 preparation boundary.
+
+    C2 and the C3 contact PHOTO are fixed first.  Totality is then packed
+    physical PHOTO unit by physical PHOTO unit.  After every candidate unit
+    we reduce the already-fixed C3 contact capture from the state that this
+    candidate would leave behind.  This gives the real C3 PREP start for that
+    state, rather than a conservative full-preparation estimate.
+
+    Complete ladders are repeated while they fit.  The final ladder may be
+    partial: useful totality photos are not discarded merely because the next
+    slower unit would collide with the protected C3 transition.
+    """
+    result: list[AuditedRigCapture] = []
+    cursor = max(boundary_start, window.start)
+    state = dict(initial_state)
+    cycle_index = 0
+
+    for _guard in range(PACK_GUARD):
+        if cursor >= window.end:
+            break
+
+        cycle = factory(
+            "totality",
+            window.name,
+            cursor,
+            cycle_index,
+            c3_capture.target.target_time,
+        )
+        units = _split_totality_single_photos(cycle)
+        if not units:
+            raise ValueError(f"empty totality cycle for RIG {cycle.rig_id}")
+
+        accepted_in_cycle = 0
+
+        for unit in units:
+            placed, candidate_state, start, end = _place_unit_starting_at(
+                unit,
+                profile,
+                state,
+                cursor,
+            )
+            if start < cursor - timedelta(milliseconds=PLACEMENT_TOLERANCE_MS):
+                raise ValueError(
+                    f"totality placement regression for RIG {cycle.rig_id}"
+                )
+
+            # C3 PHOTO target is already fixed.  Only its preparation duration
+            # depends on the state left by totality.  Recompute that exact
+            # boundary for every candidate and keep the safety margin outside
+            # the contact reservation.
+            reduced_c3, _state_after_c3 = reduce_audited_capture_operations(
+                c3_capture,
+                candidate_state,
+            )
+            c3_scheduled = schedule_audited_capture(reduced_c3, profile)
+            c3_prepare_start, _c3_end = _scheduled_static_bounds(c3_scheduled)
+            stop_at = min(window.end, c3_prepare_start - margin)
+
+            if end > stop_at:
+                if not result:
+                    raise ValueError(
+                        f"no totality photo fits before C3 for RIG {cycle.rig_id}"
+                    )
+                return result, state
+
+            result.append(placed)
+            state = candidate_state
+            cursor = end
+            accepted_in_cycle += 1
+
+        if accepted_in_cycle != len(units):
+            # Defensive: the non-fitting case returns immediately above.
+            break
+
+        cycle_index += 1
+    else:
+        raise ValueError("totality packing did not converge")
+
+    if not result:
+        raise ValueError("no totality photo fits between C2 and C3")
+
+    return result, state
+
+
 def _pack_complete_totality_cycles(
     factory: CaptureFactory,
     profile: CameraTimingProfile,
@@ -619,25 +713,27 @@ def build_anchor_first_capture_plan(
         )
 
         totality_start = c2_end
-        totality_end = c3_start - margin
-        if totality_start >= totality_end:
+        if totality_start >= c3:
             raise ValueError(
-                f"C2/C3 contact reservations leave no totality window "
+                f"C2 contact reservation leaves no totality window "
                 f"for RIG {rig_id}"
             )
 
         # 2. BETWEEN C2 AND C3 ---------------------------------------------
         # C2 is self-contained for placement; derive the camera state it leaves
-        # behind so totality can be packed at true maximum executable density.
+        # behind.  C3 itself is already fixed, but its real PREP boundary is
+        # state-dependent, so totality is admitted PHOTO by PHOTO against that
+        # exact boundary.
         _c2_reduced, c2_state = reduce_audited_capture_operations(
             c2_capture, {}
         )
-        totality, _totality_state = _pack_complete_totality_cycles(
+        totality, _totality_state = _pack_totality_to_c3_anchor(
             factory,
             profile,
             by_name["phase_2"],
             boundary_start=totality_start,
-            boundary_end=totality_end,
+            c3_capture=c3_capture,
+            margin=margin,
             initial_state=c2_state,
         )
 

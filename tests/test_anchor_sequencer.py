@@ -5,6 +5,7 @@ import pytest
 from backend.anchor_sequencer import (
     _make_contact_anchor,
     _pack_complete_totality_cycles,
+    _pack_totality_to_c3_anchor,
     _validate_contact_capture,
 )
 from backend.sequencer_compiler import (
@@ -123,3 +124,71 @@ def test_totality_accepts_only_complete_cycles_between_reserved_contacts():
     assert len(captures) == 3
     assert captures[0].target.target_time == start + timedelta(seconds=1)
     assert captures[-1].target.target_time == start + timedelta(seconds=3)
+
+
+
+def _totality_cycle(target_time, count, *, duration_ms=1000.0):
+    shutters = tuple("1/1000" for _ in range(count))
+    return AuditedRigCapture(
+        rig_id=1,
+        backend="profile-test",
+        target=CaptureTarget(
+            target_time=target_time,
+            phase="totality",
+            phase_window="phase_2",
+            sequence_index=0,
+            deadline=None,
+        ),
+        aperture="f/8",
+        exposure_plan=tuple(
+            {"shutter": shutter, "iso": 100}
+            for shutter in shutters
+        ),
+        prepared_mode="profile",
+        estimated_total_s=(count * duration_ms) / 1000.0,
+        planned_count=count,
+        operations=tuple(
+            {
+                "action": "trigger_capture",
+                "shutter": shutter,
+                "duration_ms": duration_ms,
+                "timing_contract_version": 2,
+            }
+            for shutter in shutters
+        ),
+    )
+
+
+def test_anchor_totality_keeps_useful_partial_final_ladder():
+    start = datetime(2027, 8, 2, 10, 0, 0)
+    window = SequenceWindow(
+        name="phase_2",
+        phase="totality",
+        start=start,
+        end=start + timedelta(seconds=10),
+        interval_s=None,
+    )
+
+    def factory(phase, phase_window, target_time, sequence_index, deadline):
+        return _totality_cycle(target_time, 3, duration_ms=1000.0)
+
+    c3 = _capture(
+        start + timedelta(seconds=5, milliseconds=500),
+        ["1/500"],
+        duration_ms=1000.0,
+        phase="diamond_ring",
+        window="phase_3a",
+    )
+
+    captures, _state = _pack_totality_to_c3_anchor(
+        factory,
+        _profile(),
+        window,
+        boundary_start=start + timedelta(seconds=1),
+        c3_capture=c3,
+        margin=timedelta(milliseconds=250),
+        initial_state={},
+    )
+
+    assert len(captures) == 4
+    assert captures[-1].target.target_time == start + timedelta(seconds=4)
