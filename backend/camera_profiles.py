@@ -8,12 +8,24 @@ import math
 from pathlib import Path
 import re
 
+from backend.camera_timing_contract import validate_timing_contract_v3
+
 PROFILE_DIR = Path(__file__).resolve().parents[1] / "configs" / "camera_profiles"
 LOG = logging.getLogger(__name__)
 
 
 def normalized(value):
     return " ".join(str(value).casefold().split())
+
+
+def _valid_trigger(spec):
+    if not isinstance(spec, dict):
+        return False
+    if spec.get("method") not in ("trigger_capture", "capture", "widget"):
+        return False
+    if spec.get("method") == "widget" and not spec.get("path"):
+        return False
+    return True
 
 
 def validate_profile(data):
@@ -28,6 +40,7 @@ def validate_profile(data):
         raise ValueError("invalid profile backend")
     if data.get("strategy") not in ("sequential", "bracket"):
         raise ValueError("invalid strategy")
+
     commands = data.get("commands", {})
     for key in ("manual_mode", "capture_target", "raw", "iso", "shutter"):
         if not isinstance(commands.get(key), dict) or not commands[key].get("path"):
@@ -39,49 +52,88 @@ def validate_profile(data):
         raise ValueError("ISO 100 is mandatory")
     if not commands["shutter"].get("values"):
         raise ValueError("shutter choices are mandatory")
+
     trigger = commands.get("trigger_single", {})
-    if trigger.get("method") not in ("trigger_capture", "capture", "widget"):
+    if not _valid_trigger(trigger):
         raise ValueError("invalid trigger method")
-    if trigger.get("method") == "widget" and not trigger.get("path"):
-        raise ValueError("missing trigger widget")
+
     for command in commands.values():
         if not isinstance(command, dict):
             raise ValueError("invalid command")
-        if "path" in command and (not isinstance(command["path"], str)
-                                  or not command["path"].strip()):
+        if "path" in command and (
+            not isinstance(command["path"], str)
+            or not command["path"].strip()
+        ):
             raise ValueError("invalid widget path")
-    if data["strategy"] == "bracket":
-        brackets = data.get("brackets", {})
-        if not brackets or "capture_mode" not in commands:
-            raise ValueError("bracket configuration missing")
-        for size, spec in brackets.items():
-            if not str(size).isdigit() or int(size) < 3 or int(size) % 2 == 0:
-                raise ValueError("invalid bracket size")
-            if spec.get("step_ev") != 1 or "mode" not in spec:
-                raise ValueError("only validated 1 EV brackets are supported")
+
+    contract = data.get("timing_contract")
+    contract_version = contract.get("version") if isinstance(contract, dict) else None
+
+    brackets = data.get("brackets", {})
+    if not isinstance(brackets, dict):
+        raise ValueError("brackets must be an object")
+    if data["strategy"] == "bracket" and (
+        not brackets or "capture_mode" not in commands
+    ):
+        raise ValueError("bracket configuration missing")
+
+    for size, spec in brackets.items():
+        if not str(size).isdigit() or int(size) < 3 or int(size) % 2 == 0:
+            raise ValueError("invalid bracket size")
+        if not isinstance(spec, dict):
+            raise ValueError("invalid bracket specification")
+        if spec.get("step_ev") != 1 or "mode" not in spec:
+            raise ValueError("only validated 1 EV brackets are supported")
+        if not _valid_trigger(spec.get("trigger", {})):
+            raise ValueError("invalid bracket trigger")
+
+        # Contract v3 no longer stores per-size timing histories. Older profiles
+        # still require their legacy atomic/total fields for compatibility.
+        if contract_version != 3:
             for field in ("total_ms", "atomic_ms"):
                 value = spec.get(field)
-                if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+                if (
+                    type(value) not in (int, float)
+                    or not math.isfinite(value)
+                    or value <= 0
+                ):
                     raise ValueError(f"invalid bracket timing: {field}")
-            if spec.get("trigger", {}).get("method") not in ("trigger_capture", "capture", "widget"):
-                raise ValueError("invalid bracket trigger")
-    contract = data.get("timing_contract")
+
     if contract is not None:
-        if not isinstance(contract, dict) or contract.get("version") != 2:
+        if not isinstance(contract, dict):
+            raise ValueError("invalid timing contract")
+
+        if contract_version == 2:
+            def positive(value):
+                return (
+                    type(value) in (int, float)
+                    and math.isfinite(value)
+                    and value > 0
+                )
+
+            if not positive(contract.get("iso_ms")):
+                raise ValueError("invalid ISO reservation")
+            blocks = contract.get("brackets")
+            if not isinstance(blocks, dict) or set(blocks) != set(brackets):
+                raise ValueError("bracket budget mismatch")
+            for block in [contract.get("single"), *blocks.values()]:
+                if not isinstance(block, dict) or any(
+                    not positive(block.get(key))
+                    for key in ("setup_ms", "duration_ms", "reference_exposure_s")
+                ):
+                    raise ValueError("invalid operation budget")
+            if contract.get("sustained", {}).get("status") != "validated":
+                raise ValueError("sustained qualification required")
+
+        elif contract_version == 3:
+            validate_timing_contract_v3(
+                contract,
+                bracket_frames=[int(value) for value in brackets],
+            )
+
+        else:
             raise ValueError("unsupported timing contract")
-        def positive(value):
-            return type(value) in (int, float) and math.isfinite(value) and value > 0
-        if not positive(contract.get("iso_ms")):
-            raise ValueError("invalid ISO reservation")
-        blocks = contract.get("brackets")
-        if not isinstance(blocks, dict) or set(blocks) != set(data.get("brackets", {})):
-            raise ValueError("bracket budget mismatch")
-        for block in [contract.get("single"), *blocks.values()]:
-            if not isinstance(block, dict) or any(not positive(block.get(k)) for k in
-                                                   ("setup_ms", "duration_ms", "reference_exposure_s")):
-                raise ValueError("invalid operation budget")
-        if contract.get("sustained", {}).get("status") != "validated":
-            raise ValueError("sustained qualification required")
+
     return deepcopy(data)
 
 
@@ -90,14 +142,27 @@ def discover_profiles(directory=None):
     found = []
     for path in sorted(Path(directory or PROFILE_DIR).glob("*.json")):
         try:
-            found.append(validate_profile(json.loads(path.read_text(encoding="utf-8"))))
+            found.append(
+                validate_profile(json.loads(path.read_text(encoding="utf-8")))
+            )
         except (OSError, ValueError, TypeError) as exc:
             LOG.warning("Ignoring camera profile %s: %s", path, exc)
+
     result = {}
     for item in found:
-        identity = (normalized(item["manufacturer"]), normalized(item["model"]))
-        collisions = [p for p in found if p["backend"] == item["backend"] or
-                      (normalized(p["manufacturer"]), normalized(p["model"])) == identity]
+        identity = (
+            normalized(item["manufacturer"]),
+            normalized(item["model"]),
+        )
+        collisions = [
+            profile
+            for profile in found
+            if profile["backend"] == item["backend"]
+            or (
+                normalized(profile["manufacturer"]),
+                normalized(profile["model"]),
+            ) == identity
+        ]
         if len(collisions) == 1:
             result[item["backend"]] = item
         else:
@@ -106,8 +171,11 @@ def discover_profiles(directory=None):
 
 
 def profile_for_model(model, directory=None):
-    matches = [p for p in discover_profiles(directory).values()
-               if normalized(p["model"]) == normalized(model)]
+    matches = [
+        profile
+        for profile in discover_profiles(directory).values()
+        if normalized(profile["model"]) == normalized(model)
+    ]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -115,13 +183,17 @@ def is_characterized_model(manufacturer, model):
     profile = profile_for_model(model)
     if profile:
         return normalized(profile["manufacturer"]) == normalized(manufacturer)
+
+    # Legacy timing-only configurations remain recognized during migration.
     for path in sorted((PROFILE_DIR.parent / "camera_timing").glob("*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            if (not str(data.get("backend", "")).startswith("profile-")
-                    and data.get("config_type") == "camera_timing"
-                    and normalized(data.get("manufacturer")) == normalized(manufacturer)
-                    and normalized(data.get("model")) == normalized(model)):
+            if (
+                not str(data.get("backend", "")).startswith("profile-")
+                and data.get("config_type") == "camera_timing"
+                and normalized(data.get("manufacturer")) == normalized(manufacturer)
+                and normalized(data.get("model")) == normalized(model)
+            ):
                 return True
         except (OSError, ValueError, TypeError):
             continue

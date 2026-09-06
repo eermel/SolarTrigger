@@ -1,9 +1,8 @@
 """Persistent calibrated camera timing profiles.
 
-These values describe measured hardware/USB behaviour. They are deliberately
-separate from the RIG topology and from the Sequencer execution plan.
+Contract v3 stores only final guarded operational budgets. Contract-v1/v2 timing
+documents remain readable for migration, but are never rewritten implicitly.
 """
-
 from __future__ import annotations
 
 import json
@@ -12,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.sequencer_compiler import CameraTimingProfile
+from backend.camera_timing_contract import validate_timing_contract_v3
 
 
 _TIMING_FIELDS = (
@@ -54,6 +54,13 @@ def load_camera_timing_profile(path: str | Path) -> CameraTimingProfile:
 
     if not backend:
         raise ValueError("camera timing backend is required")
+
+    contract = data.get("timing_contract")
+    if isinstance(contract, dict) and contract.get("version") == 3:
+        validate_timing_contract_v3(contract)
+        # The profile plugin carries all v3 operation reservations directly in
+        # audited SET/PHOTO commands. Legacy scalar fields are intentionally zero.
+        return CameraTimingProfile(backend=backend)
 
     timing = data.get("timing")
 

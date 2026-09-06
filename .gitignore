@@ -23,3 +23,6 @@ configs/rig/default.json
 
 # SolarTrigger mutable runtime data
 /var/
+
+# Raw camera characterization measurement evidence
+/configs/camera_characterization/measurements/

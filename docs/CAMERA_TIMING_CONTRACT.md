@@ -1,104 +1,124 @@
-# Caractérisation et budgets d'exécution — contrat 2
+# Caractérisation caméra — contrat de timing v3
 
-Cette évolution relie les mesures au protocole réellement exécuté par les profils
-JSON. Les plugins historiques restent compatibles ; leurs valeurs ne sont pas
-réinterprétées ni modifiées. Recaractériser puis régénérer les `.plan` est nécessaire
-pour utiliser ce contrat.
+Le contrat v3 remplace le modèle basé sur une pose de référence et sur
+`capture_setup`. Il ne cherche plus à extrapoler un temps de capture complet à
+partir d'une exposition de référence.
 
-## Critère d'acceptation
+## Politique de sécurité
 
-Un profil est publié seulement après la découverte des commandes, cinq mesures
-par méthode validée et une qualification automatique sans pause de test. Celle-ci
-utilise le même exécuteur que le Trigger, les budgets majorés et la confirmation des
-fichiers. Chaque bloc retenu doit terminer dans son budget. Sinon aucun profil
-n'est installé : il faut examiner la cause, pas utiliser une mesure trop optimiste.
+Pour chaque grandeur caractérisée, la valeur opérationnelle est calculée dans
+cet ordre exact :
 
-La qualification comprend cinq parcours de neuf vitesses pour les photos simples,
-et cinq bracketing par taille retenue. Les ISO sont fixés à 100. Les commandes
-capture et bulb sont comparées par taille lorsqu'elles sont disponibles ; bulb
-n'est jamais essayé pour une photo simple. Les confirmations opérateur restent
-limitées à la découverte. Une commande avec un nombre de fichiers incorrect est
-rejetée après la confirmation opérateur, sans chronométrage supplémentaire.
+    budget = arrondi_sup_50(maximum_observé × 1,10 + 50 ms)
 
-## Ce qui est chronométré
+Exemple :
 
-- Écriture ISO avec confirmation de la valeur effective.
-- Écriture de vitesse avec confirmation de la valeur effective.
-- Bloc de préparation : mode photo simple si disponible, vitesse centrale,
-  puis configuration du bracketing si demandé. Ce bloc englobe les transitions ;
-  aucun chronométrage séparé du changement de mode n'est effectué.
-- Bloc PHOTO : appel, attente des fichiers et relâchement éventuel.
+    maximum observé = 804 ms
+    804 × 1,10      = 884,4 ms
+    + 50 ms         = 934,4 ms
+    arrondi sup. 50 = 950 ms
 
-La batterie, le passage initial en manuel, RAW, destination carte, la désactivation
-du retardateur et du time-lapse ne sont pas chronométrés. Ces deux derniers
-réglages sont désactivés si un widget connu et une valeur explicite sont exposés ;
-un réglage inconnu reste signalé, jamais deviné. L'ouverture reste un réglage de
-préparation ; aucun changement d'ouverture n'est introduit entre les photos.
+La politique est écrite explicitement dans `safety_policy` du JSON final.
 
-## Marge explicite
+## Les quatre budgets du contrat
 
-Pour les réservations opérationnelles :
+Le JSON final contient uniquement les valeurs opérationnelles sécurisées :
 
-    budget = arrondi_sup_50ms(maximum_observé × 1,10 + 50 ms)
+- `set_overhead_ms` : budget commun à toute commande SET utilisée par le plan.
+  La caractérisation chronomètre séparément ISO, vitesse et mode de capture
+  lorsqu'ils sont utilisés, puis retient le maximum de toutes les observations.
+- `single_overhead_ms` : overhead fixe d'une photo simple, hors temps de pose.
+- `bracket_overhead_ms` : overhead fixe d'un bracket, hors temps de pose.
+- `bracket_inter_image_ms` : overhead ajouté entre deux images consécutives
+  d'un bracket.
 
-Ainsi, un maximum de 300 ms donne 400 ms ; un maximum de 804 ms donne 950 ms.
-Cette politique volontairement conservatrice est enregistrée dans les fichiers.
-C'est une marge d'ingénierie, pas une borne statistique garantie par cinq essais.
-Les échantillons restent accessibles dans timing_trials, set_trials et setup_trials.
-Les médianes brutes restent diagnostiques ; elles ne déterminent plus les budgets.
-Les coûts de relâchement sont déjà inclus dans le bloc PHOTO et ne sont pas ajoutés
-une seconde fois.
+Les durées utilisées par le séquenceur sont donc :
 
-La pose de référence est déjà comprise dans le bloc mesuré. Pour une pose plus
-longue, seul son excédent est ajouté avec 10 % de marge et arrondi supérieur. Une
-pose plus courte ne réduit pas le budget mesuré. Cette extrapolation doit être
-validée par un dry-run du plan définitif, notamment pour les poses longues.
+    PHOTO simple =
+        exposition_ms
+        + single_overhead_ms
 
-Le retour USB, la disponibilité d'une commande suivante, l'apparition du fichier
-et le début physique de l'exposition ne sont pas synonymes. Cette version conserve
-la confirmation du fichier comme critère conservateur ; elle ne prétend pas avoir
-prouvé qu'on peut reprendre dès le retour de trigger_capture. Elle ne remplace donc
-pas automatiquement les quelque 900 ms du D850 par les 285 ms historiques.
-La latence physique reste explicitement non mesurée : zéro désactive la correction,
-ce n'est pas une mesure de latence nulle. Sa mesure demande une référence matérielle.
+    PHOTO bracket N =
+        somme(expositions_ms)
+        + bracket_overhead_ms
+        + (N - 1) × bracket_inter_image_ms
 
-## Plan et reprise
+Aucune pose de référence n'est utilisée à l'exécution.
 
-Le `.plan` reste constitué de SET et PHOTO. SET capture_setup est une préparation
-complète avec son propre budget. Le découpage optimisé compare les blocs avec leurs
-coûts de préparation et les durées des expositions demandées. Chaque groupe porte
-son ISO et sa préparation pour permettre une reprise sans rejouer les commandes
-passées. Ce choix réserve aussi le coût ISO pour chaque groupe ; il privilégie une
-reprise déterministe à l'économie de cette transaction.
+## Mesure du bracket
 
-Pour les commandes du contrat 2 :
+Pour chaque taille de bracket validée, la caractérisation soustrait la somme
+des temps de pose au temps total observé. Elle retient le maximum d'overhead
+observé pour chaque taille.
 
-- Le délai IPC est adapté au budget de la commande ; ce délai de transport n'est
-  pas ajouté à la réservation du plan.
-- Un worker occupé refuse la commande au lieu de l'empiler. Une commande non
-  commencée sous 100 ms après son émission IPC expire. Ce délai d'admission local
-  devra être vérifié sous charge sur la Pi.
-- Une erreur ou un dépassement n'arrête pas le RIG. Les horaires absolus continuent,
-  les commandes passées sont abandonnées, aucune photo n'est rejouée.
-- Une PHOTO dont un SET requis a été manqué est également abandonnée. Une préparation
-  complète future permet la reprise. Aucun SET historique n'est restauré lors de
-  la reprise d'un nouveau plan.
+Quand plusieurs tailles sont disponibles, l'inter-image brut est le plus grand
+accroissement d'overhead par image entre deux tailles mesurées. L'overhead fixe
+brut est ensuite le plus grand résidu nécessaire pour couvrir toutes les
+tailles mesurées.
 
-Un appel libgphoto2 déjà bloqué ne peut pas être interrompu sûrement par cette
-couche Python. Tant que le worker ne revient pas, les nouvelles commandes sont
-refusées ; les autres RIG continuent. La caractérisation vise à éviter ce cas en
-fonctionnement normal, la reprise est seulement une protection contre les incidents.
+Quand une seule taille est disponible, l'inter-image n'est pas identifiable :
+tout l'overhead mesuré est conservé dans la partie fixe. La politique de sécurité
+est ensuite appliquée aux deux composantes.
 
-## Limites de qualification
+Le plan n'utilise jamais une taille de bracket qui n'a pas été validée.
 
-Aucun appareil physique n'est accessible à l'environnement de développement.
-Les simulations valident le logiciel, pas la cadence réelle du D850 ou du Sony.
-La qualification locale couvre les poses et répétitions enregistrées, un RIG à la
-fois. Elle ne garantit pas toutes les cartes mémoire, la température, les poses
-longues ou la contention USB/CPU de plusieurs RIG. Le dry-run final doit reproduire
-les réglages, les cartes et tous les RIG de l'éclipse.
+## SET et reprise
 
-Les deux secondes de silence sont exclusivement une pause entre essais de
-caractérisation. Elles sont exclues des budgets, de la qualification enchaînée et
-du Trigger. Les configurations existantes et l'historique ne sont jamais supprimés
-par l'installation de cette évolution.
+Le contrat v3 ne génère plus de macro `SET capture_setup`. Chaque groupe de
+photos est autonome et contient les SET physiques nécessaires :
+
+    SET ISO
+    SET mode simple        # si le boîtier expose ce réglage
+    SET vitesse
+    SET mode bracket       # uniquement pour un bracket
+    PHOTO
+
+Chaque SET réserve `set_overhead_ms`.
+
+Cette redondance est volontaire : après une erreur USB, un groupe futur complet
+peut repartir sans reconstruire l'historique des anciens SET. Le Trigger continue
+sur ses horaires absolus et ne rejoue jamais une photo passée.
+
+Le format `.plan` conserve l'enveloppe de garde existante
+`timing_contract_version=2` pour le transport IPC et le rejet des commandes
+périmées. Cette valeur est un détail du protocole d'exécution ; les durées qu'elle
+transporte proviennent du modèle caméra v3.
+
+## Pause de 2 secondes
+
+Les deux secondes sans événement USB sont exclusivement une séparation entre
+essais de caractérisation. Elles :
+
+- ne font pas partie des mesures ;
+- ne sont pas ajoutées aux budgets ;
+- ne sont pas écrites dans le `.plan` ;
+- ne sont jamais exécutées par le Trigger.
+
+La confirmation des fichiers reste, elle, incluse dans la mesure de PHOTO.
+
+## JSON final et données de debug
+
+Le fichier final `configs/camera_timing/<profil>.json` ne contient pas
+l'historique des essais. Il contient seulement l'identité du boîtier et le
+`timing_contract` v3 avec les valeurs sécurisées.
+
+Les échantillons bruts, médianes, essais rejetés et pauses de test restent dans :
+
+    configs/camera_characterization/measurements/<job_id>.json
+
+Ils servent au diagnostic mais ne sont jamais lus par le Trigger.
+
+Le profil final `configs/camera_profiles/<profil>.json` conserve seulement les
+commandes validées, la stratégie retenue, les modes de bracket utilisables et le
+contrat v3. Les benchmarks et données brutes de caractérisation ne sont pas
+publiés dans le profil runtime.
+
+## Compatibilité
+
+Les profils historiques et les contrats v2 restent lisibles. Ils ne sont ni
+convertis ni réécrits automatiquement. Une nouvelle caractérisation est nécessaire
+pour obtenir un contrat v3.
+
+Le nouveau modèle ne mesure toujours pas le début physique de l'exposition.
+La latence physique déclenchement → ouverture de l'obturateur reste donc
+explicitement non corrigée.

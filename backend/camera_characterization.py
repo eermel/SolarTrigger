@@ -182,41 +182,144 @@ def enumerate_widgets(camera):
     return result
 
 
+def _persistent_profile_document(profile):
+    """Return the lean runtime profile written to configs/camera_profiles."""
+    contract = profile.get("timing_contract")
+    if not (
+        isinstance(contract, dict)
+        and contract.get("version") == 3
+    ):
+        return deepcopy(profile)
+
+    result = {}
+    for key in (
+        "schema_version",
+        "config_type",
+        "backend",
+        "manufacturer",
+        "model",
+        "characterized_at",
+        "strategy",
+        "commands",
+        "warnings",
+        "capture_timeout_s",
+        "timing_contract",
+    ):
+        if key in profile:
+            result[key] = deepcopy(profile[key])
+
+    result["brackets"] = {}
+    for size, spec in profile.get("brackets", {}).items():
+        result["brackets"][str(size)] = {
+            "step_ev": spec["step_ev"],
+            "mode": spec["mode"],
+            "trigger": deepcopy(spec["trigger"]),
+        }
+
+    return validate_profile(result)
+
+
+def _persistent_timing_document(timing):
+    """Return the final non-debug timing JSON.
+
+    Raw samples, medians, qualification traces and test pauses remain only in the
+    characterization measurement checkpoint.
+    """
+    contract = timing.get("timing_contract")
+    if not (
+        isinstance(contract, dict)
+        and contract.get("version") == 3
+    ):
+        return deepcopy(timing)
+
+    return {
+        "schema_version": 2,
+        "config_type": "camera_timing",
+        "backend": timing["backend"],
+        "manufacturer": timing["manufacturer"],
+        "model": timing["model"],
+        "timing_contract": deepcopy(contract),
+    }
+
+
 def publish(profile, timing, root):
-    """Timing first, profile last as activation marker; never overwrite a model."""
-    validate_profile(profile)
+    """Publish lean runtime JSON atomically; never overwrite an existing model."""
+    stored_profile = _persistent_profile_document(profile)
+    stored_timing = _persistent_timing_document(timing)
+
+    validate_profile(stored_profile)
+
     for key in ("manufacturer", "model", "backend"):
-        if timing.get(key) != profile[key]:
-            raise ValueError(f"Timing/profile identity mismatch: {key}")
-    slug = profile["backend"][8:]
-    files = [(root / "configs/camera_timing" / f"{slug}.json", timing),
-             (root / "configs/camera_profiles" / f"{slug}.json", profile)]
+        if stored_timing.get(key) != stored_profile[key]:
+            raise ValueError(
+                f"Timing/profile identity mismatch: {key}"
+            )
+
+    slug = stored_profile["backend"][8:]
+    files = [
+        (
+            root / "configs/camera_timing" / f"{slug}.json",
+            stored_timing,
+        ),
+        (
+            root / "configs/camera_profiles" / f"{slug}.json",
+            stored_profile,
+        ),
+    ]
+
     if any(path.exists() for path, _ in files):
-        raise RuntimeError("Characterization files already exist; no overwrite performed")
+        raise RuntimeError(
+            "Characterization files already exist; no overwrite performed"
+        )
+
     written = []
     try:
         for path, document in files:
             path.parent.mkdir(parents=True, exist_ok=True)
-            if path.parent.resolve() != root.resolve() / path.parent.relative_to(root):
-                raise ValueError("Camera configuration directories must not be symlinks")
-            # Exclusive creation and atomic hard-link publication prevent partial JSON
-            # from becoming discoverable, including after power loss.
+            if (
+                path.parent.resolve()
+                != root.resolve() / path.parent.relative_to(root)
+            ):
+                raise ValueError(
+                    "Camera configuration directories must not be symlinks"
+                )
+
             import os
             import tempfile
-            with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, suffix=".tmp", delete=False) as handle:
+
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
                 temp = Path(handle.name)
-                json.dump(document, handle, indent=2, ensure_ascii=False)
+                json.dump(
+                    document,
+                    handle,
+                    indent=2,
+                    ensure_ascii=False,
+                )
                 handle.flush()
                 os.fsync(handle.fileno())
+
             try:
                 if document.get("config_type") == "camera_timing":
-                    from backend.camera_timing import load_camera_timing_profile
+                    from backend.camera_timing import (
+                        load_camera_timing_profile,
+                    )
                     load_camera_timing_profile(temp)
                 os.link(temp, path)
                 written.append(path)
             finally:
                 temp.unlink(missing_ok=True)
-        return [str(p.relative_to(root)) for p in written]
+
+        return [
+            str(path.relative_to(root))
+            for path in written
+        ]
+
     except Exception:
         for path in written:
             path.unlink(missing_ok=True)
@@ -235,69 +338,211 @@ def choose_common_bracket_command(candidates, excluded, sizes):
 
 
 def characterize(camera, entry, job):
-    commands, warnings, measurements = {}, [], {}
+    """Discover commands and build the simplified timing contract v3.
+
+    Runtime budgets are deliberately reduced to four values:
+      * one maximum SET reservation shared by every runtime SET;
+      * one fixed overhead for a single PHOTO;
+      * one fixed bracket overhead;
+      * one per-gap bracket inter-image overhead.
+
+    Raw observations stay in the characterization checkpoint and in this
+    function's returned diagnostic object. publish() strips them from the
+    persistent runtime JSON.
+    """
+    from backend.camera_timing_contract import (
+        SAFETY_POLICY,
+        budget_ms,
+        bracket_photo_duration_ms,
+        derive_bracket_components,
+        single_photo_duration_ms,
+    )
+    from plugins.camera.base import _parse_speed
+    from types import SimpleNamespace
+
+    commands = {}
+    warnings = []
     timing_trials = []
-    job.checkpoint(manufacturer=entry["manufacturer"], model=entry["model"],
-                   timing_trials=timing_trials, commands=commands)
     set_samples = {}
-    setup_samples = {"1": []}
+
+    job.checkpoint(
+        manufacturer=entry["manufacturer"],
+        model=entry["model"],
+        timing_trials=timing_trials,
+        commands=commands,
+    )
+
     initial = enumerate_widgets(camera)
     for item in initial:
-        job.log(f"DISCOVER {item['path']} readonly={item['readonly']} choices={item['choices']}")
+        job.log(
+            f"DISCOVER {item['path']} "
+            f"readonly={item['readonly']} "
+            f"choices={item['choices']}"
+        )
 
-    def find_setting(key, names, accept, critical=True):
-        # Re-enumerate after each mode change: writeability and choices can change.
-        candidates = [w for w in enumerate_widgets(camera) if w["name"] in names and not w["readonly"]]
+    def find_setting(
+        key,
+        names,
+        accept,
+        critical=True,
+    ):
+        # Re-enumerate after mode changes because writeability/choices can
+        # change on real cameras.
+        candidates = [
+            item
+            for item in enumerate_widgets(camera)
+            if item["name"] in names
+            and not item["readonly"]
+        ]
         errors = []
+
         for candidate in candidates:
-            values = candidate["choices"] or [candidate["value"]]
+            values = (
+                candidate["choices"]
+                or [candidate["value"]]
+            )
+
             if key == "capture_target":
-                values = sorted(values, key=lambda v: str(v).casefold() != "card+sdram")
+                values = sorted(
+                    values,
+                    key=lambda value: (
+                        str(value).casefold() != "card+sdram"
+                    ),
+                )
+
             for value in values:
                 if not accept(str(value)):
                     continue
+
                 job.check()
                 try:
-                    write_widget(camera, candidate["path"], value)
+                    write_widget(
+                        camera,
+                        candidate["path"],
+                        value,
+                    )
+
                     deadline = time.monotonic() + 5.0
                     for attempt in range(20):
                         job.check()
-                        _, node = widget(camera, candidate["path"])
+                        _, node = widget(
+                            camera,
+                            candidate["path"],
+                        )
                         actual = node.get_value()
+
                         if str(actual) == str(value):
                             break
-                        if time.monotonic() >= deadline or attempt == 19:
-                            raise RuntimeError(f"readback mismatch: requested={value!r}, actual={actual!r}")
-                        job.log(f"WAIT {key}: requested={value!r}, actual={actual!r}")
+
+                        if (
+                            time.monotonic() >= deadline
+                            or attempt == 19
+                        ):
+                            raise RuntimeError(
+                                "readback mismatch: "
+                                f"requested={value!r}, "
+                                f"actual={actual!r}"
+                            )
+
+                        job.log(
+                            f"WAIT {key}: "
+                            f"requested={value!r}, "
+                            f"actual={actual!r}"
+                        )
                         time.sleep(0.25)
-                    commands[key] = {"path": candidate["path"], "value": value}
-                    job.log(f"VALID {key}: {candidate['path']}={value}")
+
+                    commands[key] = {
+                        "path": candidate["path"],
+                        "value": value,
+                    }
+                    job.log(
+                        f"VALID {key}: "
+                        f"{candidate['path']}={value}"
+                    )
                     return candidate
+
                 except Exception as exc:
                     errors.append(str(exc))
-                    job.log(f"RETRY {key}: {exc}")
+                    job.log(
+                        f"RETRY {key}: {exc}"
+                    )
+
         if critical:
-            raise RuntimeError(f"Critical function unavailable: {key}; {'; '.join(errors)}")
+            raise RuntimeError(
+                f"Critical function unavailable: {key}; "
+                + "; ".join(errors)
+            )
+
         warnings.append(f"{key}: unavailable")
         return None
 
-    find_setting("manual_mode", ("expprogram", "autoexposuremode", "exposuremode"),
-                 lambda s: s.casefold() in ("m", "manual"))
-    find_setting("capture_target", ("capturetarget",),
-                 lambda s: s.casefold() in ("card+sdram", "card", "memory card", "sd card"))
-    find_setting("raw", ("imageformat", "imagequality", "imagequality2"),
-                 lambda s: ("raw" in s.casefold() or "nef" in s.casefold()) and
-                 not any(v in s.casefold() for v in ("+", "jpeg", "jpg")))
-    for key, names in (("self_timer", ("selftimer", "selftimerdelay")),
-                       ("time_lapse", ("intervalshooting", "timelapse"))):
-        if any(w["name"] in names for w in enumerate_widgets(camera)):
-            find_setting(key, names, lambda s: s.casefold() in ("off", "0", "disabled"), False)
-    iso = find_setting("iso", ("iso", "iso2"), lambda s: s == "100")
-    commands["iso"]["values"] = {str(v): v for v in iso["choices"] if str(v).isdigit()}
-    mode = find_setting("capture_mode", ("capturemode", "drivemode"),
-                        lambda s: s.casefold() in ("single shot", "single", "single frame"), False)
-    shutter = find_setting("shutter", ("shutterspeed", "shutterspeed2", "exptime"), lambda s: s == "1/500")
-    from plugins.camera.base import _parse_speed
+    find_setting(
+        "manual_mode",
+        ("expprogram", "autoexposuremode", "exposuremode"),
+        lambda value: value.casefold() in ("m", "manual"),
+    )
+    find_setting(
+        "capture_target",
+        ("capturetarget",),
+        lambda value: value.casefold()
+        in ("card+sdram", "card", "memory card", "sd card"),
+    )
+    find_setting(
+        "raw",
+        ("imageformat", "imagequality", "imagequality2"),
+        lambda value: (
+            (
+                "raw" in value.casefold()
+                or "nef" in value.casefold()
+            )
+            and not any(
+                token in value.casefold()
+                for token in ("+", "jpeg", "jpg")
+            )
+        ),
+    )
+
+    for key, names in (
+        ("self_timer", ("selftimer", "selftimerdelay")),
+        ("time_lapse", ("intervalshooting", "timelapse")),
+    ):
+        if any(
+            item["name"] in names
+            for item in enumerate_widgets(camera)
+        ):
+            find_setting(
+                key,
+                names,
+                lambda value: value.casefold()
+                in ("off", "0", "disabled"),
+                False,
+            )
+
+    iso = find_setting(
+        "iso",
+        ("iso", "iso2"),
+        lambda value: value == "100",
+    )
+    commands["iso"]["values"] = {
+        str(value): value
+        for value in iso["choices"]
+        if str(value).isdigit()
+    }
+
+    mode = find_setting(
+        "capture_mode",
+        ("capturemode", "drivemode"),
+        lambda value: value.casefold()
+        in ("single shot", "single", "single frame"),
+        False,
+    )
+
+    shutter = find_setting(
+        "shutter",
+        ("shutterspeed", "shutterspeed2", "exptime"),
+        lambda value: value == "1/500",
+    )
+
     speeds = {}
     for value in shutter["choices"]:
         try:
@@ -305,331 +550,1154 @@ def characterize(camera, entry, job):
                 speeds[str(value)] = value
         except (ValueError, ZeroDivisionError):
             pass
+
+    if "1/500" not in speeds:
+        raise RuntimeError(
+            "Reference shutter 1/500 is unavailable"
+        )
+
     commands["shutter"]["values"] = speeds
+
     for item in enumerate_widgets(camera):
         if item["name"] in ("batterylevel", "battery"):
-            commands["battery"] = {"path": item["path"]}
-            job.log(f"Battery: {item['value']}")
-        if item["name"] in ("f-number", "aperture") and not item["readonly"]:
-            commands["aperture"] = {"path": item["path"], "values": {str(v): v for v in item["choices"]}}
+            commands["battery"] = {
+                "path": item["path"],
+            }
+            job.log(
+                f"Battery: {item['value']}"
+            )
+
+        if (
+            item["name"] in ("f-number", "aperture")
+            and not item["readonly"]
+        ):
+            commands["aperture"] = {
+                "path": item["path"],
+                "values": {
+                    str(value): value
+                    for value in item["choices"]
+                },
+            }
+
     if "battery" not in commands:
         warnings.append("battery: unavailable")
 
+    # Discover supported 1-EV native bracket modes before timing SETs so the
+    # shared SET reservation covers every drive-mode value later used by .plan.
+    ordered_modes = {}
+    if mode:
+        for value in mode["choices"]:
+            match = re.fullmatch(
+                r"(?:Continuous Bracket 1(?:\.0)? EV|"
+                r"Bracketing C 1(?:\.0)? Steps) "
+                r"(\d+) (?:Img\.|Pictures)",
+                str(value),
+            )
+            if not match:
+                continue
+
+            frames = int(match.group(1))
+            if frames not in (3, 5, 7, 9):
+                continue
+
+            ordered_modes.setdefault(
+                frames,
+                value,
+            )
+
     def measure_set(key, values):
+        values = list(values)
+        if not values:
+            raise RuntimeError(
+                f"Cannot measure SET {key}: no values"
+            )
+
         samples = []
         for _ in range(5):
             for value in values:
                 job.check()
                 begin = time.monotonic()
-                write_checked(camera, commands[key]["path"], value)
-                samples.append((time.monotonic() - begin)*1000)
+                write_checked(
+                    camera,
+                    commands[key]["path"],
+                    value,
+                )
+                samples.append(
+                    (time.monotonic() - begin) * 1000.0
+                )
+
         set_samples[key] = samples
-        result = statistics.median(samples)
-        job.log(f"TIMING {key}: median {result:.1f} ms ({len(samples)} operations)")
-        return result
+        job.log(
+            f"TIMING SET {key}: "
+            f"max={max(samples):.1f} ms "
+            f"median={statistics.median(samples):.1f} ms "
+            f"({len(samples)} operations)"
+        )
+        return samples
 
-    # ISO alternates only during transaction timing, then returns to ISO100.
-    # Every exposure/strategy comparison uses ISO100, never base/expanded ISO.
-    iso_other = next((v for k, v in commands["iso"]["values"].items() if int(k) > 100), None)
+    # ISO alternates only during timing, then returns to ISO100.
+    iso_other = next(
+        (
+            value
+            for key, value
+            in commands["iso"]["values"].items()
+            if int(key) > 100
+        ),
+        None,
+    )
     if iso_other is None:
-        raise RuntimeError("Cannot measure a real ISO transition: no alternate standard ISO")
-    measurements["set_iso_ms"] = measure_set("iso", [iso_other, commands["iso"]["values"]["100"]])
-    other = next((v for k, v in speeds.items() if k != "1/500"), None)
-    if other is None:
-        raise RuntimeError("Cannot measure shutter transitions")
-    measurements["set_shutter_ms"] = measure_set("shutter", [other, speeds["1/500"]])
-    # Initial modes, battery, timer and timelapse are never timed separately.
-    # Preparation is the exact sequence later used by the profile executor.
-    for speed in [other, speeds["1/500"]] * 5:
-        begin = time.monotonic()
-        prepare_photo(camera, commands, speed)
-        setup_samples["1"].append((time.monotonic() - begin) * 1000)
+        raise RuntimeError(
+            "Cannot measure a real ISO transition: "
+            "no alternate standard ISO"
+        )
 
-    # Probe all known capture entry points, not just the first successful one.
-    trigger_candidates = [{"method": "trigger_capture"}, {"method": "capture"}]
+    measure_set(
+        "iso",
+        [
+            iso_other,
+            commands["iso"]["values"]["100"],
+        ],
+    )
+
+    shutter_other = next(
+        (
+            value
+            for key, value in speeds.items()
+            if key != "1/500"
+        ),
+        None,
+    )
+    if shutter_other is None:
+        raise RuntimeError(
+            "Cannot measure shutter transitions"
+        )
+
+    measure_set(
+        "shutter",
+        [
+            shutter_other,
+            speeds["1/500"],
+        ],
+    )
+
+    if mode:
+        single_mode = commands["capture_mode"]["value"]
+        mode_values = [
+            ordered_modes[frames]
+            for frames in sorted(ordered_modes)
+        ]
+
+        if not mode_values:
+            # No native bracket mode: still time the capture-mode SET used by
+            # sequential plans. Prefer one real transition when available.
+            alternate = next(
+                (
+                    value
+                    for value in mode["choices"]
+                    if str(value) != str(single_mode)
+                ),
+                None,
+            )
+            if alternate is not None:
+                mode_values.append(alternate)
+
+        mode_values.append(single_mode)
+        measure_set(
+            "capture_mode",
+            mode_values,
+        )
+        write_checked(
+            camera,
+            commands["capture_mode"]["path"],
+            single_mode,
+        )
+
+    all_set_samples = [
+        sample
+        for samples in set_samples.values()
+        for sample in samples
+    ]
+    set_overhead_ms = budget_ms(
+        all_set_samples
+    )
+
+    # Probe every known capture entry point. Operator confirmation is used only
+    # for the first discovery of each method/size; five timing repetitions then
+    # run automatically.
+    trigger_candidates = [
+        {"method": "trigger_capture"},
+        {"method": "capture"},
+    ]
+
     for item in enumerate_widgets(camera):
-        if item["name"] in ("capture", "bulb") and not item["readonly"]:
-            candidate = {"method": "widget", "path": item["path"], "value": 1, "release": 0}
+        if (
+            item["name"] in ("capture", "bulb")
+            and not item["readonly"]
+        ):
+            candidate = {
+                "method": "widget",
+                "path": item["path"],
+                "value": 1,
+                "release": 0,
+            }
             if candidate not in trigger_candidates:
                 trigger_candidates.append(candidate)
+
     import gphoto2 as gp
-    job.log("TEST POLICY: single and bracket commands validated independently; rejected bracket commands are never retried at larger sizes")
-    job.log("PHOTO SAVING: redundant comparison removed (up to 45 singles and 45 bracket frames); each tested method uses one discovery plus five timing trials")
-    job.log("QUALIFICATION: five passes per selected block; budget revisions restart that block until validation or operator cancellation")
+
+    job.log(
+        "TEST POLICY: single and bracket commands are validated independently; "
+        "a rejected bracket command is not retried at larger sizes"
+    )
+    job.log(
+        "TIMING MODEL V3: SET=max guarded command; "
+        "PHOTO=exposure(s)+fixed/inter-image overheads"
+    )
+
     validated_trials = set()
-    def probe(spec, expected=1, exposure_s=0.002):
+
+    def probe(
+        spec,
+        expected=1,
+        exposure_s=0.002,
+    ):
         job.check()
-        trial_key = (spec['method'], spec.get('path'), spec.get('value'), spec.get('release'), expected)
+
+        trial_key = (
+            spec["method"],
+            spec.get("path"),
+            spec.get("value"),
+            spec.get("release"),
+            expected,
+        )
         discovery = trial_key not in validated_trials
-        if discovery and not job.ask(
-            f"Prêt pour un test de {expected} photo(s) RAW à ISO 100 ? "
-            f"Commande : {spec}. Attendez que le boîtier ait terminé toute prise précédente, "
-            "puis cliquez sur OK pour démarrer et observez les déclenchements.", kind="start"
+
+        if (
+            discovery
+            and not job.ask(
+                f"Prêt pour un test de {expected} photo(s) RAW à ISO 100 ? "
+                f"Commande : {spec}. Attendez que le boîtier ait terminé "
+                "toute prise précédente, puis cliquez sur OK pour démarrer "
+                "et observez les déclenchements.",
+                kind="start",
+            )
         ):
-            raise Cancelled("Test cancelled by operator before capture")
-        job.log(f"TEST START: {expected} photo(s), {spec}")
-        # Discard old events before starting a trial.
+            raise Cancelled(
+                "Test cancelled by operator before capture"
+            )
+
+        job.log(
+            f"TEST START: {expected} photo(s), {spec}"
+        )
+
+        # Discard old events before a trial.
         for _ in range(100):
             kind, _data = camera.wait_for_event(1)
             if kind == gp.GP_EVENT_TIMEOUT:
                 break
+
         seen = set()
         error = None
-        returned = release_ms = 0.0
+        returned_ms = 0.0
+        release_ms = 0.0
+
         begin = time.monotonic()
+
         try:
             method = spec["method"]
+
             if method == "capture":
-                file = camera.capture(gp.GP_CAPTURE_IMAGE)
-                if getattr(file, "name", None):
-                    seen.add((file.folder, file.name))
+                file_ref = camera.capture(
+                    gp.GP_CAPTURE_IMAGE
+                )
+                if getattr(file_ref, "name", None):
+                    seen.add(
+                        (
+                            file_ref.folder,
+                            file_ref.name,
+                        )
+                    )
+
             elif method == "trigger_capture":
                 camera.trigger_capture()
+
             else:
-                write_widget(camera, spec["path"], spec["value"])
-            returned = (time.monotonic()-begin)*1000
-            until = time.monotonic() + exposure_s + 5
-            while len(seen) < expected and time.monotonic() < until:
+                write_widget(
+                    camera,
+                    spec["path"],
+                    spec["value"],
+                )
+
+            returned_ms = (
+                time.monotonic() - begin
+            ) * 1000.0
+
+            until = (
+                time.monotonic()
+                + float(exposure_s)
+                + 5.0
+            )
+
+            while (
+                len(seen) < expected
+                and time.monotonic() < until
+            ):
                 job.check()
                 kind, data = camera.wait_for_event(100)
+
                 if kind == gp.GP_EVENT_FILE_ADDED:
-                    seen.add((getattr(data, "folder", ""), getattr(data, "name", str(data))))
+                    seen.add(
+                        (
+                            getattr(data, "folder", ""),
+                            getattr(
+                                data,
+                                "name",
+                                str(data),
+                            ),
+                        )
+                    )
+
         except Cancelled:
             raise
+
         except Exception as exc:
             error = exc
+
         finally:
             before_release = time.monotonic()
             if "release" in spec:
-                write_widget(camera, spec["path"], spec["release"])
-                release_ms = (time.monotonic() - before_release) * 1000
-        # Files delivered after release are still part of capture completion.
+                write_widget(
+                    camera,
+                    spec["path"],
+                    spec["release"],
+                )
+                release_ms = (
+                    time.monotonic()
+                    - before_release
+                ) * 1000.0
+
+        # Files delivered after release still belong to this PHOTO.
         post_release_start = time.monotonic()
-        until = post_release_start + exposure_s + 5
-        while error is None and len(seen) < expected and time.monotonic() < until:
+        until = (
+            post_release_start
+            + float(exposure_s)
+            + 5.0
+        )
+
+        while (
+            error is None
+            and len(seen) < expected
+            and time.monotonic() < until
+        ):
             job.check()
             kind, data = camera.wait_for_event(100)
+
             if kind == gp.GP_EVENT_FILE_ADDED:
-                seen.add((getattr(data, "folder", ""), getattr(data, "name", str(data))))
-        post_release_ms = (time.monotonic() - post_release_start) * 1000
-        duration = (time.monotonic()-begin)*1000
-        capture_confirmed = len(seen) == expected
-        job.log(f"TEST PAUSE: 2 seconds without USB events, excluded from timing; files {len(seen)}/{expected}")
-        idle_ms = wait_camera_idle(camera, seen, check=job.check)
-        job.log(f"TEST PAUSE END: {idle_ms:.1f} ms, excluded; files {len(seen)}/{expected}")
+                seen.add(
+                    (
+                        getattr(data, "folder", ""),
+                        getattr(
+                            data,
+                            "name",
+                            str(data),
+                        ),
+                    )
+                )
+
+        post_release_ms = (
+            time.monotonic()
+            - post_release_start
+        ) * 1000.0
+
+        duration_ms = (
+            time.monotonic() - begin
+        ) * 1000.0
+
+        capture_confirmed = (
+            len(seen) == expected
+        )
+
+        # Characterization-only pause. It is deliberately outside duration_ms.
+        job.log(
+            "TEST PAUSE: 2 seconds without USB events, excluded from timing; "
+            f"files {len(seen)}/{expected}"
+        )
+
+        idle_ms = wait_camera_idle(
+            camera,
+            seen,
+            check=job.check,
+        )
+
+        job.log(
+            f"TEST PAUSE END: {idle_ms:.1f} ms, excluded; "
+            f"files {len(seen)}/{expected}"
+        )
+
         phases = {
-            "trigger_call_ms": returned,
-            "frame_wait_ms": max(0.0, (before_release - begin) * 1000 - returned),
+            "trigger_call_ms": returned_ms,
+            "frame_wait_ms": max(
+                0.0,
+                (
+                    before_release - begin
+                ) * 1000.0
+                - returned_ms,
+            ),
             "release_ms": release_ms,
             "post_release_wait_ms": post_release_ms,
             "settle_ms": 0.0,
             "test_pause_ms": idle_ms,
-            "total_ms": duration,
+            "total_ms": duration_ms,
         }
+
         if error is not None:
-            taken = job.ask(f"Erreur USB ({error}). Attendez la fin de tous les déclenchements. Exactement {expected} photo(s) RAW enregistrées sur la carte ?") if discovery else None
-            job.log(f"Operator observed photos after USB error: {taken}. Method is unreliable and will not be selected.")
-            raise RuntimeError(f"USB method returned an error: {error}")
-        if discovery and not job.ask(
-            f"Attendez la fin de tous les déclenchements avant de répondre. "
-            f"Exactement {expected} photo(s) RAW enregistrées sur la carte ? "
-            f"Fichiers signalés par USB : {len(seen)}."
+            observed = (
+                job.ask(
+                    f"Erreur USB ({error}). Attendez la fin de tous les "
+                    f"déclenchements. Exactement {expected} photo(s) RAW "
+                    "enregistrées sur la carte ?"
+                )
+                if discovery
+                else None
+            )
+            job.log(
+                "Operator observed photos after USB error: "
+                f"{observed}. Method is unreliable and will not be selected."
+            )
+            raise RuntimeError(
+                f"USB method returned an error: {error}"
+            )
+
+        if (
+            discovery
+            and not job.ask(
+                "Attendez la fin de tous les déclenchements avant de répondre. "
+                f"Exactement {expected} photo(s) RAW enregistrées sur la carte ? "
+                f"Fichiers signalés par USB : {len(seen)}."
+            )
         ):
-            raise RuntimeError("Operator reports missing/incorrect photos")
+            raise RuntimeError(
+                "Operator reports missing/incorrect photos"
+            )
+
         if discovery:
             validated_trials.add(trial_key)
-        if len(seen) != expected or not capture_confirmed:
-            if not discovery:
-                raise RuntimeError(f"Automatic timing unavailable: USB confirmed {len(seen)}/{expected} files")
-            raise RuntimeError(f"Discovery incomplete: USB confirmed {len(seen)}/{expected}; no timing trials")
-        job.log(f"TEST END {'discovery confirmed' if discovery else 'automatic timing'}: {expected} photo(s), {duration:.1f} ms (test pause excluded)")
-        return returned, duration, "events", phases
 
-    def summarize_samples(spec, frames, samples):
-        phases = {key: statistics.median(s[3][key] for s in samples) for key in samples[0][3]}
-        timing_trials.append({"trigger": deepcopy(spec), "frames": frames,
-                              "samples": [deepcopy(s[3]) for s in samples],
-                              "median": phases, "status": "validated"})
-        job.checkpoint(set_trials=set_samples, setup_trials=setup_samples)
+        if (
+            len(seen) != expected
+            or not capture_confirmed
+        ):
+            if not discovery:
+                raise RuntimeError(
+                    "Automatic timing unavailable: "
+                    f"USB confirmed {len(seen)}/{expected} files"
+                )
+            raise RuntimeError(
+                "Discovery incomplete: "
+                f"USB confirmed {len(seen)}/{expected}; "
+                "no timing trials"
+            )
+
+        job.log(
+            f"TEST END "
+            f"{'discovery confirmed' if discovery else 'automatic timing'}: "
+            f"{expected} photo(s), {duration_ms:.1f} ms "
+            "(test pause excluded)"
+        )
+
+        return (
+            returned_ms,
+            duration_ms,
+            "events",
+            phases,
+        )
+
+    def summarize_samples(
+        spec,
+        frames,
+        samples,
+    ):
+        phases = {
+            key: statistics.median(
+                sample[3][key]
+                for sample in samples
+            )
+            for key in samples[0][3]
+        }
+
+        timing_trials.append(
+            {
+                "trigger": deepcopy(spec),
+                "frames": frames,
+                "samples": [
+                    deepcopy(sample[3])
+                    for sample in samples
+                ],
+                "median": phases,
+                "status": "validated",
+            }
+        )
+
+        job.checkpoint(
+            timing_trials=timing_trials,
+            set_trials=set_samples,
+        )
+
         return phases
 
-    valid = []
-    for spec in trigger_candidates:
-        if spec.get("path", "").rsplit("/", 1)[-1] == "bulb":
-            job.log("SKIP single bulb: held exposure is not a validated fixed-shutter capture")
-            continue
-        samples = []
-        try:
-            job.log(f"TRIGGER TEST {spec}")
-            probe(spec)  # Operator discovery is excluded from speed measurements.
-            for _ in range(5):
-                samples.append(probe(spec))
-            summarize_samples(spec, 1, samples)
-            valid.append((max(s[1] for s in samples), spec, samples))
-        except (Cancelled, CameraIdleTimeout):
-            raise
-        except Exception as exc:
-            timing_trials.append({"trigger": deepcopy(spec), "frames": 1, "status": "rejected", "reason": str(exc)})
-            job.log(f"TRIGGER rejected: {exc}")
-    if not valid:
-        raise RuntimeError("No validated single trigger")
-    duration, trigger, samples = min(valid, key=lambda v: v[0])
-    commands["trigger_single"] = trigger
-    measurements["trigger_single_duration_ms"] = statistics.median(
-        s[3]["trigger_call_ms"] + s[3]["frame_wait_ms"] + s[3]["release_ms"] + s[3]["post_release_wait_ms"] for s in samples)
-    measurements["settle_idle_ms"] = statistics.median(s[3]["settle_ms"] for s in samples)
-    measurements.setdefault("set_capturemode_ms", 0)
-    measurements["bracket_press_latency_ms"] = 0
-    measurements["bracket_release_ms"] = 0
-    # Zero means no physical-latency correction, NOT a measured zero latency.
-    measurements["trigger_single_latency_ms"] = 0
-    warnings.append("Physical shutter-start latency is unmeasured; no timing correction applied")
-    if any(s[2] == "operator" for s in samples):
-        trigger["completion"] = "operator_validated_delay"
-        trigger["wait_ms"] = max(s[1] for s in samples)
-        warnings.append("Single capture completion requires conservative delay (operator validated)")
-    model_key = f"{entry['manufacturer']} {entry['model']}"
-    slug = re.sub(r"[^a-z0-9]+", "_", model_key.casefold()).strip("_")[:80]
-    slug += "_" + hashlib.sha256(model_key.encode()).hexdigest()[:8]
-    profile = {"schema_version": 1, "config_type": "camera_profile", "backend": f"profile-{slug}",
-               "manufacturer": entry["manufacturer"], "model": entry["model"],
-               "characterized_at": datetime.now(timezone.utc).isoformat(),
-               "strategy": "sequential", "commands": commands, "warnings": warnings,
-               "settle_idle_s": 0.0, "test_pause_s": 2.0,
-               "planning_timing": {"single_ms": duration + measurements["set_shutter_ms"], "single_atomic_ms": duration},
-               "brackets": {}}
+    valid_single = []
 
-    # Brackets are accepted only with an understood 1-EV mode and a complete
-    # nine-view benchmark. Other representations remain explicitly unsupported.
+    for spec in trigger_candidates:
+        if (
+            spec.get("path", "").rsplit("/", 1)[-1]
+            == "bulb"
+        ):
+            job.log(
+                "SKIP single bulb: held exposure is not a validated "
+                "fixed-shutter capture"
+            )
+            continue
+
+        samples = []
+
+        try:
+            job.log(
+                f"TRIGGER TEST {spec}"
+            )
+
+            # Operator discovery is excluded from speed measurements.
+            probe(
+                spec,
+                expected=1,
+                exposure_s=_parse_speed("1/500"),
+            )
+
+            for _ in range(5):
+                samples.append(
+                    probe(
+                        spec,
+                        expected=1,
+                        exposure_s=_parse_speed("1/500"),
+                    )
+                )
+
+            summarize_samples(
+                spec,
+                1,
+                samples,
+            )
+
+            valid_single.append(
+                (
+                    max(
+                        sample[1]
+                        for sample in samples
+                    ),
+                    deepcopy(spec),
+                    samples,
+                )
+            )
+
+        except (
+            Cancelled,
+            CameraIdleTimeout,
+        ):
+            raise
+
+        except Exception as exc:
+            timing_trials.append(
+                {
+                    "trigger": deepcopy(spec),
+                    "frames": 1,
+                    "status": "rejected",
+                    "reason": str(exc),
+                }
+            )
+            job.log(
+                f"TRIGGER rejected: {exc}"
+            )
+
+    if not valid_single:
+        raise RuntimeError(
+            "No validated single trigger"
+        )
+
+    _single_peak, trigger_single, single_samples = min(
+        valid_single,
+        key=lambda item: item[0],
+    )
+    commands["trigger_single"] = trigger_single
+
+    reference_single_s = _parse_speed("1/500")
+    single_overhead_samples = [
+        max(
+            0.0,
+            sample[1]
+            - reference_single_s * 1000.0,
+        )
+        for sample in single_samples
+    ]
+    single_overhead_ms = budget_ms(
+        single_overhead_samples
+    )
+
+    warnings.append(
+        "Physical shutter-start latency is unmeasured; "
+        "no timing correction applied"
+    )
+
+    model_key = (
+        f"{entry['manufacturer']} "
+        f"{entry['model']}"
+    )
+    slug = re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        model_key.casefold(),
+    ).strip("_")[:80]
+    slug += (
+        "_"
+        + hashlib.sha256(
+            model_key.encode()
+        ).hexdigest()[:8]
+    )
+
+    profile = {
+        "schema_version": 1,
+        "config_type": "camera_profile",
+        "backend": f"profile-{slug}",
+        "manufacturer": entry["manufacturer"],
+        "model": entry["model"],
+        "characterized_at": (
+            datetime.now(timezone.utc).isoformat()
+        ),
+        "strategy": "sequential",
+        "commands": commands,
+        "warnings": warnings,
+        "settle_idle_s": 0.0,
+        "test_pause_s": 2.0,
+        "brackets": {},
+    }
+
     bracket_candidates = {}
     excluded_bracket_commands = {}
-    ordered_modes = {}
-    if mode:
-        for value in mode["choices"]:
-            match = re.fullmatch(r"(?:Continuous Bracket 1(?:\.0)? EV|Bracketing C 1(?:\.0)? Steps) (\d+) (?:Img\.|Pictures)", str(value))
-            if not match:
-                continue
-            n = int(match[1])
-            if n not in (3, 5, 7, 9):
-                continue
-            ordered_modes.setdefault(n, value)
-        for n, value in sorted(ordered_modes.items()):
-            for trigger_spec in trigger_candidates:
-                command_id = json.dumps(trigger_spec, sort_keys=True)
-                if command_id in excluded_bracket_commands:
-                    job.log(f"SKIP BRACKET {n}: {trigger_spec}; previously rejected: {excluded_bracket_commands[command_id]}")
-                    continue
-                try:
-                    times = []
-                    candidate_setups = []
-                    for repetition in range(6):
-                        job.check()
-                        begin = time.monotonic()
-                        prepare_photo(camera, commands, "1/500", value)
-                        preparation_ms = (time.monotonic()-begin)*1000
-                        measured = probe(trigger_spec, n, 0.1)
-                        if repetition:
-                            candidate_setups.append(preparation_ms)
-                            times.append((preparation_ms + measured[1], measured))
-                    spec = {"step_ev": 1, "mode": value, "total_ms": max(t[0] for t in times),
-                            "atomic_ms": statistics.median(t[1][1] for t in times),
-                            "trigger": deepcopy(trigger_spec)}
-                    spec["measured_phases"] = summarize_samples(trigger_spec, n, [t[1] for t in times])
-                    if any(t[1][2] == "operator" for t in times):
-                        spec["trigger"].update(completion="operator_validated_delay", wait_ms=max(t[1][1] for t in times))
-                    spec["peak_capture_ms"] = max(t[1][1] for t in times)
-                    bracket_candidates.setdefault(command_id, {})[str(n)] = {
-                        "spec": spec, "setup_samples": candidate_setups}
 
-                except (Cancelled, CameraIdleTimeout):
+    if mode:
+        for frames, mode_value in sorted(
+            ordered_modes.items()
+        ):
+            reference_views_s = [
+                reference_single_s * (2 ** ev)
+                for ev in range(
+                    -(frames // 2),
+                    frames // 2 + 1,
+                )
+            ]
+            reference_exposure_s = sum(
+                reference_views_s
+            )
+
+            for trigger_spec in trigger_candidates:
+                command_id = json.dumps(
+                    trigger_spec,
+                    sort_keys=True,
+                )
+
+                if (
+                    command_id
+                    in excluded_bracket_commands
+                ):
+                    job.log(
+                        f"SKIP BRACKET {frames}: "
+                        f"{trigger_spec}; previously rejected: "
+                        f"{excluded_bracket_commands[command_id]}"
+                    )
+                    continue
+
+                samples = []
+
+                try:
+                    # Discovery run.
+                    prepare_photo(
+                        camera,
+                        commands,
+                        "1/500",
+                        mode_value,
+                    )
+                    probe(
+                        trigger_spec,
+                        expected=frames,
+                        exposure_s=reference_exposure_s,
+                    )
+
+                    # Five timing runs. SETs are intentionally outside probe().
+                    for _ in range(5):
+                        job.check()
+                        prepare_photo(
+                            camera,
+                            commands,
+                            "1/500",
+                            mode_value,
+                        )
+                        samples.append(
+                            probe(
+                                trigger_spec,
+                                expected=frames,
+                                exposure_s=reference_exposure_s,
+                            )
+                        )
+
+                    summarize_samples(
+                        trigger_spec,
+                        frames,
+                        samples,
+                    )
+
+                    spec = {
+                        "step_ev": 1,
+                        "mode": mode_value,
+                        "trigger": deepcopy(
+                            trigger_spec
+                        ),
+                        "peak_capture_ms": max(
+                            sample[1]
+                            for sample in samples
+                        ),
+                    }
+
+                    bracket_candidates.setdefault(
+                        command_id,
+                        {},
+                    )[str(frames)] = {
+                        "spec": spec,
+                        "samples": samples,
+                        "reference_views_s": (
+                            reference_views_s
+                        ),
+                    }
+
+                except (
+                    Cancelled,
+                    CameraIdleTimeout,
+                ):
                     raise
+
                 except Exception as exc:
-                    excluded_bracket_commands[command_id] = str(exc)
-                    timing_trials.append({"trigger": deepcopy(trigger_spec), "frames": n, "status": "rejected", "reason": str(exc)})
-                    job.log(f"BRACKET {n} {trigger_spec} rejected: {exc}")
+                    excluded_bracket_commands[
+                        command_id
+                    ] = str(exc)
+
+                    timing_trials.append(
+                        {
+                            "trigger": deepcopy(
+                                trigger_spec
+                            ),
+                            "frames": frames,
+                            "status": "rejected",
+                            "reason": str(exc),
+                        }
+                    )
+
+                    job.log(
+                        f"BRACKET {frames} "
+                        f"{trigger_spec} rejected: {exc}"
+                    )
+
                 finally:
-                    write_checked(camera, commands["capture_mode"]["path"], commands["capture_mode"]["value"])
-    selected = choose_common_bracket_command(bracket_candidates, excluded_bracket_commands, ordered_modes)
+                    write_checked(
+                        camera,
+                        commands["capture_mode"]["path"],
+                        commands["capture_mode"]["value"],
+                    )
+
+    selected = choose_common_bracket_command(
+        bracket_candidates,
+        excluded_bracket_commands,
+        ordered_modes,
+    )
+
+    bracket_overhead_samples_by_frames = {}
+
     if selected is not None:
-        for size, item in bracket_candidates[selected].items():
-            profile["brackets"][size] = item["spec"]
-            setup_samples[size] = item["setup_samples"]
-        profile["bracket_command"] = deepcopy(next(iter(profile["brackets"].values()))["trigger"])
-        job.log(f"COMMON BRACKET COMMAND: {profile['bracket_command']}")
-    profile["bracket_selection"] = {"excluded": excluded_bracket_commands,
-                                    "criterion": "lowest sum of peak capture durations, preparation excluded",
-                                    "required_sizes": sorted(ordered_modes)}
-    # Compare an actual nine-view sequence against optimized brackets covering
-    # those same exposures; the planner can combine smaller validated groups.
+        for size, item in (
+            bracket_candidates[selected].items()
+        ):
+            profile["brackets"][size] = deepcopy(
+                item["spec"]
+            )
+
+            exposure_ms = (
+                sum(item["reference_views_s"])
+                * 1000.0
+            )
+            bracket_overhead_samples_by_frames[
+                int(size)
+            ] = [
+                max(
+                    0.0,
+                    sample[1] - exposure_ms,
+                )
+                for sample in item["samples"]
+            ]
+
+        profile["bracket_command"] = deepcopy(
+            next(
+                iter(
+                    profile["brackets"].values()
+                )
+            )["trigger"]
+        )
+        job.log(
+            "COMMON BRACKET COMMAND: "
+            f"{profile['bracket_command']}"
+        )
+
+    profile["bracket_selection"] = {
+        "excluded": deepcopy(
+            excluded_bracket_commands
+        ),
+        "criterion": (
+            "lowest sum of peak PHOTO durations; "
+            "SET preparation excluded"
+        ),
+        "required_sizes": sorted(
+            ordered_modes
+        ),
+    }
+
+    if profile["brackets"]:
+        bracket_components = (
+            derive_bracket_components(
+                bracket_overhead_samples_by_frames
+            )
+        )
+        bracket_overhead_ms = budget_ms(
+            [
+                bracket_components[
+                    "raw_bracket_overhead_ms"
+                ]
+            ]
+        )
+        bracket_inter_image_ms = budget_ms(
+            [
+                bracket_components[
+                    "raw_bracket_inter_image_ms"
+                ]
+            ]
+        )
+    else:
+        bracket_components = {
+            "peak_overhead_ms_by_frames": {},
+            "raw_bracket_overhead_ms": 0.0,
+            "raw_bracket_inter_image_ms": 0.0,
+        }
+        bracket_overhead_ms = 0
+        bracket_inter_image_ms = 0
+
+        if ordered_modes:
+            warnings.append(
+                "No common bracket command validated across discovered sizes; "
+                "sequential only"
+            )
+
+    contract = {
+        "version": 3,
+        "safety_policy": deepcopy(
+            SAFETY_POLICY
+        ),
+        "set_overhead_ms": set_overhead_ms,
+        "single_overhead_ms": single_overhead_ms,
+        "bracket_overhead_ms": (
+            bracket_overhead_ms
+        ),
+        "bracket_inter_image_ms": (
+            bracket_inter_image_ms
+        ),
+        "supported_bracket_frames": sorted(
+            int(size)
+            for size in profile["brackets"]
+        ),
+    }
+
+    profile["timing_contract"] = contract
+
+    # Classify sequential vs bracket from the same exact 9-view 1-EV plan used
+    # by the Sequencer optimizer. This is a calculation; it takes no photographs.
     from math import log2
+
     test_speeds = []
     for ev in range(-4, 5):
-        target = (1/500) * 2**ev
-        closest = min(speeds, key=lambda v: abs(log2(_parse_speed(v)/target)))
-        if abs(log2(_parse_speed(closest)/target)) > .12:
-            raise RuntimeError("Nine-view comparison range unavailable at 1 EV")
-        test_speeds.append(closest)
-    # The old comparison shot another 45 singles and 45 bracketed frames.
-    # Selection now uses the existing measurements; only sustained validation
-    # takes more photographs. Do not label estimated costs as measured times.
-    profile["benchmark"] = {"iso": 100, "step_ev": 1, "repetitions": 5,
-                            "speeds": test_speeds, "comparison_source": "operational budget model"}
-    if not profile["brackets"]:
-        warnings.append("No common bracket command validated across discovered sizes; sequential only")
-    measurements["bracket_atomic_ms_by_frames"] = {size: spec["atomic_ms"] for size, spec in profile["brackets"].items()}
-    for spec in profile["brackets"].values():
-        phases = spec["measured_phases"]
-        measurements["bracket_release_ms"] = max(measurements["bracket_release_ms"], phases["release_ms"])
-        measurements["settle_idle_ms"] = max(measurements["settle_idle_ms"], phases["settle_ms"])
-    from math import ceil
-    def conservative(value):
-        return int(ceil(value / 50.0) * 50)
-    raw_measurements = deepcopy(measurements)
-    profile["raw_timings"] = deepcopy({"planning_timing": profile["planning_timing"], "brackets": profile["brackets"], "benchmark": profile["benchmark"]})
-    for key, value in measurements.items():
-        measurements[key] = {k: conservative(v) for k, v in value.items()} if isinstance(value, dict) else conservative(value)
-    for key in profile["planning_timing"]:
-        profile["planning_timing"][key] = conservative(profile["planning_timing"][key])
-    for spec in profile["brackets"].values():
-        for key in ("atomic_ms", "total_ms"):
-            spec[key] = conservative(spec[key])
-    for key in ("sequential_ms", "bracket_ms"):
-        if key in profile["benchmark"]:
-            profile["benchmark"][key] = conservative(profile["benchmark"][key])
-    profile["timing_rounding_ms"] = 50
-    timing = {"schema_version": 1, "config_type": "camera_timing", "backend": profile["backend"],
-              "manufacturer": entry["manufacturer"], "model": entry["model"], "timing": measurements,
-              "raw_timing": raw_measurements, "timing_rounding_ms": 50,
-              "timing_trials": timing_trials,
-              "measurement_status": {
-                  "set_iso_ms": "measured",
-                  "set_shutter_ms": "measured",
-                  "set_capturemode_ms": "measured" if mode else "unavailable",
-                  "trigger_single_duration_ms": "measured",
-                  "trigger_single_latency_ms": "unmeasured",
-                  "bracket_press_latency_ms": "unmeasured" if profile["brackets"] else "not_applicable",
-                  "bracket_release_ms": "measured" if profile["brackets"] else "not_applicable",
-                  "settle_idle_ms": "not_applicable",
-                  "bracket_atomic_ms_by_frames": "measured" if profile["brackets"] else "not_applicable",
-              },
-              "timing_semantics": {
-                  "set_iso_ms": "USB write duration; excludes readback validation",
-                  "set_shutter_ms": "USB write duration; excludes readback validation",
-                  "set_capturemode_ms": "USB write duration; zero if unavailable",
-                  "trigger_single_latency_ms": "Physical exposure-start latency unmeasured; zero disables compensation",
-                  "bracket_press_latency_ms": "Physical bracket-start latency unmeasured; zero disables compensation",
-                  "trigger_single_duration_ms": "Trigger call + frame waits + optional release; excludes test pause",
-                  "bracket_release_ms": "Maximum median release-call duration across selected brackets; zero if none",
-                  "settle_idle_ms": "Zero: no additional runtime stabilization imposed; test pause is excluded",
-                  "bracket_atomic_ms_by_frames": "Capture block INCLUDING release and file confirmation, EXCLUDING test pause",
-              },
-              "physical_latency_measured": False}
-    job.checkpoint(profile_draft=profile, timing_draft=timing,
-                   set_trials=set_samples, setup_trials=setup_samples)
-    qualify_operational_contract(camera, profile, timing, set_samples, setup_samples, job)
-    job.checkpoint()
-    job.log(f"RESULT {profile['strategy']}: {profile['benchmark']}")
-    return validate_profile(profile), timing
+        target = reference_single_s * (2 ** ev)
+        closest = min(
+            speeds,
+            key=lambda value: abs(
+                log2(
+                    _parse_speed(value)
+                    / target
+                )
+            ),
+        )
+
+        if (
+            abs(
+                log2(
+                    _parse_speed(closest)
+                    / target
+                )
+            )
+            > .12
+        ):
+            raise RuntimeError(
+                "Nine-view comparison range unavailable at 1 EV"
+            )
+
+        test_speeds.append(
+            closest
+        )
+
+    profile["strategy"] = (
+        "bracket"
+        if profile["brackets"]
+        else "sequential"
+    )
+
+    benchmark_exposures = [
+        {
+            "shutter": speed,
+            "iso": 100,
+        }
+        for speed in test_speeds
+    ]
+
+    estimated = ProfilePlugin(
+        None,
+        profile=profile,
+    ).prepare_capture(
+        SimpleNamespace(
+            exposure_plan=benchmark_exposures
+        )
+    )
+
+    if not any(
+        operation["action"] == "bracket_press"
+        for operation in estimated.token[1]
+    ):
+        profile["strategy"] = "sequential"
+
+    single_set_count = (
+        3
+        if "capture_mode" in commands
+        else 2
+    )
+
+    guarded_sequential_ms = sum(
+        (
+            single_set_count
+            * set_overhead_ms
+            + single_photo_duration_ms(
+                single_overhead_ms,
+                _parse_speed(
+                    exposure["shutter"]
+                ),
+            )
+        )
+        for exposure in benchmark_exposures
+    )
+
+    profile["benchmark"] = {
+        "iso": 100,
+        "step_ev": 1,
+        "repetitions": 5,
+        "speeds": test_speeds,
+        "comparison_source": (
+            "operational budget model"
+        ),
+        "guarded_optimized_ms": round(
+            estimated.estimated_total_s
+            * 1000.0
+        ),
+        "guarded_sequential_ms": round(
+            guarded_sequential_ms
+        ),
+    }
+
+    if (
+        profile["brackets"]
+        and profile["strategy"] == "sequential"
+    ):
+        warnings.append(
+            "Native bracket validated but not faster under guarded v3 budgets; "
+            "sequential strategy selected"
+        )
+
+    # Diagnostic legacy-shaped values are returned/checkpointed only so existing
+    # developer tooling remains useful. publish() removes them from final JSON.
+    raw_set_iso = max(
+        set_samples["iso"]
+    )
+    raw_set_shutter = max(
+        set_samples["shutter"]
+    )
+    raw_set_capturemode = (
+        max(set_samples["capture_mode"])
+        if "capture_mode" in set_samples
+        else 0.0
+    )
+    raw_single_total = max(
+        sample[1]
+        for sample in single_samples
+    )
+
+    raw_bracket_atomic = {}
+    release_samples = []
+
+    if selected is not None:
+        for size, item in (
+            bracket_candidates[selected].items()
+        ):
+            raw_bracket_atomic[size] = max(
+                sample[1]
+                for sample in item["samples"]
+            )
+            release_samples.extend(
+                sample[3]["release_ms"]
+                for sample in item["samples"]
+            )
+
+    raw_timing = {
+        "set_iso_ms": raw_set_iso,
+        "set_shutter_ms": raw_set_shutter,
+        "set_capturemode_ms": (
+            raw_set_capturemode
+        ),
+        "trigger_single_duration_ms": (
+            raw_single_total
+        ),
+        "settle_idle_ms": 0.0,
+        "bracket_press_latency_ms": 0.0,
+        "bracket_release_ms": (
+            max(release_samples)
+            if release_samples
+            else 0.0
+        ),
+        "trigger_single_latency_ms": 0.0,
+        "bracket_atomic_ms_by_frames": (
+            raw_bracket_atomic
+        ),
+    }
+
+    # Legacy-shaped guarded diagnostics, never persisted by contract v3.
+    guarded_timing = {
+        "set_iso_ms": budget_ms(
+            [raw_set_iso]
+        ),
+        "set_shutter_ms": budget_ms(
+            [raw_set_shutter]
+        ),
+        "set_capturemode_ms": (
+            budget_ms([raw_set_capturemode])
+            if raw_set_capturemode > 0
+            else 0
+        ),
+        "trigger_single_duration_ms": (
+            budget_ms([raw_single_total])
+        ),
+        "settle_idle_ms": 0,
+        "bracket_press_latency_ms": 0,
+        "bracket_release_ms": (
+            budget_ms(release_samples)
+            if release_samples
+            else 0
+        ),
+        "trigger_single_latency_ms": 0,
+        "bracket_atomic_ms_by_frames": {
+            size: budget_ms([value])
+            for size, value
+            in raw_bracket_atomic.items()
+        },
+    }
+
+    timing = {
+        "schema_version": 2,
+        "config_type": "camera_timing",
+        "backend": profile["backend"],
+        "manufacturer": entry["manufacturer"],
+        "model": entry["model"],
+        "timing_contract": deepcopy(
+            contract
+        ),
+        # Debug/developer evidence below. publish() strips it.
+        "timing": guarded_timing,
+        "raw_timing": raw_timing,
+        "timing_trials": timing_trials,
+        "set_trials": deepcopy(
+            set_samples
+        ),
+        "raw_components": {
+            "set_max_ms": max(
+                all_set_samples
+            ),
+            "single_overhead_samples_ms": (
+                single_overhead_samples
+            ),
+            "bracket_overhead_samples_ms_by_frames": {
+                str(frames): samples
+                for frames, samples
+                in bracket_overhead_samples_by_frames.items()
+            },
+            **deepcopy(
+                bracket_components
+            ),
+        },
+        "measurement_status": {
+            "set_overhead_ms": "measured",
+            "single_overhead_ms": "measured",
+            "bracket_overhead_ms": (
+                "derived_from_measured_brackets"
+                if profile["brackets"]
+                else "not_applicable"
+            ),
+            "bracket_inter_image_ms": (
+                "derived_from_measured_brackets"
+                if profile["brackets"]
+                else "not_applicable"
+            ),
+            "trigger_single_latency_ms": (
+                "unmeasured"
+            ),
+        },
+        "physical_latency_measured": False,
+        "test_pause_s": 2.0,
+    }
+
+    job.checkpoint(
+        profile_draft=profile,
+        timing_debug=timing,
+        timing_contract=contract,
+        set_trials=set_samples,
+        timing_trials=timing_trials,
+    )
+
+    job.log(
+        "BUDGET POLICY: maximum observed -> +10% -> +50 ms "
+        "-> round upwards to 50 ms"
+    )
+    job.log(
+        "TIMING CONTRACT V3: "
+        f"SET={contract['set_overhead_ms']} ms; "
+        f"single overhead={contract['single_overhead_ms']} ms; "
+        f"bracket overhead={contract['bracket_overhead_ms']} ms; "
+        f"inter-image={contract['bracket_inter_image_ms']} ms"
+    )
+    job.log(
+        f"RESULT {profile['strategy']}: "
+        f"{profile['benchmark']}"
+    )
+
+    return (
+        validate_profile(profile),
+        timing,
+    )
 
 
 class QualificationOverrun(RuntimeError):

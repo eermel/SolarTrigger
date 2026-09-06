@@ -208,7 +208,7 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     assert confirmations[0] == ("start", 0)
     assert confirmations[-1][0] == "result"
     assert len(confirmations) == 12  # Two methods, single + brackets 3/5, two prompts each.
-    assert camera.counter == 193  # 108 discovery/timing + 85 qualification; no extra 90-frame benchmark.
+    assert camera.counter == 108  # discovery + five timing trials per method/size; no redundant sustained qualification.
     for key, raw in timing["raw_timing"].items():
         if isinstance(raw, (int, float)):
             assert timing["timing"][key] >= raw
