@@ -185,6 +185,16 @@ class ProfilePlugin(CameraPlugin):
                 f"Régler la destination d'enregistrement du {model} sur "
                 f"{target} (actuel: {actual})."
             )
+        if (
+            key == "capture_mode"
+            and str(target).casefold()
+            in {"single shot", "single", "single frame"}
+        ):
+            return (
+                f"Mettre le {model} en mode de déclenchement vue par vue "
+                f"(Single Shot, actuel: {actual})."
+            )
+
         return (
             f"Régler physiquement {key}={target} sur le {model} "
             f"(actuel: {actual})."

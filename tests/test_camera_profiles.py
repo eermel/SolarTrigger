@@ -358,3 +358,106 @@ def test_command_exclusion_is_bracket_only_and_sizes_are_sorted(monkeypatch, pro
     else:
         assert any('5 photo(s)' in m and "'method': 'capture'" in m for m in starts)
     assert len({json.dumps(v['trigger'], sort_keys=True) for v in result['brackets'].values()}) == 1
+
+
+
+def test_characterization_preserves_single_shot_target_for_readonly_capture_mode(
+    monkeypatch,
+    profile,
+):
+    """Readonly drive mode keeps required target, not current physical value."""
+    import sys
+    from backend import camera_characterization as module
+
+    camera = SimulatedCamera(
+        list(profile["commands"]["shutter"]["values"])
+    )
+
+    drive = camera.config.get_child_by_name("capturemode")
+
+    # Nikon D850-like case: physical release mode is CH/Burst while
+    # gphoto2 exposes the widget as GET-only.
+    drive.value = "Burst"
+    drive.choices = [
+        "Single Shot",
+        "Burst",
+    ]
+    drive.get_readonly = lambda: True
+
+    def forbidden_set(value):
+        raise AssertionError(
+            "GET-only capture_mode must never receive a SET"
+        )
+
+    drive.set_value = forbidden_set
+
+    monkeypatch.setitem(
+        sys.modules,
+        "gphoto2",
+        SimpleNamespace(
+            GP_CAPTURE_IMAGE=2,
+            GP_EVENT_FILE_ADDED=1,
+            GP_EVENT_TIMEOUT=0,
+        ),
+    )
+
+    monkeypatch.setattr(
+        module.time,
+        "monotonic",
+        lambda: camera.now,
+    )
+
+    monkeypatch.setattr(
+        module.time,
+        "sleep",
+        lambda seconds: setattr(
+            camera,
+            "now",
+            camera.now + seconds,
+        ),
+    )
+
+    monkeypatch.setattr(
+        CharacterizationJob,
+        "ask",
+        lambda self, message, kind="result": True,
+    )
+
+    result, timing = module.characterize(
+        camera,
+        {
+            "manufacturer": "Nikon",
+            "model": "Nikon DSC D850",
+        },
+        CharacterizationJob(),
+    )
+
+    spec = result["commands"]["capture_mode"]
+
+    # This is the regression:
+    # old behaviour could store "Burst" because it was the current value.
+    assert spec["value"] == "Single Shot"
+    assert spec["get"] is True
+    assert spec["set"] is False
+
+    # Characterization did not alter the physical GET-only selector.
+    assert drive.value == "Burst"
+
+    # GET-only drive mode means no native USB bracket manipulation.
+    assert result["strategy"] == "sequential"
+    assert timing is not None
+
+
+def test_single_shot_operator_instruction_is_unambiguous(profile):
+    plugin = ProfilePlugin(None, profile=profile)
+
+    message = plugin._manual_instruction(
+        "capture_mode",
+        "Single Shot",
+        "Burst",
+    )
+
+    assert "mode de déclenchement vue par vue" in message
+    assert "Single Shot" in message
+    assert "Burst" in message
+    assert "S / Single Shot" not in message

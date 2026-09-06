@@ -445,20 +445,31 @@ def characterize(camera, entry, job):
                     continue
 
                 if candidate["readonly"]:
-                    if accept(str(current)) and not require_set:
+                    if not require_set:
+                        # GET capability is independent from the value
+                        # currently selected on the physical camera.
+                        #
+                        # The target is a characterized invariant.  Runtime
+                        # preflight will compare the live value against it and,
+                        # because SET is unavailable, ask the operator to
+                        # change the physical control when necessary.
+                        target = targets[0]
                         commands[key] = {
                             "path": path,
-                            "value": current,
+                            "value": target,
                             "get": True,
                             "set": False,
                         }
                         job.log(
-                            f"VALID {key}: {path}={current} "
-                            "(GET=yes SET=no)"
+                            f"VALID {key}: {path} target={target} "
+                            f"current={current} "
+                            "(GET=yes SET=no, readonly)"
                         )
                         return candidate
-                    if require_set:
-                        errors.append(f"SET {path}: widget is readonly")
+
+                    errors.append(
+                        f"SET {path}: widget is readonly"
+                    )
                     continue
 
                 for target in targets:
@@ -509,7 +520,16 @@ def characterize(camera, entry, job):
                             )
                             return candidate
 
-                        if accept(str(read_value(path))) and not require_set:
+                        if not require_set:
+                            try:
+                                actual = read_value(path)
+                            except Exception as exc:
+                                errors.append(
+                                    f"GET after SET proof failure "
+                                    f"{path}: {exc}"
+                                )
+                                continue
+
                             commands[key] = {
                                 "path": path,
                                 "value": target,
@@ -517,11 +537,15 @@ def characterize(camera, entry, job):
                                 "set": False,
                             }
                             job.log(
-                                f"VALID {key}: {path}={target} "
+                                f"VALID {key}: {path} target={target} "
+                                f"current={actual} "
                                 "(GET=yes SET=no, transition not proven)"
                             )
                             return candidate
-                        errors.append(f"SET {path}: no real transition proven")
+
+                        errors.append(
+                            f"SET {path}: no real transition proven"
+                        )
 
                     except Exception as exc:
                         errors.append(str(exc))
@@ -641,7 +665,12 @@ def characterize(camera, entry, job):
 
     commands["shutter"]["values"] = speeds
 
-    for item in enumerate_widgets(camera):
+    aperture_reference = None
+    aperture_probe_value = None
+
+    current_widgets = enumerate_widgets(camera)
+
+    for item in current_widgets:
         if item["name"] in ("batterylevel", "battery"):
             commands["battery"] = {
                 "path": item["path"],
@@ -652,16 +681,158 @@ def characterize(camera, entry, job):
                 f"Battery: {item['value']}"
             )
 
-        if item["name"] in ("f-number", "aperture"):
+    aperture_item = next(
+        (
+            item
+            for item in current_widgets
+            if item["name"] in ("f-number", "aperture")
+        ),
+        None,
+    )
+
+    if aperture_item is not None:
+        aperture_path = aperture_item["path"]
+
+        try:
+            _, aperture_node = widget(camera, aperture_path)
+            aperture_reference = aperture_node.get_value()
+        except Exception as exc:
+            job.log(
+                f"APERTURE GET unavailable: "
+                f"{aperture_path}: {exc}"
+            )
+            aperture_reference = None
+
+        if aperture_reference is not None:
+            aperture_values = list(
+                aperture_item["choices"] or [aperture_reference]
+            )
+
             commands["aperture"] = {
-                "path": item["path"],
+                "path": aperture_path,
                 "get": True,
-                "set": not item["readonly"],
+                "set": False,
                 "values": {
                     str(value): value
-                    for value in item["choices"]
+                    for value in aperture_values
                 },
             }
+
+            if aperture_item["readonly"]:
+                job.log(
+                    f"VALID aperture: {aperture_path} "
+                    f"current={aperture_reference} "
+                    "(GET=yes SET=no, readonly)"
+                )
+
+            else:
+                # A writable flag alone is not proof of SET capability.
+                # Exercise a real transition and restore the exact original
+                # value.  Prefer adjacent aperture values when the current
+                # value appears in the advertised choice list.
+                indexed = {
+                    str(value): index
+                    for index, value in enumerate(aperture_values)
+                }
+                current_index = indexed.get(str(aperture_reference))
+
+                alternates = [
+                    value
+                    for value in aperture_values
+                    if str(value) != str(aperture_reference)
+                ]
+
+                if current_index is not None:
+                    alternates.sort(
+                        key=lambda value: abs(
+                            indexed[str(value)] - current_index
+                        )
+                    )
+
+                # SET capability does not require testing every advertised
+                # aperture.  Some bodies expose a theoretical f-number list
+                # even with a fully manual lens attached (for example f/0 as
+                # the effective value).  Two distinct failed transitions are
+                # sufficient evidence that USB aperture SET is not proven.
+                aperture_probe_limit = 2
+                alternates = alternates[:aperture_probe_limit]
+
+                proof_errors = []
+
+                for alternate in alternates:
+                    job.check()
+
+                    try:
+                        # Real transition.
+                        write_checked(
+                            camera,
+                            aperture_path,
+                            alternate,
+                        )
+
+                        # Restore and prove the original aperture too.
+                        write_checked(
+                            camera,
+                            aperture_path,
+                            aperture_reference,
+                        )
+
+                    except Exception as exc:
+                        proof_errors.append(
+                            f"{aperture_reference!r}"
+                            f"->{alternate!r}"
+                            f"->{aperture_reference!r}: {exc}"
+                        )
+
+                        # Never silently leave the lens at a test value.
+                        try:
+                            _, node = widget(camera, aperture_path)
+                            actual = node.get_value()
+
+                            if (
+                                str(actual)
+                                != str(aperture_reference)
+                            ):
+                                write_checked(
+                                    camera,
+                                    aperture_path,
+                                    aperture_reference,
+                                )
+
+                        except Exception as restore_exc:
+                            raise RuntimeError(
+                                "Cannot restore aperture after "
+                                "SET qualification failure: "
+                                f"{aperture_path}="
+                                f"{aperture_reference!r}: "
+                                f"{restore_exc}"
+                            ) from restore_exc
+
+                        continue
+
+                    commands["aperture"]["set"] = True
+                    aperture_probe_value = alternate
+
+                    job.log(
+                        f"VALID aperture: {aperture_path}="
+                        f"{aperture_reference} "
+                        "(GET=yes SET=yes, transition proven "
+                        f"via {alternate})"
+                    )
+                    break
+
+                if not commands["aperture"]["set"]:
+                    detail = (
+                        "; ".join(proof_errors)
+                        if proof_errors
+                        else "no alternate aperture value"
+                    )
+                    job.log(
+                        f"VALID aperture: {aperture_path} "
+                        f"current={aperture_reference} "
+                        "(GET=yes SET=no, transition not proven; "
+                        f"{detail})"
+                    )
 
     if "battery" not in commands:
         warnings.append("battery: unavailable")
@@ -763,6 +934,32 @@ def characterize(camera, entry, job):
             speeds["1/500"],
         ],
     )
+
+    if commands.get("aperture", {}).get("set") is True:
+        if (
+            aperture_reference is None
+            or aperture_probe_value is None
+        ):
+            raise RuntimeError(
+                "Aperture SET was marked supported without "
+                "a proven transition pair"
+            )
+
+        measure_set(
+            "aperture",
+            [
+                aperture_probe_value,
+                aperture_reference,
+            ],
+        )
+
+        # Characterization must leave the physical lens at the exact
+        # aperture that was present before the timing trials.
+        write_checked(
+            camera,
+            commands["aperture"]["path"],
+            aperture_reference,
+        )
 
     if mode and commands["capture_mode"].get("set") is not False:
         single_mode = commands["capture_mode"]["value"]
