@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "config_type": "camera_timing",
+  "backend": "profile-sony_sony_alpha_a6600_pc_control_842dd38c",
+  "manufacturer": "Sony",
+  "model": "Sony Alpha-A6600 (PC Control)",
+  "timing": {
+    "set_iso_ms": 850,
+    "set_shutter_ms": 4000,
+    "set_capturemode_ms": 50,
+    "trigger_single_duration_ms": 4400,
+    "trigger_single_latency_ms": 0,
+    "bracket_atomic_ms_by_frames": {}
+  },
+  "raw_timing": {
+    "set_iso_ms": 845.2468214991313,
+    "set_shutter_ms": 3957.2679169996263,
+    "set_capturemode_ms": 29.975186500450945,
+    "trigger_single_duration_ms": 4378.457063001406,
+    "trigger_single_latency_ms": 0,
+    "bracket_atomic_ms_by_frames": {}
+  },
+  "timing_rounding_ms": 50,
+  "physical_latency_measured": false
+}

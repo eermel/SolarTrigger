@@ -8,6 +8,7 @@ from typing import Any
 
 from backend.generic_worker import (
     PRIORITY_DIAGNOSTIC,
+    ExpiredJobError,
     PRIORITY_SEQUENCER,
     GenericWorker,
 )
@@ -77,6 +78,7 @@ class CameraWorker:
         priority: int | None = None,
         worker_deadline: float | None = None,
         recover_connection: bool = False,
+        reject_if_busy: bool = False,
         **kwargs,
     ) -> Any:
         def invoke():
@@ -89,9 +91,14 @@ class CameraWorker:
                 ):
                     service.connect()
 
+                if worker_deadline is not None and time.monotonic() >= worker_deadline:
+                    raise ExpiredJobError()
                 method = getattr(service, method_name)
                 return method(*args, **kwargs)
 
+            except ExpiredJobError:
+                # A connection restored too late remains usable by future jobs.
+                raise
             except Exception:
                 if recover_connection:
                     invalidator = getattr(
@@ -113,6 +120,7 @@ class CameraWorker:
                 priority,
                 invoke,
                 worker_deadline=worker_deadline,
+                reject_if_busy=reject_if_busy,
             )
         return future.result()
 
@@ -187,7 +195,7 @@ class CameraWorker:
             worker_deadline=monotonic_deadline,
         )
 
-    def set_parameter(self, parameter, value, fallback_parameter=None):
+    def set_parameter(self, parameter, value, fallback_parameter=None, *, worker_deadline=None, reject_if_busy=False):
         return self._call(
             "set_parameter",
             parameter,
@@ -195,14 +203,18 @@ class CameraWorker:
             fallback_parameter=fallback_parameter,
             priority=PRIORITY_SEQUENCER,
             recover_connection=True,
+            worker_deadline=worker_deadline,
+            reject_if_busy=reject_if_busy,
         )
 
-    def execute_photo(self, params):
+    def execute_photo(self, params, *, worker_deadline=None, reject_if_busy=False):
         return self._call(
             "execute_photo",
             params,
             priority=PRIORITY_SEQUENCER,
             recover_connection=True,
+            worker_deadline=worker_deadline,
+            reject_if_busy=reject_if_busy,
         )
 
     def get_battery_level(self):

@@ -344,6 +344,7 @@ header {
   padding-right: 32px;
 }
 
+.add-camera-section,
 .devices-section {
   display: flex;
   flex-direction: column;
@@ -351,6 +352,7 @@ header {
 }
 
 #devices-rescan,
+#add-camera-rescan,
 #erase-persistent-data-reboot {
   padding: 0 10px;
   font-size: 11px;
@@ -489,6 +491,7 @@ header {
 #log-container-gps_sync,
 #log-container-calculator,
 #log-container-trigger,
+#camera-characterization-log,
 #log-container-exposure_opt {
   background: #050810;
   border: 1px solid var(--border);

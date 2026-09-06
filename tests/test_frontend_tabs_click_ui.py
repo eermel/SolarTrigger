@@ -18,7 +18,7 @@ def test_tab_icons_and_labels_are_clickable():
         HTML,
     )
 
-    assert len(tabs) == 9
+    assert len(tabs) == 10
 
 
 def test_flash_notification_never_blocks_tab_clicks():

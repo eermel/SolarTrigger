@@ -1397,6 +1397,10 @@ def api_rig_device_inventory_refresh():
     """Run the operator-requested discovery pass and replace the cache."""
     return jsonify(refresh_inventory())
 
+
+from backend.camera_characterization_routes import register_characterization_routes
+register_characterization_routes(app, lambda: _state_store.snapshot("trigger"))
+
 # ══════════════════════════════════════════════════════════════════════════════
 # API — STATUT
 # ══════════════════════════════════════════════════════════════════════════════

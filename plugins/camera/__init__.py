@@ -24,11 +24,24 @@ from .base import CameraPlugin, CaptureResult
 
 
 def _load_plugin_classes():
-    from .sony import SonyPlugin
-    from .nikon import NikonZPlugin, NikonDSLRPlugin
-    # Tries par specificite DECROISSANTE : le plus specifique matche en premier.
-    # Z (20) avant DSLR (10) ; Sony (20) independant. On trie a l'execution.
-    classes = [SonyPlugin, NikonZPlugin, NikonDSLRPlugin]
+    from importlib import import_module
+    import inspect
+    from pathlib import Path
+    classes = []
+    for path in sorted(Path(__file__).parent.glob("*.py")):
+        if path.stem.startswith("_") or path.stem in ("base", "profile"):
+            continue
+        try:
+            module = import_module(f"{__name__}.{path.stem}")
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Cannot load camera module %s: %s", path.name, exc)
+            continue
+        for candidate in vars(module).values():
+            if (inspect.isclass(candidate) and candidate.__module__ == module.__name__
+                    and issubclass(candidate, CameraPlugin) and not inspect.isabstract(candidate)
+                    and getattr(candidate, "specificity", 0) > 0):
+                classes.append(candidate)
     return sorted(classes, key=lambda c: getattr(c, "specificity", 0),
                   reverse=True)
 
@@ -61,11 +74,14 @@ def get_camera_model(camera):
         except Exception:
             continue
 
-    # Last reliable fallback: libgphoto2 autodetect. In this appliance one camera
-    # is expected; with several devices, prefer the first specific model.
+    # Never identify one body from another body's autodetect entry.
     try:
         import gphoto2 as gp
-        for model, _port in gp.Camera.autodetect():
+        detected = list(gp.Camera.autodetect())
+        port = camera.get_port_info().get_path() if camera is not None else None
+        for model, _port in detected:
+            if (port is not None and _port != port) or (port is None and len(detected) != 1):
+                continue
             model = specific(model)
             if model:
                 return model
@@ -77,6 +93,12 @@ def get_camera_model(camera):
 def load_plugin(camera, log_fn=print):
     """Detecte le boitier et retourne l'instance de plugin adaptee, ou None."""
     model = get_camera_model(camera)
+    from backend.camera_profiles import profile_for_model
+    from .profile import ProfilePlugin
+    profile = profile_for_model(model)
+    if profile is not None:
+        log_fn(f"Camera profile selected: {profile['backend']}")
+        return ProfilePlugin(camera, log_fn, profile)
     for plugin_cls in _load_plugin_classes():
         try:
             if plugin_cls.matches(model):

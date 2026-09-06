@@ -1216,21 +1216,98 @@ async function rescanDevices() {
 }
 
 async function refreshRigDevices(silent = false) {
-  const button = document.getElementById('devices-rescan');
-  if (button) button.disabled = true;
+  const buttons = document.querySelectorAll('#devices-rescan, #add-camera-rescan');
+  buttons.forEach(button => { button.disabled = true; });
   try {
     const response = await fetch('/api/rigs/devices/refresh', {method: 'POST'});
     const inventory = await response.json();
     if (!response.ok) throw new Error(inventory.error || `HTTP error ${response.status}`);
     await loadRigDevices(inventory);
     await fetchDevices();
+    await pollCameraCharacterization();
     if (!silent) flash('Device inventory refreshed', 'green');
   } catch (error) {
     flash(`Detection: ${error.message}`, 'red');
   } finally {
-    if (button) button.disabled = false;
+    buttons.forEach(button => { button.disabled = false; });
   }
 }
+
+let cameraCharacterizationQuestion = null;
+let cameraCharacterizationWasRunning = false;
+let cameraCharacterizationPolling = false;
+async function pollCameraCharacterization() {
+  if (cameraCharacterizationPolling) return;
+  cameraCharacterizationPolling = true;
+  try {
+    const response = await fetch('/api/camera-characterization');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const status = await response.json();
+    const select = document.getElementById('camera-characterization-select');
+    if (!select) return;
+    const selected = select.value;
+    select.replaceChildren();
+    for (const entry of status.candidates) {
+      const option = document.createElement('option');
+      option.value = entry.transport_locator;
+      option.textContent = `${entry.model}${entry.serial ? ' · ' + entry.serial : ''}`;
+      select.appendChild(option);
+    }
+    if ([...select.options].some(o => o.value === selected)) select.value = selected;
+    select.disabled = status.running;
+    document.getElementById('camera-characterization-start').disabled = status.running || !select.options.length;
+    document.getElementById('camera-characterization-cancel').disabled = !status.running;
+    const log = document.getElementById('camera-characterization-log');
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
+    log.textContent = status.logs.join('\n') + (status.result ? '\n' + JSON.stringify(status.result, null, 2) : '');
+    if (atBottom) log.scrollTop = log.scrollHeight;
+    cameraCharacterizationQuestion = status.question?.id || null;
+    document.getElementById('camera-characterization-question').hidden = !status.question;
+    document.getElementById('camera-characterization-prompt').textContent = status.question?.message || '';
+    const confirmationButtons = document.querySelectorAll('#camera-characterization-question button');
+    const beforeTest = status.question?.kind === 'start';
+    confirmationButtons[0].textContent = beforeTest ? 'GO' : 'OUI';
+    confirmationButtons[0].style.backgroundColor = '#198754';
+    confirmationButtons[0].style.color = '#fff';
+    confirmationButtons[1].textContent = 'NON';
+    confirmationButtons[1].hidden = beforeTest;
+    const questionPanel = document.getElementById('camera-characterization-question');
+    questionPanel.style.display = status.question ? 'grid' : 'none';
+    questionPanel.style.gridTemplateColumns = beforeTest ? '1fr' : '1fr 1fr';
+    questionPanel.style.gap = '8px';
+    document.getElementById('camera-characterization-prompt').style.gridColumn = '1 / -1';
+    const completed = cameraCharacterizationWasRunning && !status.running;
+    cameraCharacterizationWasRunning = status.running;
+    if (completed) setTimeout(() => refreshRigDevices(true), 0);
+  } catch (error) {
+    const log = document.getElementById('camera-characterization-log');
+    if (log && !log.textContent) log.textContent = `Characterization status unavailable: ${error.message}`;
+  } finally {
+    cameraCharacterizationPolling = false;
+  }
+}
+
+async function characterizationRequest(action, payload = {}) {
+  const response = await fetch(`/api/camera-characterization/${action}`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  await pollCameraCharacterization();
+}
+async function startCameraCharacterization() {
+  try {
+    await characterizationRequest('start', {locator: document.getElementById('camera-characterization-select').value});
+  } catch (error) { flash(error.message, 'red'); }
+}
+async function cancelCameraCharacterization() {
+  try { await characterizationRequest('cancel'); } catch (error) { flash(error.message, 'red'); }
+}
+async function answerCameraCharacterization(answer) {
+  try { await characterizationRequest('answer', {question_id: cameraCharacterizationQuestion, answer}); }
+  catch (error) { flash(error.message, 'red'); }
+}
+setInterval(pollCameraCharacterization, 1500);
 
 // ── AUDIO iOS-compatible ─────────────────────────────────────────────────────
 // iOS Safari exige que l'AudioContext soit créé ET resume() dans un geste direct.
@@ -6098,8 +6175,9 @@ async function runAllSequencers() {
 // NAVIGATION
 // ════════════════════════════════════════════════════════════════
 function showTab(n) {
-  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===n));
-  document.querySelectorAll('.page').forEach((p,i) => p.classList.toggle('active', i===n));
+  document.querySelectorAll('#tabs > .tab').forEach(t => t.classList.toggle('active', Number(t.dataset.pageIndex) === n));
+  const pageIds = ['devices-panel', 'page-0', 'page-1', 'page-2', 'page-exposure-opt', 'sequencer-panel', 'page-3', 'controls-panel', 'page-4', 'add-camera-panel'];
+  document.querySelectorAll('#pages > .page').forEach(p => p.classList.toggle('active', p.id === pageIds[n]));
   state.currentPage = n;
   if (n === 3) {
     loadCameraConfigList();

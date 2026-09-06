@@ -130,6 +130,11 @@ def _discover_cameras() -> list[dict[str, Any]]:
         serial = usb_serial or protocol_serial
 
         backend = _camera_backend(model)
+        # A brand-level fallback is not evidence that this model was measured.
+        # Legacy models remain eligible through their existing timing document.
+        from backend.camera_profiles import is_characterized_model
+        if not is_characterized_model(manufacturer, model):
+            backend = "gphoto2"
         entry = {
             "category": "camera",
             "backend": backend,

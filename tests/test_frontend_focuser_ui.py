@@ -118,6 +118,7 @@ def test_top_level_navigation_includes_controls_without_a_focuser_tab():
     targets = [int(value) for value in re.findall(r"onclick=[\"']showTab\((\d+)\)[\"']", TABS)]
 
     assert labels == [
+        "ADD CAMERA",
         "DEVICES",
         "SYNC GPS",
         "ECLIPSE",
@@ -128,7 +129,7 @@ def test_top_level_navigation_includes_controls_without_a_focuser_tab():
         "CONTROLS",
         "TRIGGER",
     ]
-    assert targets == [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    assert targets == [9, 0, 1, 2, 3, 4, 5, 6, 7, 8]
     assert "FOCUSEUR" not in TABS.upper()
 
 

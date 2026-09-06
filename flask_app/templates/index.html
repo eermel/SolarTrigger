@@ -42,27 +42,31 @@
 
   <!-- TABS -->
   <div id="tabs">
-    <button class="tab active" id="devices-tab" onclick="showTab(0)">
+    <button class="tab" id="add-camera-tab" data-page-index="9" onclick="showTab(9)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M20 13v6H3V7h4l2-3h6l2 3h3M19 2v8M15 6h8"/><circle cx="10" cy="13" r="4"/></svg>
+      <span>ADD CAMERA</span>
+    </button>
+    <button class="tab active" data-page-index="0" id="devices-tab" onclick="showTab(0)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
       <span>DEVICES</span>
     </button>
-    <button class="tab" onclick="showTab(1)">
+    <button class="tab" data-page-index="1" onclick="showTab(1)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><circle cx="12" cy="4" r="2"/><path d="M12 6v6l4 2M4.93 4.93l1.41 1.41M17.66 6.34l1.41-1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 17.66l1.41 1.41M12 20v2"/></svg>
       <span>SYNC GPS</span>
     </button>
-    <button class="tab" onclick="showTab(2)">
+    <button class="tab" data-page-index="2" onclick="showTab(2)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
       <span>ECLIPSE</span>
     </button>
-    <button class="tab" onclick="showTab(3)">
+    <button class="tab" data-page-index="3" onclick="showTab(3)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
       <span>PHOTO SETUP</span>
     </button>
-    <button class="tab" onclick="showTab(4)">
+    <button class="tab" data-page-index="4" onclick="showTab(4)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M4 20h16M6 17l3-6 3 3 3-8 3 11"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="6" r="1"/></svg>
       <span>EXPO. OPT.</span>
     </button>
-    <button class="tab" id="sequencer-tab" onclick="showTab(5)">
+    <button class="tab" data-page-index="5" id="sequencer-tab" onclick="showTab(5)">
       <svg viewBox="0 0 24 24" stroke-width="1.5">
         <circle cx="5" cy="6" r="2"/>
         <circle cx="12" cy="12" r="2"/>
@@ -71,21 +75,49 @@
       </svg>
       <span>SEQUENCER</span>
     </button>
-    <button class="tab" onclick="showTab(6)">
+    <button class="tab" data-page-index="6" onclick="showTab(6)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="3"/></svg>
       <span>CAMERA</span>
     </button>
-    <button class="tab" id="controls-tab" onclick="showTab(7)">
+    <button class="tab" data-page-index="7" id="controls-tab" onclick="showTab(7)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
       <span>CONTROLS</span>
     </button>
-    <button class="tab" onclick="showTab(8)">
+    <button class="tab" data-page-index="8" onclick="showTab(8)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
       <span>TRIGGER</span>
     </button>
   </div>
   <!-- PAGES -->
   <div id="pages">
+
+    <div class="page" id="add-camera-panel">
+      <section class="add-camera-section" aria-label="Add Camera">
+        <div class="card">
+          <div class="card-title">Device discovery</div>
+          <button class="btn btn-primary btn-full" id="add-camera-rescan" onclick="refreshRigDevices()">↻ Refresh devices</button>
+        </div>
+        <div class="card">
+          <div class="card-title">Camera Characterization</div>
+          <div style="display:flex;gap:12px;align-items:center">
+            <select id="camera-characterization-select" aria-label="Uncharacterized camera" style="flex:1;min-width:0"></select>
+            <button class="btn btn-primary" id="camera-characterization-start" onclick="startCameraCharacterization()">Characterize</button>
+            <button class="btn" id="camera-characterization-cancel" onclick="cancelCameraCharacterization()" disabled>Cancel</button>
+          </div>
+          <p style="font-size:12px">Local tests · RAW · ISO 100 · Photos remain on the card. Camera settings will change.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">Camera characterization log</div>
+          <pre id="camera-characterization-log" role="log" style="height:320px;overflow:auto;white-space:pre-wrap;font-family:var(--mono);font-size:12px"></pre>
+          <div id="camera-characterization-question" hidden>
+            <p id="camera-characterization-prompt"></p>
+            <button class="btn btn-primary" onclick="answerCameraCharacterization(true)">YES — PHOTOS TAKEN</button>
+            <button class="btn btn-danger" onclick="answerCameraCharacterization(false)">NO — INCORRECT/MISSING PHOTOS</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
 
     <div class="page active" id="devices-panel">
       <section class="devices-section" aria-label="Devices">

@@ -1,0 +1,849 @@
+{
+  "schema_version": 1,
+  "config_type": "camera_timing",
+  "backend": "profile-sony_sony_ilce_7m5_pc_control_f5c04507",
+  "manufacturer": "Sony",
+  "model": "Sony ILCE-7M5 (PC Control)",
+  "timing": {
+    "set_iso_ms": 800,
+    "set_shutter_ms": 800,
+    "set_capturemode_ms": 900,
+    "trigger_single_duration_ms": 500,
+    "settle_idle_ms": 0,
+    "bracket_press_latency_ms": 0,
+    "bracket_release_ms": 950,
+    "trigger_single_latency_ms": 0,
+    "bracket_atomic_ms_by_frames": {
+      "3": 2500,
+      "5": 2750,
+      "7": 3000,
+      "9": 3250
+    }
+  },
+  "raw_timing": {
+    "set_iso_ms": 785.9703755002556,
+    "set_shutter_ms": 799.6046899988869,
+    "set_capturemode_ms": 894.7316789999604,
+    "trigger_single_duration_ms": 485.17861800064566,
+    "settle_idle_ms": 0.0,
+    "bracket_press_latency_ms": 0,
+    "bracket_release_ms": 940.3152230006526,
+    "trigger_single_latency_ms": 0,
+    "bracket_atomic_ms_by_frames": {
+      "3": 2491.018943997915,
+      "5": 2711.8409809991135,
+      "7": 2955.762653997226,
+      "9": 3237.1645140010514
+    }
+  },
+  "timing_rounding_ms": 50,
+  "timing_trials": [
+    {
+      "trigger": {
+        "method": "trigger_capture"
+      },
+      "frames": 1,
+      "samples": [
+        {
+          "trigger_call_ms": 10.333079000702128,
+          "frame_wait_ms": 474.83079900121083,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.014739998732693493,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2327.0936340013577,
+          "total_ms": 485.19299300096463
+        },
+        {
+          "trigger_call_ms": 15.817949999473058,
+          "frame_wait_ms": 469.8298319999594,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.011093998182332143,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2153.812011001719,
+          "total_ms": 485.67132400057744
+        },
+        {
+          "trigger_call_ms": 11.136044002341805,
+          "frame_wait_ms": 464.53225200093584,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.01052100196829997,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2167.5420539977495,
+          "total_ms": 475.6909000025189
+        },
+        {
+          "trigger_call_ms": 10.335630999179557,
+          "frame_wait_ms": 498.49012099730317,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.011822998203570023,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2123.882195999613,
+          "total_ms": 508.8501269965491
+        },
+        {
+          "trigger_call_ms": 16.02675200047088,
+          "frame_wait_ms": 462.1201789996121,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.010884999937843531,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2197.192597999674,
+          "total_ms": 478.1706290013972
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 11.136044002341805,
+        "frame_wait_ms": 469.8298319999594,
+        "release_ms": 0.0,
+        "post_release_wait_ms": 0.011093998182332143,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2167.5420539977495,
+        "total_ms": 485.19299300096463
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "capture"
+      },
+      "frames": 1,
+      "samples": [
+        {
+          "trigger_call_ms": 487.88475100081996,
+          "frame_wait_ms": 0.020938001398462802,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.004478999471757561,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2173.193643000559,
+          "total_ms": 487.91662599978736
+        },
+        {
+          "trigger_call_ms": 483.42758400031016,
+          "frame_wait_ms": 0.02067700188490562,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.004894998710369691,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2217.9192250005144,
+          "total_ms": 483.45987599896034
+        },
+        {
+          "trigger_call_ms": 497.71809300000314,
+          "frame_wait_ms": 0.021615000150632113,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.004478999471757561,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2336.733798998466,
+          "total_ms": 497.75080099789193
+        },
+        {
+          "trigger_call_ms": 486.0593430021254,
+          "frame_wait_ms": 0.030780996894463897,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.00526000076206401,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2202.605907998077,
+          "total_ms": 486.10199900213047
+        },
+        {
+          "trigger_call_ms": 499.7742300001846,
+          "frame_wait_ms": 0.022342999727698043,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.005156001861905679,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2191.7224150020047,
+          "total_ms": 499.8089689979679
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 487.88475100081996,
+        "frame_wait_ms": 0.021615000150632113,
+        "release_ms": 0.0,
+        "post_release_wait_ms": 0.004894998710369691,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2202.605907998077,
+        "total_ms": 487.91662599978736
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "widget",
+        "path": "/main/actions/capture",
+        "value": 1,
+        "release": 0
+      },
+      "frames": 1,
+      "samples": [
+        {
+          "trigger_call_ms": 831.3705639993714,
+          "frame_wait_ms": 509.8033520007448,
+          "release_ms": 876.1161969996465,
+          "post_release_wait_ms": 0.014219000149751082,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2195.453178999742,
+          "total_ms": 2217.321363001247
+        },
+        {
+          "trigger_call_ms": 807.147546998749,
+          "frame_wait_ms": 510.1753290000488,
+          "release_ms": 815.2944899993599,
+          "post_release_wait_ms": 0.014322999049909413,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2206.3171939989843,
+          "total_ms": 2132.647886999621
+        },
+        {
+          "trigger_call_ms": 777.0076820015674,
+          "frame_wait_ms": 502.14848999894457,
+          "release_ms": 836.2255940010073,
+          "post_release_wait_ms": 0.009165996743831784,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2191.749550001987,
+          "total_ms": 2115.402339000866
+        },
+        {
+          "trigger_call_ms": 797.7944640006172,
+          "frame_wait_ms": 508.72986700051115,
+          "release_ms": 797.2322259993234,
+          "post_release_wait_ms": 0.014687000657431781,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2181.3364709996677,
+          "total_ms": 2103.7937440014502
+        },
+        {
+          "trigger_call_ms": 798.6641470015456,
+          "frame_wait_ms": 512.6814639988879,
+          "release_ms": 816.6687539996929,
+          "post_release_wait_ms": 0.013958000636193901,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2195.759531998192,
+          "total_ms": 2128.051447998587
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 798.6641470015456,
+        "frame_wait_ms": 509.8033520007448,
+        "release_ms": 816.6687539996929,
+        "post_release_wait_ms": 0.014219000149751082,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2195.453178999742,
+        "total_ms": 2128.051447998587
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "trigger_capture"
+      },
+      "frames": 3,
+      "status": "rejected",
+      "reason": "Operator reports missing/incorrect photos"
+    },
+    {
+      "trigger": {
+        "method": "capture"
+      },
+      "frames": 3,
+      "status": "rejected",
+      "reason": "Operator reports missing/incorrect photos"
+    },
+    {
+      "trigger": {
+        "method": "widget",
+        "path": "/main/actions/capture",
+        "value": 1,
+        "release": 0
+      },
+      "frames": 3,
+      "samples": [
+        {
+          "trigger_call_ms": 825.6859009998152,
+          "frame_wait_ms": 749.8583750020771,
+          "release_ms": 883.3717909983534,
+          "post_release_wait_ms": 0.013905999367125332,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2269.013476001419,
+          "total_ms": 2458.9510139994672
+        },
+        {
+          "trigger_call_ms": 831.6119170012826,
+          "frame_wait_ms": 815.852404000907,
+          "release_ms": 859.3830950012489,
+          "post_release_wait_ms": 0.01359300222247839,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2213.905597000121,
+          "total_ms": 2506.877311003336
+        },
+        {
+          "trigger_call_ms": 805.8586459992512,
+          "frame_wait_ms": 756.9109479991312,
+          "release_ms": 842.2389010011102,
+          "post_release_wait_ms": 0.014166998880682513,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2196.212707000086,
+          "total_ms": 2405.039379998925
+        },
+        {
+          "trigger_call_ms": 861.3415239997266,
+          "frame_wait_ms": 776.1377370006812,
+          "release_ms": 858.8359099994705,
+          "post_release_wait_ms": 0.01442700158804655,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2227.9564710006525,
+          "total_ms": 2496.3452750016586
+        },
+        {
+          "trigger_call_ms": 868.0918579993886,
+          "frame_wait_ms": 759.9119759979658,
+          "release_ms": 862.9844860006415,
+          "post_release_wait_ms": 0.013905999367125332,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2213.51028600111,
+          "total_ms": 2491.018943997915
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 831.6119170012826,
+        "frame_wait_ms": 759.9119759979658,
+        "release_ms": 859.3830950012489,
+        "post_release_wait_ms": 0.013905999367125332,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2213.905597000121,
+        "total_ms": 2491.018943997915
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "widget",
+        "path": "/main/actions/bulb",
+        "value": 1,
+        "release": 0
+      },
+      "frames": 3,
+      "samples": [
+        {
+          "trigger_call_ms": 851.689847997477,
+          "frame_wait_ms": 797.4718610021228,
+          "release_ms": 876.05770799928,
+          "post_release_wait_ms": 0.015677000192226842,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2217.0753220016195,
+          "total_ms": 2525.2514999992854
+        },
+        {
+          "trigger_call_ms": 842.6730129976931,
+          "frame_wait_ms": 761.7459790017165,
+          "release_ms": 864.543904997845,
+          "post_release_wait_ms": 0.014739998732693493,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2190.134191998368,
+          "total_ms": 2468.994199000008
+        },
+        {
+          "trigger_call_ms": 865.3748910001013,
+          "frame_wait_ms": 803.6511040008918,
+          "release_ms": 864.2825530005211,
+          "post_release_wait_ms": 0.034217999200336635,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2199.412016001588,
+          "total_ms": 2533.362662001309
+        },
+        {
+          "trigger_call_ms": 860.5430370007525,
+          "frame_wait_ms": 764.8085170003469,
+          "release_ms": 815.5118840004434,
+          "post_release_wait_ms": 0.014271001418819651,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2211.5680030001386,
+          "total_ms": 2440.8944280003197
+        },
+        {
+          "trigger_call_ms": 886.3175059996138,
+          "frame_wait_ms": 821.6509200028668,
+          "release_ms": 871.5384569986782,
+          "post_release_wait_ms": 0.01442700158804655,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2207.9577059994335,
+          "total_ms": 2579.5376130008663
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 860.5430370007525,
+        "frame_wait_ms": 797.4718610021228,
+        "release_ms": 864.543904997845,
+        "post_release_wait_ms": 0.014739998732693493,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2207.9577059994335,
+        "total_ms": 2525.2514999992854
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "trigger_capture"
+      },
+      "frames": 5,
+      "status": "rejected",
+      "reason": "Operator reports missing/incorrect photos"
+    },
+    {
+      "trigger": {
+        "method": "capture"
+      },
+      "frames": 5,
+      "status": "rejected",
+      "reason": "Operator reports missing/incorrect photos"
+    },
+    {
+      "trigger": {
+        "method": "widget",
+        "path": "/main/actions/capture",
+        "value": 1,
+        "release": 0
+      },
+      "frames": 5,
+      "samples": [
+        {
+          "trigger_call_ms": 815.7189150006161,
+          "frame_wait_ms": 973.7786269979551,
+          "release_ms": 891.2761820029118,
+          "post_release_wait_ms": 0.014895998901920393,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2274.481837001076,
+          "total_ms": 2680.8264319988666
+        },
+        {
+          "trigger_call_ms": 850.3132909972919,
+          "frame_wait_ms": 964.2736170026183,
+          "release_ms": 861.9849589995283,
+          "post_release_wait_ms": 0.01416600207448937,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2348.0049460013106,
+          "total_ms": 2676.6023870004574
+        },
+        {
+          "trigger_call_ms": 868.8740949983185,
+          "frame_wait_ms": 979.3511009993381,
+          "release_ms": 864.7080200025812,
+          "post_release_wait_ms": 0.014061999536352232,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2346.4641720020154,
+          "total_ms": 2712.9631629977666
+        },
+        {
+          "trigger_call_ms": 872.6800669974182,
+          "frame_wait_ms": 961.4408170018578,
+          "release_ms": 889.4444190009381,
+          "post_release_wait_ms": 0.014270997780840844,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2349.0544209998916,
+          "total_ms": 2723.5955109972565
+        },
+        {
+          "trigger_call_ms": 843.6978009995073,
+          "frame_wait_ms": 982.0623390005494,
+          "release_ms": 886.0507369972765,
+          "post_release_wait_ms": 0.014322999049909413,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2269.248944001447,
+          "total_ms": 2711.8409809991135
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 850.3132909972919,
+        "frame_wait_ms": 973.7786269979551,
+        "release_ms": 886.0507369972765,
+        "post_release_wait_ms": 0.014270997780840844,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2346.4641720020154,
+        "total_ms": 2711.8409809991135
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "widget",
+        "path": "/main/actions/bulb",
+        "value": 1,
+        "release": 0
+      },
+      "frames": 5,
+      "samples": [
+        {
+          "trigger_call_ms": 879.5611829991685,
+          "frame_wait_ms": 990.4139690006559,
+          "release_ms": 863.9994279983512,
+          "post_release_wait_ms": 0.014270997780840844,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2433.037744001922,
+          "total_ms": 2734.0042680007173
+        },
+        {
+          "trigger_call_ms": 852.0321899995906,
+          "frame_wait_ms": 984.7136299977137,
+          "release_ms": 885.5731860021478,
+          "post_release_wait_ms": 0.01416600207448937,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2311.906930000987,
+          "total_ms": 2722.349995998229
+        },
+        {
+          "trigger_call_ms": 869.8631000006571,
+          "frame_wait_ms": 989.9267319997307,
+          "release_ms": 855.9987869994075,
+          "post_release_wait_ms": 0.01458300175727345,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2286.4495959984197,
+          "total_ms": 2715.8199730001797
+        },
+        {
+          "trigger_call_ms": 862.7040690007561,
+          "frame_wait_ms": 992.755989998841,
+          "release_ms": 857.153365999693,
+          "post_release_wait_ms": 0.015884997992543504,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2335.672085002443,
+          "total_ms": 2712.6458730017475
+        },
+        {
+          "trigger_call_ms": 880.4241470024863,
+          "frame_wait_ms": 1010.0187259995437,
+          "release_ms": 892.3060730012367,
+          "post_release_wait_ms": 0.014375000318977982,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2323.920471000747,
+          "total_ms": 2782.780352001282
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 869.8631000006571,
+        "frame_wait_ms": 990.4139690006559,
+        "release_ms": 863.9994279983512,
+        "post_release_wait_ms": 0.014375000318977982,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2323.920471000747,
+        "total_ms": 2722.349995998229
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "trigger_capture"
+      },
+      "frames": 7,
+      "status": "rejected",
+      "reason": "Operator reports missing/incorrect photos"
+    },
+    {
+      "trigger": {
+        "method": "capture"
+      },
+      "frames": 7,
+      "status": "rejected",
+      "reason": "Operator reports missing/incorrect photos"
+    },
+    {
+      "trigger": {
+        "method": "widget",
+        "path": "/main/actions/capture",
+        "value": 1,
+        "release": 0
+      },
+      "frames": 7,
+      "samples": [
+        {
+          "trigger_call_ms": 848.400175000279,
+          "frame_wait_ms": 1169.093641998188,
+          "release_ms": 923.8479630002985,
+          "post_release_wait_ms": 0.013906999811297283,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2473.9772499997343,
+          "total_ms": 2941.3720929987903
+        },
+        {
+          "trigger_call_ms": 870.3434109993395,
+          "frame_wait_ms": 1182.278166001197,
+          "release_ms": 903.1090449971089,
+          "post_release_wait_ms": 0.014217999705579132,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2513.429989998258,
+          "total_ms": 2955.762653997226
+        },
+        {
+          "trigger_call_ms": 903.6842519999482,
+          "frame_wait_ms": 1188.4503779983788,
+          "release_ms": 883.3833000026061,
+          "post_release_wait_ms": 0.015051999071147293,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2474.63042399977,
+          "total_ms": 2975.5498569975316
+        },
+        {
+          "trigger_call_ms": 842.9604599987215,
+          "frame_wait_ms": 1189.1141769992828,
+          "release_ms": 943.6144900028012,
+          "post_release_wait_ms": 0.01390600300510414,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2550.5951889972494,
+          "total_ms": 2975.71944000083
+        },
+        {
+          "trigger_call_ms": 868.2089929970971,
+          "frame_wait_ms": 1178.8447950020782,
+          "release_ms": 895.2529880007205,
+          "post_release_wait_ms": 0.014478999219136313,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2412.238201999571,
+          "total_ms": 2942.3376609993284
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 868.2089929970971,
+        "frame_wait_ms": 1182.278166001197,
+        "release_ms": 903.1090449971089,
+        "post_release_wait_ms": 0.014217999705579132,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2474.63042399977,
+        "total_ms": 2955.762653997226
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "widget",
+        "path": "/main/actions/bulb",
+        "value": 1,
+        "release": 0
+      },
+      "frames": 7,
+      "samples": [
+        {
+          "trigger_call_ms": 939.5408109994605,
+          "frame_wait_ms": 1184.5862279988069,
+          "release_ms": 864.407447999838,
+          "post_release_wait_ms": 0.014061999536352232,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2432.483737000439,
+          "total_ms": 2988.5650069991243
+        },
+        {
+          "trigger_call_ms": 913.7862380011939,
+          "frame_wait_ms": 1160.3067529977125,
+          "release_ms": 899.7667690018716,
+          "post_release_wait_ms": 0.014634999388363212,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2521.6566719973343,
+          "total_ms": 2973.905177001143
+        },
+        {
+          "trigger_call_ms": 903.9198749997013,
+          "frame_wait_ms": 1206.1167050014774,
+          "release_ms": 969.5049479996669,
+          "post_release_wait_ms": 0.015051999071147293,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2522.886197999469,
+          "total_ms": 3079.5731950020127
+        },
+        {
+          "trigger_call_ms": 896.4803769995342,
+          "frame_wait_ms": 1206.948889001069,
+          "release_ms": 911.6926539973065,
+          "post_release_wait_ms": 0.014842997188679874,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2424.0573679999216,
+          "total_ms": 3015.1529089998803
+        },
+        {
+          "trigger_call_ms": 884.9972520001756,
+          "frame_wait_ms": 1207.732479000697,
+          "release_ms": 950.4270119978173,
+          "post_release_wait_ms": 0.014062999980524182,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2492.40284500047,
+          "total_ms": 3043.1874720015912
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 903.9198749997013,
+        "frame_wait_ms": 1206.1167050014774,
+        "release_ms": 911.6926539973065,
+        "post_release_wait_ms": 0.014634999388363212,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2492.40284500047,
+        "total_ms": 3015.1529089998803
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "trigger_capture"
+      },
+      "frames": 9,
+      "status": "rejected",
+      "reason": "Operator reports missing/incorrect photos"
+    },
+    {
+      "trigger": {
+        "method": "capture"
+      },
+      "frames": 9,
+      "status": "rejected",
+      "reason": "Operator reports missing/incorrect photos"
+    },
+    {
+      "trigger": {
+        "method": "widget",
+        "path": "/main/actions/capture",
+        "value": 1,
+        "release": 0
+      },
+      "frames": 9,
+      "samples": [
+        {
+          "trigger_call_ms": 896.8913650023751,
+          "frame_wait_ms": 1382.9217509992304,
+          "release_ms": 958.2847370002128,
+          "post_release_wait_ms": 0.01442700158804655,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2686.7259360005846,
+          "total_ms": 3238.128269000299
+        },
+        {
+          "trigger_call_ms": 955.6871649983805,
+          "frame_wait_ms": 1391.5851599995221,
+          "release_ms": 922.7721250026661,
+          "post_release_wait_ms": 0.014322999049909413,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2611.7334390000906,
+          "total_ms": 3270.075022999663
+        },
+        {
+          "trigger_call_ms": 926.6798160024337,
+          "frame_wait_ms": 1383.8672769998084,
+          "release_ms": 970.9336779997102,
+          "post_release_wait_ms": 0.013905999367125332,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2579.241085000831,
+          "total_ms": 3281.5113440010464
+        },
+        {
+          "trigger_call_ms": 915.0996079988545,
+          "frame_wait_ms": 1382.686240998737,
+          "release_ms": 919.3061520018091,
+          "post_release_wait_ms": 0.014844001270830631,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2614.960558999883,
+          "total_ms": 3217.123354999785
+        },
+        {
+          "trigger_call_ms": 948.707216000912,
+          "frame_wait_ms": 1402.8525559988339,
+          "release_ms": 965.6267749996914,
+          "post_release_wait_ms": 0.014948000170988962,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2643.6896479972347,
+          "total_ms": 3317.2184219984047
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 926.6798160024337,
+        "frame_wait_ms": 1383.8672769998084,
+        "release_ms": 958.2847370002128,
+        "post_release_wait_ms": 0.01442700158804655,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2614.960558999883,
+        "total_ms": 3270.075022999663
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "widget",
+        "path": "/main/actions/bulb",
+        "value": 1,
+        "release": 0
+      },
+      "frames": 9,
+      "samples": [
+        {
+          "trigger_call_ms": 898.5440059987013,
+          "frame_wait_ms": 1380.2671379999083,
+          "release_ms": 949.182161999488,
+          "post_release_wait_ms": 0.014271001418819651,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2721.079141996597,
+          "total_ms": 3228.02408699863
+        },
+        {
+          "trigger_call_ms": 894.716991999303,
+          "frame_wait_ms": 1402.101933999802,
+          "release_ms": 940.3152230006526,
+          "post_release_wait_ms": 0.014115001249592751,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2583.7447630001407,
+          "total_ms": 3237.1645140010514
+        },
+        {
+          "trigger_call_ms": 915.9447079982783,
+          "frame_wait_ms": 1405.0778589989932,
+          "release_ms": 972.0594020000135,
+          "post_release_wait_ms": 0.01458300175727345,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2620.317826000246,
+          "total_ms": 3293.1134270002076
+        },
+        {
+          "trigger_call_ms": 926.8956480009365,
+          "frame_wait_ms": 1412.3466799974267,
+          "release_ms": 934.8058210016461,
+          "post_release_wait_ms": 0.01385500218020752,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2713.1545939992066,
+          "total_ms": 3274.0786180002033
+        },
+        {
+          "trigger_call_ms": 913.7887799988675,
+          "frame_wait_ms": 1379.588078998495,
+          "release_ms": 908.6182310020376,
+          "post_release_wait_ms": 0.014687997463624924,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2666.9028240030457,
+          "total_ms": 3202.026756000123
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 913.7887799988675,
+        "frame_wait_ms": 1402.101933999802,
+        "release_ms": 940.3152230006526,
+        "post_release_wait_ms": 0.014271001418819651,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2666.9028240030457,
+        "total_ms": 3237.1645140010514
+      },
+      "status": "validated"
+    }
+  ],
+  "measurement_status": {
+    "set_iso_ms": "measured",
+    "set_shutter_ms": "measured",
+    "set_capturemode_ms": "measured",
+    "trigger_single_duration_ms": "measured",
+    "trigger_single_latency_ms": "unmeasured",
+    "bracket_press_latency_ms": "unmeasured",
+    "bracket_release_ms": "measured",
+    "settle_idle_ms": "not_applicable",
+    "bracket_atomic_ms_by_frames": "measured"
+  },
+  "timing_semantics": {
+    "set_iso_ms": "USB write duration; excludes readback validation",
+    "set_shutter_ms": "USB write duration; excludes readback validation",
+    "set_capturemode_ms": "USB write duration; zero if unavailable",
+    "trigger_single_latency_ms": "Physical exposure-start latency unmeasured; zero disables compensation",
+    "bracket_press_latency_ms": "Physical bracket-start latency unmeasured; zero disables compensation",
+    "trigger_single_duration_ms": "Trigger call + frame waits + optional release; excludes test pause",
+    "bracket_release_ms": "Maximum median release-call duration across selected brackets; zero if none",
+    "settle_idle_ms": "Zero: no additional runtime stabilization imposed; test pause is excluded",
+    "bracket_atomic_ms_by_frames": "Capture block INCLUDING release and file confirmation, EXCLUDING test pause"
+  },
+  "physical_latency_measured": false
+}

@@ -24,6 +24,10 @@ mount = import_module("plugins.mount")
 
 def camera_plugin_for_model(model: str | None) -> str | None:
     """Return the sole camera plugin matching *model*, otherwise ``None``."""
+    from backend.camera_profiles import profile_for_model
+    profile = profile_for_model(model)
+    if profile:
+        return profile["backend"]
     matches = []
     try:
         registered = camera._load_plugin_classes()

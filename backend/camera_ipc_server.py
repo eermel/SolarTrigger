@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from backend.generic_worker import BusyDeviceError
 from backend import rig_trace
 from backend.camera_model_resolution import resolve_sensor_entry
 from backend.exposure_selection import (
@@ -87,9 +88,9 @@ _PARAM_KEYS = {
         "rig_id",
         "parameter",
         "value",
-        "fallback_parameter",
+        "fallback_parameter", "start_before_monotonic",
     },
-    "camera.execute_photo": {"rig_id", "params"},
+    "camera.execute_photo": {"rig_id", "params", "start_before_monotonic"},
     "prepare_capture": {"rig_id", "intent"},
     "trigger_prepared": {"rig_id", "token_id", "deadline"},
     "shoot_speed_list": {
@@ -492,6 +493,11 @@ class CameraIpcServer:
                 with self._state_lock:
                     self._rig_iso_targets[rig_id] = int(iso)
             return result
+        scheduled_options = {}
+        if "start_before_monotonic" in params:
+            start_before = self._positive_number(params["start_before_monotonic"], "start_before_monotonic")
+            scheduled_options = {"worker_deadline": start_before, "reject_if_busy": True}
+
         if operation == "camera.set_parameter":
             parameter = params.get("parameter")
             fallback_parameter = params.get("fallback_parameter")
@@ -520,6 +526,7 @@ class CameraIpcServer:
                 parameter,
                 params.get("value"),
                 fallback_parameter=fallback_parameter,
+                **scheduled_options,
             )
 
             return {
@@ -540,6 +547,7 @@ class CameraIpcServer:
             result = self._call_worker(
                 worker.execute_photo,
                 photo_params,
+                **scheduled_options,
             )
 
             return {
@@ -820,6 +828,8 @@ class CameraIpcServer:
             return method(*args, **kwargs)
         except ExpiredJobError as exc:
             raise IpcError("EXPIRED", "camera worker job expired") from exc
+        except BusyDeviceError as exc:
+            raise IpcError("BUSY", "camera worker still owns a USB operation") from exc
 
     @staticmethod
     def _trigger_trace_payload(metadata, start_utc, end_utc):

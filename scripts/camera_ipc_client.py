@@ -7,6 +7,7 @@ import json
 import re
 import socket
 import threading
+import time
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
@@ -139,10 +140,12 @@ class CameraIpcClient:
         *,
         fallback_parameter: str | None = None,
         timeout_s: float = DEFAULT_TIMEOUT_S,
+        scheduled: bool = False,
     ) -> Any:
         return self._call(
             "camera.set_parameter",
             {
+                **({"start_before_monotonic": time.monotonic() + .1} if scheduled else {}),
                 "rig_id": rig_id,
                 "parameter": parameter,
                 "value": value,
@@ -157,10 +160,12 @@ class CameraIpcClient:
         params: dict[str, Any],
         *,
         timeout_s: float = DEFAULT_TIMEOUT_S,
+        scheduled: bool = False,
     ) -> Any:
         return self._call(
             "camera.execute_photo",
             {
+                **({"start_before_monotonic": time.monotonic() + .1} if scheduled else {}),
                 "rig_id": rig_id,
                 "params": params,
             },

@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "config_type": "camera_timing",
+  "backend": "profile-nikon_nikon_dsc_d850_8769b3e7",
+  "manufacturer": "Nikon",
+  "model": "Nikon DSC D850",
+  "timing": {
+    "set_iso_ms": 300,
+    "set_shutter_ms": 350,
+    "trigger_single_duration_ms": 950,
+    "settle_idle_ms": 0,
+    "set_capturemode_ms": 0,
+    "bracket_press_latency_ms": 0,
+    "bracket_release_ms": 0,
+    "trigger_single_latency_ms": 0,
+    "bracket_atomic_ms_by_frames": {}
+  },
+  "raw_timing": {
+    "set_iso_ms": 299.91158499979065,
+    "set_shutter_ms": 349.6313340001507,
+    "trigger_single_duration_ms": 903.0583600033424,
+    "settle_idle_ms": 0.0,
+    "set_capturemode_ms": 0,
+    "bracket_press_latency_ms": 0,
+    "bracket_release_ms": 0,
+    "trigger_single_latency_ms": 0,
+    "bracket_atomic_ms_by_frames": {}
+  },
+  "timing_rounding_ms": 50,
+  "timing_trials": [
+    {
+      "trigger": {
+        "method": "trigger_capture"
+      },
+      "frames": 1,
+      "samples": [
+        {
+          "trigger_call_ms": 223.46747800111189,
+          "frame_wait_ms": 683.2678450009553,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.01036500179907307,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2233.0430170004547,
+          "total_ms": 906.7581350027467
+        },
+        {
+          "trigger_call_ms": 221.53790300217224,
+          "frame_wait_ms": 681.5086339993286,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.01182300184154883,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2026.9289500029117,
+          "total_ms": 903.0711200030055
+        },
+        {
+          "trigger_call_ms": 229.12563000136288,
+          "frame_wait_ms": 680.5575440012035,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.011198000720469281,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2135.5027299978246,
+          "total_ms": 909.7060910025903
+        },
+        {
+          "trigger_call_ms": 220.06244099975447,
+          "frame_wait_ms": 680.2071820020501,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.011771000572480261,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2034.5716240008187,
+          "total_ms": 900.2942060033092
+        },
+        {
+          "trigger_call_ms": 222.49529500186327,
+          "frame_wait_ms": 679.2952069990861,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.010780997399706393,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2130.0949930009665,
+          "total_ms": 901.8127410017769
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 222.49529500186327,
+        "frame_wait_ms": 680.5575440012035,
+        "release_ms": 0.0,
+        "post_release_wait_ms": 0.011198000720469281,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2130.0949930009665,
+        "total_ms": 903.0711200030055
+      },
+      "status": "validated"
+    },
+    {
+      "trigger": {
+        "method": "capture"
+      },
+      "frames": 1,
+      "samples": [
+        {
+          "trigger_call_ms": 985.8786109980429,
+          "frame_wait_ms": 0.021301999368006364,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.0047389985411427915,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2538.9958509986172,
+          "total_ms": 985.9109539975179
+        },
+        {
+          "trigger_call_ms": 940.7624609993945,
+          "frame_wait_ms": 0.020937000954290852,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.00453100074082613,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2030.3621109997039,
+          "total_ms": 940.7944919985312
+        },
+        {
+          "trigger_call_ms": 956.6945759979717,
+          "frame_wait_ms": 0.021354000637074932,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.005000001692678779,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2038.304731999233,
+          "total_ms": 956.7273879983986
+        },
+        {
+          "trigger_call_ms": 955.5532270023832,
+          "frame_wait_ms": 0.021144998754607514,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.004582998371915892,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2082.462709000538,
+          "total_ms": 955.5858829990029
+        },
+        {
+          "trigger_call_ms": 952.5333959973068,
+          "frame_wait_ms": 0.0212500017369166,
+          "release_ms": 0.0,
+          "post_release_wait_ms": 0.004792000254383311,
+          "settle_ms": 0.0,
+          "test_pause_ms": 2026.8217630000436,
+          "total_ms": 952.5664689972473
+        }
+      ],
+      "median": {
+        "trigger_call_ms": 955.5532270023832,
+        "frame_wait_ms": 0.0212500017369166,
+        "release_ms": 0.0,
+        "post_release_wait_ms": 0.0047389985411427915,
+        "settle_ms": 0.0,
+        "test_pause_ms": 2038.304731999233,
+        "total_ms": 955.5858829990029
+      },
+      "status": "validated"
+    }
+  ],
+  "measurement_status": {
+    "set_iso_ms": "measured",
+    "set_shutter_ms": "measured",
+    "set_capturemode_ms": "unavailable",
+    "trigger_single_duration_ms": "measured",
+    "trigger_single_latency_ms": "unmeasured",
+    "bracket_press_latency_ms": "not_applicable",
+    "bracket_release_ms": "not_applicable",
+    "settle_idle_ms": "not_applicable",
+    "bracket_atomic_ms_by_frames": "not_applicable"
+  },
+  "timing_semantics": {
+    "set_iso_ms": "USB write duration; excludes readback validation",
+    "set_shutter_ms": "USB write duration; excludes readback validation",
+    "set_capturemode_ms": "USB write duration; zero if unavailable",
+    "trigger_single_latency_ms": "Physical exposure-start latency unmeasured; zero disables compensation",
+    "bracket_press_latency_ms": "Physical bracket-start latency unmeasured; zero disables compensation",
+    "trigger_single_duration_ms": "Trigger call + frame waits + optional release; excludes test pause",
+    "bracket_release_ms": "Maximum median release-call duration across selected brackets; zero if none",
+    "settle_idle_ms": "Zero: no additional runtime stabilization imposed; test pause is excluded",
+    "bracket_atomic_ms_by_frames": "Capture block INCLUDING release and file confirmation, EXCLUDING test pause"
+  },
+  "physical_latency_measured": false
+}

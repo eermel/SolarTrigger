@@ -720,11 +720,36 @@ def audit_materialized_capture(
 ) -> AuditedRigCapture:
     """Dispatch a materialized RIG capture to its offline camera compiler."""
 
-    if capture.backend == "sony":
-        return audit_materialized_sony_capture(capture)
+    if capture.backend.startswith("profile-"):
+        from backend.camera_profiles import discover_profiles
+        from plugins.camera.profile import ProfilePlugin
+        profile = discover_profiles().get(capture.backend)
+        if profile is None:
+            raise ValueError(f"Missing or invalid camera profile: {capture.backend}")
+        plugin = ProfilePlugin(None, profile=profile)
+        prepared = plugin.prepare_capture(_capture_intent_from_materialized(capture))
+        return AuditedRigCapture(
+            rig_id=capture.rig_id, backend=capture.backend, target=capture.target,
+            aperture=capture.aperture, exposure_plan=capture.final_exposure_plan,
+            prepared_mode="profile", estimated_total_s=prepared.estimated_total_s,
+            planned_count=prepared.planned_count,
+            operations=tuple(plugin.audit_prepared_capture(prepared)),
+        )
 
-    if capture.backend in {"nikon", "nikon-dslr", "nikon-z"}:
-        return audit_materialized_nikon_capture(capture)
+    from plugins.camera import _load_plugin_classes
+    candidates = [cls for cls in _load_plugin_classes()
+                  if cls.name == capture.backend or
+                  (capture.backend == "nikon" and cls.name == "nikon-dslr")]
+    if len(candidates) == 1:
+        plugin = candidates[0](None, lambda *_args: None)
+        prepared = plugin.prepare_capture(_capture_intent_from_materialized(capture))
+        return AuditedRigCapture(
+            rig_id=capture.rig_id, backend=capture.backend, target=capture.target,
+            aperture=capture.aperture, exposure_plan=capture.final_exposure_plan,
+            prepared_mode=str(prepared.token[0]), estimated_total_s=prepared.estimated_total_s,
+            planned_count=prepared.planned_count,
+            operations=tuple(plugin.audit_prepared_capture(prepared)),
+        )
 
     raise ValueError(
         f"Sequencer audit backend not implemented: "
@@ -804,6 +829,8 @@ def _set_operation_duration_ms(
     operation: dict[str, Any],
     profile: CameraTimingProfile,
 ) -> float:
+    if operation.get("timing_contract_version") == 2:
+        return _timing_ms(operation["duration_ms"], "operational SET budget")
     parameter = operation.get("parameter")
 
     if parameter == "iso":
@@ -836,6 +863,9 @@ def _operation_reservation_duration_ms(
 
     action = operation.get("action")
 
+    if backend.startswith("profile-") and action in ("trigger_capture", "bracket_press") and "duration_ms" in operation:
+        return _timing_ms(operation["duration_ms"], "profile PHOTO duration_ms")
+
     if action == "set":
         return _set_operation_duration_ms(
             operation,
@@ -850,7 +880,7 @@ def _operation_reservation_duration_ms(
 
     if (
         action == "trigger_capture"
-        and backend in {"nikon", "nikon-dslr", "nikon-z"}
+        and (backend in {"nikon", "nikon-dslr", "nikon-z"} or backend.startswith("profile-"))
     ):
         return _timing_ms(
             profile.trigger_single_duration_ms,
@@ -863,7 +893,7 @@ def _operation_reservation_duration_ms(
             "settle_idle_ms",
         )
 
-    if action == "bracket_press" and backend == "sony":
+    if action == "bracket_press" and (backend == "sony" or backend.startswith("profile-")):
         raw_frames = operation.get("frames")
 
         if isinstance(raw_frames, bool):
@@ -1005,6 +1035,8 @@ def schedule_audited_capture(
     trigger_action = operations[trigger_index].get("action")
 
     deterministic_post_trigger = (
+        (capture.backend.startswith("profile-") and trigger_action == "trigger_capture")
+        or
         capture.backend in {"nikon", "nikon-dslr", "nikon-z"}
         or (
             capture.backend == "sony"
@@ -1017,7 +1049,8 @@ def schedule_audited_capture(
             trigger_command_time
             + timedelta(
                 milliseconds=_timing_ms(
-                    profile.trigger_single_duration_ms,
+                    (operations[trigger_index].get("duration_ms", profile.trigger_single_duration_ms)
+                     if capture.backend.startswith("profile-") else profile.trigger_single_duration_ms),
                     "trigger_single_duration_ms",
                 )
             )
@@ -1049,7 +1082,8 @@ def schedule_audited_capture(
 
             elif action == "trigger_capture":
                 duration_ms = _timing_ms(
-                    profile.trigger_single_duration_ms,
+                    (operation.get("duration_ms", profile.trigger_single_duration_ms)
+                     if capture.backend.startswith("profile-") else profile.trigger_single_duration_ms),
                     "trigger_single_duration_ms",
                 )
 
@@ -2034,6 +2068,9 @@ def _execution_command(
         }
         if operation.get("fallback_parameter") is not None:
             params["fallback_parameter"] = operation.get("fallback_parameter")
+        if operation.get("timing_contract_version") == 2:
+            params["duration_ms"] = event.duration_ms
+            params["timing_contract_version"] = 2
 
         return {
             "time_utc": _isoformat_ms(event.command_time),

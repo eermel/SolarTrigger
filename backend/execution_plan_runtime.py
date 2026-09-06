@@ -306,6 +306,10 @@ class ExecutionPlanRuntime:
 
             if command["action"] != "SET":
                 continue
+            if command["params"].get("timing_contract_version") == 2:
+                # The next complete preparation is the recovery checkpoint.
+                # Never restore historical commands for this contract.
+                continue
 
             self.log(
                 f"EXECUTION_PLAN resume_state "
@@ -315,6 +319,9 @@ class ExecutionPlanRuntime:
             )
 
             self._execute_command(command)
+            if not hasattr(self, "_restored_sets"):
+                self._restored_sets = set()
+            self._restored_sets.add((command["rig_id"], command["index"]))
 
     def _stop_requested(self) -> bool:
         return (
@@ -343,17 +350,23 @@ class ExecutionPlanRuntime:
         action = command["action"]
         params = command["params"]
 
+        options = {}
+        if params.get("timing_contract_version") == 2:
+            # Transport allowance is not an additional scheduling reservation.
+            options["timeout_s"] = max(5.0, float(params["duration_ms"]) / 1000 + 1.0)
+            options["scheduled"] = True
         if action == "SET":
             self.camera.set_parameter(
                 rig_id,
                 params["parameter"],
                 params["value"],
                 fallback_parameter=params.get("fallback_parameter"),
+                **options,
             )
             return
 
         if action == "PHOTO":
-            self.camera.execute_photo(rig_id, params)
+            self.camera.execute_photo(rig_id, params, **options)
             return
 
         raise ExecutionPlanError(f"unsupported action: {action}")
@@ -409,6 +422,7 @@ class ExecutionPlanRuntime:
 
     def _run_rig(self, rig_id: int, commands: list[dict[str, Any]]) -> None:
         pending_sets: dict[str, dict[str, Any]] = {}
+        guarded = any(c["params"].get("timing_contract_version") == 2 for c in commands)
 
         for command in commands:
             if self._stop_requested():
@@ -421,6 +435,9 @@ class ExecutionPlanRuntime:
 
             # Reprise absolue : aucune commande passée n'est rejouée.
             if self.clock.remaining(target) < 0:
+                if (guarded and command["action"] == "SET" and
+                        (rig_id, command["index"]) not in getattr(self, "_restored_sets", set())):
+                    self._remember_pending_set(pending_sets, command)
                 self.log(
                     f"WARNING execution_plan rig={rig_id} "
                     f"skip_past index={command['index']} "
@@ -457,6 +474,9 @@ class ExecutionPlanRuntime:
             # A SET missed while the body was powered off must be restored
             # before taking a later photo. We do not restore every setting:
             # only commands that demonstrably failed are replayed.
+            if action == "PHOTO" and pending_sets and guarded:
+                self.log(f"WARNING execution_plan rig={rig_id} photo_lost=1 reason=unapplied_settings")
+                continue
             if action == "PHOTO" and pending_sets:
                 if not self._flush_pending_sets(rig_id, pending_sets):
                     self.log(
@@ -475,6 +495,11 @@ class ExecutionPlanRuntime:
 
             except Exception as exc:
                 code = self._camera_error_code(exc)
+                if guarded:
+                    if action == "SET":
+                        self._remember_pending_set(pending_sets, command)
+                    self.log(f"WARNING execution_plan rig={rig_id} command_lost=1 code={code}; continuing absolute timeline")
+                    continue
 
                 if action == "SET":
                     self._remember_pending_set(
@@ -498,6 +523,10 @@ class ExecutionPlanRuntime:
 
                 continue
 
+            if guarded:
+                elapsed_ms = (self.clock.now() - dispatch_time).total_seconds() * 1000
+                if elapsed_ms > float(command["params"].get("duration_ms", float("inf"))):
+                    self.log(f"WARNING execution_plan rig={rig_id} budget_overrun_ms={elapsed_ms:.1f}; elapsed commands will be skipped")
             if action == "SET":
                 # A newer successful SET supersedes an older failed one.
                 pending_sets.pop(

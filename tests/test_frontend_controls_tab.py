@@ -59,6 +59,7 @@ def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
 
     labels = [" ".join(tab["text"]).strip() for tab in parser.tabs]
     assert labels == [
+        "ADD CAMERA",
         "DEVICES",
         "SYNC GPS",
         "ECLIPSE",
@@ -70,6 +71,7 @@ def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
         "TRIGGER",
     ]
     assert parser.pages == [
+        "add-camera-panel",
         "devices-panel",
         "page-0",
         "page-1",
@@ -81,8 +83,8 @@ def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
         "page-4",
     ]
 
-    controls = parser.tabs[7]
-    trigger = parser.tabs[8]
+    controls = parser.tabs[8]
+    trigger = parser.tabs[9]
     assert controls["id"] == "controls-tab"
     assert controls["onclick"] == "showTab(7)"
     assert trigger["onclick"] == "showTab(8)"
@@ -95,6 +97,19 @@ def test_trigger_initialization_uses_trigger_tab_index():
     )
 
     assert trigger_initialization.search(INDEX)
+
+
+def test_add_camera_sections_are_separate_and_devices_is_default():
+    add_camera = INDEX.split('<div class="page" id="add-camera-panel">', 1)[1].split('</section>', 1)[0]
+    devices = INDEX.split('<div class="page active" id="devices-panel">', 1)[1].split('</section>', 1)[0]
+    for identifier in ('camera-characterization-select', 'camera-characterization-log', 'camera-characterization-question'):
+        assert f'id="{identifier}"' in add_camera
+        assert f'id="{identifier}"' not in devices
+    assert 'id="add-camera-rescan"' in add_camera
+    assert 'id="devices-rescan"' in devices
+    assert 'id="erase-persistent-data-reboot"' in devices
+    assert 'id="erase-persistent-data-reboot"' not in add_camera
+    assert re.search(r'<button[^>]*class="tab active"[^>]*id="devices-tab"', INDEX)
 
 
 def test_eclipse_calculation_has_no_dst_control_or_payload_field():
