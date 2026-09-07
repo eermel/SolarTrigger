@@ -117,6 +117,79 @@ def _full_schedule(
     return scheduled, start, end
 
 
+def _contact_trigger_operations(
+    scheduled: Iterable[ScheduledOperation],
+) -> list[ScheduledOperation]:
+    """Return physical trigger operations from one contact capture."""
+    return [
+        item
+        for item in scheduled
+        if item.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+
+def _contact_execution_policy(
+    capture: AuditedRigCapture,
+    scheduled: Iterable[ScheduledOperation],
+) -> tuple[str, list[ScheduledOperation]]:
+    """Determine contact policy from the real prepared execution.
+
+    A single physical trigger producing several exposures is an atomic
+    bracket. One trigger_capture per exposure is sequential.
+    """
+    triggers = _contact_trigger_operations(scheduled)
+    exposure_count = len(capture.exposure_plan)
+
+    if exposure_count <= 0:
+        raise ValueError(
+            f"empty contact exposure plan for RIG {capture.rig_id}"
+        )
+
+    if not triggers:
+        raise ValueError(
+            f"contact capture has no physical trigger "
+            f"for RIG {capture.rig_id}"
+        )
+
+    if len(triggers) == 1:
+        operation = triggers[0].operation
+
+        try:
+            frames = int(
+                operation.get(
+                    "frames",
+                    operation.get("expected_frames", 1),
+                )
+                or 1
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"invalid contact frame count for RIG {capture.rig_id}"
+            ) from exc
+
+        if (
+            operation.get("action") == "bracket_press"
+            or frames > 1
+            or exposure_count > 1
+        ):
+            return "atomic_bracket", triggers
+
+    if (
+        len(triggers) == exposure_count
+        and all(
+            item.operation.get("action") == "trigger_capture"
+            for item in triggers
+        )
+    ):
+        return "sequential", triggers
+
+    raise ValueError(
+        f"ambiguous contact execution for RIG {capture.rig_id}: "
+        f"{len(triggers)} triggers for {exposure_count} exposures"
+    )
+
+
 def _make_contact_anchor(
     factory: CaptureFactory,
     profile: CameraTimingProfile,
@@ -124,15 +197,27 @@ def _make_contact_anchor(
     contact_time: datetime,
     phase_window: str,
     c3: bool,
-) -> tuple[AuditedRigCapture, list[ScheduledOperation], datetime, datetime]:
-    """Materialize and reserve the atomic contact PHOTO.
+) -> tuple[
+    AuditedRigCapture,
+    list[ScheduledOperation],
+    datetime,
+    datetime,
+]:
+    """Build a C2/C3 anchor according to physical camera strategy.
 
-    The desired physical trigger target is one second before contact.  If an
-    unusually short camera operation would finish before the contact, it is
-    shifted just enough to guarantee that the atomic reservation reaches the
-    contact.  We never shift the desired physical start after the contact.
+    Atomic bracket:
+        keep the validated policy: trigger the whole bracket one second
+        before contact and allow the atomic reservation to finish.
+
+    Sequential:
+        place the modeled physical start of the middle exposure exactly
+        on the contact. Other exposures are positioned from characterized
+        SET/PHOTO timings, without hard-coded camera offsets.
     """
-    target_time = contact_time - timedelta(seconds=CONTACT_TRANSITION_LEAD_S)
+    target_time = (
+        contact_time
+        - timedelta(seconds=CONTACT_TRANSITION_LEAD_S)
+    )
 
     for _ in range(PLACEMENT_MAX_ITERATIONS):
         capture = factory(
@@ -142,22 +227,133 @@ def _make_contact_anchor(
             0,
             None,
         )
-        _validate_contact_capture(capture, c3=c3)
-        scheduled, start, end = _full_schedule(capture, profile)
 
-        if end >= contact_time:
-            return capture, scheduled, start, end
+        _validate_contact_capture(
+            capture,
+            c3=c3,
+        )
 
-        target_time += contact_time - end
-        if target_time > contact_time:
+        full_scheduled, full_start, full_end = _full_schedule(
+            capture,
+            profile,
+        )
+
+        policy, _ = _contact_execution_policy(
+            capture,
+            full_scheduled,
+        )
+
+        # BRACKET NATIVE / ATOMIC:
+        # preserve the already validated -1 second policy.
+        if policy == "atomic_bracket":
+            if full_end >= contact_time:
+                return (
+                    capture,
+                    full_scheduled,
+                    full_start,
+                    full_end,
+                )
+
+            target_time += contact_time - full_end
+
+            if target_time > contact_time:
+                raise ValueError(
+                    f"contact PHOTO cannot cross "
+                    f"{'C3' if c3 else 'C2'} "
+                    f"for RIG {capture.rig_id}"
+                )
+
+            continue
+
+        # SEQUENTIAL:
+        # remove redundant SETs inside the group before calculating
+        # the actual deterministic trigger positions.
+        reduced, _state_after = (
+            reduce_audited_capture_operations(
+                capture,
+                {},
+            )
+        )
+
+        scheduled = schedule_audited_capture(
+            reduced,
+            profile,
+        )
+
+        start, end = _scheduled_static_bounds(
+            scheduled
+        )
+
+        reduced_policy, triggers = (
+            _contact_execution_policy(
+                reduced,
+                scheduled,
+            )
+        )
+
+        if reduced_policy != "sequential":
             raise ValueError(
-                f"contact PHOTO cannot cross {'C3' if c3 else 'C2'} "
+                f"contact strategy changed after SET reduction "
                 f"for RIG {capture.rig_id}"
             )
 
+        # A unique middle photograph is required.
+        if len(triggers) % 2 == 0:
+            raise ValueError(
+                f"sequential contact group requires an odd "
+                f"number of exposures for RIG {capture.rig_id}: "
+                f"{len(triggers)}"
+            )
+
+        middle = triggers[len(triggers) // 2]
+
+        if middle.command_time is None:
+            raise ValueError(
+                f"sequential contact trigger has no command time "
+                f"for RIG {capture.rig_id}"
+            )
+
+        # target_time models desired physical exposure start.
+        # Convert USB dispatch time back to the same modeled reference.
+        middle_physical_time = (
+            middle.command_time
+            + timedelta(
+                milliseconds=float(
+                    profile.trigger_single_latency_ms
+                )
+            )
+        )
+
+        delta = (
+            contact_time
+            - middle_physical_time
+        )
+
+        if (
+            abs(delta.total_seconds() * 1000.0)
+            <= PLACEMENT_TOLERANCE_MS
+        ):
+            if not (
+                start <= contact_time <= end
+            ):
+                raise ValueError(
+                    f"sequential contact reservation does not "
+                    f"contain {'C3' if c3 else 'C2'} "
+                    f"for RIG {capture.rig_id}"
+                )
+
+            return (
+                capture,
+                scheduled,
+                start,
+                end,
+            )
+
+        target_time += delta
+
     raise ValueError(
-        f"contact anchor placement did not converge for "
-        f"RIG {capture.rig_id}"
+        f"contact anchor placement did not converge "
+        f"for RIG {capture.rig_id}"
     )
 
 

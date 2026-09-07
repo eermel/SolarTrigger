@@ -46,10 +46,10 @@ def _capture(target_time, shutters, *, duration_ms=2750.0, phase="diamond_ring",
     )
 
 
-def _profile():
+def _profile(*, trigger_latency_ms=0.0):
     return CameraTimingProfile(
         backend="profile-test",
-        trigger_single_latency_ms=0.0,
+        trigger_single_latency_ms=trigger_latency_ms,
         trigger_single_duration_ms=0.0,
     )
 
@@ -192,3 +192,185 @@ def test_anchor_totality_keeps_useful_partial_final_ladder():
 
     assert len(captures) == 4
     assert captures[-1].target.target_time == start + timedelta(seconds=4)
+
+
+
+def _sequential_contact_capture(
+    target_time,
+    shutters,
+    *,
+    set_ms=800.0,
+    photo_ms=1100.0,
+    phase="diamond_ring",
+    window="phase_3a",
+):
+    operations = []
+
+    for shutter in shutters:
+        operations.extend(
+            (
+                {
+                    "action": "set",
+                    "parameter": "shutterspeed",
+                    "value": shutter,
+                    "duration_ms": set_ms,
+                    "timing_contract_version": 2,
+                },
+                {
+                    "action": "trigger_capture",
+                    "shutter": shutter,
+                    "centre": shutter,
+                    "frames": 1,
+                    "expected_frames": 1,
+                    "physical_views": [shutter],
+                    "duration_ms": photo_ms,
+                    "timing_contract_version": 2,
+                    "camera_timing_model_version": 3,
+                },
+            )
+        )
+
+    return AuditedRigCapture(
+        rig_id=1,
+        backend="profile-test",
+        target=CaptureTarget(
+            target_time=target_time,
+            phase=phase,
+            phase_window=window,
+            sequence_index=0,
+            deadline=None,
+        ),
+        aperture="f/8",
+        exposure_plan=tuple(
+            {
+                "shutter": shutter,
+                "iso": 100,
+            }
+            for shutter in shutters
+        ),
+        prepared_mode="profile",
+        estimated_total_s=None,
+        planned_count=len(shutters),
+        operations=tuple(operations),
+    )
+
+
+def test_sequential_contact_anchor_centres_middle_exposure():
+    contact = datetime(2027, 8, 2, 10, 0, 0)
+
+    shutters = [
+        "1/8000",
+        "1/4000",
+        "1/2000",
+        "1/1000",
+        "1/500",
+    ]
+
+    def factory(
+        phase,
+        phase_window,
+        target_time,
+        sequence_index,
+        deadline,
+    ):
+        return _sequential_contact_capture(
+            target_time,
+            shutters,
+            phase=phase,
+            window=phase_window,
+        )
+
+    profile = _profile(
+        trigger_latency_ms=100.0
+    )
+
+    capture, scheduled, start, end = (
+        _make_contact_anchor(
+            factory,
+            profile,
+            contact_time=contact,
+            phase_window="phase_3a",
+            c3=True,
+        )
+    )
+
+    triggers = [
+        item
+        for item in scheduled
+        if item.operation.get("action")
+        == "trigger_capture"
+    ]
+
+    assert len(triggers) == 5
+
+    physical_times = [
+        item.command_time
+        + timedelta(
+            milliseconds=(
+                profile.trigger_single_latency_ms
+            )
+        )
+        for item in triggers
+    ]
+
+    offsets = [
+        (value - contact).total_seconds()
+        for value in physical_times
+    ]
+
+    assert offsets == pytest.approx(
+        [
+            -3.8,
+            -1.9,
+            0.0,
+            1.9,
+            3.8,
+        ],
+        abs=1e-6,
+    )
+
+    assert (
+        capture.target.target_time
+        == contact - timedelta(seconds=3.8)
+    )
+
+    assert physical_times[2] == contact
+    assert start < contact
+    assert end > contact
+
+
+def test_sequential_contact_requires_odd_number_of_exposures():
+    contact = datetime(2027, 8, 2, 10, 0, 0)
+
+    shutters = [
+        "1/4000",
+        "1/2000",
+        "1/1000",
+        "1/500",
+    ]
+
+    def factory(
+        phase,
+        phase_window,
+        target_time,
+        sequence_index,
+        deadline,
+    ):
+        return _sequential_contact_capture(
+            target_time,
+            shutters,
+            phase=phase,
+            window=phase_window,
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="requires an odd number of exposures",
+    ):
+        _make_contact_anchor(
+            factory,
+            _profile(),
+            contact_time=contact,
+            phase_window="phase_3a",
+            c3=True,
+        )
