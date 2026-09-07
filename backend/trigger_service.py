@@ -1,9 +1,12 @@
 from __future__ import annotations
 from pathlib import Path
 import json, os, signal, subprocess, sys, threading, time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from backend.timeline import build_timeline, parse_date_from_config, sequence_seconds
 from backend.execution_plan_runtime import load_execution_plan
+
+DRY_RUN_NOW_DELAY_S = 60.0
+
 
 class TriggerValidationError(RuntimeError):
     def __init__(self, message, code="TRIGGER_INVALID"):
@@ -475,7 +478,7 @@ class TriggerService:
         self._active_circumstances_paths[rig_id] = circumstances_path
         return ecl
 
-    def start(self, rig_id=1, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0):
+    def start(self, rig_id=1, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0, dry_run_now=False):
         if (
             not isinstance(rig_id, int)
             or isinstance(rig_id, bool)
@@ -490,8 +493,11 @@ class TriggerService:
             speed=float(speed)
         except (TypeError, ValueError):
             raise TriggerValidationError("Facteur de simulation invalide.", "SIM_SPEED_INVALID")
-        if simulate and dry_run:
-            raise TriggerValidationError("Simulation et dry-run sont mutuellement exclusifs.", "TRIGGER_MODE_INVALID")
+        if sum(bool(mode) for mode in (simulate, dry_run, dry_run_now)) > 1:
+            raise TriggerValidationError(
+                "Simulation, dry-run et dry-run-now sont mutuellement exclusifs.",
+                "TRIGGER_MODE_INVALID",
+            )
         if simulate and not (1.0 <= speed <= 1000.0):
             raise TriggerValidationError("Facteur de simulation hors limites (1 à 1000).", "SIM_SPEED_INVALID")
         try:
@@ -509,6 +515,25 @@ class TriggerService:
                 return False
 
             self._starting_by_rig[rig_id] = True
+
+            dry_run_now_start_utc = None
+            if dry_run_now:
+                dry_run_now_start = (
+                    datetime.now(timezone.utc)
+                    + timedelta(seconds=DRY_RUN_NOW_DELAY_S)
+                )
+                dry_run_now_start_utc = (
+                    dry_run_now_start
+                    .isoformat(timespec="milliseconds")
+                    .replace("+00:00", "Z")
+                )
+                self.log(
+                    f"🧪 DRY-RUN NOW RIG {rig_id} — "
+                    f"TSTART figé à {dry_run_now_start_utc} "
+                    f"(UTC now + {DRY_RUN_NOW_DELAY_S:.0f}s)",
+                    "info",
+                    "trigger",
+                )
 
             try:
                 ecl = self.validate_start(
@@ -538,7 +563,15 @@ class TriggerService:
                     raise
             gen=ecl.get("_generated_utc", ""); today=datetime.now(timezone.utc).strftime("%Y-%m-%d")
             if gen and today not in gen: self.log(f"⚠️ todayeclipse.json généré le {gen[:10]} — éclipse pas aujourd'hui ?", "warning", "trigger")
-            mode="simulation" if simulate else ("dryrun" if dry_run else "real")
+            mode = (
+                "simulation"
+                if simulate
+                else "dryrun_now"
+                if dry_run_now
+                else "dryrun"
+                if dry_run
+                else "real"
+            )
             try:
                 self.state.update_trigger_rig(
                     rig_id,
@@ -560,6 +593,8 @@ class TriggerService:
                         speed,
                         dry_run,
                         dry_run_delay,
+                        dry_run_now,
+                        dry_run_now_start_utc,
                         ipc_session,
                         execution_plan_path,
                         rig_id,
@@ -602,8 +637,18 @@ class TriggerService:
             {"rig_id": rig_id, "phase": phase},
         )
 
-    def _run(self, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0,
-             ipc_session=None, execution_plan_path=None, rig_id=1):
+    def _run(
+        self,
+        simulate=False,
+        speed=60.0,
+        dry_run=False,
+        dry_run_delay=30.0,
+        dry_run_now=False,
+        dry_run_now_start_utc=None,
+        ipc_session=None,
+        execution_plan_path=None,
+        rig_id=1,
+    ):
         proc=None
         try:
             circumstances_path = self._active_circumstances_paths.get(rig_id)
@@ -628,6 +673,15 @@ class TriggerService:
 
             if simulate:
                 cmd += ["--simulate", "--speed", str(speed)]
+            elif dry_run_now:
+                if not dry_run_now_start_utc:
+                    raise RuntimeError(
+                        "DRY-RUN NOW sans TSTART absolu"
+                    )
+                cmd += [
+                    "--dry-run-now-start",
+                    dry_run_now_start_utc,
+                ]
             elif dry_run:
                 cmd += [
                     "--dry-run",
@@ -647,7 +701,15 @@ class TriggerService:
             )
             with self._lock:
                 self._procs[rig_id] = proc
-            mode="simulation" if simulate else ("dryrun" if dry_run else "real")
+            mode = (
+                "simulation"
+                if simulate
+                else "dryrun_now"
+                if dry_run_now
+                else "dryrun"
+                if dry_run
+                else "real"
+            )
             self.state.update_trigger_rig(
                 rig_id,
                 {
@@ -661,7 +723,15 @@ class TriggerService:
                 "trigger_phase",
                 {"rig_id": rig_id, "phase": "waiting"},
             )
-            label="► Trigger simulation démarré." if simulate else ("► Dry-run ×1 démarré." if dry_run else "► Trigger démarré.")
+            label = (
+                "► Trigger simulation démarré."
+                if simulate
+                else "► Dry-run NOW démarré."
+                if dry_run_now
+                else "► Dry-run ×1 démarré."
+                if dry_run
+                else "► Trigger démarré."
+            )
             self.log(label,"success","trigger")
             for raw in iter(proc.stdout.readline, ""):
                 if not raw and proc.poll() is not None: break

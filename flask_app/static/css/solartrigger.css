@@ -793,3 +793,12 @@ header {
   line-height: 1;
   white-space: nowrap;
 }
+
+/* ── TRIGGER ACTION BUTTONS ───────────────────────────────────
+ * Primary trigger actions use 1.5x the standard 30 px height.
+ */
+.trigger-action-stack > .trigger-action-button {
+  height: calc(var(--btn-h) * 1.5);
+  min-height: calc(var(--btn-h) * 1.5);
+  flex: 0 0 calc(var(--btn-h) * 1.5);
+}

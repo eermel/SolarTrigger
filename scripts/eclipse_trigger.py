@@ -263,6 +263,12 @@ def parse_arguments():
     parser.add_argument("--speed",     type=float, default=60.0, help="Facteur d'accélération simulation (défaut: 60)")
     parser.add_argument("--dry-run",   action="store_true",  help="Dry-run : même moteur et même caméra, timeline translatée sur maintenant")
     parser.add_argument("--dry-run-delay", type=float, default=30.0, help="Délai avant TSTART du dry-run, en secondes (défaut: 30)")
+    parser.add_argument(
+        "--dry-run-now-start",
+        type=str,
+        default=None,
+        help="TSTART UTC absolu pour DRY-RUN NOW, fourni par le backend",
+    )
     # Arguments optionnels — surchargent le fichier JSON si fournis
     parser.add_argument("--title",                   type=str, default=None)
     parser.add_argument("--C1",                      type=str, default=None)
@@ -612,7 +618,64 @@ _timeline_cfg.update({
     "TMAX": TMAX_str, "TSTART": TSTART_str, "TEND": TEND_str,
 })
 _timeline = build_timeline(_timeline_cfg, fallback_date=now().date())
-if args.dry_run:
+
+_dry_run_now_delta = None
+
+if args.dry_run_now_start:
+    if args.dry_run:
+        raise RuntimeError(
+            "--dry-run et --dry-run-now-start sont mutuellement exclusifs"
+        )
+
+    target_text = args.dry_run_now_start.strip()
+
+    if target_text.endswith("Z"):
+        target_text = target_text[:-1] + "+00:00"
+
+    try:
+        target_aware = datetime.fromisoformat(target_text)
+    except ValueError as exc:
+        raise RuntimeError(
+            "TSTART DRY-RUN NOW invalide"
+        ) from exc
+
+    if target_aware.tzinfo is None:
+        raise RuntimeError(
+            "TSTART DRY-RUN NOW doit contenir un offset UTC"
+        )
+
+    dry_run_now_start = (
+        target_aware
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
+
+    if dry_run_now_start <= now():
+        raise RuntimeError(
+            "TSTART DRY-RUN NOW est déjà dans le passé"
+        )
+
+    original_start = _timeline["TSTART"]
+
+    # Un seul delta pour TOUT :
+    # circonstances, sons, messages et Execution Plan.
+    _dry_run_now_delta = (
+        dry_run_now_start
+        - original_start
+    )
+
+    _timeline = rebase_timeline(
+        _timeline,
+        dry_run_now_start,
+    )
+
+    _log(
+        f"🧪 DRY-RUN NOW — "
+        f"TSTART={dry_run_now_start.isoformat()}Z — "
+        "timeline entière translatée par un delta unique"
+    )
+
+elif args.dry_run:
     current_utc = now()
     original_start = _timeline["TSTART"]
 
@@ -622,7 +685,10 @@ if args.dry_run:
         day=current_utc.day,
     )
 
-    _timeline = rebase_timeline(_timeline, dry_start)
+    _timeline = rebase_timeline(
+        _timeline,
+        dry_start,
+    )
 
     _log(
         "🧪 DRY-RUN ×1 — timeline translatée sur aujourd'hui, "
@@ -1826,9 +1892,58 @@ def _execution_plan_for_phase(plan, phase_name):
 
 
 def _run_execution_plan_v2():
+    # Le .plan de référence est uniquement LU.
+    # rebase_execution_plan() travaille sur une structure mémoire dérivée.
     plan = load_execution_plan(args.execution_plan)
 
-    if args.dry_run:
+    if args.dry_run_now_start:
+        if _dry_run_now_delta is None:
+            raise RuntimeError(
+                "delta DRY-RUN NOW non initialisé"
+            )
+
+        sequence_start_raw = plan.get(
+            "sequence_start_utc"
+        )
+
+        if not isinstance(sequence_start_raw, str):
+            raise RuntimeError(
+                "execution plan missing sequence_start_utc"
+            )
+
+        source_sequence_start = (
+            datetime.fromisoformat(
+                sequence_start_raw.replace(
+                    "Z",
+                    "+00:00",
+                )
+            )
+            .astimezone(timezone.utc)
+            .replace(tzinfo=None)
+        )
+
+        # IMPORTANT :
+        # on applique exactement le delta calculé depuis TSTART.
+        # On ne force PAS sequence_start_utc à être TSTART.
+        target_sequence_start = (
+            source_sequence_start
+            + _dry_run_now_delta
+        )
+
+        plan = rebase_execution_plan(
+            plan,
+            target_sequence_start,
+        )
+
+        _log(
+            f"{Colors.PINK}"
+            "🧪 EXECUTION PLAN DRY-RUN NOW — "
+            "même delta que la timeline — "
+            "source .plan inchangé"
+            f"{Colors.RESET}"
+        )
+
+    elif args.dry_run:
         sequence_start_raw = plan.get("sequence_start_utc")
 
         if not isinstance(sequence_start_raw, str):

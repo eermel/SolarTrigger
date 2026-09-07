@@ -2353,10 +2353,17 @@ function updatePhase(phase) {
   if (ring)  { ring.classList.toggle('active', phase === 'totality' || phase === 'diamond_ring'); }
   if (dot)   { dot.className = phase !== 'idle' ? 'dot on' : 'dot off'; }
 
-  const btnStart = document.getElementById('btn-start');
-  const btnStop  = document.getElementById('btn-stop');
-  const btnTot   = document.getElementById('btn-totality-only');
-  if (btnStart) btnStart.disabled = (phase !== 'idle');
+  const btnStart     = document.getElementById('btn-start');
+  const btnDryRun    = document.getElementById('btn-dryrun');
+  const btnDryRunNow = document.getElementById('btn-dryrun-now');
+  const btnStop      = document.getElementById('btn-stop');
+  const btnTot       = document.getElementById('btn-totality-only');
+
+  const triggerStartLocked = (phase !== 'idle');
+
+  if (btnStart)     btnStart.disabled     = triggerStartLocked;
+  if (btnDryRun)    btnDryRun.disabled    = triggerStartLocked;
+  if (btnDryRunNow) btnDryRunNow.disabled = triggerStartLocked;
   if (btnStop)  btnStop.disabled  = false;
   if (btnTot) {
     btnTot.style.opacity = '1';
@@ -2986,6 +2993,39 @@ async function startTrigger() {
     }
   } else {
     flash('Trigger started ▶', 'green');
+  }
+}
+
+async function startDryRunNow() {
+  if (!confirm(
+    '🧪 Start DRY-RUN NOW?\n' +
+    'TSTART will be fixed to current UTC time + 1 minute.\n' +
+    'Every timeline and Execution Plan interval will remain unchanged.\n' +
+    'The source .plan file will NOT be modified. Sounds are included.'
+  )) return;
+
+  const r = await fetch('/api/trigger/dryrun_now', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({rig_id: selectedTriggerRigId})
+  });
+
+  const d = await r.json();
+
+  if (d.error) {
+    flash(d.message || d.error, 'red');
+
+    if (
+      d.code === 'GPS_NOT_SYNCED' ||
+      d.code === 'GPS_SYNC_STALE'
+    ) {
+      setTimeout(() => showTab(1), 1500);
+    }
+  } else {
+    flash(
+      'Dry-run NOW started — TSTART = UTC now + 1 minute',
+      'blue'
+    );
   }
 }
 

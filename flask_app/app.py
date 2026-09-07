@@ -4988,6 +4988,38 @@ def api_trigger_simulate():
             return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
 
+@app.route("/api/trigger/dryrun_now", methods=["POST"])
+def api_trigger_dryrun_now():
+    """Dry-run réel d'un RIG avec TSTART figé à UTC now + 60 s."""
+    payload = request.get_json(silent=True) or {}
+    rig_id = payload.get("rig_id", 1)
+
+    try:
+        if not _trigger_service.start(
+            rig_id=rig_id,
+            dry_run_now=True,
+        ):
+            return jsonify({
+                "error": f"Trigger RIG {rig_id} déjà en cours.",
+                "rig_id": rig_id,
+            }), 409
+
+        return jsonify({
+            "status": "started",
+            "mode": "dryrun_now",
+            "speed": 1.0,
+            "tstart_delay_s": 60.0,
+            "rig_id": rig_id,
+        })
+
+    except TriggerValidationError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": exc.code,
+            "rig_id": rig_id,
+        }), 400
+
+
 @app.route("/api/trigger/dryrun", methods=["POST"])
 def api_trigger_dryrun():
     """Dry-run ×1 d'un seul RIG."""

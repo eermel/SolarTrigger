@@ -1276,16 +1276,28 @@
       <div style="display:flex;gap:10px;align-items:stretch">
 
         <!-- Boutons START / STOP -->
-        <div style="display:flex;flex-direction:column;gap:8px;min-width:110px">
-          <button class="btn" id="btn-dryrun" onclick="startDryRun()"
-                  style="flex:1;background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
+        <div class="trigger-action-stack" style="display:flex;flex-direction:column;gap:8px;min-width:110px">
+          <button class="btn trigger-action-button"
+                  id="btn-dryrun-now"
+                  onclick="startDryRunNow()"
+                  style="background:rgba(0,140,200,.30);border:1px solid rgba(0,180,255,.7);color:#9addff;font-size:11px"
+                  title="Same execution plan and camera as START. TSTART is UTC now + 60 seconds. The source .plan is never modified.">🧪 DRY-RUN NOW</button>
+          <button class="btn trigger-action-button"
+                  id="btn-dryrun"
+                  onclick="startDryRun()"
+                  style="background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
                   title="Same execution plan and camera as START, using today UTC date and the original UTC times">🧪 DRY-RUN ×1</button>
-          <button class="btn btn-success" id="btn-start" onclick="startTrigger()" style="flex:1">▶ START</button>
-          <button class="btn" id="btn-totality-only" onclick="startTotalityOnly()"
-                  style="flex:1;background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);
-                         color:var(--accent);font-size:11px"
+          <button class="btn btn-success trigger-action-button"
+                  id="btn-start"
+                  onclick="startTrigger()">▶ START</button>
+          <button class="btn trigger-action-button"
+                  id="btn-totality-only"
+                  onclick="startTotalityOnly()"
+                  style="background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);color:var(--accent);font-size:11px"
                   title="Immediate photo override: replaces the current photo sequence with the compiled totality sequence; audio continues until STOP">⚠ Override for Totality Sequence</button>
-          <button class="btn btn-danger"  id="btn-stop"  onclick="stopTrigger()" style="flex:1">■ STOP</button>
+          <button class="btn btn-danger trigger-action-button"
+                  id="btn-stop"
+                  onclick="stopTrigger()">■ STOP</button>
         </div>
 
         <!-- Config + sélecteur JSON -->
