@@ -237,7 +237,7 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
         for sample in trial["samples"]:
             assert sample["test_pause_ms"] >= 2000
             assert sample["total_ms"] < sample["test_pause_ms"]
-            summed = sum(sample[k] for k in ("trigger_call_ms", "frame_wait_ms", "release_ms", "post_release_wait_ms", "settle_ms"))
+            summed = sum(sample[k] for k in ("pre_trigger_drain_ms", "trigger_call_ms", "frame_wait_ms", "release_ms", "post_release_wait_ms", "settle_ms"))
             assert summed == pytest.approx(sample["total_ms"], abs=0.01)
 
 

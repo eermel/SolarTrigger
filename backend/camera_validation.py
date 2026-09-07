@@ -39,6 +39,15 @@ from scripts.camera_ipc_client import CameraIpcClient
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATION_RELATIVE_DIR = Path("configs/camera_characterization/validation")
 PREPARED_TTL_S = 300.0
+# CAMERA VALIDATION IVVQ V2
+# Diagnostic spacing is not part of the production timing contract. It prevents
+# one underestimated operation from making later validation commands expire, so
+# every SET/PHOTO can be diagnosed independently in the same run.
+VALIDATION_DIAGNOSTIC_GUARD_MS = 2000.0
+# Validation-only FILE_ADDED observation grace. Production still uses the exact
+# characterized PHOTO budget; a confirmation inside this grace is reported as a
+# budget overrun/late confirmation rather than as a missing physical photo.
+VALIDATION_CONFIRMATION_GRACE_MS = 1000.0
 
 
 class CameraValidationError(RuntimeError):
@@ -413,6 +422,7 @@ def build_validation_recipe(profile: dict[str, Any]) -> dict[str, Any]:
                     "timing_contract_version": 2,
                     "camera_timing_model_version": 3,
                     "validation_photo_id": f"photo-{photo_id:02d}-{label}",
+                    "validation_confirmation_grace_ms": VALIDATION_CONFIRMATION_GRACE_MS,
                 },
             }
         )
@@ -469,7 +479,13 @@ def build_validation_recipe(profile: dict[str, Any]) -> dict[str, Any]:
     for index, command in enumerate(commands):
         command["index"] = index
         command["offset_ms"] = offset_ms
+        command["diagnostic_guard_ms"] = (
+            VALIDATION_DIAGNOSTIC_GUARD_MS
+            if index < len(commands) - 1
+            else 0.0
+        )
         offset_ms += float(command["duration_ms"])
+        offset_ms += float(command["diagnostic_guard_ms"])
 
     expected_photos = sum(
         int(command.get("frames", 0))
@@ -540,6 +556,8 @@ def build_validation_recipe(profile: dict[str, Any]) -> dict[str, Any]:
         "preflight_reserve_s": preflight_reserve_s,
         "estimated_duration_s": preflight_reserve_s + offset_ms / 1000.0,
         "set_overhead_ms": set_ms,
+        "validation_diagnostic_guard_ms": VALIDATION_DIAGNOSTIC_GUARD_MS,
+        "validation_confirmation_grace_ms": VALIDATION_CONFIRMATION_GRACE_MS,
         "final_state": final_state,
         "invariants": invariants,
     }
@@ -1021,6 +1039,32 @@ def analyse_validation(
             }
         )
 
+    late_confirmations = [
+        {
+            "photo_id": event.get("validation_photo_id"),
+            "duration_ms": event.get("duration_ms"),
+            "budget_ms": event.get("budget_ms"),
+            "confirmed_frames": event.get("confirmed_frames"),
+        }
+        for event in photos
+        if isinstance(event.get("result"), dict)
+        and "validation confirmation after budget"
+        in str(event["result"].get("detail") or "")
+    ]
+    if late_confirmations:
+        errors.append(
+            {
+                "type": "LATE_FILE_CONFIRMATION",
+                "severity": "WARNING",
+                "count": len(late_confirmations),
+                "items": late_confirmations,
+                "message": (
+                    "camera file event arrived after the characterized PHOTO "
+                    "budget but inside the validation-only observation grace"
+                ),
+            }
+        )
+
     skip_lines = [
         line for line in runtime_logs
         if "skip_past index=" in line or "skip_elapsed_after_recovery index=" in line
@@ -1256,6 +1300,10 @@ class CameraValidationJob:
                 ),
             }
             self.answer = None
+            self.log(
+                "VALIDATION AUTOMATIQUE TERMINEE - ATTENTE CONFIRMATION OPERATEUR "
+                f"confirmed={automatic['confirmed_photos']}/{automatic['expected_photos']}"
+            )
             deadline = time.monotonic() + 600.0
             while self.answer is None:
                 if self.cancel_event.is_set():
@@ -1492,6 +1540,8 @@ class CameraValidationJob:
                     "preflight_reserve_s",
                     "estimated_duration_s",
                     "set_overhead_ms",
+                    "validation_diagnostic_guard_ms",
+                    "validation_confirmation_grace_ms",
                 )
             },
             "analysis": analysis,

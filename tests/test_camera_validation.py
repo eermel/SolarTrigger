@@ -245,3 +245,58 @@ def test_camera_ipc_preserves_partial_frame_count(tmp_path):
 
     assert caught.value.code == "CAPTURE_COUNT_ERROR"
     assert caught.value.message == "Capture count mismatch: 5/7"
+
+
+def test_validation_recipe_has_diagnostic_isolation_and_confirmation_grace():
+    recipe = build_validation_recipe(_profile())
+    commands = recipe["commands"]
+
+    assert recipe["validation_diagnostic_guard_ms"] == pytest.approx(2000.0)
+    assert recipe["validation_confirmation_grace_ms"] == pytest.approx(1000.0)
+
+    for command in commands:
+        if command["action"] == "PHOTO":
+            assert command["params"]["validation_confirmation_grace_ms"] == pytest.approx(1000.0)
+
+    for current, following in zip(commands, commands[1:]):
+        slot = following["offset_ms"] - current["offset_ms"]
+        assert slot == pytest.approx(current["duration_ms"] + 2000.0)
+
+
+def test_late_file_confirmation_is_counted_and_reported_as_warning():
+    recipe = build_validation_recipe(_profile())
+    events = []
+    first = True
+    for command in recipe["commands"]:
+        if command["action"] != "PHOTO":
+            continue
+        event = {
+            "validation_photo_id": command["params"]["validation_photo_id"],
+            "expected_frames": command["frames"],
+            "confirmed_frames": command["frames"],
+            "status": "success",
+            "dispatch_error_ms": 1.0,
+            "duration_ms": command["duration_ms"],
+            "budget_ms": command["duration_ms"],
+            "result": {"detail": "profile capture"},
+        }
+        if first:
+            event["duration_ms"] = command["duration_ms"] + 80.0
+            event["result"] = {
+                "detail": "profile capture; validation confirmation after budget"
+            }
+            first = False
+        events.append(event)
+
+    result = analyse_validation(
+        recipe=recipe,
+        recording={"preflight": {}, "sets": _successful_sets(recipe), "photos": events, "gets": []},
+        runtime_logs=[],
+        readbacks=[],
+        operator_outcome="ok",
+    )
+
+    assert result["confirmed_photos"] == 28
+    assert result["verdict"] == "WARNING"
+    assert any(error["type"] == "LATE_FILE_CONFIRMATION" for error in result["errors"])
+    assert not any(error["type"] == "MISSING_PHOTO" for error in result["errors"])

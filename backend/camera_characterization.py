@@ -871,7 +871,19 @@ def characterize(camera, entry, job):
         for _ in range(5):
             for value in values:
                 job.check()
+                # CHARACTERIZATION RUNTIME-PATH TIMING V2
+                # Runtime ProfilePlugin._apply() first calls _live_writable(),
+                # which performs a full camera.get_config() before write_checked.
+                # Include that real runtime cost in every SET timing sample.
                 begin = time.monotonic()
+                _, live_node = widget(
+                    camera,
+                    commands[key]["path"],
+                )
+                if bool(live_node.get_readonly()):
+                    raise RuntimeError(
+                        f"SET {key} became readonly during timing"
+                    )
                 write_checked(
                     camera,
                     commands[key]["path"],
@@ -1071,11 +1083,17 @@ def characterize(camera, entry, job):
             f"TEST START: {expected} photo(s), {spec}"
         )
 
-        # Discard old events before a trial.
+        # CHARACTERIZATION RUNTIME-PATH TIMING V2
+        # ProfilePlugin.execute_photo() starts its guarded PHOTO deadline before
+        # draining stale events. Characterization used to drain them outside the
+        # stopwatch, underestimating the runtime PHOTO budget on slow USB bodies.
+        operation_begin = time.monotonic()
+        drain_begin = operation_begin
         for _ in range(100):
             kind, _data = camera.wait_for_event(1)
             if kind == gp.GP_EVENT_TIMEOUT:
                 break
+        pre_trigger_drain_ms = (time.monotonic() - drain_begin) * 1000.0
 
         seen = set()
         error = None
@@ -1191,7 +1209,7 @@ def characterize(camera, entry, job):
         ) * 1000.0
 
         duration_ms = (
-            time.monotonic() - begin
+            time.monotonic() - operation_begin
         ) * 1000.0
 
         capture_confirmed = (
@@ -1216,6 +1234,7 @@ def characterize(camera, entry, job):
         )
 
         phases = {
+            "pre_trigger_drain_ms": pre_trigger_drain_ms,
             "trigger_call_ms": returned_ms,
             "frame_wait_ms": max(
                 0.0,

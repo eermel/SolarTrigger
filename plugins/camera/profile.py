@@ -570,6 +570,45 @@ class ProfilePlugin(CameraPlugin):
                     )
                 )
 
+        # VALIDATION-ONLY LATE CONFIRMATION V2
+        # The production Trigger remains fail-closed at the characterized
+        # budget. Camera Validation can keep observing FILE_ADDED briefly after
+        # that budget to distinguish "late USB confirmation" from a truly
+        # missing physical photo. The overrun is still measured and reported.
+        late_confirmation = False
+        validation_grace_ms = params.get("validation_confirmation_grace_ms", 0)
+        if (
+            isinstance(validation_grace_ms, bool)
+            or not isinstance(validation_grace_ms, (int, float))
+            or not math.isfinite(float(validation_grace_ms))
+            or float(validation_grace_ms) < 0
+        ):
+            raise ValueError("invalid validation_confirmation_grace_ms")
+        if (
+            guarded
+            and len(observed) < count
+            and float(validation_grace_ms) > 0
+        ):
+            grace_deadline = (
+                time.monotonic()
+                + float(validation_grace_ms) / 1000.0
+            )
+            while (
+                len(observed) < count
+                and time.monotonic() < grace_deadline
+            ):
+                if check:
+                    check()
+                kind, data = self.camera.wait_for_event(100)
+                if kind == gp.GP_EVENT_FILE_ADDED:
+                    observed.add(
+                        (
+                            getattr(data, "folder", ""),
+                            getattr(data, "name", str(data)),
+                        )
+                    )
+            late_confirmation = len(observed) == count
+
         if len(observed) != count:
             error = RuntimeError(
                 f"Capture not confirmed: {len(observed)}/{count}"
@@ -584,7 +623,11 @@ class ProfilePlugin(CameraPlugin):
         return CaptureResult(
             frames=count,
             planned=count,
-            detail="profile capture",
+            detail=(
+                "profile capture; validation confirmation after budget"
+                if late_confirmation
+                else "profile capture"
+            ),
         )
 
     def prepare_capture(self, intent):
