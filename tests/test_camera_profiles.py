@@ -155,6 +155,9 @@ class SimulatedCamera:
         self.now = 0
         self.events = []
         self.counter = 0
+        self.capture_isos = []
+        self.exit_count = 0
+        self.init_count = 0
         self.config = SimulatedWidget("main", children=[
             SimulatedWidget("expprogram", "A", ["A", "M"]),
             SimulatedWidget("capturetarget", "RAM", ["RAM", "card"]),
@@ -166,10 +169,21 @@ class SimulatedCamera:
 
     def get_config(self): return self.config
     def set_config(self, config): self.now += .25
+    def exit(self):
+        self.exit_count += 1
+    def init(self):
+        self.init_count += 1
     def trigger_capture(self):
         mode = self.config.get_child_by_name("capturemode").value
         n = int(mode.split()[-2]) if "Bracket" in mode else 1
-        assert self.config.get_child_by_name("iso").value == "100"
+
+        # Discovery captures historically ran only at ISO 100.  The final
+        # operational V3 qualification deliberately alternates ISO 100/200
+        # to exercise the exact scheduled SET -> PHOTO path.
+        iso = self.config.get_child_by_name("iso").value
+        assert iso in ("100", "200")
+        self.capture_isos.append(iso)
+
         assert self.config.get_child_by_name("capturetarget").value == "card"
         assert self.config.get_child_by_name("imageformat").value == "RAW"
         for _ in range(n):
@@ -195,20 +209,49 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     monkeypatch.setattr(module.time, "monotonic", lambda: camera.now)
     monkeypatch.setattr(module.time, "sleep", lambda seconds: setattr(camera, "now", camera.now + seconds))
     confirmations = []
+    qualification_starts = []
+
     def confirm(self, message, kind="result"):
+        if (
+            kind == "start"
+            and "Qualification opérationnelle finale" in message
+        ):
+            qualification_starts.append((kind, camera.counter))
+            return True
+
         confirmations.append((kind, camera.counter))
         if kind == "start":
-            assert len(confirmations) == 1 or confirmations[-2][0] == "result"
+            assert (
+                len(confirmations) == 1
+                or confirmations[-2][0] == "result"
+            )
         else:
             assert confirmations[-2][0] == "start"
             assert camera.counter > confirmations[-2][1]
         return True
+
     monkeypatch.setattr(CharacterizationJob, "ask", confirm)
-    result, timing = module.characterize(camera, {"manufacturer": "Test", "model": "Test Camera"}, CharacterizationJob())
+    result, timing = module.characterize(
+        camera,
+        {"manufacturer": "Test", "model": "Test Camera"},
+        CharacterizationJob(),
+    )
+
     assert confirmations[0] == ("start", 0)
     assert confirmations[-1][0] == "result"
-    assert len(confirmations) == 12  # Two methods, single + brackets 3/5, two prompts each.
-    assert camera.counter == 108  # discovery + five timing trials per method/size; no redundant sustained qualification.
+    assert len(confirmations) == 12
+    assert len(qualification_starts) == 1
+
+    # Historical discovery/timing = 108 physical images.
+    # Final operational recipe = 4 singles + bracket 3 + bracket 5 = 12.
+    assert camera.counter == 120
+    assert camera.exit_count == 1
+    assert camera.init_count == 1
+
+    # Discovery is ISO100-only, while operational qualification must prove
+    # at least one real alternate-ISO transition before publication.
+    assert "100" in camera.capture_isos
+    assert "200" in camera.capture_isos
     for key, raw in timing["raw_timing"].items():
         if isinstance(raw, (int, float)):
             assert timing["timing"][key] >= raw
@@ -417,10 +460,26 @@ def test_characterization_preserves_single_shot_target_for_readonly_capture_mode
         ),
     )
 
+    physical_preflight_prompts = []
+
+    def confirm_d850(self, message, kind="result"):
+        if (
+            kind == "start"
+            and "Corrigez ce réglage physiquement" in message
+        ):
+            physical_preflight_prompts.append(message)
+
+            # Simulate the human moving the physical release-mode selector.
+            # Direct assignment is deliberate: forbidden_set() below proves
+            # that the backend itself never issued an USB SET.
+            drive.value = "Single Shot"
+
+        return True
+
     monkeypatch.setattr(
         CharacterizationJob,
         "ask",
-        lambda self, message, kind="result": True,
+        confirm_d850,
     )
 
     result, timing = module.characterize(
@@ -440,12 +499,18 @@ def test_characterization_preserves_single_shot_target_for_readonly_capture_mode
     assert spec["get"] is True
     assert spec["set"] is False
 
-    # Characterization did not alter the physical GET-only selector.
-    assert drive.value == "Burst"
+    # The backend never altered the GET-only selector.  The simulated
+    # operator did so only after the qualification preflight requested it.
+    assert physical_preflight_prompts
+    assert drive.value == "Single Shot"
 
     # GET-only drive mode means no native USB bracket manipulation.
     assert result["strategy"] == "sequential"
     assert timing is not None
+
+    # Qualification still exercised a fresh camera session.
+    assert camera.exit_count == 1
+    assert camera.init_count == 1
 
 
 def test_single_shot_operator_instruction_is_unambiguous(profile):
