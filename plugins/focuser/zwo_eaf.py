@@ -19,6 +19,7 @@ Points cles du SDK :
 """
 
 import ctypes
+import threading
 import time
 
 LIB_NAME = "libEAFFocuser.so"
@@ -48,6 +49,54 @@ class EafError(Exception):
         super().__init__(msg or f"EAF error code {code}")
 
 
+# Le SDK ZWO gere l'ouverture par ID global au processus, pas par handle
+# Python. Deux instances ZwoEaf utilisant le meme ID partagent donc en
+# realite la meme session SDK. Une detection ne doit jamais EAFClose()
+# une session possedee par un worker persistant.
+_SDK_SESSION_LOCK = threading.RLock()
+_SDK_OPEN_REFS = {}
+
+
+def _acquire_sdk_session(lib, sdk_id):
+    """Acquire one logical owner of an EAF SDK session."""
+    sdk_id = int(sdk_id)
+    with _SDK_SESSION_LOCK:
+        refs = _SDK_OPEN_REFS.get(sdk_id, 0)
+
+        if refs == 0:
+            code = lib.EAFOpen(sdk_id)
+            if code != EAF_SUCCESS:
+                raise EafError(
+                    code,
+                    f"EAFOpen a echoue (code {code})",
+                )
+
+        _SDK_OPEN_REFS[sdk_id] = refs + 1
+
+
+def _release_sdk_session(lib, sdk_id):
+    """Release one logical owner; close physically only for the last one."""
+    sdk_id = int(sdk_id)
+
+    with _SDK_SESSION_LOCK:
+        refs = _SDK_OPEN_REFS.get(sdk_id, 0)
+
+        if refs <= 0:
+            return
+
+        if refs > 1:
+            _SDK_OPEN_REFS[sdk_id] = refs - 1
+            return
+
+        # Preserve the historical disconnect semantics: EAFClose return
+        # value is deliberately ignored, but our ownership state is
+        # cleared even if the SDK reports an error.
+        try:
+            lib.EAFClose(sdk_id)
+        finally:
+            _SDK_OPEN_REFS.pop(sdk_id, None)
+
+
 def _load_lib():
     # La lib EAF depend de libudev ; on la charge d'abord en mode GLOBAL pour
     # exposer ses symboles (sinon : undefined symbol udev_device_get_devnode).
@@ -72,6 +121,7 @@ class ZwoEaf:
         self.id = None
         self.name = None
         self.max_step = None
+        self._session_acquired = False
 
     # ------------------------------------------------------------------ #
     def _setup_prototypes(self):
@@ -166,7 +216,13 @@ class ZwoEaf:
         return raw.hex().upper()
 
     def enumerate_devices(self):
-        """Enumère tous les EAF sans envoyer aucune commande de mouvement."""
+        """Enumère tous les EAF sans perturber les sessions persistantes.
+
+        Le SDK ZWO associe EAFOpen/EAFClose à l'ID matériel global du
+        processus. L'inventaire prend donc une référence temporaire sur la
+        session. Si un worker possède déjà l'EAF, aucun EAFOpen/EAFClose
+        physique supplémentaire n'est envoyé.
+        """
         count = self.lib.EAFGetNum()
         if count <= 0:
             return []
@@ -175,6 +231,8 @@ class ZwoEaf:
 
         for index in range(count):
             cid = ctypes.c_int(0)
+            sdk_id = None
+            acquired = False
 
             try:
                 self._check(
@@ -183,37 +241,40 @@ class ZwoEaf:
                 )
                 sdk_id = cid.value
 
-                self._check(self.lib.EAFOpen(sdk_id), "EAFOpen")
-                try:
-                    info = EAF_INFO()
-                    self._check(
-                        self.lib.EAFGetProperty(
-                            sdk_id, ctypes.byref(info)
-                        ),
-                        "EAFGetProperty",
-                    )
+                _acquire_sdk_session(self.lib, sdk_id)
+                acquired = True
 
-                    name = (
-                        info.Name.decode("ascii", "replace")
-                        .rstrip("\x00")
-                        .strip()
-                    )
+                info = EAF_INFO()
+                self._check(
+                    self.lib.EAFGetProperty(
+                        sdk_id, ctypes.byref(info)
+                    ),
+                    "EAFGetProperty",
+                )
 
-                    devices.append({
-                        "category": "focuser",
-                        "backend": "zwo_eaf",
-                        "manufacturer": "ZWO",
-                        "model": name or "EAF",
-                        "serial": self._serial_number(sdk_id),
-                        "device_id": f"zwo_eaf:{sdk_id}",
-                        "sdk_id": sdk_id,
-                        "max_step": info.MaxStep,
-                    })
-                finally:
-                    self.lib.EAFClose(sdk_id)
+                name = (
+                    info.Name.decode("ascii", "replace")
+                    .rstrip("\x00")
+                    .strip()
+                )
+
+                devices.append({
+                    "category": "focuser",
+                    "backend": "zwo_eaf",
+                    "manufacturer": "ZWO",
+                    "model": name or "EAF",
+                    "serial": self._serial_number(sdk_id),
+                    "device_id": f"zwo_eaf:{sdk_id}",
+                    "sdk_id": sdk_id,
+                    "max_step": info.MaxStep,
+                })
 
             except EafError:
                 continue
+
+            finally:
+                if acquired and sdk_id is not None:
+                    _release_sdk_session(self.lib, sdk_id)
 
         return devices
 
@@ -225,6 +286,9 @@ class ZwoEaf:
                 msg="Aucun EAF detecte (branche ? alimente 12V ?)"
             )
 
+        if self._session_acquired:
+            self.disconnect()
+
         if device_id is None:
             if index >= n:
                 raise EafError(msg=f"Index {index} hors bornes (n={n})")
@@ -234,45 +298,73 @@ class ZwoEaf:
                 self.lib.EAFGetID(index, ctypes.byref(cid)),
                 "EAFGetID",
             )
-            self.id = cid.value
+            sdk_id = cid.value
         else:
-            self.id = self._sdk_id_from_device_id(device_id)
+            sdk_id = self._sdk_id_from_device_id(device_id)
 
-        self._check(self.lib.EAFOpen(self.id), "EAFOpen")
+        self.id = sdk_id
 
-        info = EAF_INFO()
-        self._check(
-            self.lib.EAFGetProperty(self.id, ctypes.byref(info)),
-            "EAFGetProperty",
-        )
+        try:
+            _acquire_sdk_session(self.lib, sdk_id)
+            self._session_acquired = True
 
-        self.name = (
-            info.Name.decode("ascii", "replace")
-            .rstrip("\x00")
-            .strip()
-        )
-        self.max_step = info.MaxStep
+            info = EAF_INFO()
+            self._check(
+                self.lib.EAFGetProperty(
+                    sdk_id, ctypes.byref(info)
+                ),
+                "EAFGetProperty",
+            )
 
-        return {
-            "id": self.id,
-            "device_id": f"zwo_eaf:{self.id}",
-            "serial": self._serial_number(self.id),
-            "name": self.name,
-            "max_step": self.max_step,
-        }
+            self.name = (
+                info.Name.decode("ascii", "replace")
+                .rstrip("\x00")
+                .strip()
+            )
+            self.max_step = info.MaxStep
+
+            return {
+                "id": self.id,
+                "device_id": f"zwo_eaf:{self.id}",
+                "serial": self._serial_number(self.id),
+                "name": self.name,
+                "max_step": self.max_step,
+            }
+
+        except BaseException:
+            if self._session_acquired:
+                _release_sdk_session(self.lib, sdk_id)
+            self._session_acquired = False
+            self.id = None
+            self.name = None
+            self.max_step = None
+            raise
 
     def disconnect(self):
-        if self.id is not None:
-            try:
-                self.lib.EAFStop(self.id)
-            except Exception:
-                pass
-            self.lib.EAFClose(self.id)
+        if self.id is None:
+            self._session_acquired = False
+            return
+
+        sdk_id = self.id
+
+        try:
+            if self._session_acquired:
+                try:
+                    self.lib.EAFStop(sdk_id)
+                except Exception:
+                    pass
+        finally:
+            if self._session_acquired:
+                _release_sdk_session(self.lib, sdk_id)
+
+            self._session_acquired = False
             self.id = None
+            self.name = None
+            self.max_step = None
 
     @property
     def connected(self):
-        return self.id is not None
+        return self.id is not None and self._session_acquired
 
     def _require(self):
         if self.id is None:
