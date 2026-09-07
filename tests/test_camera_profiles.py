@@ -243,10 +243,12 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     assert len(qualification_starts) == 1
 
     # Historical discovery/timing = 108 physical images.
-    # Final operational recipe = 4 singles + bracket 3 + bracket 5 = 12.
-    assert camera.counter == 120
-    assert camera.exit_count == 1
-    assert camera.init_count == 1
+    # Main operational recipe = 4 singles + bracket 3 + bracket 5 = 12.
+    # Cold-bracket proof adds one bracket-5 as the first PHOTO of a second
+    # fresh session: 108 + 12 + 5 = 125 physical images.
+    assert camera.counter == 125
+    assert camera.exit_count == 2
+    assert camera.init_count == 2
 
     # Discovery is ISO100-only, while operational qualification must prove
     # at least one real alternate-ISO transition before publication.

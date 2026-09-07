@@ -2125,13 +2125,43 @@ def qualify_operational_contract_v3(
     contract = profile["timing_contract"]
 
     preview = build_validation_recipe(profile)
+
+    # For bracket profiles, additionally prove the largest characterized
+    # bracket as the very first PHOTO of another fresh gphoto session.
+    # The normal recipe intentionally starts with singles, so it cannot prove
+    # this cold-bracket condition by itself.
+    preview_bracket_frames = [
+        int(command["params"].get("frames", 1))
+        for command in preview["commands"]
+        if (
+            command["action"] == "PHOTO"
+            and int(command["params"].get("frames", 1)) > 1
+        )
+    ]
+    cold_bracket_frames = (
+        max(preview_bracket_frames)
+        if preview_bracket_frames
+        else None
+    )
+    complete_attempt_photos = (
+        int(preview["expected_photos"])
+        + int(cold_bracket_frames or 0)
+    )
+    cold_description = (
+        f" dont {cold_bracket_frames} photo(s) pour le bracket froid "
+        "déclenché comme première PHOTO d'une seconde session neuve."
+        if cold_bracket_frames is not None
+        else "."
+    )
+
     if not job.ask(
         "Qualification opérationnelle finale avant publication : "
-        f"{preview['expected_photos']} photo(s) RAW par tentative. "
-        "La session gphoto sera réinitialisée afin de mesurer aussi le premier "
-        "déclenchement d'une session neuve. Si un budget doit être augmenté, "
-        "la tentative complète redémarrera automatiquement. Cliquez sur OK "
-        "pour démarrer.",
+        f"{complete_attempt_photos} photo(s) RAW pour une tentative complète "
+        f"({preview['expected_photos']} pour la recette opérationnelle"
+        f"{cold_description} "
+        "Chaque tentative principale démarre sur une session gphoto neuve. "
+        "Si un budget doit être augmenté, la qualification complète "
+        "redémarrera automatiquement. Cliquez sur OK pour démarrer.",
         kind="start",
     ):
         raise Cancelled(
@@ -2229,6 +2259,7 @@ def qualify_operational_contract_v3(
             "commands_completed": 0,
             "set_samples_ms": [],
             "photo_samples": [],
+            "cold_bracket_first": None,
             "restarted": False,
         }
         attempt_started = time.monotonic()
@@ -2478,6 +2509,334 @@ def qualify_operational_contract_v3(
                 "commands_completed"
             ] = command_index + 1
 
+        # The main operational recipe always exercises singles before brackets.
+        # Therefore, after a complete main pass, explicitly prove the largest
+        # supported bracket as the very first PHOTO of another fresh gphoto
+        # session.  Only the minimum SET state required immediately before that
+        # bracket is replayed; no warm-up PHOTO is allowed.
+        #
+        # After the cold bracket, replay the deterministic final-state SET tail
+        # from the same validation recipe so characterization never leaves the
+        # physical camera parked in bracket mode.
+        if not restart and cold_bracket_frames is not None:
+            cold_targets = [
+                (index, command)
+                for index, command in enumerate(recipe["commands"])
+                if (
+                    command["action"] == "PHOTO"
+                    and int(
+                        command["params"].get("frames", 1)
+                    ) == cold_bracket_frames
+                )
+            ]
+            if len(cold_targets) != 1:
+                raise RuntimeError(
+                    "Operational v3 cold bracket target is ambiguous: "
+                    f"frames={cold_bracket_frames}, "
+                    f"matches={len(cold_targets)}"
+                )
+
+            cold_target_index, cold_target = cold_targets[0]
+            cold_record = {
+                "frames": cold_bracket_frames,
+                "status": "running",
+                "setup_set_samples_ms": [],
+                "restore_set_samples_ms": [],
+            }
+            attempt_record["cold_bracket_first"] = cold_record
+
+            job.log(
+                "RUNTIME QUALIFICATION COLD BRACKET: "
+                f"{cold_bracket_frames} frames; fresh gphoto session; "
+                "this bracket will be the first PHOTO"
+            )
+
+            camera.exit()
+            camera.init()
+
+            cold_plugin = ProfilePlugin(
+                camera,
+                job.log,
+                profile=profile,
+            )
+
+            while True:
+                job.check()
+                try:
+                    cold_plugin.preflight()
+                    break
+                except CameraPreflightError as exc:
+                    job.log(
+                        "RUNTIME QUALIFICATION COLD BRACKET PREFLIGHT: "
+                        f"operator action required: {exc}"
+                    )
+                    if not job.ask(
+                        "Précontrôle bracket froid : "
+                        f"{exc} "
+                        "Corrigez ce réglage physiquement sur le boîtier, "
+                        "attendez que l'appareil soit prêt, puis cliquez sur OK. "
+                        "Le réglage sera relu avant toute mesure.",
+                        kind="start",
+                    ):
+                        raise Cancelled(
+                            "Operational v3 cold bracket qualification "
+                            "cancelled during physical preflight"
+                        )
+
+            # Collapse the recipe prefix to the last SET for each parameter.
+            # Those values are exactly the camera state immediately before the
+            # selected bracket, without replaying unrelated earlier singles.
+            last_setup_by_parameter = {}
+            for original_index, command in enumerate(
+                recipe["commands"][:cold_target_index]
+            ):
+                if command["action"] != "SET":
+                    continue
+                parameter = command["params"]["parameter"]
+                last_setup_by_parameter[parameter] = (
+                    original_index,
+                    command,
+                )
+
+            cold_setup_sets = sorted(
+                last_setup_by_parameter.values(),
+                key=lambda item: item[0],
+            )
+
+            # The target is the largest/last bracket in the validation recipe;
+            # the remaining SET commands are its deterministic final-state tail.
+            cold_restore_sets = [
+                (original_index, command)
+                for original_index, command in enumerate(
+                    recipe["commands"][cold_target_index + 1:],
+                    start=cold_target_index + 1,
+                )
+                if command["action"] == "SET"
+            ]
+
+            def run_cold_sets(items, phase):
+                nonlocal restart
+
+                for original_index, command in items:
+                    job.check()
+
+                    params = deepcopy(command["params"])
+                    parameter = params["parameter"]
+                    value = params["value"]
+                    budget = float(command["duration_ms"])
+
+                    begin = time.monotonic()
+                    cold_plugin.set_parameter(
+                        parameter,
+                        value,
+                        fallback_parameter=params.get(
+                            "fallback_parameter"
+                        ),
+                    )
+                    elapsed_ms = (
+                        time.monotonic() - begin
+                    ) * 1000.0
+
+                    runtime_set_samples.append(elapsed_ms)
+                    all_set_samples.append(elapsed_ms)
+
+                    sample = {
+                        "parameter": parameter,
+                        "value": value,
+                        "elapsed_ms": elapsed_ms,
+                        "budget_ms": budget,
+                        "recipe_command_index": original_index,
+                    }
+                    cold_record[
+                        f"{phase}_set_samples_ms"
+                    ].append(sample)
+
+                    required = budget_ms(all_set_samples)
+                    previous = contract["set_overhead_ms"]
+
+                    if required > previous:
+                        contract["set_overhead_ms"] = required
+                        profile["timing_contract"] = contract
+                        revise(
+                            "set_overhead_ms",
+                            previous,
+                            required,
+                            elapsed_ms,
+                            original_index,
+                        )
+                        cold_record["status"] = (
+                            f"{phase}_set_budget_revised"
+                        )
+                        restart = True
+                        return False
+
+                    time.sleep(
+                        max(
+                            0.0,
+                            (budget - elapsed_ms) / 1000.0,
+                        )
+                    )
+
+                return True
+
+            if run_cold_sets(cold_setup_sets, "setup"):
+                params = deepcopy(cold_target["params"])
+                params.pop(
+                    "validation_confirmation_grace_ms",
+                    None,
+                )
+
+                views = (
+                    params.get("physical_views")
+                    or [params["shutter"]]
+                )
+                exposure_s = sum(
+                    _parse_speed(value)
+                    for value in views
+                )
+                budget = float(cold_target["duration_ms"])
+
+                observation_s = max(
+                    15.0 + exposure_s,
+                    budget / 1000.0 + 5.0,
+                )
+
+                begin = time.monotonic()
+                cold_plugin.execute_photo(
+                    params,
+                    observation_timeout_s=observation_s,
+                    check=job.check,
+                )
+                elapsed_ms = (
+                    time.monotonic() - begin
+                ) * 1000.0
+
+                overhead_ms = max(
+                    0.0,
+                    elapsed_ms - exposure_s * 1000.0,
+                )
+
+                cold_record.update(
+                    {
+                        "elapsed_ms": elapsed_ms,
+                        "exposure_ms": exposure_s * 1000.0,
+                        "overhead_ms": overhead_ms,
+                        "budget_ms": budget,
+                    }
+                )
+
+                samples = (
+                    bracket_overhead_samples_by_frames
+                    .setdefault(cold_bracket_frames, [])
+                )
+                samples.append(overhead_ms)
+
+                runtime_bracket_overheads.setdefault(
+                    cold_bracket_frames, []
+                ).append(overhead_ms)
+
+                components = derive_bracket_components(
+                    bracket_overhead_samples_by_frames
+                )
+                required_fixed = budget_ms(
+                    [
+                        components[
+                            "raw_bracket_overhead_ms"
+                        ]
+                    ]
+                )
+                required_inter = budget_ms(
+                    [
+                        components[
+                            "raw_bracket_inter_image_ms"
+                        ]
+                    ]
+                )
+
+                previous_fixed = contract[
+                    "bracket_overhead_ms"
+                ]
+                previous_inter = contract[
+                    "bracket_inter_image_ms"
+                ]
+
+                revised_fixed = max(
+                    previous_fixed,
+                    required_fixed,
+                )
+                revised_inter = max(
+                    previous_inter,
+                    required_inter,
+                )
+
+                if (
+                    revised_fixed > previous_fixed
+                    or revised_inter > previous_inter
+                ):
+                    contract[
+                        "bracket_overhead_ms"
+                    ] = revised_fixed
+                    contract[
+                        "bracket_inter_image_ms"
+                    ] = revised_inter
+                    profile["timing_contract"] = contract
+
+                    adjustments.append(
+                        {
+                            "attempt": attempt,
+                            "field": "bracket_model_cold_first",
+                            "frames": cold_bracket_frames,
+                            "observed_ms": elapsed_ms,
+                            "overhead_ms": overhead_ms,
+                            "previous_bracket_overhead_ms":
+                                previous_fixed,
+                            "revised_bracket_overhead_ms":
+                                revised_fixed,
+                            "previous_inter_image_ms":
+                                previous_inter,
+                            "revised_inter_image_ms":
+                                revised_inter,
+                            "command_index":
+                                cold_target_index,
+                            "cold_first_photo": True,
+                        }
+                    )
+                    job.log(
+                        "RUNTIME QUALIFICATION COLD BRACKET "
+                        "BUDGET REVISED: "
+                        f"fixed {previous_fixed}->{revised_fixed} ms; "
+                        f"inter-image "
+                        f"{previous_inter}->{revised_inter} ms; "
+                        f"frames={cold_bracket_frames}, "
+                        f"observed={elapsed_ms:.1f} ms; "
+                        "restarting complete qualification"
+                    )
+                    cold_record["status"] = "budget_revised"
+                    restart = True
+                else:
+                    # Respect the same production reservation before applying
+                    # the deterministic final-state SET tail.
+                    time.sleep(
+                        max(
+                            0.0,
+                            (budget - elapsed_ms) / 1000.0,
+                        )
+                    )
+
+                    if run_cold_sets(
+                        cold_restore_sets,
+                        "restore",
+                    ):
+                        cold_record["status"] = "validated"
+                        job.log(
+                            "RUNTIME QUALIFICATION COLD BRACKET "
+                            "PASSED: "
+                            f"frames={cold_bracket_frames}; "
+                            f"elapsed={elapsed_ms:.1f} ms; "
+                            f"overhead={overhead_ms:.1f} ms; "
+                            "first PHOTO of fresh session"
+                        )
+
         attempt_record["elapsed_ms"] = (
             time.monotonic() - attempt_started
         ) * 1000.0
@@ -2533,6 +2892,12 @@ def qualify_operational_contract_v3(
             for frames, samples
             in runtime_bracket_overheads.items()
         },
+        "cold_bracket_first_frames": cold_bracket_frames,
+        "cold_bracket_first": (
+            attempts[-1].get("cold_bracket_first")
+            if attempts
+            else None
+        ),
     }
 
 
