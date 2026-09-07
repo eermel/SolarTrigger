@@ -1401,6 +1401,13 @@ def api_rig_device_inventory_refresh():
 from backend.camera_characterization_routes import register_characterization_routes
 register_characterization_routes(app, lambda: _state_store.snapshot("trigger"))
 
+from backend.camera_validation_routes import register_camera_validation_routes
+register_camera_validation_routes(
+    app,
+    lambda: _state_store.snapshot("trigger"),
+    root=TRIGGER_DIR,
+)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # API — STATUT
 # ══════════════════════════════════════════════════════════════════════════════

@@ -571,9 +571,15 @@ class ProfilePlugin(CameraPlugin):
                 )
 
         if len(observed) != count:
-            raise RuntimeError(
+            error = RuntimeError(
                 f"Capture not confirmed: {len(observed)}/{count}"
             )
+            # Preserve the machine-observed count across the worker/IPC
+            # boundary so validation can report X/N instead of a generic
+            # INTERNAL_ERROR. Runtime behaviour remains fail-closed.
+            error.observed_frames = len(observed)
+            error.expected_frames = count
+            raise error
 
         return CaptureResult(
             frames=count,

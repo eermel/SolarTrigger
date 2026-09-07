@@ -115,6 +115,38 @@
             <button class="btn btn-danger" onclick="answerCameraCharacterization(false)">NO — INCORRECT/MISSING PHOTOS</button>
           </div>
         </div>
+        <div class="card">
+          <div class="card-title">Camera Validation</div>
+          <div style="display:flex;gap:12px;align-items:center">
+            <select id="camera-validation-select" aria-label="Characterized camera" style="flex:1;min-width:0">
+              <option value="">— Characterized camera —</option>
+            </select>
+            <button class="btn btn-primary" id="camera-validation-start" onclick="prepareCameraValidation()">Validate</button>
+            <button class="btn" id="camera-validation-cancel" onclick="cancelCameraValidation()" disabled>Cancel</button>
+          </div>
+          <p style="font-size:12px">
+            End-to-end real run · .plan · scheduler · IPC · camera worker · RAW files remain on the card.
+          </p>
+          <div id="camera-validation-summary" style="font-family:var(--mono);font-size:12px;color:var(--text-dim);margin:8px 0">
+            Prepare a deterministic real-camera validation run.
+          </div>
+          <pre id="camera-validation-log" role="log" style="height:260px;overflow:auto;white-space:pre-wrap;font-family:var(--mono);font-size:12px"></pre>
+          <div id="camera-validation-question" hidden style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px">
+            <p id="camera-validation-prompt" style="grid-column:1 / -1"></p>
+            <button class="btn btn-primary" onclick="answerCameraValidation('ok')">YES — ALL PHOTOS OK</button>
+            <button class="btn" onclick="answerCameraValidation('extra')">EXTRA PHOTOS</button>
+            <button class="btn btn-danger" onclick="answerCameraValidation('incorrect')">MISSING / INCORRECT</button>
+          </div>
+          <button
+            class="btn btn-danger btn-full"
+            id="camera-validation-delete-files"
+            type="button"
+            hidden
+            style="margin-top:10px"
+            onclick="deleteFailedCameraValidationFiles()">
+            Delete generated camera profile/timing after FAIL
+          </button>
+        </div>
       </section>
     </div>
 

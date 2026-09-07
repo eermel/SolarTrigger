@@ -6297,3 +6297,207 @@ refreshRigDevices(true);
 loadSupportedEclipses();
 loadEclipseData();
 loadCameraStatus();
+
+// ════════════════════════════════════════════════════════════════
+// CAMERA VALIDATION — end-to-end real execution-plan run
+// ════════════════════════════════════════════════════════════════
+let cameraValidationPolling = false;
+let cameraValidationTimer = null;
+let cameraValidationQuestionId = null;
+let cameraValidationLastResultId = null;
+
+function formatValidationDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return minutes ? `${minutes} min ${String(rest).padStart(2, '0')} s` : `${rest} s`;
+}
+
+function renderCameraValidationStatus(status) {
+  const select = document.getElementById('camera-validation-select');
+  const start = document.getElementById('camera-validation-start');
+  const cancel = document.getElementById('camera-validation-cancel');
+  const log = document.getElementById('camera-validation-log');
+  const summary = document.getElementById('camera-validation-summary');
+  const question = document.getElementById('camera-validation-question');
+  const prompt = document.getElementById('camera-validation-prompt');
+  const deleteButton = document.getElementById('camera-validation-delete-files');
+
+  if (!select || !start || !cancel || !log || !summary || !question || !prompt || !deleteButton) return;
+
+  const current = select.value;
+  const candidates = Array.isArray(status.candidates) ? status.candidates : [];
+  select.innerHTML = '<option value="">— Characterized camera —</option>';
+  candidates.forEach(camera => {
+    const option = document.createElement('option');
+    option.value = camera.transport_locator || '';
+    option.textContent = camera.display_label || camera.model || camera.backend || 'Camera';
+    if (option.value === current) option.selected = true;
+    select.appendChild(option);
+  });
+
+  start.disabled = Boolean(status.running) || !select.value;
+  cancel.disabled = !status.running;
+  log.textContent = Array.isArray(status.logs) ? status.logs.join('\n') : '';
+  log.scrollTop = log.scrollHeight;
+
+  const prepared = status.prepared;
+  const result = status.result;
+  if (status.running) {
+    summary.textContent = `Validation running — phase: ${status.phase || 'running'}`;
+  } else if (result && result.analysis) {
+    const analysis = result.analysis;
+    const timing = analysis.timing || {};
+    const timingText = Number.isFinite(timing.stddev_ms)
+      ? ` · σ=${timing.stddev_ms.toFixed(1)} ms · max|Δ|=${Number(timing.max_abs_ms || 0).toFixed(1)} ms`
+      : '';
+    const countText = analysis.actual_count_complete === false
+      ? `${analysis.confirmed_photos}/${analysis.expected_photos} confirmed minimum`
+      : `${analysis.confirmed_photos}/${analysis.expected_photos} confirmed`;
+    summary.textContent = `${analysis.verdict} — ${countText}${timingText}`;
+  } else if (prepared) {
+    summary.textContent = `${prepared.expected_photos} photos · ${formatValidationDuration(prepared.estimated_duration_s)} estimated`;
+  } else {
+    summary.textContent = 'Prepare a deterministic real-camera validation run.';
+  }
+
+  const q = status.question;
+  cameraValidationQuestionId = q ? q.id : null;
+  question.hidden = !q;
+  prompt.textContent = q ? q.message : '';
+
+  const fail = Boolean(result && result.analysis && result.analysis.verdict === 'FAIL');
+  deleteButton.hidden = !fail;
+  if (result && result.validation_id) cameraValidationLastResultId = result.validation_id;
+}
+
+async function pollCameraValidation() {
+  if (cameraValidationPolling) return;
+  cameraValidationPolling = true;
+  try {
+    const response = await fetch('/api/camera-validation');
+    const status = await response.json();
+    if (!response.ok) throw new Error(status.error || `HTTP ${response.status}`);
+    renderCameraValidationStatus(status);
+  } catch (error) {
+    const summary = document.getElementById('camera-validation-summary');
+    if (summary) summary.textContent = `Validation status unavailable: ${error.message}`;
+  } finally {
+    cameraValidationPolling = false;
+  }
+}
+
+async function prepareCameraValidation() {
+  const select = document.getElementById('camera-validation-select');
+  if (!select || !select.value) {
+    flash('Select a characterized camera first.', 'red');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/camera-validation/prepare', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({locator: select.value}),
+    });
+    const prepared = await response.json();
+    if (!response.ok) throw new Error(prepared.error || `HTTP ${response.status}`);
+
+    const bracketText = Array.isArray(prepared.supported_bracket_frames) && prepared.supported_bracket_frames.length
+      ? prepared.supported_bracket_frames.join('/')
+      : 'none';
+    const authorized = confirm(
+      'REAL CAMERA VALIDATION\n\n' +
+      `Camera: ${(prepared.camera && prepared.camera.manufacturer) || ''} ${(prepared.camera && prepared.camera.model) || ''}\n` +
+      `Expected photos: ${prepared.expected_photos}\n` +
+      `Estimated total duration: ${formatValidationDuration(prepared.estimated_duration_s)}\n` +
+      `Native brackets exercised: ${bracketText}\n\n` +
+      'The real execution-plan runtime and camera workers will be used.\n' +
+      'Camera settings will change and real RAW photos will be written to the card.\n\n' +
+      'Authorize validation now?'
+    );
+
+    if (!authorized) {
+      await pollCameraValidation();
+      return;
+    }
+
+    const startResponse = await fetch('/api/camera-validation/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: prepared.token}),
+    });
+    const started = await startResponse.json();
+    if (!startResponse.ok) throw new Error(started.error || `HTTP ${startResponse.status}`);
+    flash(`Camera validation started — ${prepared.expected_photos} photos expected`, 'green');
+    await pollCameraValidation();
+  } catch (error) {
+    flash(`Camera validation: ${error.message}`, 'red');
+  }
+}
+
+async function cancelCameraValidation() {
+  try {
+    const response = await fetch('/api/camera-validation/cancel', {method: 'POST'});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    await pollCameraValidation();
+  } catch (error) {
+    flash(`Camera validation cancel: ${error.message}`, 'red');
+  }
+}
+
+async function answerCameraValidation(outcome) {
+  if (!cameraValidationQuestionId) return;
+  try {
+    const response = await fetch('/api/camera-validation/answer', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question_id: cameraValidationQuestionId, outcome}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    cameraValidationQuestionId = null;
+    await pollCameraValidation();
+  } catch (error) {
+    flash(`Camera validation confirmation: ${error.message}`, 'red');
+  }
+}
+
+async function deleteFailedCameraValidationFiles() {
+  if (!cameraValidationLastResultId) return;
+  if (!confirm(
+    'DELETE THE GENERATED CAMERA PROFILE AND TIMING FILES?\n\n' +
+    'Only the exact profile/timing files associated with this failed validation will be deleted.\n' +
+    'The validation report, .plan and run log will be kept for debugging.\n\n' +
+    'This action cannot be undone.'
+  )) return;
+
+  try {
+    const response = await fetch('/api/camera-validation/delete-files', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({confirm: true}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    flash(`Deleted ${Array.isArray(data.deleted) ? data.deleted.length : 0} generated camera file(s)`, 'yellow');
+    await pollCameraValidation();
+    setTimeout(() => refreshRigDevices(true), 0);
+  } catch (error) {
+    flash(`Camera validation delete: ${error.message}`, 'red');
+  }
+}
+
+function startCameraValidationPolling() {
+  pollCameraValidation();
+  if (cameraValidationTimer) clearInterval(cameraValidationTimer);
+  cameraValidationTimer = setInterval(pollCameraValidation, 1000);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startCameraValidationPolling);
+} else {
+  startCameraValidationPolling();
+}
+// END CAMERA VALIDATION
