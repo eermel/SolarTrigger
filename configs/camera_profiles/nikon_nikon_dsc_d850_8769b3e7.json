@@ -4,7 +4,7 @@
   "backend": "profile-nikon_nikon_dsc_d850_8769b3e7",
   "manufacturer": "Nikon",
   "model": "Nikon DSC D850",
-  "characterized_at": "2026-09-06T18:59:32.220722+00:00",
+  "characterized_at": "2026-09-07T21:20:19.911562+00:00",
   "strategy": "sequential",
   "commands": {
     "manual_mode": {
@@ -189,8 +189,8 @@
       "formula": "ceil50(max_observed_ms * 1.10 + 50)",
       "version": 3
     },
-    "set_overhead_ms": 800,
-    "single_overhead_ms": 1100,
+    "set_overhead_ms": 950,
+    "single_overhead_ms": 1200,
     "bracket_overhead_ms": 0,
     "bracket_inter_image_ms": 0,
     "supported_bracket_frames": []
