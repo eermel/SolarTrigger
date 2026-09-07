@@ -606,18 +606,33 @@ header {
   color: white;
   border-color: var(--red);
 }
+/*
+ * CONTROLS movement buttons
+ * Large touch targets for outdoor/iPad operation.
+ * Movement controls are exactly 2x their previous dimensions.
+ */
+#btn-focuser-minus,
+#btn-focuser-plus {
+  height: calc(var(--btn-h) * 2);
+  min-height: calc(var(--btn-h) * 2);
+  font-size: 26px;
+}
+
 .mount-slew-pad {
   display: grid;
-  grid-template-columns: repeat(3, 48px);
-  grid-template-rows: repeat(3, 48px);
-  gap: 5px;
+  grid-template-columns: repeat(3, 96px);
+  grid-template-rows: repeat(3, 60px);
+  gap: 10px;
   justify-content: center;
   margin: 12px 0;
 }
 .mount-slew-button {
-  min-width: 48px;
-  min-height: var(--btn-h);
+  width: 96px;
+  height: calc(var(--btn-h) * 2);
+  min-width: 96px;
+  min-height: calc(var(--btn-h) * 2);
   padding: 0;
+  font-size: 26px;
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
