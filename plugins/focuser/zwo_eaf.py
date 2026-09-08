@@ -188,7 +188,7 @@ class ZwoEaf:
                 value = int(text)
             except ValueError as exc:
                 raise EafError(
-                    msg=f"device_id EAF invalide : {device_id}"
+                    msg=f"Invalid EAF device_id: {device_id}"
                 ) from exc
 
         if not 0 <= value <= 127:
@@ -283,7 +283,7 @@ class ZwoEaf:
         n = self.lib.EAFGetNum()
         if n <= 0:
             raise EafError(
-                msg="Aucun EAF detecte (branche ? alimente 12V ?)"
+                msg="No EAF detected (connected? powered at 12 V?)"
             )
 
         if self._session_acquired:
@@ -368,7 +368,7 @@ class ZwoEaf:
 
     def _require(self):
         if self.id is None:
-            raise EafError(msg="EAF non connecte")
+            raise EafError(msg="EAF not connected")
 
     # ------------------------------------------------------------------ #
     # Lecture d'etat
@@ -496,7 +496,7 @@ if __name__ == "__main__":
     eaf = ZwoEaf()
     print("SDK version :", eaf.sdk_version())
     info = eaf.connect()
-    print("Connecte :", info)
+    print("Connected:", info)
     print("Statut   :", eaf.status())
     eaf.disconnect()
     print("Deconnecte.")

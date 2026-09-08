@@ -63,7 +63,7 @@ def _normalized_speed_plan(speeds, tolerance_il=0.12):
     should execute singles to preserve the exact requested values.
     """
     if not speeds:
-        raise ValueError("liste de vitesses vide")
+        raise ValueError("shutter speed list is empty")
     unique = {}
     for value in speeds:
         unique[str(value)] = _parse_speed(value)
@@ -221,8 +221,8 @@ class CameraService:
                 self.camera.exit()
             finally:
                 self.camera = None
-            raise RuntimeError(f"Aucun plugin caméra compatible pour '{self.model}'")
-        self.log(f"Caméra : {self.model} — plugin {self.plugin.name}")
+            raise RuntimeError(f"No compatible camera plugin for '{self.model}'")
+        self.log(f"Camera: {self.model} — plugin {self.plugin.name}")
         return self.plugin
 
     def reconnect(self):
@@ -265,19 +265,19 @@ class CameraService:
     def init_settings(self, aperture=None, iso=None, image_format="RAW",
                       white_balance="Daylight"):
         if not self.plugin:
-            raise RuntimeError("caméra non connectée")
+            raise RuntimeError("camera is not connected")
         return self.plugin.init_settings(aperture=aperture, iso=iso,
                                          image_format=image_format,
                                          white_balance=white_balance)
 
     def set_exposure_settings(self, aperture=None, iso=None):
         if not self.plugin:
-            raise RuntimeError("caméra non connectée")
+            raise RuntimeError("camera is not connected")
         return self.plugin.set_exposure_settings(aperture=aperture, iso=iso)
 
     def apply_phase_settings(self, aperture=None, iso=None):
         if not self.plugin:
-            raise RuntimeError("caméra non connectée")
+            raise RuntimeError("camera is not connected")
         settings = {}
         if (aperture is not None
                 and self._last_phase_settings.get("aperture") != aperture):
@@ -292,7 +292,7 @@ class CameraService:
 
     def prepare_capture(self, intent):
         if not self.plugin:
-            raise RuntimeError("caméra non connectée")
+            raise RuntimeError("camera is not connected")
 
         # A materialized plan is already the exact physical sequence.
         # Do not normalize/deduplicate it back into a logical bracket.
@@ -339,12 +339,12 @@ class CameraService:
         self, prepared, deadline=None, *, monotonic_deadline=None
     ):
         if not self.plugin:
-            raise RuntimeError("caméra non connectée")
+            raise RuntimeError("camera is not connected")
 
         plugin_deadline = monotonic_deadline
         if monotonic_deadline is None and deadline is not None:
             if self.clock is None:
-                raise RuntimeError("horloge d'exécution non configurée")
+                raise RuntimeError("execution clock is not configured")
             plugin_deadline = (
                 time.monotonic()
                 + max(0.0, self.clock.remaining(deadline))
@@ -363,7 +363,7 @@ class CameraService:
 
     def preflight(self, required_state=None):
         if not self.plugin:
-            raise RuntimeError("caméra non connectée")
+            raise RuntimeError("camera is not connected")
         method = getattr(self.plugin, "preflight", None)
         if callable(method):
             return method(required_state or {})
@@ -397,7 +397,7 @@ class CameraService:
 
     def get_parameter(self, parameter):
         if not self.plugin:
-            raise RuntimeError("caméra non connectée")
+            raise RuntimeError("camera is not connected")
         method = getattr(self.plugin, "get_parameter", None)
         if callable(method):
             return method(parameter)
@@ -422,7 +422,7 @@ class CameraService:
 
     def set_parameter(self, parameter, value, fallback_parameter=None):
         if not self.plugin:
-            raise RuntimeError("caméra non connectée")
+            raise RuntimeError("camera is not connected")
 
         return self.plugin.set_parameter(
             parameter,
@@ -432,7 +432,7 @@ class CameraService:
 
     def execute_photo(self, params):
         if not self.plugin:
-            raise RuntimeError("caméra non connectée")
+            raise RuntimeError("camera is not connected")
 
         return self.plugin.execute_photo(params)
 
@@ -509,7 +509,7 @@ class CameraService:
         monotonic_deadline=None,
     ):
         if not self.plugin:
-            raise RuntimeError("caméra non connectée")
+            raise RuntimeError("camera is not connected")
 
         plugin_deadline = monotonic_deadline if monotonic_deadline is not None else deadline
 
@@ -548,12 +548,12 @@ class CameraService:
                     override = float(slowest_override_seconds)
                 except (TypeError, ValueError) as exc:
                     raise ValueError(
-                        "slowest_override_seconds doit être numérique"
+                        "slowest_override_seconds must be numeric"
                     ) from exc
 
                 if override <= 0.0:
                     raise ValueError(
-                        "slowest_override_seconds doit être > 0"
+                        "slowest_override_seconds must be > 0"
                     )
 
                 current_slowest_seconds = _parse_speed(slowest)
@@ -576,7 +576,7 @@ class CameraService:
 
         if slowest_override_seconds is not None:
             raise ValueError(
-                "slowest_override_seconds interdit pour une liste irrégulière"
+                "slowest_override_seconds is forbidden for an irregular list"
             )
 
         # Preserve an irregular explicit list exactly rather than inventing EVs.

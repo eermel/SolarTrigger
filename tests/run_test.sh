@@ -56,7 +56,7 @@ else
 fi
 
 if [ -z "$PYTHON_BIN" ] || [ ! -x "$PYTHON_BIN" ]; then
-    echo "ERREUR : interpréteur Python introuvable."
+    echo "ERREUR : interpréteur Python not found."
     exit 1
 fi
 

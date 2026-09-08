@@ -193,7 +193,7 @@ def test_controls_target_label_uses_cached_rig_mount_display_label():
             "RIG 2 — Monture : EQMod — USB 2-1",
             False,
         ),
-        (None, "RIG 2 — Aucune monture pilotable", True),
+        (None, "RIG 2 — No controllable mount", True),
     ),
 )
 def test_cached_mount_binding_drives_rendered_label_and_visibility(
@@ -213,7 +213,7 @@ def test_cached_mount_binding_drives_rendered_label_and_visibility(
     rendered_label = (
         f"RIG 2 — Monture : {selected_mount['display_label']}"
         if pilotable
-        else "RIG 2 — Aucune monture pilotable"
+        else "RIG 2 — No controllable mount"
     )
 
     label_source = _function_source("renderControlsRigSelection")

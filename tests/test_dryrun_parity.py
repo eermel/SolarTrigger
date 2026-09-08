@@ -42,7 +42,7 @@ def test_dry_run_startup_log_describes_timeline_translation():
     log_block_end = SRC.index(")", start) + 1
     log_block = SRC[log_block_start:log_block_end]
 
-    assert "timeline translatée" in log_block
+    assert "timeline shifted" in log_block
     assert "appareil simulé" not in log_block
     assert "accès matériel caméra totalement désactivé" not in log_block
 
@@ -54,7 +54,7 @@ def test_dry_run_cli_help_describes_timeline_translation():
         if 'add_argument("--dry-run"' in line
     )
 
-    assert "timeline translatée" in help_line
+    assert "timeline shifted" in help_line
     assert "sans appareil" not in help_line
 
 

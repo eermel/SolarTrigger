@@ -35,7 +35,7 @@ def main():
 
     eaf = ZwoEaf()
     info = eaf.connect()
-    print(f"Connecte : {info}")
+    print(f"Connected: {info}")
     start = eaf.get_position()
     print(f"Position de depart : {start}  (max {eaf.max_step})")
 

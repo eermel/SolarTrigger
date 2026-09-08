@@ -27,7 +27,7 @@ from .base import MountPlugin
 _PLUGIN_CLASSES = {
     "indi": ("indi_plugin", "IndiMount", "INDI / EQMod compatible"),
     "onstep": ("onstep_plugin", "OnStepMount",
-               "OnStep / Tessek Mini 11 (LX200 serie)"),
+               "OnStep / Tessek Mini 11 (LX200 serial)"),
     # a venir :
     # "zwo":     ("zwo_plugin", "ZwoMount", "ZWO AM3N"),
     # "synscan": ("synscan_plugin", "SynScanMount", "Skywatcher AZ-GTi (SynScan)"),
@@ -41,7 +41,7 @@ def available_plugins():
     """Liste pour peupler la liste deroulante de l'UI :
     [{'id':..., 'name':...}, ...] avec 'none' en tete. N'importe AUCUN plugin
     (pas de dependance materielle requise pour juste lister)."""
-    items = [{"id": NONE_ID, "name": "Aucune monture"}]
+    items = [{"id": NONE_ID, "name": "No mount"}]
     for pid, entry in _PLUGIN_CLASSES.items():
         items.append({"id": pid, "name": entry[2]})
     return items
@@ -51,11 +51,11 @@ def load_mount(plugin_id, log_fn=print, config=None):
     """Instancie le plugin choisi par son id. Retourne None pour 'none' ou id
     inconnu (avec log)."""
     if plugin_id in (None, NONE_ID, ""):
-        log_fn("Aucune monture selectionnee (none).")
+        log_fn("No mount selected (none).")
         return None
     entry = _PLUGIN_CLASSES.get(plugin_id)
     if not entry:
-        log_fn(f"Plugin monture inconnu : '{plugin_id}'")
+        log_fn(f"Unknown mount plugin: '{plugin_id}'")
         return None
     mod_name, cls_name = entry[0], entry[1]
     try:
@@ -85,11 +85,11 @@ def detect_mount(candidates=None, log_fn=print, config_by_id=None):
             mod = importlib.import_module(f".{mod_name}", __package__)
             cls = getattr(mod, cls_name)
             if cls.probe(config_by_id.get(pid)):
-                log_fn(f"Monture detectee : {cls.display_name}")
+                log_fn(f"Mount detected: {cls.display_name}")
                 return load_mount(pid, log_fn, config_by_id.get(pid))
         except Exception as e:
             log_fn(f"probe {pid} : {e}")
-    log_fn("Aucune monture detectee.")
+    log_fn("No mount detected.")
     return None
 
 

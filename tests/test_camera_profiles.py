@@ -214,7 +214,7 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     def confirm(self, message, kind="result"):
         if (
             kind == "start"
-            and "Qualification opérationnelle finale" in message
+            and "Final operational qualification" in message
         ):
             qualification_starts.append((kind, camera.counter))
             return True
@@ -388,20 +388,20 @@ def test_command_exclusion_is_bracket_only_and_sizes_are_sorted(monkeypatch, pro
             current[0] = message
             return True
         if reject_single:
-            return not ('1 photo(s)' in current[0] and "'method': 'capture'" in current[0])
-        return not ('3 photo(s)' in current[0] and "'method': 'trigger_capture'" in current[0])
+            return not ('1 RAW photo(s)' in current[0] and "'method': 'capture'" in current[0])
+        return not ('3 RAW photo(s)' in current[0] and "'method': 'trigger_capture'" in current[0])
     monkeypatch.setattr(CharacterizationJob, 'ask', ask)
     result, timing = module.characterize(camera, {'manufacturer': 'Test', 'model': 'Camera'}, CharacterizationJob())
-    bracket_starts = [m for m in starts if '1 photo(s)' not in m]
-    assert '3 photo(s)' in bracket_starts[0]
+    bracket_starts = [m for m in starts if '1 RAW photo(s)' not in m]
+    assert '3 RAW photo(s)' in bracket_starts[0]
     if not reject_single:
-        assert not any('5 photo(s)' in m and "'method': 'trigger_capture'" in m for m in starts)
+        assert not any('5 RAW photo(s)' in m and "'method': 'trigger_capture'" in m for m in starts)
         rejected = [t for t in timing['timing_trials'] if t['frames'] > 1 and t['trigger']['method'] == 'trigger_capture']
         assert len(rejected) == 1 and rejected[0]['status'] == 'rejected' and 'samples' not in rejected[0]
         assert result['commands']['trigger_single']['method'] == 'trigger_capture'
         assert result['bracket_command']['method'] == 'capture'
     else:
-        assert any('5 photo(s)' in m and "'method': 'capture'" in m for m in starts)
+        assert any('5 RAW photo(s)' in m and "'method': 'capture'" in m for m in starts)
     assert len({json.dumps(v['trigger'], sort_keys=True) for v in result['brackets'].values()}) == 1
 
 
@@ -467,7 +467,7 @@ def test_characterization_preserves_single_shot_target_for_readonly_capture_mode
     def confirm_d850(self, message, kind="result"):
         if (
             kind == "start"
-            and "Corrigez ce réglage physiquement" in message
+            and "Correct this setting physically" in message
         ):
             physical_preflight_prompts.append(message)
 
@@ -524,7 +524,7 @@ def test_single_shot_operator_instruction_is_unambiguous(profile):
         "Burst",
     )
 
-    assert "mode de déclenchement vue par vue" in message
+    assert "single-shot release mode" in message
     assert "Single Shot" in message
     assert "Burst" in message
     assert "S / Single Shot" not in message

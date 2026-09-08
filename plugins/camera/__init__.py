@@ -102,12 +102,12 @@ def load_plugin(camera, log_fn=print):
     for plugin_cls in _load_plugin_classes():
         try:
             if plugin_cls.matches(model):
-                log_fn(f"Plugin selectionne : {plugin_cls.name} "
-                       f"(modele '{model}')")
+                log_fn(f"Plugin selected: {plugin_cls.name} "
+                       f"(model '{model}')")
                 return plugin_cls(camera, log_fn)
         except Exception as e:
-            log_fn(f"Erreur detection {plugin_cls.__name__} : {e}")
-    log_fn(f"Aucun plugin pour le modele '{model}'")
+            log_fn(f"Detection error for {plugin_cls.__name__} : {e}")
+    log_fn(f"No plugin for model '{model}'")
     return None
 
 

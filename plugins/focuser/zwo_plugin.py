@@ -69,7 +69,7 @@ class ZwoFocuser(FocuserPlugin):
             applied = self.eaf.set_max_step(int(self.max_step_limit))
             self.log(f"   [zwo_eaf] max_step limite a {applied} "
                      f"(protection butee)")
-        self.log(f"   [zwo_eaf] connecte : {info}")
+        self.log(f"   [zwo_eaf] connected: {info}")
         return info
 
     def set_max_step(self, value):
@@ -146,7 +146,7 @@ class ZwoFocuser(FocuserPlugin):
                     break
                 self.eaf.move_relative(signed, wait=True, timeout=2.0)
             except EafError as e:
-                self.log(f"   [zwo_eaf] maintien : erreur {e} -> stop")
+                self.log(f"   [zwo_eaf] hold: error {e} -> stop")
                 break
             # petite pause entre deux pas (cadence)
             self._hold_stop.wait(self.hold_interval)
@@ -158,7 +158,7 @@ class ZwoFocuser(FocuserPlugin):
 
     def start_continuous(self, direction, mode=STEP_COARSE):
         if direction not in (DIR_IN, DIR_OUT):
-            raise ValueError(f"Direction inconnue : {direction}")
+            raise ValueError(f"Unknown direction: {direction}")
         # si un maintien tourne deja, on l'arrete d'abord
         self.stop_continuous()
         step = self.step_coarse if mode == STEP_COARSE else self.step_fine
@@ -166,7 +166,7 @@ class ZwoFocuser(FocuserPlugin):
         self._hold_thread = threading.Thread(
             target=self._hold_loop, args=(direction, step), daemon=True)
         self._hold_thread.start()
-        self.log(f"   [zwo_eaf] maintien {direction} pas={step} demarre")
+        self.log(f"   [zwo_eaf] maintien {direction} pas={step} started")
 
     def stop_continuous(self):
         if self._hold_thread and self._hold_thread.is_alive():

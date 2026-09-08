@@ -18,7 +18,7 @@ Regles de sequencement DUREMENT validees (voir sony_planner pour le decoupage) :
     bulb=0. Un simple trigger_capture ne sort qu'une vue.
   * Fin de rafale : on COMPTE les FILE_ADDED attendus. CAPTURE_COMPLETE n'est
     PAS fiable (il arrive en milieu de sequence). On ne relache qu'apres avoir
-    compte les N vues, ou sur un vrai silence > pose_lente + marge.
+    compte les N frames, ou sur un vrai silence > pose_lente + marge.
   * settle_idle() apres chaque rafale : draine les evenements residuels pour
     que le boitier soit au repos avant le prochain reglage de vitesse.
 """
@@ -92,10 +92,10 @@ class SonyPlugin(CameraPlugin):
             if ok:
                 return True
             if not ro:
-                self.log(f"   [sony] set vitesse {speed} : erreur {err}")
+                self.log(f"   [sony] set shutter speed {speed}: error {err}")
                 return False
             if (time.monotonic() - t0) > READONLY_RETRY_S:
-                self.log(f"   [sony] set vitesse {speed} : read-only persistant")
+                self.log(f"   [sony] set shutter speed {speed}: persistent read-only")
                 return False
             if deadline is not None and seconds_until_deadline(deadline) <= 0:
                 return False
@@ -240,7 +240,7 @@ class SonyPlugin(CameraPlugin):
     # ------------------------------------------------------------------ #
     def init_settings(self, aperture=None, iso=None, image_format="RAW",
                       white_balance="Daylight"):
-        self.log("   [sony] init reglages")
+        self.log("   [sony] initializing settings")
         self._set("expprogram", "M")            # sinon shutterspeed read-only
         self._set("focusmode", "Manual")        # pas d'AF pendant la totalite
         self._set("capturetarget", "card")
@@ -267,7 +267,7 @@ class SonyPlugin(CameraPlugin):
     # Une rafale bracket
     # ------------------------------------------------------------------ #
     def _fire_bracket(self, brk, deadline=None):
-        """Execute un Bracket planner. Retourne le nb de vues capturees."""
+        """Execute un Bracket planner. Retourne le nb de frames capturees."""
         # 1) etat propre + vitesse centrale (avec retry read-only)
         self._set("capturemode", "Single Shot")
         if not self.set_speed_blocking(brk.centre, deadline):
@@ -275,7 +275,7 @@ class SonyPlugin(CameraPlugin):
         # 2) basculer en mode bracket
         ok, _, err = self._set("capturemode", brk.mode_string)
         if not ok:
-            self.log(f"   [sony] set mode {brk.mode_string} : erreur {err}")
+            self.log(f"   [sony] set mode {brk.mode_string}: error {err}")
             return 0
         # 3) maintien obturateur -> rafale interne
         longest = max(planner.parse_speed(v) for v in brk.views)
@@ -744,7 +744,7 @@ class SonyPlugin(CameraPlugin):
                     + planner.SAFETY_MARGIN_S
                 ):
                     self.log(
-                        "   [sony] single refuse pour deadline"
+                        "   [sony] single rejected due to deadline"
                     )
                     break
 
@@ -770,7 +770,7 @@ class SonyPlugin(CameraPlugin):
         planned = sum(1 if isinstance(x, planner.SinglePhoto) else x.nimg
                       for x in seq)
         self.log(f"   [sony] plan {description} : "
-                 f"{len(seq)} sequence(s), {planned} vues")
+                 f"{len(seq)} sequence(s), {planned} frames")
 
         total = 0
         adapted = False
@@ -780,11 +780,11 @@ class SonyPlugin(CameraPlugin):
                 if (remaining < planner.estimate_duration(item)
                         + planner.SAFETY_MARGIN_S):
                     if isinstance(item, planner.SinglePhoto):
-                        self.log("   [sony] single refuse pour deadline")
+                        self.log("   [sony] single rejected due to deadline")
                         break
 
-                    self.log(f"   [sony] bracket {item.nimg} refuse "
-                             "pour deadline")
+                    self.log(f"   [sony] bracket {item.nimg} rejected "
+                             "due to deadline")
                     selected = None
                     for nimg in (7, 5, 3):
                         if nimg >= item.nimg:
@@ -797,8 +797,8 @@ class SonyPlugin(CameraPlugin):
                             break
 
                     if selected is not None:
-                        self.log("   [sony] adaptation deadline : bracket "
-                                 f"rapide {selected.nimg} vues selectionne")
+                        self.log("   [sony] deadline adaptation: bracket "
+                                 f"fast {selected.nimg} frames selected")
                         got = self._fire_bracket(selected, deadline=deadline)
                         self.log(f"   [sony] {selected.mode_string} centre "
                                  f"{selected.centre} : {got}/{selected.nimg}")
@@ -810,15 +810,15 @@ class SonyPlugin(CameraPlugin):
                     remaining = seconds_until_deadline(deadline)
                     if (remaining >= planner.estimate_duration(single)
                             + planner.SAFETY_MARGIN_S):
-                        self.log("   [sony] adaptation deadline : single "
-                                 f"rapide {single.speed} selectionne")
+                        self.log("   [sony] deadline adaptation: single "
+                                 f"fast {single.speed} selected")
                         got = self._fire_single(single.speed,
                                                 deadline=deadline)
                         self.log(f"   [sony] PHOTO {single.speed} : {got}/1")
                         total += got
                         adapted = True
                     else:
-                        self.log("   [sony] adaptation deadline : aucune "
+                        self.log("   [sony] deadline adaptation: no "
                                  "sequence admissible")
                     break
             if isinstance(item, planner.SinglePhoto):

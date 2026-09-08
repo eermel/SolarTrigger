@@ -420,7 +420,7 @@ def test_runtime_uses_one_identical_delta_for_timeline_and_plan():
     # Historical DRY-RUN ×1 remains a separate branch.
     assert "elif args.dry_run:" in runtime_block
     assert (
-        "date UTC remplacée par aujourd'hui"
+        "UTC date replaced with today"
         in runtime_block
     )
 
@@ -432,7 +432,7 @@ def test_incompatible_trigger_modes_are_rejected(
 
     with pytest.raises(
         TriggerValidationError,
-        match="mutuellement exclusifs",
+        match="mutually exclusive",
     ):
         service.start(
             simulate=True,
@@ -441,7 +441,7 @@ def test_incompatible_trigger_modes_are_rejected(
 
     with pytest.raises(
         TriggerValidationError,
-        match="mutuellement exclusifs",
+        match="mutually exclusive",
     ):
         service.start(
             dry_run=True,

@@ -1068,10 +1068,10 @@ def characterize(camera, entry, job):
         if (
             discovery
             and not job.ask(
-                f"Prêt pour un test de {expected} photo(s) RAW à ISO 100 ? "
-                f"Commande : {spec}. Attendez que le boîtier ait terminé "
-                "toute prise précédente, puis cliquez sur OK pour démarrer "
-                "et observez les déclenchements.",
+                f"Ready for a test of {expected} RAW photo(s) at ISO 100? "
+                f"Command: {spec}. Wait until the camera has finished "
+                "any previous capture, then click OK to start "
+                "and observe the shutter releases.",
                 kind="start",
             )
         ):
@@ -1253,9 +1253,9 @@ def characterize(camera, entry, job):
         if error is not None:
             observed = (
                 job.ask(
-                    f"Erreur USB ({error}). Attendez la fin de tous les "
-                    f"déclenchements. Exactement {expected} photo(s) RAW "
-                    "enregistrées sur la carte ?"
+                    f"USB error ({error}). Wait until all "
+                    f"shutter releases are complete. Exactly {expected} RAW photo(s) "
+                    "saved on the card?"
                 )
                 if discovery
                 else None
@@ -1271,9 +1271,9 @@ def characterize(camera, entry, job):
         if (
             discovery
             and not job.ask(
-                "Attendez la fin de tous les déclenchements avant de répondre. "
-                f"Exactement {expected} photo(s) RAW enregistrées sur la carte ? "
-                f"Fichiers signalés par USB : {len(seen)}."
+                "Wait until all shutter releases are complete before answering. "
+                f"Exactly {expected} RAW photo(s) saved on the card? "
+                f"Files reported over USB: {len(seen)}."
             )
         ):
             raise RuntimeError(
@@ -2148,20 +2148,20 @@ def qualify_operational_contract_v3(
         + int(cold_bracket_frames or 0)
     )
     cold_description = (
-        f" dont {cold_bracket_frames} photo(s) pour le bracket froid "
-        "déclenché comme première PHOTO d'une seconde session neuve."
+        f" including {cold_bracket_frames} photo(s) for the cold bracket "
+        "triggered as the first PHOTO of a second fresh session."
         if cold_bracket_frames is not None
         else "."
     )
 
     if not job.ask(
-        "Qualification opérationnelle finale avant publication : "
-        f"{complete_attempt_photos} photo(s) RAW pour une tentative complète "
-        f"({preview['expected_photos']} pour la recette opérationnelle"
+        "Final operational qualification before publication: "
+        f"{complete_attempt_photos} RAW photo(s) for one complete attempt "
+        f"({preview['expected_photos']} for the operational recipe"
         f"{cold_description} "
-        "Chaque tentative principale démarre sur une session gphoto neuve. "
-        "Si un budget doit être augmenté, la qualification complète "
-        "redémarrera automatiquement. Cliquez sur OK pour démarrer.",
+        "Each main attempt starts with a fresh gphoto session. "
+        "If a budget must be increased, the complete qualification "
+        "will restart automatically. Click OK to start.",
         kind="start",
     ):
         raise Cancelled(
@@ -2236,11 +2236,11 @@ def qualify_operational_contract_v3(
                     f"operator action required: {exc}"
                 )
                 if not job.ask(
-                    "Précontrôle de qualification caméra : "
+                    "Camera qualification preflight: "
                     f"{exc} "
-                    "Corrigez ce réglage physiquement sur le boîtier, "
-                    "attendez que l'appareil soit prêt, puis cliquez sur OK. "
-                    "Le réglage sera relu avant toute mesure.",
+                    "Correct this setting physically on the camera, "
+                    "wait until the camera is ready, then click OK. "
+                    "The setting will be read again before any measurement.",
                     kind="start",
                 ):
                     raise Cancelled(
@@ -2571,11 +2571,11 @@ def qualify_operational_contract_v3(
                         f"operator action required: {exc}"
                     )
                     if not job.ask(
-                        "Précontrôle bracket froid : "
+                        "Cold bracket preflight: "
                         f"{exc} "
-                        "Corrigez ce réglage physiquement sur le boîtier, "
-                        "attendez que l'appareil soit prêt, puis cliquez sur OK. "
-                        "Le réglage sera relu avant toute mesure.",
+                        "Correct this setting physically on the camera, "
+                        "wait until the camera is ready, then click OK. "
+                        "The setting will be read again before any measurement.",
                         kind="start",
                     ):
                         raise Cancelled(

@@ -95,7 +95,7 @@ def build_trigger_config(
     local = {event: circumstances[f"{event}_local"] for event in EVENTS}
 
     return {
-        "_comment": "Calculé par eclipse_calculator_py.py — moteur Python Jubier",
+        "_comment": "Calculated by eclipse_calculator_py.py — Jubier Python engine",
         "_eclipse": label,
         "_type_global": _global_type(label, local_type),
         "_type": local_type,
@@ -111,7 +111,7 @@ def build_trigger_config(
             "latitude": float(latitude),
             "longitude": float(longitude),
             "altitude_m": float(altitude_m),
-            "comment": "Circonstances calculées pour cette position GPS et cette altitude.",
+            "comment": "Circumstances calculated for this GPS position and altitude.",
         },
         "_timezone": f"UTC{tz_offset:+g}",
         "title": label,
@@ -152,13 +152,13 @@ def default_output_path(date_iso: str, latitude: float, longitude: float) -> Pat
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Calcule les circonstances d'une éclipse avec le moteur Python")
-    parser.add_argument("--lat", type=_latitude, required=True, help="Latitude décimale (+ Nord)")
-    parser.add_argument("--lon", type=_longitude, required=True, help="Longitude décimale (+ Est)")
-    parser.add_argument("--alt", type=_finite_float, default=0.0, help="Altitude en mètres")
-    parser.add_argument("--tz", type=_finite_float, default=0.0, help="Décalage UTC en heures, DST inclus")
+    parser = argparse.ArgumentParser(description="Calculate eclipse circumstances with the Python engine")
+    parser.add_argument("--lat", type=_latitude, required=True, help="Decimal latitude (+ North)")
+    parser.add_argument("--lon", type=_longitude, required=True, help="Decimal longitude (+ East)")
+    parser.add_argument("--alt", type=_finite_float, default=0.0, help="Altitude in meters")
+    parser.add_argument("--tz", type=_finite_float, default=0.0, help="UTC offset in hours, including DST")
     parser.add_argument("--date", "--eclipse", dest="date_iso", required=True, help="Date ISO YYYY-MM-DD")
-    parser.add_argument("--output", type=Path, help="Fichier JSON de sortie")
+    parser.add_argument("--output", type=Path, help="Output JSON file")
     return parser
 
 

@@ -7,7 +7,7 @@ Traduit une plage de vitesses (v_max rapide -> v_min lente, pas step_il IL) en
 une liste de brackets continus Sony, ou une photo unique.
 
 Contraintes reelles du bracket Sony (toutes verifiees par EXIF sur l'A7V) :
-  - bracket symetrique, nombre de vues impair parmi {3,5,7,9}, 9 au max ;
+  - bracket symetrique, nombre de frames impair parmi {3,5,7,9}, 9 au max ;
   - pas IL parmi les valeurs reelles {0.3,0.5,0.7,1.0,1.3,1.5,1.7,2.0,...} ;
   - le CENTRE et chaque vue tombent sur un cran reel de l'echelle du boitier
     (ex. 1/16 n'existe pas -> le boitier prend 1/15) ;
@@ -55,7 +55,7 @@ class Bracket:
     def __init__(self, centre, step, nimg, views):
         self.centre = centre        # chaine vitesse du centre (ex. '1/250')
         self.step = step            # pas IL reel (ex. 1.0)
-        self.nimg = nimg            # nb de vues (3/5/7/9)
+        self.nimg = nimg            # nb de frames (3/5/7/9)
         self.views = views          # liste des vitesses reelles (info/log)
 
     @property
@@ -77,7 +77,7 @@ class SinglePhoto:
 
 
 def make_fast_subset(src_bracket, nimg_target):
-    """Construit un bracket reduit avec les vues les plus rapides de ``src_bracket``."""
+    """Construit un bracket reduit avec les frames les plus rapides de ``src_bracket``."""
     if not isinstance(src_bracket, Bracket):
         raise TypeError("src_bracket must be a Bracket")
     if nimg_target not in (7, 5, 3):
@@ -207,16 +207,16 @@ def plan(v_max, v_min, step_il):
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":
     cases = [
-        ("Egypte totalite 1 IL", "1/4000", "4", 1.0),
-        ("Step 0.5 IL", "1/4000", "4", 0.5),
+        ("Egypt totality 1 EV", "1/4000", "4", 1.0),
+        ("Step 0.5 EV", "1/4000", "4", 0.5),
         ("Diamond ring", "1/4000", "1/250", 1.0),
-        ("Plage courte", "1/4000", "1/15", 1.0),
-        ("Une seule vitesse", "1/1000", "1/1000", 1.0),
-        ("Partielle 2 vues", "1/2000", "1/1000", 1.0),
+        ("Short range", "1/4000", "1/15", 1.0),
+        ("Single shutter speed", "1/1000", "1/1000", 1.0),
+        ("Partial 2 frames", "1/2000", "1/1000", 1.0),
     ]
     for label, vmax, vmin, st in cases:
         step, nf, seq = plan(vmax, vmin, st)
-        print(f"\n### {label} ({vmax}->{vmin}, {st} IL) | step {step} | {nf} vues")
+        print(f"\n### {label} ({vmax}->{vmin}, {st} EV) | step {step} | {nf} frames")
         for item in seq:
             if isinstance(item, SinglePhoto):
                 print(f"   PHOTO {item.speed}")

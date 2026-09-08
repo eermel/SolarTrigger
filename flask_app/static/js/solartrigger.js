@@ -148,7 +148,7 @@ async function persistGlobalAtmos(enabled, showFeedback = true) {
     await loadRigPhotoConfig();
     if (showFeedback) {
       flash(
-        `Atmospheric Attenuation : ${enabled ? 'ON' : 'OFF'} pour tous les RIG`,
+        `Atmospheric Attenuation : ${enabled ? 'ON' : 'OFF'} for all RIGs`,
         'green'
       );
     }
@@ -637,14 +637,14 @@ function encodedRigBinding(device) {
 }
 
 function rigDeviceDisplayLabel(category, device) {
-  if (!device) return 'Inconnu';
+  if (!device) return 'Unknown';
 
   let label =
     device.display_label
     || device.model
     || device.serial
     || device.backend
-    || 'Inconnu';
+    || 'Unknown';
 
   if (category === 'camera' && device.serial) {
     const serial = String(device.serial);
@@ -1386,7 +1386,7 @@ async function playSound(filename) {
   }
 
   const buf = state.audioBuffers[filename];
-  if (!buf) { console.warn('Son non disponible :', filename); return; }
+  if (!buf) { console.warn('Sound unavailable:', filename); return; }
 
   try {
     if (state.currentSound) { try { state.currentSound.stop(); } catch(e){} }
@@ -1471,7 +1471,7 @@ async function loadSupportedEclipses() {
       select.value = 'auto';
     }
   } catch (error) {
-    console.warn('Impossible de charger la liste des éclipses:', error);
+    console.warn('Unable to load eclipse list:', error);
   }
 }
 
@@ -1488,7 +1488,7 @@ async function _reanchorClockFromStatus() {
       updateRigs(payload.rigs || DEFAULT_RIGS);
     }
   } catch (e) {
-    console.warn('Impossible de recaler l\'heure depuis le statut:', e);
+    console.warn('Unable to re-anchor time from status:', e);
   }
 }
 
@@ -1506,7 +1506,7 @@ socket.on('connect', async () => {
       updateRigs(payload.rigs || DEFAULT_RIGS);
     }
   } catch (e) {
-    console.warn('Impossible de recaler l\'heure après connexion:', e);
+    console.warn('Unable to re-anchor time after connection:', e);
   }
 });
 socket.io.on('reconnect', _reanchorClockFromStatus);
@@ -1535,7 +1535,7 @@ socket.on('gps_sync_done', async d => {
       }
     }
   } catch (e) {
-    console.warn('Impossible de rafraîchir l\'état GPS:', e);
+    console.warn('Unable to refresh GPS state:', e);
   }
 
   // Si l'heure système a été modifiée, recaler également l'horloge Pi.
@@ -1607,7 +1607,7 @@ socket.on('eclipse_calculated', d => {
   if (d.status === 'success' && d.data) {
     // Appliquer la timezone DST AVANT renderContacts pour que les heures locales soient correctes
     if (d.timezone_override) {
-      console.log('[DST] timezone_override reçu:', d.timezone_override);
+      console.log('[DST] timezone_override received:', d.timezone_override);
       _gpsTimezone = d.timezone_override;
       const sysTz = document.getElementById('sys-timezone');
       if (sysTz) sysTz.textContent = d.timezone_override;
@@ -2372,7 +2372,7 @@ function updateGPS(gps) {
 
 const PHASE_LABELS = {
   idle:         'IDLE',
-  waiting:      'EN ATTENTE',
+  waiting:      'WAITING',
   partial:      'PARTIAL',
   diamond_ring: '💎 DIAMOND RING',
   totality:     '🌑 TOTALITY',
@@ -2441,7 +2441,7 @@ function updateSpeedsSelection() {
   const selected = Array.from(checkboxes)
     .filter(cb => cb.checked)
     .map(cb => DEFAULT_SPEEDS[parseInt(cb.id.split('-')[1])]);
-  console.log('Vitesses sélectionnées:', selected);
+  console.log('Selected shutter speeds:', selected);
 }
 
 function getSpeedsFromGrid() {
@@ -2583,11 +2583,11 @@ function renderContacts(data) {
 
   const contacts = [
     { key: 'TSTART',  utc: data.TSTART || data.tstart, local_json: null, label: 'TSTART', desc: 'Sequence start', style: 'color:var(--green)' },
-    { key: 'C1',      utc: data.C1 || data.c1,          local_json: data.C1_local,  label: 'C1',  desc: '1er contact', style: '' },
+    { key: 'C1',      utc: data.C1 || data.c1,          local_json: data.C1_local,  label: 'C1',  desc: 'First contact', style: '' },
     { key: 'C2',      utc: data.C2 || data.c2,          local_json: data.C2_local,  label: 'C2',  desc: 'Totality start', style: '' },
     { key: 'TMILIEU', utc: tmilieu,                      local_json: null,           label: 'MID', desc: 'Mid-totality', style: '' },
     { key: 'C3',      utc: data.C3 || data.c3,          local_json: data.C3_local,  label: 'C3',  desc: 'Totality end', style: '' },
-    { key: 'C4',      utc: data.C4 || data.c4,          local_json: data.C4_local,  label: 'C4',  desc: '4e contact', style: '' },
+    { key: 'C4',      utc: data.C4 || data.c4,          local_json: data.C4_local,  label: 'C4',  desc: 'Fourth contact', style: '' },
     { key: 'TEND',    utc: data.TEND  || data.tend,     local_json: null, label: 'TEND',  desc: 'Sequence end', style: 'color:var(--green)' },
   ].map(c => ({
     ...c,
@@ -2862,10 +2862,10 @@ async function calculateEclipse() {
   const tz  = parseFloat(document.getElementById('inp-tz').value)  || 0;
   const ecl = document.getElementById('inp-eclipse').value;
 
-  if (isNaN(lat) || isNaN(lon)) { flash('Lat/Lon requis', 'red'); return; }
+  if (isNaN(lat) || isNaN(lon)) { flash('Lat/Lon required', 'red'); return; }
 
   const btn = document.getElementById('btn-calc');
-  btn.disabled = true; btn.textContent = '⏳ Calcul en cours…';
+  btn.disabled = true; btn.textContent = '⏳ Calculation in progress…';
 
   try {
     const r = await fetch('/api/eclipse/calculate', {

@@ -211,20 +211,20 @@ class ProfilePlugin(CameraPlugin):
             return spec.get("set") is not False
 
     def _display_model(self) -> str:
-        model = str(self.profile.get("model") or "appareil photo")
+        model = str(self.profile.get("model") or "camera")
         model = re.sub(r"\s*\(PC Control\)\s*$", "", model)
         return model.replace("Alpha-A", "A")
 
     def _manual_instruction(self, key, target, actual) -> str:
         model = self._display_model()
         if key == "manual_mode" and str(target).casefold() in {"m", "manual"}:
-            return f"Mettre le {model} en mode manuel (M)."
+            return f"Set the {model} to manual mode (M)."
         if key == "raw":
-            return f"Régler le {model} en RAW (actuel: {actual})."
+            return f"Set the {model} to RAW (current: {actual})."
         if key == "capture_target":
             return (
-                f"Régler la destination d'enregistrement du {model} sur "
-                f"{target} (actuel: {actual})."
+                f"Set the recording destination of the {model} to "
+                f"{target} (current: {actual})."
             )
         if (
             key == "capture_mode"
@@ -232,13 +232,13 @@ class ProfilePlugin(CameraPlugin):
             in {"single shot", "single", "single frame"}
         ):
             return (
-                f"Mettre le {model} en mode de déclenchement vue par vue "
-                f"(Single Shot, actuel: {actual})."
+                f"Set the {model} in single-shot release mode "
+                f"(Single Shot, current: {actual})."
             )
 
         return (
-            f"Régler physiquement {key}={target} sur le {model} "
-            f"(actuel: {actual})."
+            f"Physically set {key}={target} on the {model} "
+            f"(current: {actual})."
         )
 
     def _ensure(self, key, value=None) -> bool:
@@ -264,8 +264,8 @@ class ProfilePlugin(CameraPlugin):
                 actual = self._read(key)
             except Exception as read_exc:
                 raise CameraPreflightError(
-                    f"Communication avec {self._display_model()} impossible "
-                    f"pendant le précontrôle de {key}: {read_exc}"
+                    f"Communication with {self._display_model()} failed "
+                    f"during preflight of {key}: {read_exc}"
                 ) from exc
             raise CameraPreflightError(
                 self._manual_instruction(key, target, actual)
@@ -323,7 +323,7 @@ class ProfilePlugin(CameraPlugin):
             key = self._SEMANTIC.get(str(parameter))
             if key is None or key not in self.commands:
                 raise CameraPreflightError(
-                    f"Paramètre requis non caractérisé: {parameter}"
+                    f"Required parameter is not characterized: {parameter}"
                 )
             if self._ensure(key, value):
                 changed.append(str(parameter))

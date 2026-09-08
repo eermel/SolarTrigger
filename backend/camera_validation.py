@@ -1293,15 +1293,15 @@ class CameraValidationJob:
                 "id": uuid.uuid4().hex,
                 "kind": "final",
                 "message": (
-                    f"Validation automatique terminée : "
+                    f"Automatic validation completed: "
                     f"{automatic['confirmed_photos']}/{automatic['expected_photos']} "
-                    "photos confirmées par le logiciel. Vérifiez la carte : "
-                    "les photos attendues sont-elles présentes et correctes ?"
+                    "photos confirmed by software. Check the card: "
+                    "are all expected photos present and correct?"
                 ),
             }
             self.answer = None
             self.log(
-                "VALIDATION AUTOMATIQUE TERMINEE - ATTENTE CONFIRMATION OPERATEUR "
+                "AUTOMATIC VALIDATION COMPLETED - WAITING FOR OPERATOR CONFIRMATION "
                 f"confirmed={automatic['confirmed_photos']}/{automatic['expected_photos']}"
             )
             deadline = time.monotonic() + 600.0

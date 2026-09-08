@@ -9,7 +9,7 @@ Usage :
   python3 test_mount.py --list
   python3 test_mount.py --plugin onstep --ping
   python3 test_mount.py --plugin onstep --status
-  python3 test_mount.py --plugin onstep --track sidereal      # demarre suivi
+  python3 test_mount.py --plugin onstep --track sidereal      # started suivi
   python3 test_mount.py --plugin onstep --track-off           # arrete suivi
   python3 test_mount.py --plugin onstep --move ad_right --secs 2 --speed 4
   python3 test_mount.py --plugin onstep --estop               # arret d'urgence
@@ -36,7 +36,7 @@ from plugins.mount.base import (DIR_DEC_LEFT, DIR_DEC_RIGHT, DIR_AD_LEFT,
 def main():
     ap = argparse.ArgumentParser(description="Test archi plugins monture.")
     ap.add_argument("--list", action="store_true",
-                    help="liste les plugins disponibles (aucun materiel requis)")
+                    help="liste les plugins disponibles (aucun materiel required)")
     ap.add_argument("--plugin", default=None, help="id du plugin (ex. onstep)")
     ap.add_argument("--port", default=None, help="port serie (override config)")
     ap.add_argument("--baudrate", type=int, default=None)

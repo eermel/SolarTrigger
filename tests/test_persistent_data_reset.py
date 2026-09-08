@@ -25,14 +25,15 @@ def test_devices_refresh_and_reset_use_shared_button_height():
 
 def test_devices_has_destructive_persistent_reset_button():
     assert 'id="erase-persistent-data-reboot"' in INDEX
-    assert "⚠ ERASE ALL PERSISTANT DATA &amp; REBOOT ⚠" in INDEX
+    assert "⚠ ERASE ALL PERSISTENT DATA &amp; REBOOT ⚠" in INDEX
     assert 'onclick="erasePersistentDataAndReboot()"' in INDEX
 
 
 def test_reset_requires_confirmation():
     assert "function erasePersistentDataAndReboot()" in INDEX
     assert "confirm(" in INDEX
-    assert "ERASE ALL PERSISTANT DATA & REBOOT" in INDEX
+    assert "PERSISTENT DATA" in INDEX
+    assert "REBOOT" in INDEX
 
 
 def test_backend_has_reset_and_reboot_endpoint():

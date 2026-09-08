@@ -156,7 +156,7 @@ class OnStep:
                 self.serial = None
 
                 raise OnStepError(
-                    f"Impossible de se connecter à "
+                    f"Unable to connect to "
                     f"{self.port}: {exc}"
                 ) from exc
 
@@ -197,7 +197,7 @@ class OnStep:
         if not self.connected:
 
             raise OnStepError(
-                "Monture OnStep non connectée."
+                "OnStep mount is not connected."
             )
 
         return self.serial
@@ -215,7 +215,7 @@ class OnStep:
             except serial.SerialException as exc:
 
                 raise OnStepError(
-                    f"Erreur d'envoi {command!r}: {exc}"
+                    f"Send error {command!r}: {exc}"
                 ) from exc
 
     def _query(
@@ -246,7 +246,7 @@ class OnStep:
             except serial.SerialException as exc:
 
                 raise OnStepError(
-                    f"Erreur de communication : {exc}"
+                    f"Communication error: {exc}"
                 ) from exc
 
             finally:
@@ -267,7 +267,7 @@ class OnStep:
         if not response:
 
             raise OnStepError(
-                f"Aucune réponse à {command!r}"
+                f"No response to {command!r}"
             )
 
         try:
@@ -277,7 +277,7 @@ class OnStep:
         except UnicodeDecodeError as exc:
 
             raise OnStepError(
-                f"Réponse ASCII invalide : "
+                f"Invalid ASCII response: "
                 f"{response!r}"
             ) from exc
 
@@ -308,7 +308,7 @@ class OnStep:
             except serial.SerialException as exc:
 
                 raise OnStepError(
-                    f"Erreur de communication : {exc}"
+                    f"Communication error: {exc}"
                 ) from exc
 
             finally:
@@ -465,8 +465,8 @@ class OnStep:
             )
 
             raise ValueError(
-                f"Vitesse invalide : {rate}x\n"
-                f"Disponibles : {available}"
+                f"Invalid speed: {rate}x\n"
+                f"Available: {available}"
             )
 
         self._send(
@@ -487,7 +487,7 @@ class OnStep:
         ):
 
             raise ValueError(
-                "Direction invalide."
+                "Invalid direction."
             )
 
         self._send(
@@ -597,8 +597,8 @@ class OnStep:
         if response != b"1":
 
             raise OnStepError(
-                f"Impossible de démarrer "
-                f"le tracking : {response!r}"
+                f"Unable to start "
+                f"tracking: {response!r}"
             )
 
         # Petite attente pour laisser
@@ -619,7 +619,7 @@ class OnStep:
         ):
 
             raise OnStepError(
-                f"Réponse inattendue à "
+                f"Unexpected response to "
                 f":Td# : {response!r}"
             )
 
@@ -818,9 +818,9 @@ class OnStep:
         if self.is_parked():
             if not self.unpark():
                 raise OnStepError(
-                    "Unpark refuse (:hR# -> 0). Date/heure/position "
-                    "manquantes ou invalides : fournir dt_utc/lat/lon/"
-                    "utc_offset a go_home()."
+                    "Unpark refused (:hR# -> 0). Date/time/position "
+                    "are missing or invalid: provide dt_utc/lat/lon/"
+                    "utc_offset to go_home()."
                 )
             # petit délai pour que l'état se stabilise
             time.sleep(1.0)

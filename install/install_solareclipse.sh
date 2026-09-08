@@ -35,14 +35,14 @@ NC='\033[0m'
 info()    { echo -e "${BLUE}[INFO]${NC}    $1"; }
 success() { echo -e "${GREEN}[OK]${NC}      $1"; }
 warning() { echo -e "${YELLOW}[WARN]${NC}    $1"; }
-error()   { echo -e "${RED}[ERREUR]${NC}  $1"; exit 1; }
+error()   { echo -e "${RED}[ERROR]${NC}  $1"; exit 1; }
 step()    { echo -e "\n${CYAN}══════════════════════════════════════════════════${NC}"
             echo -e "${CYAN}  $1${NC}"
             echo -e "${CYAN}══════════════════════════════════════════════════${NC}"; }
 
 # ── Vérification root ─────────────────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then
-    error "Ce script doit être exécuté en tant que root : sudo ./install_solareclipse.sh"
+    error "This script must be run as root: sudo ./install_solareclipse.sh"
 fi
 
 CURRENT_USER=${SUDO_USER:-$USER}
@@ -74,33 +74,33 @@ FLASK_PORT=5000
 
 echo -e "${CYAN}"
 echo "  ╔════════════════════════════════════════════════════╗"
-echo "  ║   SolarEclipse — Installation Raspberry Pi      ║"
-echo "  ║   Utilisateur : $CURRENT_USER"
+echo "  ║   SolarEclipse — Raspberry Pi Installation      ║"
+echo "  ║   User: $CURRENT_USER"
 echo "  ╚════════════════════════════════════════════════════╝"
 echo -e "${NC}"
-info "Répertoire package     : $PACKAGE_DIR"
-info "Répertoire application : $APP_DIR"
+info "Package directory    : $PACKAGE_DIR"
+info "Application directory: $APP_DIR"
 echo ""
 
 # ════════════════════════════════════════════════════════════
-# ÉTAPE 0 — Mise à jour du système
+# STEP 0 — System update
 # ════════════════════════════════════════════════════════════
-step "ÉTAPE 0 — Mise à jour du système"
+step "STEP 0 — System update"
 apt update && apt upgrade -y
 apt autoremove -y
-success "Système mis à jour."
+success "System updated."
 
 # ════════════════════════════════════════════════════════════
 # ÉTAPE 1 — Renommage de la machine + mDNS
 # ════════════════════════════════════════════════════════════
-step "ÉTAPE 1 — Nom de la machine"
+step "STEP 1 — Hostname"
 DEFAULT_HOSTNAME="solareclipse"
 REBOOT_NEEDED=false
 
-read -p "Voulez-vous renommer la machine ? (y/n) [défaut: y] : " RENAME_HOSTNAME
+read -p "Rename the machine? (y/n) [default: y]: " RENAME_HOSTNAME
 RENAME_HOSTNAME=${RENAME_HOSTNAME:-y}
 if [ "$RENAME_HOSTNAME" = "y" ]; then
-    read -p "Nouveau nom [$DEFAULT_HOSTNAME] : " NEW_HOSTNAME
+    read -p "New hostname [$DEFAULT_HOSTNAME] : " NEW_HOSTNAME
     NEW_HOSTNAME=${NEW_HOSTNAME:-$DEFAULT_HOSTNAME}
     CURRENT_HOSTNAME=$(hostname)
     if [ "$NEW_HOSTNAME" != "$CURRENT_HOSTNAME" ]; then
@@ -112,55 +112,55 @@ if [ "$RENAME_HOSTNAME" = "y" ]; then
             echo -e "127.0.1.1\t$NEW_HOSTNAME" >> /etc/hosts
         fi
         REBOOT_NEEDED=true
-        success "Machine renommée en '$NEW_HOSTNAME'."
+        success "Machine renamed to '$NEW_HOSTNAME'."
     else
-        success "Nom '$NEW_HOSTNAME' déjà en place, pas de redémarrage nécessaire."
+        success "Nom '$NEW_HOSTNAME' already set; no reboot required."
     fi
 else
     NEW_HOSTNAME=$(hostname)
-    info "Nom de la machine inchangé : $NEW_HOSTNAME"
+    info "Hostname unchanged: $NEW_HOSTNAME"
 fi
 
 # mDNS — permet l'accès http://<hostname>.local depuis l'iPhone sans IP fixe
 apt install -y avahi-daemon 2>/dev/null || true
 systemctl enable avahi-daemon
 systemctl start avahi-daemon
-success "mDNS activé → portail accessible via http://$NEW_HOSTNAME.local"
+success "mDNS enabled → portal available at http://$NEW_HOSTNAME.local"
 
 # ════════════════════════════════════════════════════════════
-# ÉTAPE 2 — Hotspot WiFi Pi (optionnel)
+# STEP 2 — WiFi hotspot Pi (optionnel)
 # ════════════════════════════════════════════════════════════
-step "ÉTAPE 2 — Hotspot WiFi"
+step "STEP 2 — WiFi hotspot"
 echo ""
-echo -e "  ${YELLOW}Note :${NC} Si vous utilisez le hotspot de votre iPhone,"
-echo -e "  le Pi s'y connecte automatiquement via NTP — pas besoin de hotspot Pi."
-echo -e "  Configurez le hotspot Pi uniquement si vous travaillez SANS iPhone."
+echo -e "  ${YELLOW}Note:${NC} If you use your iPhone hotspot,"
+echo -e "  the Pi connects to it automatically via NTP — no Pi hotspot is required."
+echo -e "  Configure the Pi hotspot only if you work WITHOUT an iPhone."
 echo ""
-read -p "Configurer un hotspot WiFi sur le Pi ? (y/n) [défaut: n] : " SETUP_HOTSPOT
-WIFI_SSID="(non configuré)"
-WIFI_PASS="(non configuré)"
+read -p "Configure a WiFi hotspot on the Pi? (y/n) [default: n]: " SETUP_HOTSPOT
+WIFI_SSID="(not configured)"
+WIFI_PASS="(not configured)"
 
 if [ "$SETUP_HOTSPOT" = "y" ]; then
     # Configurer le pays WiFi
     DEFAULT_COUNTRY="FR"
-    read -p "Code pays WiFi [$DEFAULT_COUNTRY] : " WIFI_COUNTRY
+    read -p "WiFi country code [$DEFAULT_COUNTRY] : " WIFI_COUNTRY
     WIFI_COUNTRY=${WIFI_COUNTRY:-$DEFAULT_COUNTRY}
     raspi-config nonint do_wifi_country "$WIFI_COUNTRY" 2>/dev/null || true
     iw reg set "$WIFI_COUNTRY" 2>/dev/null || true
-    success "Pays WiFi configuré : $WIFI_COUNTRY"
+    success "WiFi country configured: $WIFI_COUNTRY"
 
     DEFAULT_SSID="solareclipse"
-    read -p "SSID du hotspot WiFi [$DEFAULT_SSID] : " WIFI_SSID
+    read -p "WiFi hotspot SSID [$DEFAULT_SSID] : " WIFI_SSID
     WIFI_SSID=${WIFI_SSID:-$DEFAULT_SSID}
 
     DEFAULT_PASS="solareclipse"
     while true; do
-        read -p "Mot de passe WiFi [$DEFAULT_PASS] : " WIFI_PASS
+        read -p "WiFi password [$DEFAULT_PASS] : " WIFI_PASS
         WIFI_PASS=${WIFI_PASS:-$DEFAULT_PASS}
         if [ ${#WIFI_PASS} -ge 8 ] && [ ${#WIFI_PASS} -le 63 ]; then
             break
         else
-            echo -e "  ${RED}[ERREUR]${NC}  Le mot de passe WPA2 doit faire entre 8 et 63 caractères (actuel : ${#WIFI_PASS})."
+            echo -e "  ${RED}[ERROR]${NC}  WPA2 password must be between 8 and 63 characters (current: ${#WIFI_PASS})."
         fi
     done
 
@@ -231,22 +231,22 @@ EOF
     systemctl enable dnsmasq
     systemctl restart dnsmasq
     systemctl restart hostapd \
-        && success "Hotspot '$WIFI_SSID' actif (192.168.50.1)." \
+        && success "Hotspot '$WIFI_SSID' active (192.168.50.1)." \
         || {
-            warning "hostapd non démarré au premier lancement (normal si wlan0 pas encore prête)."
-            info "Redémarrez le Pi — le hotspot démarrera automatiquement au boot."
-            info "Pour diagnostiquer : journalctl -u hostapd -n 30"
+            warning "hostapd did not start on first attempt (normal if wlan0 is not ready yet)."
+            info "Reboot the Pi — the hotspot will start automatically at boot."
+            info "For diagnostics: journalctl -u hostapd -n 30"
         }
 
-    success "Hotspot '$WIFI_SSID' configuré (mdp: $WIFI_PASS) — IP Pi : 192.168.50.1"
+    success "Hotspot '$WIFI_SSID' configured (password: $WIFI_PASS) — Pi IP: 192.168.50.1"
 else
-    info "Hotspot Pi ignoré — utilisation du hotspot iPhone."
+    info "Pi hotspot skipped — using iPhone hotspot."
 fi
 
 # ════════════════════════════════════════════════════════════
 # ÉTAPE 3 — Dépendances système
 # ════════════════════════════════════════════════════════════
-step "ÉTAPE 3 — Installation des dépendances système"
+step "STEP 3 — Install system dependencies"
 
 apt install -y \
     python3 python3-pip python3-venv \
@@ -259,26 +259,26 @@ apt install -y \
 
 apt install -y indi-bin indi-eqmod
 
-success "Dépendances système installées."
+success "System dependencies installed."
 
 # L'utilisateur du service INDI doit pouvoir accéder aux périphériques série.
 if id -nG "$CURRENT_USER" | grep -qw dialout; then
-    success "Utilisateur '$CURRENT_USER' déjà membre du groupe dialout."
+    success "User '$CURRENT_USER' is already a member of the dialout group."
 else
     usermod -aG dialout "$CURRENT_USER"
-    success "Utilisateur '$CURRENT_USER' ajouté au groupe dialout."
-    warning "Déconnectez-vous puis reconnectez-vous pour appliquer le nouveau groupe à votre session."
+    success "User '$CURRENT_USER' added to the dialout group."
+    warning "Log out and back in to apply the new group to your session."
 fi
 
 # ── Empêcher gvfsd de monter automatiquement la caméra (libère l'USB pour gphoto2)
-info "Désactivation du montage automatique GVFS pour appareils photo..."
+info "Disabling GVFS automatic camera mounting..."
 cat > /etc/udev/rules.d/90-camera-noautomount.rules << 'UDEVRULES'
 # Empêche gvfsd-gphoto2 de prendre le contrôle des appareils photo USB
 # afin que gphoto2 puisse accéder directement au device
 ENV{ID_GPHOTO2}=="1", ENV{GVFS_IGNORE}="1"
 UDEVRULES
 udevadm control --reload-rules
-success "Règle udev camera → GVFS_IGNORE=1"
+success "Camera udev rule → GVFS_IGNORE=1"
 
 # ════════════════════════════════════════════════════════════
 # ÉTAPE 3b — libgphoto2 2.5.34 (support Sony A7V / ILCE-7M5)
@@ -287,7 +287,7 @@ success "Règle udev camera → GVFS_IGNORE=1"
 # apt (2.5.31). On compile la 2.5.34 depuis les sources officielles, installée
 # dans /usr/local (prioritaire sur la version système). Sans cela, le plugin
 # caméra Sony ne fonctionne pas. Les Nikon (D850...) marchent avec les deux.
-step "ÉTAPE 3b — Compilation libgphoto2 depuis git (Sony A7V)"
+step "STEP 3b — Build libgphoto2 from git (Sony A7V)"
 
 GPHOTO_VERSION="2.5.34"
 GPHOTO_SO="/usr/local/lib/libgphoto2.so"
@@ -306,14 +306,14 @@ print(any('ILCE-7M5' in al.get_abilities(i).model for i in range(al.count())))
 fi
 
 if [ "$A7V_PRESENT" = "True" ]; then
-    success "libgphoto2 avec support Sony A7V déjà installée dans /usr/local — étape ignorée."
+    success "libgphoto2 with Sony A7V support already installed in /usr/local — step skipped."
 else
     # Décision apt vs compilation, par NUMÉRO DE VERSION.
     # Le support du Sony A7V (ILCE-7M5) n'est présent qu'à partir d'une release
     # POSTÉRIEURE à 2.5.34 (aujourd'hui : uniquement dans le git). Donc :
     #   - si apt propose une version > 2.5.34  -> on installe via apt (simple, propre)
     #   - sinon                                -> on compile depuis git
-    GPHOTO_THRESHOLD="2.5.34"   # dernière release SANS le A7V
+    GPHOTO_THRESHOLD="2.5.34"   # latest release WITHOUT A7V support
     APT_VER=$(apt-cache policy libgphoto2-dev 2>/dev/null | awk '/Candidate:/ {print $2}' \
         | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
     [ -z "$APT_VER" ] && APT_VER=$(apt-cache policy libgphoto2 2>/dev/null | awk '/Candidate:/ {print $2}' \
@@ -329,7 +329,7 @@ else
     fi
 
     if [ "$USE_APT" = "yes" ]; then
-        info "apt propose libgphoto2 $APT_VER (> $GPHOTO_THRESHOLD) — installation via apt (pas de compilation)."
+        info "apt provides libgphoto2 $APT_VER (> $GPHOTO_THRESHOLD) — installation via apt (pas de compilation)."
         apt install -y libgphoto2-dev libgphoto2-6 gphoto2
         # Vérifier que le A7V est bien là dans la version apt
         APT_A7V=$(python3 -c "
@@ -338,23 +338,23 @@ al = gp.CameraAbilitiesList(); al.load()
 print(any('ILCE-7M5' in al.get_abilities(i).model for i in range(al.count())))
 " 2>/dev/null)
         if [ "$APT_A7V" = "True" ]; then
-            success "libgphoto2 $APT_VER (apt) installée — support Sony A7V CONFIRMÉ. Aucune compilation."
+            success "libgphoto2 $APT_VER (apt) installed — Sony A7V support CONFIRMED. No build required."
         else
-            warning "libgphoto2 $APT_VER (apt) installée mais A7V NON détecté — bascule sur compilation git."
+            warning "libgphoto2 $APT_VER (apt) installed but A7V NOT detected — switching to git build."
             USE_APT="no"
         fi
     else
-        [ -n "$APT_VER" ] && info "apt propose libgphoto2 $APT_VER (≤ $GPHOTO_THRESHOLD, sans A7V) — compilation nécessaire."
+        [ -n "$APT_VER" ] && info "apt provides libgphoto2 $APT_VER (≤ $GPHOTO_THRESHOLD, without A7V) — build required."
     fi
 
     if [ "$USE_APT" = "yes" ]; then
         DO_GPHOTO="n"       # apt a suffi, on saute la compilation
     else
-        read -p "Compiler libgphoto2 (git) pour le Sony A7V ? (~10-15 min) (y/n) [défaut: y] : " DO_GPHOTO
+        read -p "Build libgphoto2 (git) for the Sony A7V? (~10-15 min) (y/n) [default: y]: " DO_GPHOTO
         DO_GPHOTO=${DO_GPHOTO:-y}
     fi
     if [ "$DO_GPHOTO" = "y" ]; then
-        info "Installation des dépendances de compilation..."
+        info "Installing build dependencies..."
         apt install -y \
             build-essential autoconf automake libtool pkg-config gettext \
             autopoint libltdl-dev libusb-1.0-0-dev libexif-dev libpopt-dev \
@@ -367,20 +367,20 @@ print(any('ILCE-7M5' in al.get_abilities(i).model for i in range(al.count())))
         # IMPORTANT : le support du Sony A7V (ILCE-7M5) n'est PAS dans la release
         # tarball 2.5.34 — il a été ajouté dans le dépôt git APRÈS. On compile
         # donc depuis git (le git n'a pas de ./configure pré-généré : autoreconf).
-        info "Clonage du dépôt git libgphoto2 (support Sony A7V)..."
+        info "Cloning libgphoto2 git repository (Sony A7V support)..."
         if git clone --depth 1 https://github.com/gphoto/libgphoto2.git 2>/tmp/gphoto_clone.log; then
             cd libgphoto2
-            info "Génération du configure (autoreconf)..."
+            info "Generating configure script (autoreconf)..."
             autoreconf -is >/tmp/gphoto_autoreconf.log 2>&1 \
-                || error "autoreconf a échoué (voir /tmp/gphoto_autoreconf.log)"
+                || error "autoreconf failed (see /tmp/gphoto_autoreconf.log)"
             info "Configuration..."
             ./configure --prefix=/usr/local >/tmp/gphoto_configure.log 2>&1 \
-                || error "configure libgphoto2 a échoué (voir /tmp/gphoto_configure.log)"
+                || error "libgphoto2 configure failed (see /tmp/gphoto_configure.log)"
             info "Compilation (peut prendre 10-15 min sur Pi 3B)..."
             make -j"$(nproc)" >/tmp/gphoto_make.log 2>&1 \
-                || error "make libgphoto2 a échoué (voir /tmp/gphoto_make.log)"
+                || error "libgphoto2 make failed (see /tmp/gphoto_make.log)"
             make install >/tmp/gphoto_install.log 2>&1 \
-                || error "make install libgphoto2 a échoué (voir /tmp/gphoto_install.log)"
+                || error "libgphoto2 make install failed (see /tmp/gphoto_install.log)"
 
             # Vérification : on teste la LIBRAIRIE via Python (le binding gphoto2),
             # PAS le binaire CLI /usr/local/bin/gphoto2 qui n'est pas produit par
@@ -398,33 +398,33 @@ al = gp.CameraAbilitiesList(); al.load()
 print(any('ILCE-7M5' in al.get_abilities(i).model for i in range(al.count())))
 " 2>/dev/null)
             if [ "$A7V_OK" = "True" ]; then
-                success "libgphoto2 $NEWVER compilée — support Sony A7V (ILCE-7M5) CONFIRMÉ."
-                info "Le venv Flask l'utilisera via LD_LIBRARY_PATH (configuré à l'étape 5)."
+                success "libgphoto2 $NEWVER built — Sony A7V (ILCE-7M5) support CONFIRMED."
+                info "The Flask venv will use it through LD_LIBRARY_PATH (configured in step 5)."
             else
-                warning "libgphoto2 compilée (version '$NEWVER') mais support A7V NON confirmé."
-                info "Vérifier /tmp/gphoto_*.log — les Nikon fonctionnent quand même."
+                warning "libgphoto2 built (version '$NEWVER') but A7V support is NOT confirmed."
+                info "Check /tmp/gphoto_*.log — Nikon cameras still work."
             fi
         else
-            warning "Clonage du dépôt git libgphoto2 échoué — Sony non supporté."
-            info "Vérifiez la connexion internet (voir /tmp/gphoto_clone.log)."
+            warning "Failed to clone the libgphoto2 git repository — Sony is not supported."
+            info "Check the internet connection (voir /tmp/gphoto_clone.log)."
         fi
         cd "$PACKAGE_DIR"
     elif [ "$USE_APT" = "yes" ]; then
         : # apt a déjà installé le support A7V ; rien à compiler (message déjà affiché)
     else
-        info "Compilation libgphoto2 ignorée — le Sony A7V ne sera pas reconnu."
-        info "Les boîtiers Nikon (D850...) fonctionnent avec la libgphoto2 système."
+        info "libgphoto2 compilation skipped — Sony A7V will not be recognized."
+        info "Nikon cameras (D850...) work with the system libgphoto2."
     fi
 fi
 
 # ════════════════════════════════════════════════════════════
-# ÉTAPE 3c — SDK ZWO EAF (focuseur, optionnel)
+# STEP 3c — ZWO EAF SDK (focuser, optional)
 # ════════════════════════════════════════════════════════════
 # Le focuseur ZWO EAF utilise le SDK propriétaire ZWO (libEAFFocuser.so), qui
 # ne peut être redistribué. Il doit être déposé dans vendor/eaf_sdk/ (voir le
 # README de ce dossier). Absent -> le focuseur n'est pas disponible, sans bloquer
 # le reste de l'installation.
-step "ÉTAPE 3c — SDK ZWO EAF (focuseur, optionnel)"
+step "STEP 3c — ZWO EAF SDK (focuser, optional)"
 
 EAF_VENDOR="$PACKAGE_DIR/vendor/eaf_sdk"
 # Chercher la lib armv8 et la règle udev à plusieurs emplacements plausibles
@@ -432,7 +432,7 @@ EAF_LIB=$(find "$EAF_VENDOR" -path "*armv8*" -name "libEAFFocuser.so.*" 2>/dev/n
 EAF_RULES=$(find "$EAF_VENDOR" -name "eaf.rules" 2>/dev/null | head -1)
 
 if [ -n "$EAF_LIB" ]; then
-    info "SDK EAF trouvé : $EAF_LIB"
+    info "EAF SDK found: $EAF_LIB"
     cp "$EAF_LIB" /usr/local/lib/
     EAF_SOname=$(basename "$EAF_LIB")            # ex: libEAFFocuser.so.1.8.1
     ln -sf "/usr/local/lib/$EAF_SOname" /usr/local/lib/libEAFFocuser.so
@@ -455,20 +455,20 @@ EAFUDEV
     udevadm trigger 2>/dev/null || true
 
     if ldconfig -p | grep -q libEAFFocuser; then
-        success "SDK ZWO EAF installé (lib + règle udev). Débranchez/rebranchez l'EAF."
+        success "ZWO EAF SDK installed (library + udev rule). Unplug/replug the EAF."
     else
-        warning "libEAFFocuser non vue par ldconfig — vérifier l'installation."
+        warning "libEAFFocuser not visible to ldconfig — check the installation."
     fi
 else
-    warning "SDK ZWO EAF absent de vendor/eaf_sdk/ — le focuseur ZWO ne sera pas disponible."
-    info "Pour l'activer : déposez le SDK dans vendor/eaf_sdk/ (voir son README) puis relancez."
+    warning "ZWO EAF SDK missing from vendor/eaf_sdk/ — the ZWO focuser will not be available."
+    info "To enable it: place the SDK in vendor/eaf_sdk/ (see its README), then rerun the installer."
 fi
 
 
 # ════════════════════════════════════════════════════════════
-# ÉTAPE 4 — Installation du runtime SolarEclipse
+# STEP 4 — Install SolarEclipse runtime
 # ════════════════════════════════════════════════════════════
-step "ÉTAPE 4 — Installation du runtime SolarEclipse"
+step "STEP 4 — Install SolarEclipse runtime"
 
 mkdir -p "$APP_DIR"
 mkdir -p "$SOUNDS_DIR"
@@ -494,7 +494,7 @@ RUNTIME_SCRIPTS=(
 for script in "${RUNTIME_SCRIPTS[@]}"; do
     src="$PACKAGE_DIR/scripts/$script"
     if [ ! -f "$src" ]; then
-        error "Script runtime manquant : $src"
+        error "Missing runtime script: $src"
     fi
 done
 
@@ -506,13 +506,13 @@ for script in "${RUNTIME_SCRIPTS[@]}"; do
     src="$PACKAGE_DIR/scripts/$script"
     cp "$src" "$SCRIPTS_DIR/$script"
 done
-success "Scripts runtime → $SCRIPTS_DIR"
+success "Runtime scripts → $SCRIPTS_DIR"
 
 # Couches applicatives Python.
 for component in backend services plugins; do
     src="$PACKAGE_DIR/$component"
     if [ ! -d "$src" ]; then
-        error "Composant runtime manquant : $src"
+        error "Missing runtime component: $src"
     fi
 
     rm -rf "$APP_DIR/$component"
@@ -528,9 +528,9 @@ sync_eclipse_datasets "$PACKAGE_DIR" "$APP_DIR"
 if [ -d "$PACKAGE_DIR/Sounds" ]; then
     cp "$PACKAGE_DIR/Sounds/"*.wav "$SOUNDS_DIR/"
     cp "$PACKAGE_DIR/Sounds/"*.wav "$APP_DIR/static/sounds/"
-    success "Fichiers audio → $SOUNDS_DIR + $APP_DIR/static/sounds"
+    success "Audio files → $SOUNDS_DIR + $APP_DIR/static/sounds"
 else
-    error "Dossier Sounds/ introuvable dans $PACKAGE_DIR"
+    error "Sounds/ directory not found in $PACKAGE_DIR"
 fi
 
 # Configurations PRODUIT livrées avec le package.
@@ -542,9 +542,9 @@ if [ -d "$PACKAGE_DIR/configs" ]; then
     cp -a "$PACKAGE_DIR/configs/." "$CONFIGS_DIR/"
     chown -R "$CURRENT_USER:$CURRENT_USER" "$CONFIGS_DIR"
     chmod 755 "$CONFIGS_DIR"
-    success "Configurations produit → $CONFIGS_DIR"
+    success "Product configurations → $CONFIGS_DIR"
 else
-    error "Dossier configs/ introuvable dans $PACKAGE_DIR"
+    error "configs/ directory not found in $PACKAGE_DIR"
 fi
 
 # Application Flask, template principal et assets frontend.
@@ -563,7 +563,7 @@ if [ -f "$PACKAGE_DIR/flask_app/app.py" ] && \
 
     success "app.py + index.html + assets CSS/JS → $APP_DIR"
 else
-    error "Runtime Flask incomplet dans $PACKAGE_DIR/flask_app"
+    error "Incomplete Flask runtime in $PACKAGE_DIR/flask_app"
 fi
 
 # Métadonnée logicielle unique : commit source du build.
@@ -575,7 +575,7 @@ if [ -n "$BUILD_COMMIT" ]; then
     success "Build commit → $BUILD_COMMIT"
 else
     rm -f "$APP_DIR/BUILD_COMMIT"
-    warning "Build commit indéterminable."
+    warning "Unable to determine build commit."
 fi
 
 chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"
@@ -583,7 +583,7 @@ chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"
 # ════════════════════════════════════════════════════════════
 # ÉTAPE 5 — Flask + Nginx + gunicorn/gthread
 # ════════════════════════════════════════════════════════════
-step "ÉTAPE 5 — Configuration Flask / Nginx / gunicorn"
+step "STEP 5 — Configure Flask / Nginx / gunicorn"
 
 chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"
 chmod 644 "$APP_DIR/static/sounds/"*.wav 2>/dev/null || true
@@ -592,7 +592,7 @@ chmod 755 "$APP_DIR/static/sounds" "$APP_DIR/static" 2>/dev/null || true
 chmod o+x "/home/$CURRENT_USER"
 
 # Environnement virtuel Python
-info "Création de l'environnement virtuel Python..."
+info "Creating Python virtual environment..."
 sudo -u "$CURRENT_USER" HOME="$USER_HOME" python3 -m venv "$VENV_DIR"
 sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install --upgrade pip -q
 sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install \
@@ -605,7 +605,7 @@ sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install \
     gunicorn \
     pytz \
     timezonefinder
-success "Environnement virtuel → $VENV_DIR"
+success "Virtual environment → $VENV_DIR"
 
 # Fichier wsgi.py
 cat > "$APP_DIR/wsgi.py" <<EOL
@@ -652,7 +652,7 @@ EOL
 rm -f /etc/nginx/sites-enabled/default
 ln -sf /etc/nginx/sites-available/solareclipse /etc/nginx/sites-enabled/
 nginx -t && systemctl restart nginx
-success "Nginx configuré → proxy Flask:$FLASK_PORT"
+success "Nginx configured → proxy Flask:$FLASK_PORT"
 
 # Résoudre les chemins CAMLIBS / IOLIBS réels de la libgphoto2 compilée.
 # Le trigger étant désormais lancé par le portail, cet environnement doit
@@ -668,13 +668,13 @@ IOLIBS_DIR=$(find /usr/local/lib/libgphoto2_port \
 if [ -n "$CAMLIBS_DIR" ]; then
     CAMLIBS_ENV_LINE="Environment=\"CAMLIBS=$CAMLIBS_DIR\""
 else
-    CAMLIBS_ENV_LINE="# CAMLIBS non défini (libgphoto2 système utilisée)"
+    CAMLIBS_ENV_LINE="# CAMLIBS not defined (using system libgphoto2)"
 fi
 
 if [ -n "$IOLIBS_DIR" ]; then
     IOLIBS_ENV_LINE="Environment=\"IOLIBS=$IOLIBS_DIR\""
 else
-    IOLIBS_ENV_LINE="# IOLIBS non défini (libgphoto2 système utilisée)"
+    IOLIBS_ENV_LINE="# IOLIBS not defined (using system libgphoto2)"
 fi
 
 # Service systemd principal.
@@ -739,10 +739,10 @@ EOL
 systemctl daemon-reload
 systemctl enable indiserver-eqmod.service
 systemctl start indiserver-eqmod.service
-success "Service indiserver-eqmod démarré et activé au boot."
+success "indiserver-eqmod service started and enabled at boot."
 systemctl enable solareclipse.service
-systemctl restart solareclipse.service && success "Service solareclipse démarré/rechargé et activé au boot." \
-    || warning "Service solareclipse non démarré — vérifier app.py dans $APP_DIR"
+systemctl restart solareclipse.service && success "solareclipse service started/reloaded and enabled at boot." \
+    || warning "solareclipse service did not start — check app.py in $APP_DIR"
 # Le déclenchement photo est géré par le portail via TriggerService.
 # Override systemd nginx : démarrer après gunicorn
 mkdir -p /etc/systemd/system/nginx.service.d
@@ -753,12 +753,12 @@ Wants=solareclipse.service
 EOF
 systemctl daemon-reload
 # Reload nginx maintenant que gunicorn est démarré
-sleep 2 && systemctl reload nginx && success "Nginx rechargé → portail actif."
+sleep 2 && systemctl reload nginx && success "Nginx reloaded → portal active."
 
 # ════════════════════════════════════════════════════════════
 # ÉTAPE 6 — GPS (gpsd + chrony + udev BU-353N5)
 # ════════════════════════════════════════════════════════════
-step "ÉTAPE 6 — Configuration GPS (GlobalSat BU-353N5)"
+step "STEP 6 — Configure GPS (GlobalSat BU-353N5)"
 
 # Configuration gpsd — socket activation (démarré à la demande, pas au boot)
 cat > /etc/default/gpsd <<EOF
@@ -772,7 +772,7 @@ EOF
 # gpsd reste socket-active et est aussi lance automatiquement par udev si le GPS est present.
 systemctl disable gpsd 2>/dev/null || true
 systemctl enable gpsd.socket 2>/dev/null || true
-systemctl start gpsd.socket || warning "gpsd.socket non démarré."
+systemctl start gpsd.socket || warning "gpsd.socket did not start."
 
 # Configuration chrony — anti-doublon
 grep -q "refclock SHM 0" /etc/chrony/chrony.conf || cat >> /etc/chrony/chrony.conf <<EOF
@@ -781,7 +781,7 @@ grep -q "refclock SHM 0" /etc/chrony/chrony.conf || cat >> /etc/chrony/chrony.co
 refclock SHM 0 offset 0.5 delay 0.2 refid GPS prefer
 EOF
 
-systemctl restart chronyd || warning "chronyd non redémarré."
+systemctl restart chronyd || warning "chronyd did not restart."
 systemctl enable chronyd 2>/dev/null || true
 
 # Règle udev BU-353N5 — VID:067b PID:23a3 (Prolific PL2303)
@@ -796,13 +796,13 @@ udevadm control --reload-rules
 # /dev/gps0 est cree et gpsd.service est demande immediatement.
 udevadm trigger --subsystem-match=tty 2>/dev/null || true
 
-success "GPS (gpsd socket + chrony + udev) configurés."
-info "Sync heure GPS → portail web onglet GPS, ou : sudo $VENV_DIR/bin/python3 $SCRIPTS_DIR/gps_sync.py"
+success "GPS (gpsd socket + chrony + udev) configured."
+info "GPS time sync → web portal GPS tab, or: sudo $VENV_DIR/bin/python3 $SCRIPTS_DIR/gps_sync.py"
 
 # ════════════════════════════════════════════════════════════
 # ÉTAPE 7 — Scripts raccourcis ~/bin/
 # ════════════════════════════════════════════════════════════
-step "ÉTAPE 7 — Scripts de lancement rapide"
+step "STEP 7 — Quick-launch scripts"
 
 BIN_DIR="$USER_HOME/bin"
 mkdir -p "$BIN_DIR"
@@ -823,13 +823,13 @@ cat > "$BIN_DIR/start_portal.sh" <<EOL
 #!/bin/bash
 # Démarre le portail web SolarEclipse manuellement
 sudo systemctl start solareclipse
-echo "Portail démarré → http://$NEW_HOSTNAME.local"
+echo "Portal started → http://$NEW_HOSTNAME.local"
 EOL
 
 cat > "$BIN_DIR/stop_portal.sh" <<EOL
 #!/bin/bash
 sudo systemctl stop solareclipse
-echo "Portail arrêté."
+echo "Portal stopped."
 EOL
 
 chmod +x "$BIN_DIR/"*.sh
@@ -840,7 +840,7 @@ PROFILE="$USER_HOME/.bashrc"
 grep -q 'export PATH="$HOME/bin:$PATH"' "$PROFILE" || \
     echo 'export PATH="$HOME/bin:$PATH"' >> "$PROFILE"
 
-success "Scripts de lancement créés dans $BIN_DIR"
+success "Launch scripts created in $BIN_DIR"
 
 # ════════════════════════════════════════════════════════════
 # ÉTAPE 7b — Règles sudoers SolarEclipse
@@ -850,7 +850,7 @@ success "Scripts de lancement créés dans $BIN_DIR"
 # - libérer certains périphériques USB
 # - arrêter certains processus caméra
 # - rebooter la machine après effacement des données persistantes
-step "ÉTAPE 7b — Configuration sudoers SolarEclipse"
+step "STEP 7b — SolarEclipse sudoers configuration"
 
 SUDOERS_FILE="/etc/sudoers.d/solareclipse"
 
@@ -872,16 +872,16 @@ EOF
 chmod 440 "$SUDOERS_FILE"
 
 if visudo -cf "$SUDOERS_FILE"; then
-    success "Règles sudoers SolarEclipse installées et validées."
+    success "SolarEclipse sudoers rules installed and validated."
 else
     rm -f "$SUDOERS_FILE"
-    error "Syntaxe sudoers invalide — installation interrompue."
+    error "Invalid sudoers syntax — installation aborted."
 fi
 
 if sudo -u "$CURRENT_USER" sudo -n -l /usr/bin/systemctl reboot >/dev/null 2>&1; then
-    success "Reboot non interactif autorisé pour '$CURRENT_USER'."
+    success "Non-interactive reboot allowed for '$CURRENT_USER'."
 else
-    error "Le droit sudo pour /usr/bin/systemctl reboot n'est pas opérationnel."
+    error "sudo permission for /usr/bin/systemctl reboot is not operational."
 fi
 
 # ════════════════════════════════════════════════════════════
@@ -889,7 +889,7 @@ fi
 # ════════════════════════════════════════════════════════════
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   Installation SolarEclipse terminée avec succès !      ║${NC}"
+echo -e "${GREEN}║   SolarEclipse installation completed successfully!      ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  ${CYAN}Portail web${NC}     : ${YELLOW}http://$NEW_HOSTNAME.local${NC}"
@@ -899,7 +899,7 @@ echo -e "  ${CYAN}Scripts runtime${NC} : ${YELLOW}$SCRIPTS_DIR${NC}"
 echo -e "  ${CYAN}Fichiers audio${NC}  : ${YELLOW}$SOUNDS_DIR${NC}"
 echo ""
 echo -e "  ${CYAN}Commandes rapides :${NC}"
-echo -e "    ${YELLOW}sync_gps.sh${NC}                                  # Sync heure GPS"
+echo -e "    ${YELLOW}sync_gps.sh${NC}                                  # GPS time sync"
 echo -e "    ${YELLOW}calcul_eclipse.sh --lat X --lon Y --tz 2${NC}    # Calcul C1..C4"
 echo -e "    ${YELLOW}start_portal.sh${NC}  /  ${YELLOW}stop_portal.sh${NC}          # Portail web"
 echo ""
@@ -907,7 +907,7 @@ echo -e "  ${YELLOW}➤  Lancer le portail : ${YELLOW}start_portal.sh${NC}"
 echo ""
 
 if [ "$REBOOT_NEEDED" = "true" ]; then
-    echo -e "  ${YELLOW}⚠  Redémarrage nécessaire (renommage machine).${NC}"
-    read -p "  Redémarrer maintenant ? (y/n) : " DO_REBOOT
+    echo -e "  ${YELLOW}⚠  Reboot required (hostname changed).${NC}"
+    read -p "  Reboot now? (y/n): " DO_REBOOT
     [ "$DO_REBOOT" = "y" ] && reboot
 fi

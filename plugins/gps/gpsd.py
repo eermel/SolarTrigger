@@ -61,7 +61,7 @@ class GpsdPlugin(GpsPlugin):
         self._error = None
         self._thread = threading.Thread(target=self._reader_loop, name="gpsd", daemon=True)
         self._thread.start()
-        self.log(f"GPS gpsd connecte sur {host}:{port}")
+        self.log(f"gpsd GPS connected on {host}:{port}")
 
     def disconnect(self):
         self._stop.set()
@@ -188,7 +188,7 @@ class GpsdPlugin(GpsPlugin):
                 line = self._file.readline()
                 if not line:
                     if not self._stop.is_set():
-                        self._error = "Connexion gpsd fermee"
+                        self._error = "gpsd connection closed"
                     break
                 self._handle_report(json.loads(line))
             except socket.timeout:

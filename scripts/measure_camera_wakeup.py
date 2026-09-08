@@ -23,7 +23,7 @@ from datetime import datetime
 try:
     import gphoto2 as gp
 except ImportError:
-    print("❌ gphoto2 non installé : pip install gphoto2")
+    print("❌ gphoto2 is not installed : pip install gphoto2")
     sys.exit(1)
 
 
@@ -55,7 +55,7 @@ def measure_init_only(n=10):
     # Connexion initiale
     cam = detect_camera()
     if not cam:
-        print("❌ Caméra non détectée")
+        print("❌ Camera not detected")
         return
 
     for i in range(n):
@@ -72,7 +72,7 @@ def measure_init_only(n=10):
         t1 = time.perf_counter()
 
         if cam is None:
-            print(f"  #{i+1:02d}  ❌ Caméra non détectée")
+            print(f"  #{i+1:02d}  ❌ Camera not detected")
             continue
 
         elapsed = (t1 - t0) * 1000
@@ -94,7 +94,7 @@ def measure_init_plus_trigger(n=10):
 
     cam = detect_camera()
     if not cam:
-        print("❌ Caméra non détectée")
+        print("❌ Camera not detected")
         return
 
     for i in range(n):
@@ -110,7 +110,7 @@ def measure_init_plus_trigger(n=10):
         t1 = time.perf_counter()
 
         if cam is None:
-            print(f"  #{i+1:02d}  ❌ Caméra non détectée")
+            print(f"  #{i+1:02d}  ❌ Camera not detected")
             continue
 
         init_ms = (t1 - t0) * 1000
@@ -152,9 +152,9 @@ def measure_init_plus_trigger(n=10):
         margin = 300   # ms de marge
         recommended = (p95 + margin) / 1000
         print(f"\n{'─'*50}")
-        print(f"  ✅ WAKE_UP_TIME recommandé : {recommended:.2f} s")
+        print(f"  ✅ recommended WAKE_UP_TIME : {recommended:.2f} s")
         print(f"     (P95 = {p95:.0f} ms + {margin} ms de marge)")
-        print(f"     À mettre dans la config du trigger.")
+        print(f"     Set this in the trigger configuration.")
         print(f"{'─'*50}")
         return recommended
 
@@ -164,7 +164,7 @@ def _print_stats(label, values):
         return
     print(f"\n  {label} — statistiques sur {len(values)} mesures :")
     print(f"    min    : {min(values):6.0f} ms")
-    print(f"    médiane: {statistics.median(values):6.0f} ms")
+    print(f"    median: {statistics.median(values):6.0f} ms")
     print(f"    moyenne: {statistics.mean(values):6.0f} ms")
     print(f"    max    : {max(values):6.0f} ms")
     if len(values) >= 3:
@@ -174,13 +174,13 @@ def _print_stats(label, values):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Mesure temps de réveil caméra")
-    parser.add_argument("--n",    type=int, default=10, help="Nombre de mesures (défaut: 10)")
+    parser = argparse.ArgumentParser(description="Measure camera wake-up time")
+    parser.add_argument("--n",    type=int, default=10, help="Number of measurements (default: 10)")
     parser.add_argument("--full", action="store_true",  help="Inclure trigger_capture dans la mesure")
     args = parser.parse_args()
 
     print("═" * 50)
-    print("  MESURE TEMPS DE RÉVEIL CAMÉRA")
+    print("  CAMERA WAKE-UP TIME MEASUREMENT")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("═" * 50)
 
@@ -193,8 +193,8 @@ def main():
         if results:
             p95 = sorted(results)[int(len(results) * 0.95)]
             recommended = (p95 + 500) / 1000   # +500ms marge si sans trigger
-            print(f"\n  ✅ WAKE_UP_TIME recommandé (sans trigger mesuré) : {recommended:.2f} s")
-            print(f"     Relancer avec --full pour inclure trigger_capture.")
+            print(f"\n  ✅ recommended WAKE_UP_TIME (without measured trigger) : {recommended:.2f} s")
+            print(f"     Run again with --full to include trigger_capture.")
 
 
 if __name__ == "__main__":

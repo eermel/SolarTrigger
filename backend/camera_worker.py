@@ -129,7 +129,7 @@ class CameraWorker:
         if deadline is None:
             return None
         if self._clock is None:
-            raise RuntimeError("horloge d'exécution non configurée")
+            raise RuntimeError("execution clock is not configured")
         return time.monotonic() + self._clock.remaining(deadline)
 
     def connect(self):

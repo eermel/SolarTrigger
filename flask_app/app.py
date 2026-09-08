@@ -18,7 +18,7 @@ Persistance :
   - État GPS complet restauré
   - Éclipse calculée restaurée
   - 500 dernières lignes de log renvoyées
-  - Heure locale + UTC en temps réel
+  - Local time + UTC en temps réel
 """
 
 import json
@@ -112,14 +112,14 @@ def calculate_timezone_from_coords(lat, lon, eclipse_date=None):
             # Localiser à la DATE DE L'ÉCLIPSE pour le bon DST
             ref_local = ref_date.astimezone(tz)
             offset_h  = ref_local.utcoffset().total_seconds() / 3600
-            src = "éclipse" if eclipse_date is not None else "système"
+            src = "eclipse" if eclipse_date is not None else "system"
             log.info(f"Timezone : {tz_name} → UTC{offset_h:+.1f} "
-                     f"(DST calculé à la date {src} : {ref_date.strftime('%Y-%m-%d')})")
+                     f"(DST calculated for {src} date: {ref_date.strftime('%Y-%m-%d')})")
             return offset_h
     except ImportError:
         pass  # timezonefinder non installé → fallback
     except Exception as e:
-        log.warning(f"timezonefinder erreur : {e} → fallback longitude")
+        log.warning(f"timezonefinder error: {e} → longitude fallback")
 
     # ── Fallback : approximation longitude + DST européen ────────────────────
     base_offset = round(lon / 15.0)
@@ -139,10 +139,10 @@ def calculate_timezone_from_coords(lat, lon, eclipse_date=None):
     dst_end   = _last_sunday(ref_date.year, 10).replace(hour=1)
     dst_active = dst_start <= ref_date < dst_end
 
-    src = "éclipse" if eclipse_date is not None else "système"
+    src = "eclipse" if eclipse_date is not None else "system"
     log.info(f"Timezone fallback longitude : UTC{base_offset:+d}, "
-             f"DST {'actif' if dst_active else 'inactif'} "
-             f"(date {src} : {ref_date.strftime('%Y-%m-%d')})")
+             f"DST {'active' if dst_active else 'inactive'} "
+             f"({src} date: {ref_date.strftime('%Y-%m-%d')})")
 
     # Europe (longitude -10° à +40°, latitude > 35°)
     if -10 <= lon <= 40 and lat > 35:
@@ -295,18 +295,18 @@ def _load_mount_plugin_config():
     except FileNotFoundError:
         return {}
     except (OSError, json.JSONDecodeError) as exc:
-        log.warning("Impossible de charger mount_default.json : %s", exc)
+        log.warning("Unable to load mount_default.json: %s", exc)
         return {}
 
     if not isinstance(mount_config, dict):
-        log.warning("Configuration mount_default.json invalide : objet JSON attendu")
+        log.warning("Invalid mount_default.json configuration: expected a JSON object")
         return {}
     if "plugin" in mount_config and not isinstance(mount_config["plugin"], str):
-        log.warning("Configuration mount_default.json invalide : 'plugin' doit être une chaîne")
+        log.warning("Invalid mount_default.json configuration: 'plugin' must be a string")
         return {}
     plugin_config = mount_config.get("plugin_config", {})
     if not isinstance(plugin_config, dict):
-        log.warning("Configuration mount_default.json invalide : 'plugin_config' doit être un objet")
+        log.warning("Invalid mount_default.json configuration: 'plugin_config' must be an object")
         return {}
     return plugin_config
 
@@ -344,7 +344,7 @@ _DEVICE_DETECTION_TIMEOUTS = {
 def _load_state(): return _state_store.data
 def _save_state():
     try: _state_store.save()
-    except Exception as e: log.warning(f"Impossible de sauvegarder state.json : {e}")
+    except Exception as e: log.warning(f"Unable to save state.json: {e}")
 def _load_log_buffer(): _event_log.reset()
 def _append_log(text, level="info", source="system"): return _event_log.append(text, level, source)
 def _trim_log_file(): _event_log.trim_forever()
@@ -377,7 +377,7 @@ def _time_payload():
             "time":     now_local.strftime("%H:%M:%S"),
             "date":     now_local.strftime("%Y-%m-%d"),
             "iso":      now_local.isoformat(),
-            "label":    "Heure locale",
+            "label":    "Local time",
         },
         "utc": {
             "time":     now_utc.strftime("%H:%M:%S"),
@@ -393,7 +393,7 @@ def _status_update_payload(base: dict) -> dict:
     try:
         rigs = normalize_rigs_for_ui(get_rig_manager())
     except Exception as exc:
-        log.warning("Chargement des rigs impossible : %s", exc)
+        log.warning("Unable to load RIGs: %s", exc)
         rigs = [
             {"rig_id": rig_id, "name": f"RIG {rig_id}", "enabled": False}
             for rig_id in range(1, 5)
@@ -468,7 +468,7 @@ def _trigger_running_response(rig_id=1):
 
     if rig_state.get("running"):
         return jsonify({
-            "error": "Mouvement du focuser interdit pendant un trigger actif.",
+            "error": "Focuser motion is forbidden while a trigger is active.",
             "code": "TRIGGER_RUNNING",
             "rig_id": rig_id,
         }), 409
@@ -573,7 +573,7 @@ def api_devices_set():
         try:
             _focuser_service.stop_jog()
         except Exception as exc:
-            log.warning("Impossible d'arrêter le jog du focuser : %s", exc)
+            log.warning("Unable to stop focuser jog: %s", exc)
 
     selections["updated_at"] = datetime.now(timezone.utc).isoformat()
     _state_store.update_section("devices", selections, persist=True)
@@ -592,16 +592,16 @@ def api_devices_set():
                         and new_mount.get("plugin") not in (None, "", "none")
                     ):
                         log.info(
-                            "Pré-initialisation monture sélectionnée : %s",
+                            "Selected mount pre-initialization: %s",
                             new_mount.get("plugin"),
                         )
                         _mount_service.warmup()
                     else:
                         _mount_service.close()
-                        log.info("Monture désactivée")
+                        log.info("Mount disabled")
                 except Exception as exc:
                     log.warning(
-                        "Pré-initialisation monture impossible : %s",
+                        "Mount pre-initialization failed: %s",
                         exc,
                     )
 
@@ -1253,7 +1253,7 @@ def api_rig_devices_post():
         save_rig_config(config_path, config)
         manager = reload_rig_manager(config)
     except (OSError, ValueError) as exc:
-        log.error("Sauvegarde de la configuration rigs impossible : %s", exc)
+        log.error("Unable to save RIG configuration: %s", exc)
         return jsonify({"error": "rig configuration could not be saved"}), 500
 
     rigs_summary = normalize_rigs_for_ui(manager)
@@ -1377,7 +1377,7 @@ def api_rig_photo_post():
         save_rig_config(config_path, config)
         manager = reload_rig_manager(config)
     except (OSError, ValueError) as exc:
-        log.error("Sauvegarde de la configuration rigs impossible : %s", exc)
+        log.error("Unable to save RIG configuration: %s", exc)
         return jsonify({"error": "rig configuration could not be saved"}), 500
 
     rigs_summary = normalize_rigs_for_ui(manager)
@@ -1418,7 +1418,7 @@ def api_status():
     try:
         rigs = normalize_rigs_for_ui(get_rig_manager())
     except Exception as exc:
-        log.warning("Chargement des rigs impossible : %s", exc)
+        log.warning("Unable to load RIGs: %s", exc)
         rigs = [
             {"rig_id": rig_id, "name": f"RIG {rig_id}", "enabled": False}
             for rig_id in range(1, 5)
@@ -2248,7 +2248,7 @@ def _brand_from_model(model):
         return "NIKON"
     if model and model.split():
         return model.split()[0].upper()
-    return "Inconnu"
+    return "Unknown"
 
 
 def _get_camera_model_info(camera):
@@ -2331,9 +2331,9 @@ def _start_gps_sync(mode):
     trigger_state = _state_store.snapshot("trigger") or {}
     rigs = trigger_state.get("rigs") or {}
     if any((rig or {}).get("running") for rig in rigs.values()):
-        return jsonify({"error": "Synchronisation GPS interdite pendant un trigger actif.", "code": "TRIGGER_RUNNING"}), 409
+        return jsonify({"error": "GPS synchronization is forbidden while a trigger is active.", "code": "TRIGGER_RUNNING"}), 409
     if not _gps_controller.start(timeout_s=60.0, mode=mode):
-        return jsonify({"error": "Synchronisation GPS déjà en cours."}), 409
+        return jsonify({"error": "GPS synchronization is already in progress."}), 409
     return jsonify({"status": "started"})
 
 @app.route("/api/gps/state")
@@ -2366,7 +2366,7 @@ def api_camera_probe():
         brand, model, battery = _get_camera_model_info(camera)
         camera.exit()   # Couper immédiatement — économie batterie
 
-        info = {"brand": brand or "Inconnu", "model": model or "Inconnu", "battery": battery}
+        info = {"brand": brand or "Unknown", "model": model or "Unknown", "battery": battery}
         with _state_lock:
             _state["camera"]["connected"] = False   # déconnecté volontairement
             _state["camera"]["brand"]     = brand
@@ -2374,14 +2374,14 @@ def api_camera_probe():
             _state["camera"]["battery"]   = battery
         _save_state()
         _append_log(
-            f"📷 Caméra détectée : {brand or '?'} {model or '?'}"
-            + (f" — Batterie {battery}" if battery else "")
-            + " — connexion coupée.",
+            f"📷 Camera detected: {brand or '?'} {model or '?'}"
+            + (f" — Battery {battery}" if battery else "")
+            + " — connection closed.",
             "success", "system"
         )
         return jsonify(info)
     except Exception as e:
-        _append_log(f"❌ Caméra non détectée : {e}", "error", "system")
+        _append_log(f"❌ Camera not detected: {e}", "error", "system")
         return jsonify({"error": str(e)}), 404
 
 
@@ -2631,7 +2631,7 @@ def api_rig_camera_sync_time(rig_id):
     rigs = trigger_state.get("rigs") or {}
     if (rigs.get(str(rig_id)) or {}).get("running"):
         return jsonify({
-            "error": "Synchronisation caméra interdite pendant un trigger actif.",
+            "error": "Camera synchronization is forbidden while a trigger is active.",
             "code": "TRIGGER_RUNNING",
             "rig_id": rig_id,
         }), 409
@@ -2640,7 +2640,7 @@ def api_rig_camera_sync_time(rig_id):
     utc_offset_minutes = gps_state.get("utc_offset_minutes")
     if utc_offset_minutes is None:
         return jsonify({
-            "error": "Synchronisation GPS requise avant la synchronisation caméra."
+            "error": "GPS synchronization is required before camera synchronization."
         }), 409
 
     attempted = datetime.now(timezone.utc)
@@ -2677,13 +2677,13 @@ def api_camera_sync_time():
     rigs = trigger_state.get("rigs") or {}
     if (rigs.get("1") or {}).get("running"):
         return jsonify({
-            "error": "Synchronisation caméra interdite pendant un trigger actif.",
+            "error": "Camera synchronization is forbidden while a trigger is active.",
             "code": "TRIGGER_RUNNING",
             "rig_id": 1,
         }), 409
 
     if not _camera_sync_lock.acquire(blocking=False):
-        return jsonify({"error": "Synchronisation caméra déjà en cours."}), 409
+        return jsonify({"error": "Camera synchronization is already in progress."}), 409
 
     camera_service = None
     try:
@@ -2691,7 +2691,7 @@ def api_camera_sync_time():
         utc_offset_minutes = gps_state.get("utc_offset_minutes")
         if utc_offset_minutes is None:
             return jsonify({
-                "error": "Synchronisation GPS requise avant la synchronisation caméra."
+                "error": "GPS synchronization is required before camera synchronization."
             }), 409
 
         attempted = datetime.now(timezone.utc)
@@ -2705,7 +2705,7 @@ def api_camera_sync_time():
         try:
             result = camera_service.sync_datetime(reference)
         except Exception as exc:
-            return jsonify({"error": f"Aucune caméra connectée : {exc}"}), 404
+            return jsonify({"error": f"No camera connected: {exc}"}), 404
 
         persisted_result = dict(result)
         persisted_result.update({
@@ -2731,7 +2731,7 @@ def api_eclipse_supported():
 def api_eclipse_calculate():
     global _calc_proc
     if _calc_proc and _calc_proc.poll() is None:
-        return jsonify({"error": "Calcul déjà en cours."}), 409
+        return jsonify({"error": "Calculation is already in progress."}), 409
 
     data    = request.json or {}
     lat     = data.get("lat")
@@ -2740,7 +2740,7 @@ def api_eclipse_calculate():
     eclipse = data.get("eclipse", "auto")
 
     if lat is None or lon is None:
-        return jsonify({"error": "lat et lon requis"}), 400
+        return jsonify({"error": "lat and lon are required"}), 400
 
     if eclipse == "auto" or not eclipse:
         try:
@@ -2754,10 +2754,10 @@ def api_eclipse_calculate():
             eclipse_date = (future[0] if future else eclipse_dates[-1]).isoformat()
         except (IndexError, TypeError, ValueError) as e:
             _append_log(
-                f"calculateur Python : sélection auto impossible : {e}",
+                f"Python calculator: automatic selection failed: {e}",
                 "error", "calculator"
             )
-            return jsonify({"error": "Aucune date d'éclipse supportée"}), 500
+            return jsonify({"error": "No supported eclipse date"}), 500
     else:
         eclipse_date = eclipse
 
@@ -2766,14 +2766,14 @@ def api_eclipse_calculate():
     val = int(tz_used) if tz_used == int(tz_used) else tz_used
     tz_str_dst = f"UTC{sign}{val}"
     _append_log(
-        f"Timezone éclipse auto : {tz_str_dst} "
-        f"(date éclipse : {eclipse_date})",
+        f"Automatic eclipse timezone: {tz_str_dst} "
+        f"(eclipse date: {eclipse_date})",
         "info", "calculator"
     )
 
     def _run():
         global _calc_proc
-        _append_log(f"▶ calculateur Python : lat={lat} lon={lon} alt={alt} tz=+{tz_used} date={eclipse_date} (timezone auto)", "info", "calculator")
+        _append_log(f"▶ Python calculator: lat={lat} lon={lon} alt={alt} tz=+{tz_used} date={eclipse_date} (automatic timezone)", "info", "calculator")
         with _state_lock:
             _state["calc_running"] = True
 
@@ -2814,10 +2814,10 @@ def api_eclipse_calculate():
             payload = {"status": "success", "data": result}
             payload["timezone_override"] = tz_str_dst
             socketio.emit("eclipse_calculated", payload)
-            _append_log("✅ Calcul terminé — todayeclipse.json généré.", "success", "calculator")
+            _append_log("✅ Calculation completed — todayeclipse.json generated.", "success", "calculator")
         else:
             socketio.emit("eclipse_calculated", {"status": "error", "data": None})
-            _append_log(f"❌ Calcul échoué (code {rc}).", "error", "calculator")
+            _append_log(f"❌ Calculation failed (code {rc}).", "error", "calculator")
 
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"status": "started"})
@@ -2899,14 +2899,14 @@ def api_eclipse_current():
     with _state_lock:
         mem = _state.get("eclipse", "unset")
     if mem is None:
-        return jsonify({"error": "Aucun calcul disponible"}), 404
+        return jsonify({"error": "No calculation available"}), 404
     # Priorité : état mémoire → fichier todayeclipse.json
     if mem and mem != "unset":
         return jsonify(mem)
     data = _load_eclipse_json()
     if data:
         return jsonify(data)
-    return jsonify({"error": "Aucun calcul disponible"}), 404
+    return jsonify({"error": "No calculation available"}), 404
 
 @app.route("/api/eclipse/override", methods=["POST"])
 def api_eclipse_override():
@@ -2916,7 +2916,7 @@ def api_eclipse_override():
     """
     updates = request.json or {}
     if not updates:
-        return jsonify({"error": "Aucune donnée"}), 400
+        return jsonify({"error": "No data"}), 400
 
     # Charger le fichier existant
     data = _load_eclipse_json()
@@ -2955,7 +2955,7 @@ def api_eclipse_override():
         with _state_lock:
             _state["eclipse"] = data
         _save_state()
-        _append_log(f"⚙ Paramètres mis à jour manuellement.", "info", "override")
+        _append_log(f"⚙ Parameters updated manually.", "info", "override")
         socketio.emit("eclipse_calculated", {"status": "success", "data": data})
         meta = {
             key: data[key]
@@ -3136,7 +3136,7 @@ def api_configs_load_photo(filename):
             )
 
         if not path.is_file() or path.suffix.lower() != ".json":
-            return jsonify({"error": "Fichier introuvable"}), 404
+            return jsonify({"error": "File not found"}), 404
 
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
@@ -3162,9 +3162,9 @@ def api_configs_save_photo():
     data = body.get("data")
 
     if not requested:
-        return jsonify({"error": "Nom de fichier manquant"}), 400
+        return jsonify({"error": "Missing filename"}), 400
     if not isinstance(data, dict):
-        return jsonify({"error": "Configuration invalide"}), 400
+        return jsonify({"error": "Invalid configuration"}), 400
 
     data = deepcopy(data)
     data["config_type"] = "photo_setup"
@@ -3185,13 +3185,13 @@ def api_configs_save_photo():
 
     phases = data.get("phases")
     if not isinstance(phases, dict):
-        return jsonify({"error": "Phases invalides ou manquantes"}), 400
+        return jsonify({"error": "Invalid or missing phases"}), 400
 
     for phase_name in ("partial", "diamond_ring", "totality"):
         phase = phases.get(phase_name)
         if not isinstance(phase, dict):
             return jsonify({
-                "error": f"Phase invalide ou manquante : {phase_name}"
+                "error": f"Invalid or missing phase: {phase_name}"
             }), 400
 
         shutter_min = phase.get("shutter_min")
@@ -3199,17 +3199,17 @@ def api_configs_save_photo():
 
         if shutter_min not in shutter_indices or shutter_max not in shutter_indices:
             return jsonify({
-                "error": f"Vitesse d'obturation invalide : {phase_name}"
+                "error": f"Invalid shutter speed: {phase_name}"
             }), 400
 
         if shutter_indices[shutter_min] > shutter_indices[shutter_max]:
             return jsonify({
-                "error": f"Plage d'obturation inversée : {phase_name}"
+                "error": f"Reversed shutter-speed range: {phase_name}"
             }), 400
 
         if "step_ev" in phase and phase["step_ev"] != 1.0:
             return jsonify({
-                "error": f"step_ev invalide : {phase_name}"
+                "error": f"Invalid step_ev: {phase_name}"
             }), 400
 
         phase.setdefault("step_ev", 1.0)
@@ -3228,7 +3228,7 @@ def api_configs_save_photo():
         destination = base_dir / filename
         if destination.exists() and body.get("overwrite") is not True:
             return jsonify({
-                "error": "Le fichier existe déjà",
+                "error": "File already exists",
                 "filename": filename,
             }), 409
 
@@ -3306,7 +3306,7 @@ def api_configs_load_exposure_opt(filename):
         path = CONFIGS_DIR / "exposure_opt" / filename
 
         if not path.exists() or not path.is_file() or path.suffix.lower() != ".json":
-            return jsonify({"error": "Fichier introuvable"}), 404
+            return jsonify({"error": "File not found"}), 404
 
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
@@ -3333,9 +3333,9 @@ def api_configs_save_exposure_opt():
     data = body.get("data")
 
     if not requested:
-        return jsonify({"error": "Nom de fichier manquant"}), 400
+        return jsonify({"error": "Missing filename"}), 400
     if not isinstance(data, dict):
-        return jsonify({"error": "Configuration invalide"}), 400
+        return jsonify({"error": "Invalid configuration"}), 400
 
     data = deepcopy(data)
     data["schema_version"] = 1
@@ -3425,7 +3425,7 @@ def api_configs_save_exposure_opt():
 
         if destination.exists() and body.get("overwrite") is not True:
             return jsonify({
-                "error": "Le fichier existe déjà",
+                "error": "File already exists",
                 "filename": filename,
             }), 409
 
@@ -3492,7 +3492,7 @@ def api_configs_load_circumstances(filename):
             or not path.is_file()
             or path.suffix.lower() != ".json"
         ):
-            return jsonify({"error": "Fichier introuvable"}), 404
+            return jsonify({"error": "File not found"}), 404
 
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
@@ -4409,7 +4409,7 @@ def api_configs_load_sequence(filename):
             or not path.is_file()
             or path.suffix.lower() != ".json"
         ):
-            return jsonify({"error": "Fichier introuvable"}), 404
+            return jsonify({"error": "File not found"}), 404
 
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
@@ -4436,10 +4436,10 @@ def api_configs_save_sequence():
     data = body.get("data")
 
     if not requested:
-        return jsonify({"error": "Nom de fichier manquant"}), 400
+        return jsonify({"error": "Missing filename"}), 400
 
     if not isinstance(data, dict):
-        return jsonify({"error": "Configuration invalide"}), 400
+        return jsonify({"error": "Invalid configuration"}), 400
 
     requested_path = Path(requested)
 
@@ -4449,7 +4449,7 @@ def api_configs_save_sequence():
         or "\\" in requested
         or ".." in requested_path.parts
     ):
-        return jsonify({"error": "Nom de fichier invalide"}), 400
+        return jsonify({"error": "Invalid filename"}), 400
 
     filename = requested
     if not filename.endswith(".json"):
@@ -4497,11 +4497,11 @@ def api_configs_save_sequence():
 
     try:
         if destination.resolve().parent != base_dir.resolve():
-            return jsonify({"error": "Nom de fichier invalide"}), 400
+            return jsonify({"error": "Invalid filename"}), 400
 
         if destination.exists() and body.get("overwrite") is not True:
             return jsonify({
-                "error": "Le fichier existe déjà",
+                "error": "File already exists",
                 "filename": filename,
             }), 409
 
@@ -4602,7 +4602,7 @@ def api_configs_load(filename):
     try:
         path = CONFIGS_DIR / filename
         if not path.exists() or path.suffix != ".json":
-            return jsonify({"error": "Fichier introuvable"}), 404
+            return jsonify({"error": "File not found"}), 404
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return jsonify(data)
@@ -4616,7 +4616,7 @@ def api_configs_load_camera(filename):
         filename = Path(filename).name
         path = _resolve_config_file(filename, ("camera_cfg", "capture"))
         if not path.exists() or path.suffix != ".json":
-            return jsonify({"error": "Fichier introuvable"}), 404
+            return jsonify({"error": "File not found"}), 404
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return jsonify(data)
@@ -4630,7 +4630,7 @@ def api_configs_save_camera():
     filename = body.get("filename", "").strip()
     data     = body.get("data", {})
     if not filename:
-        return jsonify({"error": "Nom de fichier manquant"}), 400
+        return jsonify({"error": "Missing filename"}), 400
     if not filename.endswith(".json"):
         filename += ".json"
     if not filename.startswith("camera_"):
@@ -4647,16 +4647,16 @@ def api_configs_save_camera():
     for phase_name in ("partial", "diamond_ring", "totality"):
         phase = phases.get(phase_name) if isinstance(phases, dict) else None
         if not isinstance(phase, dict):
-            return jsonify({"error": f"Phase invalide ou manquante : {phase_name}"}), 400
+            return jsonify({"error": f"Invalid or missing phase: {phase_name}"}), 400
         shutter_min = phase.get("shutter_min")
         shutter_max = phase.get("shutter_max")
         if shutter_min not in shutter_indices or shutter_max not in shutter_indices:
-            return jsonify({"error": f"Vitesse d'obturation invalide : {phase_name}"}), 400
+            return jsonify({"error": f"Invalid shutter speed: {phase_name}"}), 400
         # The canonical list is slowest to fastest, so min must precede max.
         if shutter_indices[shutter_min] > shutter_indices[shutter_max]:
-            return jsonify({"error": f"Plage d'obturation inversée : {phase_name}"}), 400
+            return jsonify({"error": f"Reversed shutter-speed range: {phase_name}"}), 400
         if "step_ev" in phase and phase["step_ev"] != 1.0:
-            return jsonify({"error": f"step_ev invalide : {phase_name}"}), 400
+            return jsonify({"error": f"Invalid step_ev: {phase_name}"}), 400
         phase.setdefault("step_ev", 1.0)
 
     try:
@@ -4665,10 +4665,10 @@ def api_configs_save_camera():
         destination = destination_dir / filename
         overwriting = destination.exists()
         if overwriting and body.get("overwrite") is not True:
-            return jsonify({"error": "Le fichier existe déjà", "filename": filename}), 409
+            return jsonify({"error": "File already exists", "filename": filename}), 409
         with open(destination, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
-        _append_log(f"💾 Config appareil sauvegardée : {filename}", "success", "system")
+        _append_log(f"💾 Camera configuration saved: {filename}", "success", "system")
 
         capture = _state_store.snapshot("capture")
         if (overwriting and body.get("overwrite") is True
@@ -4702,20 +4702,20 @@ def api_configs_save():
     body = request.json or {}
     requested = body.get("filename", "").strip()
     if not requested:
-        return jsonify({"error": "Nom de fichier manquant"}), 400
+        return jsonify({"error": "Missing filename"}), 400
     requested_path = Path(requested)
     if (requested_path.is_absolute()
             or "/" in requested
             or os.sep in requested
             or (os.altsep and os.altsep in requested)
             or ".." in requested_path.parts):
-        return jsonify({"error": "Nom de fichier invalide"}), 400
+        return jsonify({"error": "Invalid filename"}), 400
     filename = requested
     if not filename.endswith(".json"):
         filename += ".json"
     data = _load_eclipse_json()
     if not data:
-        return jsonify({"error": "Aucune configuration active"}), 400
+        return jsonify({"error": "No active configuration"}), 400
     try:
         CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
         destination_dir = (
@@ -4725,14 +4725,14 @@ def api_configs_save():
         destination_dir.mkdir(parents=True, exist_ok=True)
         destination = destination_dir / filename
         if destination.resolve().parent != destination_dir.resolve():
-            return jsonify({"error": "Nom de fichier invalide"}), 400
+            return jsonify({"error": "Invalid filename"}), 400
         filename = destination.resolve().name
         overwriting = destination.exists()
         if overwriting and body.get("overwrite") is not True:
-            return jsonify({"error": "Le fichier existe déjà", "filename": filename}), 409
+            return jsonify({"error": "File already exists", "filename": filename}), 409
         with open(destination, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
-        _append_log(f"💾 Config sauvegardée : {filename}", "success", "system")
+        _append_log(f"💾 Configuration saved: {filename}", "success", "system")
 
         circumstances = _state_store.snapshot("circumstances")
         if (overwriting and body.get("overwrite") is True
@@ -4783,7 +4783,7 @@ def api_eclipse_reset():
             {"loaded": False, "active_file": None, "meta": {}},
             persist=True,
         )
-        _append_log("🗑 todayeclipse.json supprimé.", "warning", "debug")
+        _append_log("🗑 todayeclipse.json deleted.", "warning", "debug")
         socketio.emit("status_update", _status_update_payload({
             "circumstances": circumstances,
         }))
@@ -4822,7 +4822,7 @@ def api_trigger_select():
     source_dir = body.get("dir", "configs")
 
     if not filename or not filename.endswith(".json"):
-        return jsonify({"error": "Nom de fichier invalide"}), 400
+        return jsonify({"error": "Invalid filename"}), 400
     filename = Path(filename).name  # sécurité anti-traversal
 
     if source_dir == "trigger":
@@ -4833,13 +4833,13 @@ def api_trigger_select():
         src = _resolve_config_file(filename, "circumstances")
 
     if not src.exists():
-        return jsonify({"error": f"Fichier introuvable : {filename}"}), 404
+        return jsonify({"error": f"File not found: {filename}"}), 404
 
     try:
         with open(src, encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        return jsonify({"error": f"JSON illisible : {e}"}), 400
+        return jsonify({"error": f"Unreadable JSON: {e}"}), 400
 
     # Copier comme todayeclipse.json si ce n'est pas déjà lui
     if src != JSON_FILE:
@@ -4873,7 +4873,7 @@ def api_trigger_select():
     socketio.emit("status_update", _status_update_payload({
         "circumstances": circumstances,
     }))
-    _append_log(f"📂 Config chargée : {filename}", "info", "trigger")
+    _append_log(f"📂 Configuration loaded: {filename}", "info", "trigger")
     return jsonify({"status": "ok", "data": data, "circumstances": circumstances})
 
 @app.route("/api/trigger/select_camera", methods=["POST"])
@@ -4882,16 +4882,16 @@ def api_trigger_select_camera():
     body = request.json or {}
     filename = body.get("filename", "").strip()
     if not filename or not filename.endswith(".json"):
-        return jsonify({"error": "Nom de fichier invalide"}), 400
+        return jsonify({"error": "Invalid filename"}), 400
     filename = Path(filename).name
     path = _resolve_config_file(filename, ("camera_cfg", "capture"))
     if not path.exists():
-        return jsonify({"error": f"Fichier introuvable : {filename}"}), 404
+        return jsonify({"error": f"File not found: {filename}"}), 404
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        return jsonify({"error": f"JSON illisible : {e}"}), 400
+        return jsonify({"error": f"Unreadable JSON: {e}"}), 400
 
     meta = {
         key: data[key]
@@ -4908,7 +4908,7 @@ def api_trigger_select_camera():
     socketio.emit("status_update", _status_update_payload({
         "capture": capture,
     }))
-    _append_log(f"📷 Config appareil : {filename}", "info", "trigger")
+    _append_log(f"📷 Camera configuration: {filename}", "info", "trigger")
     return jsonify({"status": "ok", "filename": filename, "capture": capture})
 
 @app.route("/api/trigger/totality_only", methods=["POST"])
@@ -4919,7 +4919,7 @@ def api_trigger_totality_only():
 
     if not _trigger_service.override_totality(rig_id=rig_id):
         return jsonify({
-            "error": f"Aucun trigger actif à préempter pour RIG {rig_id}",
+            "error": f"No active trigger to preempt for RIG {rig_id}",
             "code": "TRIGGER_NOT_RUNNING",
             "rig_id": rig_id,
         }), 409
@@ -4955,7 +4955,7 @@ def api_trigger_start():
     try:
         if not _trigger_service.start(rig_id=rig_id, simulate=False):
             return jsonify({
-                "error": f"Trigger RIG {rig_id} déjà en cours.",
+                "error": f"Trigger RIG {rig_id} is already running.",
                 "rig_id": rig_id,
             }), 409
 
@@ -4979,7 +4979,7 @@ def api_trigger_simulate():
     speed = payload.get("speed", 60.0)
     try:
         if not _trigger_service.start(simulate=True, speed=speed):
-            return jsonify({"error": "Trigger déjà en cours."}), 409
+            return jsonify({"error": "Trigger is already running."}), 409
         return jsonify({"status": "started", "mode": "simulation", "speed": float(speed)})
     except TriggerValidationError as exc:
         if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
@@ -4998,7 +4998,7 @@ def api_trigger_dryrun_now():
             dry_run_now=True,
         ):
             return jsonify({
-                "error": f"Trigger RIG {rig_id} déjà en cours.",
+                "error": f"Trigger RIG {rig_id} is already running.",
                 "rig_id": rig_id,
             }), 409
 
@@ -5032,7 +5032,7 @@ def api_trigger_dryrun():
             dry_run_delay=delay,
         ):
             return jsonify({
-                "error": f"Trigger RIG {rig_id} déjà en cours.",
+                "error": f"Trigger RIG {rig_id} is already running.",
                 "rig_id": rig_id,
             }), 409
 
@@ -5174,7 +5174,7 @@ def start_background_threads():
     threading.Thread(target=_thread_status_broadcast, daemon=True).start()
     threading.Thread(target=_thread_camera_poll,      daemon=True).start()
     threading.Thread(target=_trim_log_file,           daemon=True).start()
-    log.info("Threads de fond démarrés.")
+    log.info("Background threads started.")
 
 # Init au démarrage
 _state = _load_state()
@@ -5182,8 +5182,8 @@ _load_log_buffer()
 _state_store.reset_boot_sensitive()
 _restore_persisted_trigger_selections()
 
-_append_log("🚀 SolarEclipse Portal démarré.", "success", "system")
-_append_log(f"🐍 Python : {sys.executable}", "info", "system")
+_append_log("🚀 SolarEclipse Portal started.", "success", "system")
+_append_log(f"🐍 Python: {sys.executable}", "info", "system")
 
 if __name__ == "__main__":
     start_background_threads()

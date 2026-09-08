@@ -228,15 +228,15 @@ DEFAULTS = {
 def load_config_file(filepath):
     """Charge un fichier JSON de configuration et retourne un dictionnaire de paramètres."""
     if not os.path.isfile(filepath):
-        _log(f"{Colors.RED}Fichier de configuration introuvable : {filepath}{Colors.RESET}")
+        _log(f"{Colors.RED}Configuration file not found: {filepath}{Colors.RESET}")
         raise SystemExit(1)
     with open(filepath, "r", encoding="utf-8") as f:
         try:
             config = json.load(f)
-            _log(f"{Colors.GREEN}Configuration chargée depuis : {filepath}{Colors.RESET}")
+            _log(f"{Colors.GREEN}Configuration loaded from: {filepath}{Colors.RESET}")
             return config
         except json.JSONDecodeError as e:
-            _log(f"{Colors.RED}Erreur de parsing JSON dans {filepath} : {e}{Colors.RESET}")
+            _log(f"{Colors.RED}JSON parsing error in {filepath} : {e}{Colors.RESET}")
             raise SystemExit(1)
 
 def parse_arguments():
@@ -246,11 +246,11 @@ def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Total Solar Eclipse Automatic Script",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog="Exemple : python3 scripts/eclipse_trigger.py --file var/generated/circumstances/eclipse.json\n"
+        epilog="Example: python3 scripts/eclipse_trigger.py --file var/generated/circumstances/eclipse.json\n"
                "          python3 scripts/eclipse_trigger.py --file var/generated/circumstances/eclipse.json --debug"
     )
-    parser.add_argument("--file",   type=str, default=None, help="Fichier JSON circonstances éclipse")
-    parser.add_argument("--camera", type=str, default=None, help="Fichier JSON configuration appareil photo")
+    parser.add_argument("--file",   type=str, default=None, help="Eclipse circumstances JSON file")
+    parser.add_argument("--camera", type=str, default=None, help="Camera configuration JSON file")
     parser.add_argument(
         "--execution-plan",
         type=str,
@@ -258,16 +258,16 @@ def parse_arguments():
         help="Execution Plan (.plan or legacy schema-v2 JSON)",
     )
     parser.add_argument("--interact",  action="store_true",  help="Enable interact mode")
-    parser.add_argument("--debug",     action="store_true",  help="Enable debug mode (contacts dans 15s)")
-    parser.add_argument("--simulate",  action="store_true",  help="Mode simulation accélérée sans déclenchement matériel")
-    parser.add_argument("--speed",     type=float, default=60.0, help="Facteur d'accélération simulation (défaut: 60)")
-    parser.add_argument("--dry-run",   action="store_true",  help="Dry-run : même moteur et même caméra, timeline translatée sur maintenant")
-    parser.add_argument("--dry-run-delay", type=float, default=30.0, help="Délai avant TSTART du dry-run, en secondes (défaut: 30)")
+    parser.add_argument("--debug",     action="store_true",  help="Enable debug mode (contacts in 15s)")
+    parser.add_argument("--simulate",  action="store_true",  help="Accelerated simulation mode without hardware triggering")
+    parser.add_argument("--speed",     type=float, default=60.0, help="Simulation acceleration factor (default: 60)")
+    parser.add_argument("--dry-run",   action="store_true",  help="Dry-run: same engine and camera, timeline shifted to now")
+    parser.add_argument("--dry-run-delay", type=float, default=30.0, help="Delay before dry-run TSTART, in seconds (default: 30)")
     parser.add_argument(
         "--dry-run-now-start",
         type=str,
         default=None,
-        help="TSTART UTC absolu pour DRY-RUN NOW, fourni par le backend",
+        help="Absolute UTC TSTART for DRY-RUN NOW, provided by the backend",
     )
     # Arguments optionnels — surchargent le fichier JSON si fournis
     parser.add_argument("--title",                   type=str, default=None)
@@ -304,7 +304,7 @@ _CAPTURE_PHASES = ("partial", "diamond_ring", "totality")
 def build_capture_canonical(capture):
     """Validate and copy a capture_execution v2 configuration."""
     if not isinstance(capture, dict):
-        raise ValueError("configuration capture invalide : objet JSON attendu")
+        raise ValueError("invalid capture configuration: expected a JSON object")
 
     has_v2_marker = "phases" in capture or "exposure_correction" in capture
     if has_v2_marker:
@@ -312,17 +312,17 @@ def build_capture_canonical(capture):
         correction = capture.get("exposure_correction", {})
 
         if not isinstance(phases, dict):
-            raise ValueError("capture v2 invalide : 'phases' doit être un objet")
+            raise ValueError("invalid capture v2: 'phases' must be an object")
 
         for phase in _CAPTURE_PHASES:
             if not isinstance(phases.get(phase), dict):
                 raise ValueError(
-                    f"capture v2 invalide : 'phases.{phase}' doit être un objet"
+                    f"invalid capture v2: 'phases.{phase}' must be an object"
                 )
 
         if not isinstance(correction, dict):
             raise ValueError(
-                "capture v2 invalide : 'exposure_correction' doit être un objet"
+                "invalid capture v2: 'exposure_correction' must be an object"
             )
 
         canonical_correction = dict(correction)
@@ -340,9 +340,9 @@ def build_capture_canonical(capture):
         )
         if atmospheric is not None and not isinstance(atmospheric, bool):
             raise ValueError(
-                "capture v2 invalide : "
+                "invalid capture v2: "
                 "'exposure_correction.atmospheric_attenuation_enabled' "
-                "doit être un booléen"
+                "must be a boolean"
             )
 
         return {
@@ -350,7 +350,7 @@ def build_capture_canonical(capture):
             "exposure_correction": canonical_correction,
         }
 
-    raise ValueError("capture v2 invalide : marqueur 'phases' absent")
+    raise ValueError("invalid capture v2: missing 'phases' marker")
 
 
 def build_legacy_capture_canonical(camera_profile, circumstances):
@@ -448,13 +448,13 @@ def build_legacy_capture_canonical(camera_profile, circumstances):
 def astronomy(name):
     """Read an astronomical circumstance, never a capture setting."""
     if name not in _ASTRONOMY_KEYS:
-        raise KeyError(f"champ astronomy inconnu : {name}")
+        raise KeyError(f"unknown astronomy field: {name}")
     return circumstances.get(name)
 
 def capture_phase(name):
     """Read one phase exclusively from the injected canonical capture."""
     if name not in _CAPTURE_PHASES:
-        raise KeyError(f"phase capture inconnue : {name}")
+        raise KeyError(f"unknown capture phase: {name}")
     return capture_canonical["phases"][name]
 
 def exposure_correction(name, default=None):
@@ -495,7 +495,7 @@ if capture_is_v2:
 if args.file:
     _apply_eclipse_file(cfg, circumstances)
 if capture_is_v2:
-    _log(f"{Colors.GREEN}Stratégie photo dérivée de capture v2{Colors.RESET}")
+    _log(f"{Colors.GREEN}Photo strategy derived from capture v2{Colors.RESET}")
 
 # Arguments CLI individuels : priorité maximale.
 cli_overrides = {
@@ -547,7 +547,7 @@ _runtime_clock.configure(args.simulate, args.speed)
 _sim_mode = _runtime_clock.sim_mode
 _sim_speed = _runtime_clock.speed
 if _sim_mode:
-    _log(f"⚡ MODE SIMULATION ×{_sim_speed:.0f} activé")
+    _log(f"⚡ SIMULATION MODE ×{_sim_speed:.0f} enabled")
 
 titre                    = cfg["title"]
 C1_str                   = astronomy("C1") if circumstances else cfg["C1"]
@@ -624,7 +624,7 @@ _dry_run_now_delta = None
 if args.dry_run_now_start:
     if args.dry_run:
         raise RuntimeError(
-            "--dry-run et --dry-run-now-start sont mutuellement exclusifs"
+            "--dry-run and --dry-run-now-start are mutually exclusive"
         )
 
     target_text = args.dry_run_now_start.strip()
@@ -636,12 +636,12 @@ if args.dry_run_now_start:
         target_aware = datetime.fromisoformat(target_text)
     except ValueError as exc:
         raise RuntimeError(
-            "TSTART DRY-RUN NOW invalide"
+            "Invalid DRY-RUN NOW TSTART"
         ) from exc
 
     if target_aware.tzinfo is None:
         raise RuntimeError(
-            "TSTART DRY-RUN NOW doit contenir un offset UTC"
+            "DRY-RUN NOW TSTART must contain a UTC offset"
         )
 
     dry_run_now_start = (
@@ -652,7 +652,7 @@ if args.dry_run_now_start:
 
     if dry_run_now_start <= now():
         raise RuntimeError(
-            "TSTART DRY-RUN NOW est déjà dans le passé"
+            "DRY-RUN NOW TSTART is already in the past"
         )
 
     original_start = _timeline["TSTART"]
@@ -672,7 +672,7 @@ if args.dry_run_now_start:
     _log(
         f"🧪 DRY-RUN NOW — "
         f"TSTART={dry_run_now_start.isoformat()}Z — "
-        "timeline entière translatée par un delta unique"
+        "entire timeline shifted by a single delta"
     )
 
 elif args.dry_run:
@@ -691,16 +691,16 @@ elif args.dry_run:
     )
 
     _log(
-        "🧪 DRY-RUN ×1 — timeline translatée sur aujourd'hui, "
-        "intervalles inchangés"
+        "🧪 DRY-RUN ×1 — timeline shifted to today, "
+        "intervals unchanged"
     )
 
 try:
     _rig_configuration = load_rig_configuration()
 except Exception as exc:
     _log(
-        f"{Colors.YELLOW}Configuration RIG indisponible : "
-        f"Atmos par RIG désactivé ({exc}){Colors.RESET}"
+        f"{Colors.YELLOW}RIG configuration unavailable: "
+        f"per-RIG atmospheric attenuation disabled ({exc}){Colors.RESET}"
     )
     _rig_configuration = {}
 _atmos_enabled_by_rig = MappingProxyType(deepcopy({
@@ -751,13 +751,13 @@ TEND = _timeline["TEND"]
 ## Détecter la topologie locale de l'éclipse.
 if (C2 is None) != (C3 is None):
     raise RuntimeError(
-        "circonstances invalides : C2 et C3 doivent être "
-        "tous deux présents ou absents"
+        "invalid circumstances: C2 and C3 must be "
+        "both present or absent"
     )
 
 is_partial = C2 is None and C3 is None
 
-_log(f"{Colors.CYAN}Type d'éclipse : {'Partielle' if is_partial else 'Totale'}{Colors.RESET}")
+_log(f"{Colors.CYAN}Eclipse type: {'Partial' if is_partial else 'Total'}{Colors.RESET}")
 
 # Alertes textuelles (adaptées selon le type d'éclipse)
 messages_temps = [
@@ -854,7 +854,7 @@ def _build_alertes():
         add(C3 + timedelta(seconds=diamond_ring_duration_s), "filters_on.wav",
             t_min=C3, t_max=C4)
 
-        _log(f"INFO {Colors.CYAN}Totalité : {totalite_s:.0f}s — alertes filtrées selon fenêtres de phase{Colors.RESET}")
+        _log(f"INFO {Colors.CYAN}Totality: {totalite_s:.0f}s — alerts filtered by phase windows{Colors.RESET}")
 
     # ── Avant C4 (fenêtre : C3 → C4) ─────────────────────────────────────────
     add(C4 - timedelta(minutes=10), "10minutes.wav",  t_min=C3, t_max=C4)
@@ -876,7 +876,7 @@ def _build_alertes():
             seen.add(key)
             result.append((t, son))
 
-    _log(f"INFO {Colors.CYAN}{len(result)} alertes sonores programmées (sur {len(alertes)} candidates){Colors.RESET}")
+    _log(f"INFO {Colors.CYAN}{len(result)} audio alerts scheduled ({len(alertes)} candidates){Colors.RESET}")
     return result
 
 alertes_sons = _build_alertes()
@@ -903,10 +903,10 @@ _DEFAULT_SPEEDS = ["1/4000", "1/2000", "1/1000", "1/500", "1/250",
 _configured_totality_speeds = _capture_speed_summary(_totality_capture, [])
 if _configured_totality_speeds:
     shutter_speeds = _configured_totality_speeds
-    _log(f"{Colors.CYAN}Vitesses totalité depuis JSON ({len(shutter_speeds)} vitesses){Colors.RESET}")
+    _log(f"{Colors.CYAN}Totality shutter speeds from JSON ({len(shutter_speeds)} shutter speeds){Colors.RESET}")
 else:
     shutter_speeds = _DEFAULT_SPEEDS
-    _log(f"{Colors.CYAN}Vitesses totalité : liste par défaut ({len(shutter_speeds)} vitesses){Colors.RESET}")
+    _log(f"{Colors.CYAN}Totality shutter speeds: default list ({len(shutter_speeds)} shutter speeds){Colors.RESET}")
 
 def parse_shutterspeed(speed_str):
     """Convertit une vitesse d'obturation en secondes.
@@ -950,14 +950,14 @@ def _sim_capture_speed_list(
 
         if not regular:
             raise RuntimeError(
-                "slowest_override_seconds fourni pour une liste irrégulière"
+                "slowest_override_seconds provided for an irregular list"
             )
 
         try:
             target_slowest = float(slowest_override_seconds)
         except (TypeError, ValueError) as exc:
             raise RuntimeError(
-                "slowest_override_seconds invalide en simulation"
+                "invalid slowest_override_seconds in simulation"
             ) from exc
 
         current_slowest = parse_shutterspeed(slowest)
@@ -970,7 +970,7 @@ def _sim_capture_speed_list(
 
         if step_il <= 0.0:
             raise RuntimeError(
-                "step_IL invalide pour extension atmosphérique en simulation"
+                "invalid step_IL for atmospheric extension in simulation"
             )
 
         next_exposure = current_slowest * (2.0 ** step_il)
@@ -996,7 +996,7 @@ def _sim_capture_speed_list(
             if end_exp > deadline and exposure > 0.5:
                 _log(
                     f"INFO {Colors.ORANGE}"
-                    f"⚠ Sécurité deadline : {speed} sautée"
+                    f"⚠ Deadline safety: {speed} skipped"
                     f"{Colors.RESET}"
                 )
                 continue
@@ -1036,12 +1036,12 @@ def _extend_regular_ev_for_atmosphere(
 
     if observer_altitude is None:
         raise RuntimeError(
-            "atmo_compensation actif : altitude observateur manquante"
+            "atmo_compensation active: observer altitude missing"
         )
 
     if target_time is None:
         raise RuntimeError(
-            "atmo_compensation actif : timestamp capture manquant"
+            "atmo_compensation active: capture timestamp missing"
         )
 
     tl = {
@@ -1055,7 +1055,7 @@ def _extend_regular_ev_for_atmosphere(
         h = interpolate_altitude(target_time, tl, altitudes)
     except ValueError as exc:
         raise RuntimeError(
-            f"atmo_compensation actif : {exc}"
+            f"atmo_compensation active: {exc}"
         ) from exc
 
     updated_speeds = None if speeds is None else list(speeds)
@@ -1169,7 +1169,7 @@ def _capture_intent(speeds, phase, target_time, deadline=None):
             loc = _observer_location()
             if loc is None or loc.get("altitude_m") is None:
                 raise RuntimeError(
-                    "atmo_compensation actif : altitude observateur manquante"
+                    "atmo_compensation active: observer altitude missing"
                 )
             alts = {
                 name: astronomy(name) if circumstances else cfg.get(name)
@@ -1554,7 +1554,7 @@ def _run_absolute_grid(camera_service, phase, speeds, first_target, phase_end,
         if skipped:
             _log(f"WARNING scheduler phase={phase} missed_slots={skipped} next_target={target.isoformat()}")
         if target < phase_end:
-            _log(f"{Colors.CYAN}⏱ Prochaine photo : {target.strftime('%H:%M:%S')}{Colors.RESET}")
+            _log(f"{Colors.CYAN}⏱ Next photo: {target.strftime('%H:%M:%S')}{Colors.RESET}")
     return photo_num
 
 
@@ -1575,7 +1575,7 @@ def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, 
         if use_atmo and regular:
             loc = _observer_location()
             if not loc or loc.get("altitude_m") is None:
-                raise RuntimeError("altitude observateur manquante")
+                raise RuntimeError("observer altitude missing")
             alts = {name: astronomy(name) if circumstances else cfg.get(name) for name in (
                 "C1_alt_deg", "C2_alt_deg", "TMAX_alt_deg", "C3_alt_deg", "C4_alt_deg"
             )}
@@ -1598,7 +1598,7 @@ def capture_speed_list(camera_service, speeds, photo_num_start, next_shot_time, 
         )
         return result.frames if result is not None else 0
     except Exception as exc:
-        _log(f"{Colors.RED}Erreur plugin caméra : {exc}{Colors.RESET}")
+        _log(f"{Colors.RED}Camera plugin error: {exc}{Colors.RESET}")
         return 0
 
 def attendre_heure(heure_cible):
@@ -1615,7 +1615,7 @@ def attendre_heure(heure_cible):
         # Émettre une ligne toutes les 10s pour débloquer le pipe Flask
         if (now() - last_log).total_seconds() >= 10:
             remaining = int((heure_cible - now()).total_seconds())
-            _log(f"{Colors.GREEN}# Attente TSTART — {remaining}s restantes{Colors.RESET}")
+            _log(f"{Colors.GREEN}# Waiting for TSTART — {remaining}s remaining{Colors.RESET}")
             last_log = now()
 
 def afficher_messages_temps():
@@ -1636,7 +1636,7 @@ def _shutdown_audio_threads(timeout=5.0):
 def jouer_son_en_thread(nom_fichier):
     """Déclenche un son via Jack (pygame/ALSA) dans un thread daemon."""
     def _run():
-        _log(f"INFO {Colors.ORANGE}♪ Son : {nom_fichier}{Colors.RESET}")
+        _log(f"INFO {Colors.ORANGE}♪ Sound: {nom_fichier}{Colors.RESET}")
         audio_service.play(nom_fichier)
     if audio_service.is_stopped():
         return
@@ -1656,7 +1656,7 @@ def ecouter_alertes():
     )
     ignored = len(alertes_sons) - len(restantes)
     if ignored:
-        _log(f"{Colors.YELLOW}{ignored} alerte(s) son passée(s) ignorée(s).{Colors.RESET}")
+        _log(f"{Colors.YELLOW}{ignored} past audio alert(s) ignored.{Colors.RESET}")
     while restantes and not audio_service.is_stopped():
         _now = now()
         for alerte in restantes[:]:
@@ -1673,19 +1673,19 @@ def get_battery_level(camera_service):
     try:
         pct = camera_service.get_battery_level()
         if pct is None:
-            _log(f"{Colors.YELLOW}Batterie : niveau indisponible via plugin{Colors.RESET}")
+            _log(f"{Colors.YELLOW}Battery: level unavailable through plugin{Colors.RESET}")
             return None
         if pct > 70:
-            _log(f"{Colors.GREEN}Batterie : {pct}%{Colors.RESET}")
+            _log(f"{Colors.GREEN}Battery: {pct}%{Colors.RESET}")
         elif pct > 40:
-            _log(f"{Colors.BLEU}Batterie : {pct}%{Colors.RESET}")
+            _log(f"{Colors.BLEU}Battery: {pct}%{Colors.RESET}")
         elif pct > 20:
-            _log(f"{Colors.JAUNE}Batterie : {pct}% avertissement{Colors.RESET}")
+            _log(f"{Colors.JAUNE}Battery: {pct}% warning{Colors.RESET}")
         else:
-            _log(f"{Colors.RED}!!! BATTERIE FAIBLE : {pct}% CHANGER !!{Colors.RESET}")
+            _log(f"{Colors.RED}!!! LOW BATTERY: {pct}% REPLACE !!{Colors.RESET}")
         return pct
     except Exception as exc:
-        _log(f"{Colors.YELLOW}Batterie plugin : {exc}{Colors.RESET}")
+        _log(f"{Colors.YELLOW}Plugin battery: {exc}{Colors.RESET}")
         return None
 
 def calculer_temps_debut_sequence(T0, T1, intervalle):
@@ -1735,7 +1735,7 @@ def estimatedPhoto(T0, T1, intervalle):
     if delta <= 0:
         return 0
     if intervalle <= 0:
-        raise ValueError("intervalle doit être > 0")
+        raise ValueError("interval must be > 0")
     return math.ceil(delta / intervalle)
 
 
@@ -1899,7 +1899,7 @@ def _run_execution_plan_v2():
     if args.dry_run_now_start:
         if _dry_run_now_delta is None:
             raise RuntimeError(
-                "delta DRY-RUN NOW non initialisé"
+                "DRY-RUN NOW delta not initialized"
             )
 
         sequence_start_raw = plan.get(
@@ -1938,8 +1938,8 @@ def _run_execution_plan_v2():
         _log(
             f"{Colors.PINK}"
             "🧪 EXECUTION PLAN DRY-RUN NOW — "
-            "même delta que la timeline — "
-            "source .plan inchangé"
+            "same delta as the timeline — "
+            "source .plan unchanged"
             f"{Colors.RESET}"
         )
 
@@ -1970,8 +1970,8 @@ def _run_execution_plan_v2():
 
         _log(
             f"{Colors.PINK}🧪 EXECUTION PLAN DRY-RUN ×1 — "
-            f"date UTC remplacée par aujourd'hui, "
-            f"heures inchangées{Colors.RESET}"
+            f"UTC date replaced with today, "
+            f"times unchanged{Colors.RESET}"
         )
 
     if _sim_mode:
@@ -1993,7 +1993,7 @@ def _run_execution_plan_v2():
 
         _log(
             f"{Colors.PINK}⚡ EXECUTION PLAN SIMULATION ×"
-            f"{_sim_speed:.0f} — aucun accès caméra matériel"
+            f"{_sim_speed:.0f} — no camera hardware access"
             f"{Colors.RESET}"
         )
 
@@ -2035,7 +2035,7 @@ def _run_execution_plan_v2():
         runtime.prepare_for_execution(plan)
     except Exception as exc:
         _log(
-            f"{Colors.RED}PRÉPARATION CAMÉRA IMPOSSIBLE — "
+            f"{Colors.RED}CAMERA PREPARATION FAILED — "
             f"{exc}{Colors.RESET}"
         )
         raise
@@ -2087,7 +2087,7 @@ def _run_execution_plan_v2():
             totality_runtime.run(cycle_plan)
 
     _log(
-        f"{Colors.GREEN}✅ EXECUTION PLAN V2 TERMINÉ{Colors.RESET}"
+        f"{Colors.GREEN}✅ EXECUTION PLAN V2 COMPLETED{Colors.RESET}"
     )
 
 
@@ -2102,7 +2102,7 @@ def main():
 
         if args.execution_plan:
             _log(
-                f"{Colors.BLUE}Sons — Jack (pygame ALSA) : "
+                f"{Colors.BLUE}Sounds — Jack (pygame ALSA): "
                 f"{audio_service.SOUNDS_ENABLED}{Colors.RESET}"
             )
 
@@ -2128,7 +2128,7 @@ def main():
         # ── Init horloge simulation ────────────────────────────────────────
         if _sim_mode:
             _runtime_clock.start_simulation(TSTART - timedelta(seconds=30))
-            print(f"WARNING {Colors.PINK}⚡ SIMULATION ×{_sim_speed:.0f} | Heure virtuelle départ : {_runtime_clock.virt_start.strftime('%H:%M:%S')} | 1 seconde réelle = {_sim_speed:.0f}s virtuelles{Colors.RESET}")
+            print(f"WARNING {Colors.PINK}⚡ SIMULATION ×{_sim_speed:.0f} | Virtual start time: {_runtime_clock.virt_start.strftime('%H:%M:%S')} | 1 real second = {_sim_speed:.0f} virtual s{Colors.RESET}")
 
         # ── Watchdog : diagnostic uniquement ─────────────────────────────
         # Un nouveau START ne reprend jamais à partir de trigger_state.json.
@@ -2144,9 +2144,9 @@ def main():
                 or ""
             )
             _log(
-                f"WARNING {Colors.ORANGE}⚠ WATCHDOG : ancien état détecté "
+                f"WARNING {Colors.ORANGE}⚠ WATCHDOG: stale state detected "
                 f"(phase={phase_prev}, next_shot={next_shot_prev}, "
-                f"écrit={str(written_at)[:19]}) — ignoré pour la reprise"
+                f"written={str(written_at)[:19]}) — ignored for resume"
                 f"{Colors.RESET}"
             )
 
@@ -2155,7 +2155,7 @@ def main():
         camera_service = None
         ipc_socket = os.environ.get("SET_CAMERA_IPC_SOCKET")
         if _sim_mode:
-            _log(f"{Colors.PINK}⚡ SIM : accès matériel caméra totalement désactivé{Colors.RESET}")
+            _log(f"{Colors.PINK}⚡ SIM: camera hardware access fully disabled{Colors.RESET}")
             camera_service = _SimulationCameraService()
         elif ipc_socket:
             ipc_client = CameraIpcClient(
@@ -2182,24 +2182,24 @@ def main():
             )
         else:
             if args.dry_run:
-                _log(f"{Colors.PINK}🧪 DRY-RUN : chemin matériel caméra identique au mode réel{Colors.RESET}")
+                _log(f"{Colors.PINK}🧪 DRY-RUN: camera hardware path identical to real mode{Colors.RESET}")
             unmount_camera()
             camera_service = CameraService(log_fn=_log, clock=_runtime_clock)
             try:
                 plugin = camera_service.connect()
             except Exception as exc:
-                _log(f"{Colors.RED}Caméra/plugin non initialisé : {exc}{Colors.RESET}")
+                _log(f"{Colors.RED}Camera/plugin not initialized: {exc}{Colors.RESET}")
                 return
             _log(f"{Colors.GREEN}### INIT - CAMERA CONFIGURATION ({plugin.name}){Colors.RESET}")
             camera_service.init_settings(aperture=aperture_partial, iso=iso_partial)
             time.sleep(1)
             get_battery_level(camera_service)
-    
+
         if is_partial:
-            _log(f"{Colors.GREEN}### ECLIPSE PARIELLE{Colors.RESET}")
+            _log(f"{Colors.GREEN}### PARTIAL ECLIPSE{Colors.RESET}")
         else:
-             _log(f"{Colors.GREEN}### ECLIPSE TOTALE{Colors.RESET}")          
-        
+             _log(f"{Colors.GREEN}### TOTAL ECLIPSE{Colors.RESET}")
+
         _log(f"{Colors.GREEN}### SETUP - CONTACTS{Colors.RESET}")
         _log(f"C1 : {format_hms_ms(C1)}")
         if not is_partial:
@@ -2213,7 +2213,7 @@ def main():
 
 
         # Lancer l'écoute des alertes sonores
-        _log(f"{Colors.BLUE}Sons — Jack (pygame ALSA) : {audio_service.SOUNDS_ENABLED}{Colors.RESET}")
+        _log(f"{Colors.BLUE}Sounds — Jack (pygame ALSA): {audio_service.SOUNDS_ENABLED}{Colors.RESET}")
         thread_alertes = threading.Thread(target=ecouter_alertes, daemon=True, name="audio-alert-scheduler")
         audio_service.register_thread(thread_alertes)
         thread_alertes.start()
@@ -2227,7 +2227,7 @@ def main():
         attendre_heure(TSTART)
 
         if not is_partial:
-            ### ECLIPSE TOTALE DE SOLEIL
+            ### TOTAL ECLIPSE DE SOLEIL
 
             fin_phase_1a = C2 - timedelta(seconds=diamond_ring_duration_s)
             fin_phase_3a = C3 + timedelta(seconds=diamond_ring_duration_s)
@@ -2237,16 +2237,16 @@ def main():
             current = now()
             if current >= TEND:
                 _log(
-                    f"{Colors.ORANGE}⚠ START après TEND : "
-                    f"séquence déjà terminée à {format_hms_ms(TEND)}"
+                    f"{Colors.ORANGE}⚠ START after TEND: "
+                    f"sequence already ended at {format_hms_ms(TEND)}"
                     f"{Colors.RESET}"
                 )
             else:
                 if current > TSTART:
                     _log(
-                        f"{Colors.ORANGE}⚡ REPRISE TEMPORELLE : "
-                        f"heure courante {format_hms_ms(current)} — "
-                        f"toutes les actions antérieures sont ignorées."
+                        f"{Colors.ORANGE}⚡ TIME-BASED RESUME: "
+                        f"current time {format_hms_ms(current)} — "
+                        f"all past actions are ignored."
                         f"{Colors.RESET}"
                     )
 
@@ -2255,9 +2255,9 @@ def main():
                 ###
                 if _phase_is_future(fin_phase_1a):
                     _log(f"{Colors.GREEN}# PHASE 1a : Start to C1 to C2-{diamond_ring_duration_s}s{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_partial}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Interval: {interval_partial}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Shutter bracket: {speeds_partial}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Aperture: {aperture_partial}{Colors.RESET}")
 
                     first_grid = calculer_temps_debut_sequence(
                         TSTART, TMAX, interval_partial
@@ -2275,7 +2275,7 @@ def main():
                             interval_partial,
                         )
                         _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
-                        _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+                        _log(f"{Colors.CYAN}⏱ Next photo: {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
 
                         _run_absolute_grid(
                             camera_service,
@@ -2294,9 +2294,9 @@ def main():
                 ###
                 if _phase_is_future(C2):
                     _log(f"{Colors.GREEN}# PHASE 1b : DIAMOND RING -- C2-{diamond_ring_duration_s}s -> C2{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Interval: {interval_diamond_ring}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Shutter bracket: {speeds_diamond_ring}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Aperture: {aperture_diamond}{Colors.RESET}")
 
                     first_grid = calculer_temps_debut_sequence(
                         fin_phase_1a,
@@ -2316,7 +2316,7 @@ def main():
                             interval_diamond_ring,
                         )
                         _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
-                        _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+                        _log(f"{Colors.CYAN}⏱ Next photo: {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
 
                         _run_absolute_grid(
                             camera_service,
@@ -2338,15 +2338,15 @@ def main():
                     _log(f"{Colors.YELLOW}Capture{Colors.RESET}")
 
                     _log(
-                        f"{Colors.BLUE}Sécurité C3 : débordement court autorisé "
-                        f"jusqu'à +{C3_OVERFLOW_GRACE_S:g}s pour les poses "
+                        f"{Colors.BLUE}C3 safety: short overrun allowed "
+                        f"up to +{C3_OVERFLOW_GRACE_S:g}s for exposures "
                         f"≤ {SHORT_EXPOSURE_MAX_S:g}s ({format_hms_ms(C3)})"
                         f"{Colors.RESET}"
                     )
 
                     if interval_totality < 0:
                         _log(
-                            f"{Colors.RED}Intervalle totalité invalide : "
+                            f"{Colors.RED}Invalid totality interval: "
                             f"{interval_totality}{Colors.RESET}"
                         )
                     elif interval_totality == 0:
@@ -2382,9 +2382,9 @@ def main():
                 ###
                 if _phase_is_future(fin_phase_3a):
                     _log(f"{Colors.GREEN}# PHASE 3a : DIAMOND RING -- C3 -> C3+{diamond_ring_duration_s}s{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_diamond_ring}{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_diamond_ring}{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Ouverture : {aperture_diamond}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Interval: {interval_diamond_ring}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Shutter bracket: {speeds_diamond_ring}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Aperture: {aperture_diamond}{Colors.RESET}")
 
                     next_shot_time = _first_future_grid_slot(
                         C3,
@@ -2399,7 +2399,7 @@ def main():
                             interval_diamond_ring,
                         )
                         _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
-                        _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+                        _log(f"{Colors.CYAN}⏱ Next photo: {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
 
                         _run_absolute_grid(
                             camera_service,
@@ -2418,8 +2418,8 @@ def main():
                 ###
                 if _phase_is_future(TEND):
                     _log(f"{Colors.GREEN}# Phase 3b - C3+{diamond_ring_duration_s}s -> C4 -> TEND{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
-                    _log(f"{Colors.BLUE}Camera Settings : Bracket vitesses : {speeds_partial}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Interval: {interval_partial}{Colors.RESET}")
+                    _log(f"{Colors.BLUE}Camera Settings: Shutter bracket: {speeds_partial}{Colors.RESET}")
 
                     first_grid = TMAX + timedelta(seconds=interval_partial)
                     while first_grid < fin_phase_3a:
@@ -2438,7 +2438,7 @@ def main():
                             interval_partial,
                         )
                         _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
-                        _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+                        _log(f"{Colors.CYAN}⏱ Next photo: {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
 
                         _run_absolute_grid(
                             camera_service,
@@ -2453,7 +2453,7 @@ def main():
                         )
 
             _watchdog_clear()
-            _log(f"{Colors.GREEN}✅ Séquence terminée normalement.{Colors.RESET}")
+            _log(f"{Colors.GREEN}✅ Sequence completed normally.{Colors.RESET}")
 
         else:
             # ECLIPSE PARTIELLE DE SOLEIL
@@ -2463,22 +2463,22 @@ def main():
 
             if now() >= TEND:
                 _log(
-                    f"{Colors.ORANGE}⚠ START après TEND : "
-                    f"séquence déjà terminée à {format_hms_ms(TEND)}"
+                    f"{Colors.ORANGE}⚠ START after TEND: "
+                    f"sequence already ended at {format_hms_ms(TEND)}"
                     f"{Colors.RESET}"
                 )
             else:
                 if now() > TSTART:
                     _log(
-                        f"{Colors.ORANGE}⚡ REPRISE TEMPORELLE : "
-                        f"heure courante {format_hms_ms(now())} — "
-                        f"toutes les actions antérieures sont ignorées."
+                        f"{Colors.ORANGE}⚡ TIME-BASED RESUME: "
+                        f"current time {format_hms_ms(now())} — "
+                        f"all past actions are ignored."
                         f"{Colors.RESET}"
                     )
 
-                _log(f"{Colors.GREEN}# PHASE UNIQUE : Start to C1 to C4 to END{Colors.RESET}")
-                _log(f"{Colors.BLUE}Camera Settings : Interval : {interval_partial}{Colors.RESET}")
-                _log(f"{Colors.BLUE}Camera Settings : Shutterspeed : {shutterspeed_partial}{Colors.RESET}")
+                _log(f"{Colors.GREEN}# SINGLE PHASE: Start to C1 to C4 to END{Colors.RESET}")
+                _log(f"{Colors.BLUE}Camera Settings: Interval: {interval_partial}{Colors.RESET}")
+                _log(f"{Colors.BLUE}Camera Settings: Shutter speed: {shutterspeed_partial}{Colors.RESET}")
 
                 first_grid = calculer_temps_debut_sequence(
                     TSTART,
@@ -2498,7 +2498,7 @@ def main():
                         interval_partial,
                     )
                     _log(f"{Colors.YELLOW}Start Capture (estimated number of brackets: {nbTotalBracket}){Colors.RESET}")
-                    _log(f"{Colors.CYAN}⏱ Prochaine photo : {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
+                    _log(f"{Colors.CYAN}⏱ Next photo: {next_shot_time.strftime('%H:%M:%S')}{Colors.RESET}")
 
                     _run_absolute_grid(
                         camera_service,

@@ -15,7 +15,7 @@ def available_plugins():
 def load_plugin(plugin_id, log_fn=print, config=None):
     plugins = available_plugins()
     if plugin_id not in plugins:
-        raise ValueError(f"Plugin GPS inconnu: {plugin_id}")
+        raise ValueError(f"Unknown GPS plugin: {plugin_id}")
     return plugins[plugin_id](log_fn=log_fn, config=config)
 
 
