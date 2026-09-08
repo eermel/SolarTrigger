@@ -143,6 +143,8 @@ def _rig_override(payload: dict[str, Any]) -> tuple[int | None, dict[str, Any] |
     expected_photo_keys = {
         "anti_trailing_enabled",
         "motion_tolerance_px",
+        "mechanical_vibration_enabled",
+        "mechanical_vibration_delay_s",
         "iso_compensation_enabled",
         "iso_max",
         "atmos_enabled",
@@ -154,6 +156,7 @@ def _rig_override(payload: dict[str, Any]) -> tuple[int | None, dict[str, Any] |
 
     for field in (
         "anti_trailing_enabled",
+        "mechanical_vibration_enabled",
         "iso_compensation_enabled",
         "atmos_enabled",
     ):
@@ -165,6 +168,14 @@ def _rig_override(payload: dict[str, Any]) -> tuple[int | None, dict[str, Any] |
     tolerance = _positive_number(
         photo.get("motion_tolerance_px"),
         "rig_override.photo.motion_tolerance_px",
+    )
+
+    mechanical_delay = photo.get("mechanical_vibration_delay_s")
+    _require(
+        isinstance(mechanical_delay, int)
+        and not isinstance(mechanical_delay, bool)
+        and 0 <= mechanical_delay <= 5,
+        "rig_override.photo.mechanical_vibration_delay_s must be an integer from 0 to 5",
     )
 
     iso_max = photo.get("iso_max")
@@ -184,6 +195,8 @@ def _rig_override(payload: dict[str, Any]) -> tuple[int | None, dict[str, Any] |
         "photo": {
             "anti_trailing_enabled": photo["anti_trailing_enabled"],
             "motion_tolerance_px": tolerance,
+            "mechanical_vibration_enabled": photo["mechanical_vibration_enabled"],
+            "mechanical_vibration_delay_s": mechanical_delay,
             "iso_compensation_enabled": photo["iso_compensation_enabled"],
             "iso_max": iso_max,
             "atmos_enabled": photo["atmos_enabled"],
