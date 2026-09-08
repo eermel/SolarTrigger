@@ -30,6 +30,40 @@ let rigDevicesState = {rigs: DEFAULT_RIGS, inventory: {camera: [], mount: [], fo
 let rigPhotoState = {rigs: []};
 let globalDevicesState = null;
 
+function populateRigIsoMaxSelect(select, values, requestedValue) {
+  if (!select) return;
+
+  const isoValues = Array.isArray(values)
+    ? values.map(Number).filter(value => Number.isInteger(value) && value > 0)
+    : [];
+
+  select.replaceChildren();
+
+  if (!isoValues.length) {
+    const option = document.createElement('option');
+    option.value = String(requestedValue || 6400);
+    option.textContent = `${option.value} — profile unavailable`;
+    select.appendChild(option);
+    select.disabled = true;
+    return;
+  }
+
+  isoValues.forEach(value => {
+    const option = document.createElement('option');
+    option.value = String(value);
+    option.textContent = String(value);
+    select.appendChild(option);
+  });
+
+  const requested = Number(requestedValue);
+  const selected = isoValues.includes(requested)
+    ? requested
+    : isoValues.filter(value => value <= requested).at(-1) || isoValues[0];
+
+  select.value = String(selected);
+  select.disabled = false;
+}
+
 function renderRigPhotoConfig(payload) {
   const rigs = Array.isArray(payload && payload.rigs) ? payload.rigs : [];
   rigPhotoState = {rigs};
@@ -39,9 +73,13 @@ function renderRigPhotoConfig(payload) {
     if (!Number.isInteger(rigId) || rigId < 1 || rigId > 4) return;
 
     const photo = rig.photo || {};
+    const capabilities = rig.camera_capabilities || {};
 
     const antiBlur = document.getElementById(`rig-${rigId}-antiblur-switch`);
     const tolerance = document.getElementById(`rig-${rigId}-pixel-tolerance`);
+    const mechanical = document.getElementById(`rig-${rigId}-mechanical-vibration-switch`);
+    const mechanicalDelay = document.getElementById(`rig-${rigId}-mechanical-vibration-delay`);
+    const mechanicalNote = document.getElementById(`rig-${rigId}-mechanical-vibration-note`);
     const isoComp = document.getElementById(`rig-${rigId}-iso-comp-switch`);
     const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
 
@@ -52,12 +90,38 @@ function renderRigPhotoConfig(payload) {
         ? '1.0'
         : String(photo.motion_tolerance_px);
     }
+
+    if (mechanical) {
+      mechanical.checked = photo.mechanical_vibration_enabled === true;
+      mechanical.disabled = capabilities.strategy === 'bracket';
+    }
+
+    if (mechanicalDelay) {
+      mechanicalDelay.value = String(
+        photo.mechanical_vibration_delay_s == null
+          ? 2
+          : photo.mechanical_vibration_delay_s
+      );
+      mechanicalDelay.disabled = capabilities.strategy === 'bracket';
+    }
+
+    if (mechanicalNote) {
+      mechanicalNote.textContent = capabilities.strategy === 'bracket'
+        ? 'Camera strategy: BRACKET — Unavailable with bracket capture.'
+        : capabilities.strategy === 'sequential'
+          ? 'Camera strategy: SEQUENTIAL — Delay is applied only after exposures of 1/60 s or slower.'
+          : 'Camera strategy: unavailable until a characterized camera is assigned.';
+    }
+
     if (isoComp) {
       isoComp.checked = photo.iso_compensation_enabled !== false;
     }
-    if (isoMax) {
-      isoMax.value = String(photo.iso_max == null ? 6400 : photo.iso_max);
-    }
+
+    populateRigIsoMaxSelect(
+      isoMax,
+      capabilities.iso_values,
+      photo.iso_max == null ? 6400 : photo.iso_max
+    );
   });
 
   const firstRig = rigs.find(rig => Number(rig.rig_id) === 1);
@@ -83,15 +147,21 @@ async function loadRigPhotoConfig() {
 function readRigPhotoConfig(rigId) {
   const antiBlur = document.getElementById(`rig-${rigId}-antiblur-switch`);
   const tolerance = document.getElementById(`rig-${rigId}-pixel-tolerance`);
+  const mechanical = document.getElementById(`rig-${rigId}-mechanical-vibration-switch`);
+  const mechanicalDelay = document.getElementById(`rig-${rigId}-mechanical-vibration-delay`);
   const isoComp = document.getElementById(`rig-${rigId}-iso-comp-switch`);
   const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
   const atmo = document.getElementById('cfg-atmo-switch');
 
   const toleranceValue = Number(tolerance && tolerance.value);
+  const delayValue = Number(mechanicalDelay && mechanicalDelay.value);
   const isoMaxValue = Number(isoMax && isoMax.value);
 
   if (!Number.isFinite(toleranceValue) || toleranceValue <= 0) {
     throw new Error('Pixel tolerance must be strictly positive');
+  }
+  if (!Number.isInteger(delayValue) || delayValue < 0 || delayValue > 5) {
+    throw new Error('Camera mechanical vibration delay must be an integer from 0 to 5 seconds');
   }
   if (!Number.isInteger(isoMaxValue) || isoMaxValue <= 0) {
     throw new Error('Invalid ISO Max');
@@ -102,6 +172,8 @@ function readRigPhotoConfig(rigId) {
     photo: {
       anti_trailing_enabled: Boolean(antiBlur && antiBlur.checked),
       motion_tolerance_px: toleranceValue,
+      mechanical_vibration_enabled: Boolean(mechanical && mechanical.checked),
+      mechanical_vibration_delay_s: delayValue,
       iso_compensation_enabled: Boolean(isoComp && isoComp.checked),
       iso_max: isoMaxValue,
       atmos_enabled: Boolean(atmo && atmo.checked),
@@ -195,6 +267,8 @@ function readExposureOptConfig() {
       photo: {
         anti_trailing_enabled: current.photo.anti_trailing_enabled,
         motion_tolerance_px: current.photo.motion_tolerance_px,
+        mechanical_vibration_enabled: current.photo.mechanical_vibration_enabled,
+        mechanical_vibration_delay_s: current.photo.mechanical_vibration_delay_s,
         iso_compensation_enabled: current.photo.iso_compensation_enabled,
         iso_max: current.photo.iso_max
       }
@@ -1243,6 +1317,83 @@ async function refreshRigDevices(silent = false) {
   }
 }
 
+const cameraAddLogState = {
+  characterization: [],
+  validation: [],
+  characterizationOffset: 0,
+  validationOffset: 0,
+  characterizationResult: '',
+  clearedCharacterizationResult: '',
+};
+
+function renderCameraAddLog() {
+  const log = document.getElementById('camera-add-log');
+  if (!log) return;
+
+  const sections = [];
+  const characterization = cameraAddLogState.characterization.slice(
+    cameraAddLogState.characterizationOffset
+  );
+  const validation = cameraAddLogState.validation.slice(
+    cameraAddLogState.validationOffset
+  );
+
+  const result = (
+    cameraAddLogState.characterizationResult &&
+    cameraAddLogState.characterizationResult !==
+      cameraAddLogState.clearedCharacterizationResult
+  )
+    ? cameraAddLogState.characterizationResult
+    : '';
+
+  if (characterization.length || result) {
+    sections.push(
+      ['=== CAMERA CHARACTERIZATION ===', ...characterization, result]
+        .filter(Boolean)
+        .join('\n')
+    );
+  }
+
+  if (validation.length) {
+    sections.push(
+      ['=== CAMERA VALIDATION ===', ...validation].join('\n')
+    );
+  }
+
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
+  log.textContent = sections.join('\n\n');
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+
+function updateCameraAddLog(source, lines, result = null) {
+  const normalized = Array.isArray(lines) ? lines.map(String) : [];
+  const offsetKey = `${source}Offset`;
+
+  if (normalized.length < cameraAddLogState[offsetKey]) {
+    cameraAddLogState[offsetKey] = 0;
+  }
+
+  cameraAddLogState[source] = normalized;
+
+  if (source === 'characterization') {
+    cameraAddLogState.characterizationResult = result
+      ? JSON.stringify(result, null, 2)
+      : '';
+  }
+
+  renderCameraAddLog();
+}
+
+function clearCameraAddLog() {
+  cameraAddLogState.characterizationOffset =
+    cameraAddLogState.characterization.length;
+  cameraAddLogState.validationOffset =
+    cameraAddLogState.validation.length;
+  cameraAddLogState.clearedCharacterizationResult =
+    cameraAddLogState.characterizationResult;
+  renderCameraAddLog();
+}
+
 let cameraCharacterizationQuestion = null;
 let cameraCharacterizationWasRunning = false;
 let cameraCharacterizationPolling = false;
@@ -1267,10 +1418,7 @@ async function pollCameraCharacterization() {
     select.disabled = status.running;
     document.getElementById('camera-characterization-start').disabled = status.running || !select.options.length;
     document.getElementById('camera-characterization-cancel').disabled = !status.running;
-    const log = document.getElementById('camera-characterization-log');
-    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
-    log.textContent = status.logs.join('\n') + (status.result ? '\n' + JSON.stringify(status.result, null, 2) : '');
-    if (atBottom) log.scrollTop = log.scrollHeight;
+    updateCameraAddLog('characterization', status.logs, status.result);
     cameraCharacterizationQuestion = status.question?.id || null;
     document.getElementById('camera-characterization-question').hidden = !status.question;
     document.getElementById('camera-characterization-prompt').textContent = status.question?.message || '';
@@ -1290,8 +1438,10 @@ async function pollCameraCharacterization() {
     cameraCharacterizationWasRunning = status.running;
     if (completed) setTimeout(() => refreshRigDevices(true), 0);
   } catch (error) {
-    const log = document.getElementById('camera-characterization-log');
-    if (log && !log.textContent) log.textContent = `Characterization status unavailable: ${error.message}`;
+    updateCameraAddLog(
+      'characterization',
+      [`Characterization status unavailable: ${error.message}`]
+    );
   } finally {
     cameraCharacterizationPolling = false;
   }
@@ -6406,13 +6556,12 @@ function renderCameraValidationStatus(status) {
   const select = document.getElementById('camera-validation-select');
   const start = document.getElementById('camera-validation-start');
   const cancel = document.getElementById('camera-validation-cancel');
-  const log = document.getElementById('camera-validation-log');
   const summary = document.getElementById('camera-validation-summary');
   const question = document.getElementById('camera-validation-question');
   const prompt = document.getElementById('camera-validation-prompt');
   const deleteButton = document.getElementById('camera-validation-delete-files');
 
-  if (!select || !start || !cancel || !log || !summary || !question || !prompt || !deleteButton) return;
+  if (!select || !start || !cancel || !summary || !question || !prompt || !deleteButton) return;
 
   const current = select.value;
   const candidates = Array.isArray(status.candidates) ? status.candidates : [];
@@ -6427,8 +6576,7 @@ function renderCameraValidationStatus(status) {
 
   start.disabled = Boolean(status.running) || !select.value;
   cancel.disabled = !status.running;
-  log.textContent = Array.isArray(status.logs) ? status.logs.join('\n') : '';
-  log.scrollTop = log.scrollHeight;
+  updateCameraAddLog('validation', status.logs);
 
   const prepared = status.prepared;
   const result = status.result;

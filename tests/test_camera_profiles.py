@@ -116,8 +116,15 @@ def test_compile_profile_audit_to_photo_units(monkeypatch, profile):
     monkeypatch.setattr(camera_profiles, "discover_profiles", lambda: {profile["backend"]: profile})
     target = SimpleNamespace(phase="TOTALITY", target_time=datetime.now(timezone.utc),
                              deadline=None, phase_window="phase_2", sequence_index=0)
-    capture = SimpleNamespace(backend=profile["backend"], rig_id=1, target=target,
-                              aperture=None, final_exposure_plan=tuple(intent(profile).exposure_plan))
+    capture = SimpleNamespace(
+        backend=profile["backend"],
+        rig_id=1,
+        target=target,
+        aperture=None,
+        final_exposure_plan=tuple(intent(profile).exposure_plan),
+        mechanical_vibration_enabled=False,
+        mechanical_vibration_delay_s=2,
+    )
     audited = audit_materialized_capture(capture)
     units = _split_totality_single_photos(audited)
     assert sum(u.planned_count for u in units) == 9

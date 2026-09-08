@@ -46,8 +46,8 @@ def _build_configs(tmp_path):
                     "duration_s": None,
                     "iso": 100,
                     "aperture": "f/8",
-                    "shutter_min": "1/250",
-                    "shutter_max": "1/1000",
+                    "shutter_min": "1/500",
+                    "shutter_max": "1/2000",
                     "step_ev": 1.0,
                 },
                 "diamond_ring": {

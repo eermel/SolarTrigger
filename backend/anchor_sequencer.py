@@ -25,6 +25,7 @@ from backend.sequencer_compiler import (
     GlobalExecutionEvent,
     ScheduledOperation,
     SequenceWindow,
+    _mechanical_vibration_delay_delta,
     _normalize_camera_state,
     _scheduled_static_bounds,
     _split_totality_single_photos,
@@ -615,7 +616,19 @@ def _place_unit_starting_at(
     reduced_shifted = replace(reduced, target=shifted.target)
     scheduled = schedule_audited_capture(reduced_shifted, profile)
     start, end = _scheduled_static_bounds(scheduled)
-    return shifted, next_state, start, end
+
+    # ``end`` already includes the complete characterized camera reservation.
+    # Mechanical vibration is therefore reserved only after all camera
+    # exposure/USB/tail overheads have completed.  No WAIT is emitted:
+    # this availability boundary simply shifts the next physical PHOTO.
+    available_end = (
+        end
+        + _mechanical_vibration_delay_delta(
+            reduced_shifted
+        )
+    )
+
+    return shifted, next_state, start, available_end
 
 
 def _pack_totality_to_c3_anchor(

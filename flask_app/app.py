@@ -215,6 +215,7 @@ from backend.eclipse_engine import loader as eclipse_loader
 from backend.preview_context import load_eclipse_context
 from backend.atmo import interpolate_altitude
 from backend.camera_model_resolution import resolve_sensor_entry
+from backend.camera_profiles import exposure_ui_capabilities
 from backend.sensor_db import load_sensor_db
 from backend.preview_materializer import (
     PreviewMaterializationError,
@@ -697,6 +698,17 @@ def _new_rig_scaffold(rig_id, *, atmos_enabled=False):
         rig_id,
         atmos_enabled=atmos_enabled,
     )
+
+
+def _validate_integer_range(value, field, minimum, maximum):
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not minimum <= value <= maximum
+    ):
+        raise ValueError(
+            f"{field} must be an integer from {minimum} to {maximum}"
+        )
 
 
 def _validate_positive_number(value, field, *, integer=False, nullable=False):
@@ -1290,9 +1302,12 @@ def api_rig_photo_post():
                 rig_id,
                 atmos_enabled=global_atmos,
             )
+            camera = (rig.get("devices") or {}).get("camera")
+            backend = camera.get("backend") if isinstance(camera, dict) else None
             rigs.append({
                 "rig_id": rig_id,
                 "photo": deepcopy(rig.get("photo", {})),
+                "camera_capabilities": exposure_ui_capabilities(backend),
             })
 
         return jsonify({"rigs": rigs})
@@ -1342,6 +1357,7 @@ def api_rig_photo_post():
             for field in (
                 "atmos_enabled",
                 "anti_trailing_enabled",
+                "mechanical_vibration_enabled",
                 "iso_compensation_enabled",
             ):
                 if field in photo_patch and not isinstance(photo_patch[field], bool):
@@ -1351,6 +1367,14 @@ def api_rig_photo_post():
                 _validate_positive_number(
                     photo_patch["motion_tolerance_px"],
                     f"{prefix}.photo.motion_tolerance_px",
+                )
+
+            if "mechanical_vibration_delay_s" in photo_patch:
+                _validate_integer_range(
+                    photo_patch["mechanical_vibration_delay_s"],
+                    f"{prefix}.photo.mechanical_vibration_delay_s",
+                    0,
+                    5,
                 )
 
             if "iso_max" in photo_patch:

@@ -20,6 +20,7 @@ MIN_RIGS = 1
 MAX_RIGS = 4
 
 DEFAULT_MOTION_TOLERANCE_PX = 1.0
+DEFAULT_MECHANICAL_VIBRATION_DELAY_S = 2
 DEFAULT_ISO_MAX = 6400
 
 
@@ -63,6 +64,7 @@ def canonical_rig_defaults(
             "atmos_enabled": bool(atmos_enabled),
             "anti_trailing_enabled": False,
             "mechanical_vibration_enabled": False,
+            "mechanical_vibration_delay_s": DEFAULT_MECHANICAL_VIBRATION_DELAY_S,
             "motion_tolerance_px": DEFAULT_MOTION_TOLERANCE_PX,
             "iso_compensation_enabled": True,
             "iso_max": DEFAULT_ISO_MAX,
@@ -94,6 +96,10 @@ def normalize_rig_defaults(obj: Any) -> Any:
             photo.setdefault("atmos_enabled", global_atmos)
             photo.setdefault("anti_trailing_enabled", False)
             photo.setdefault("mechanical_vibration_enabled", False)
+            photo.setdefault(
+                "mechanical_vibration_delay_s",
+                DEFAULT_MECHANICAL_VIBRATION_DELAY_S,
+            )
             photo.setdefault(
                 "motion_tolerance_px",
                 DEFAULT_MOTION_TOLERANCE_PX,
@@ -227,6 +233,14 @@ def validate(obj: Any) -> None:
             _require(
                 isinstance(photo["mechanical_vibration_enabled"], bool),
                 f"{prefix}.photo.mechanical_vibration_enabled must be a boolean",
+            )
+        if "mechanical_vibration_delay_s" in photo:
+            delay = photo["mechanical_vibration_delay_s"]
+            _require(
+                isinstance(delay, int)
+                and not isinstance(delay, bool)
+                and 0 <= delay <= 5,
+                f"{prefix}.photo.mechanical_vibration_delay_s must be an integer from 0 to 5",
             )
 
 
