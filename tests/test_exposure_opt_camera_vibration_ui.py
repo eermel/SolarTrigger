@@ -17,15 +17,26 @@ def test_add_camera_has_one_shared_log_and_clear_button():
     assert "=== CAMERA VALIDATION ===" in JS
 
 
-def test_sequencer_log_uses_shared_log_visual_contract():
+def test_sequencer_log_uses_same_visual_contract_as_trigger():
     assert 'id="log-container-sequencer"' in INDEX
+    assert 'id="log-container-trigger"' in INDEX
     assert '#log-container-sequencer' in CSS
     assert "clearLog('sequencer')" in INDEX
 
+    sequencer_tag = INDEX.split(
+        'id="log-container-sequencer"',
+        1,
+    )[0].rsplit("<div", 1)[1]
 
-def test_exposure_opt_rigs_use_two_column_layout_and_required_help_text():
+    assert "style=" not in sequencer_tag
+
+
+def test_exposure_opt_rigs_use_single_column_layout_and_required_help_text():
     assert 'class="camcfg-rigs-grid"' in INDEX
-    assert 'grid-template-columns: repeat(2, minmax(0, 1fr))' in CSS
+    assert '.camcfg-rigs-grid {' in CSS
+    assert 'grid-template-columns: 1fr' in CSS
+    assert '.camcfg-rig-column.enabled {' in CSS
+    assert 'border-color: var(--green)' in CSS
     assert "Earth's rotation" in INDEX
     assert 'Not applicable when an astronomical tracking mount is used.' in INDEX
     assert 'Camera mechanical vibration' in INDEX
@@ -54,3 +65,9 @@ def test_iso_max_is_populated_from_real_camera_profile_full_ev_values():
     assert 'camera_capabilities' in APP
     assert 'capabilities.iso_values' in JS
     assert 'populateRigIsoMaxSelect' in JS
+
+
+def test_camera_rig_buttons_are_twenty_five_percent_shorter():
+    assert '.cam-rig-button {' in CSS
+    assert 'height: 22.5px' in CSS
+    assert 'min-height: 22.5px' in CSS

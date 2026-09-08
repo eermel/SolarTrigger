@@ -380,11 +380,14 @@ header {
 
 .camcfg-rigs-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 .camcfg-rig-column {
   transition: border-color .2s, opacity .2s;
+}
+.camcfg-rig-column.enabled {
+  border-color: var(--green);
 }
 .camcfg-control-grid {
   display: grid;
@@ -409,14 +412,17 @@ header {
   font-family: var(--mono);
   font-size: 10px;
 }
-@media (max-width: 760px) {
-  .camcfg-rigs-grid { grid-template-columns: 1fr; }
-}
 @media (max-width: 430px) {
   .camcfg-control-grid { grid-template-columns: 1fr; }
 }
 .camcfg-rig-column:not(.enabled) {
   opacity: .55;
+}
+
+/* Camera operational buttons: 25% shorter than the global 30 px buttons. */
+.cam-rig-button {
+  height: 22.5px;
+  min-height: 22.5px;
 }
 .rig-mode-switch { margin-left: auto; }
 .rig-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

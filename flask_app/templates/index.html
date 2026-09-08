@@ -1025,41 +1025,15 @@
       </div>
 
 
-      <!-- Log -->
+      <!-- Sequencer log -->
       <div class="card" style="flex-shrink:0">
-        <div
-          class="card-title"
-          style="
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-          ">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
           <span>Sequencer log</span>
-
-          <button
-            class="btn btn-secondary"
-            type="button"
+          <button class="btn btn-secondary" type="button"
             style="font-size:10px;padding:4px 9px"
-            onclick="clearLog('sequencer')">
-            CLEAR
-          </button>
+            onclick="clearLog('sequencer')">CLEAR</button>
         </div>
-
-        <div
-          id="log-container-sequencer"
-          style="
-            height:320px;
-            overflow-y:auto;
-            background:var(--bg3);
-            border:1px solid var(--border);
-            border-radius:8px;
-            padding:10px 12px;
-            font-family:var(--mono);
-            font-size:11px;
-            line-height:1.5;
-            white-space:pre-wrap;
-            word-break:break-word;
-          ">
+        <div id="log-container-sequencer">
           <div class="log-line info">Sequencer ready.</div>
         </div>
       </div>
