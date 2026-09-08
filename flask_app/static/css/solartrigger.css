@@ -412,6 +412,20 @@ header {
   font-family: var(--mono);
   font-size: 10px;
 }
+
+.camcfg-subsection-unavailable {
+  opacity: .38;
+  filter: grayscale(1);
+}
+
+.camcfg-subsection-unavailable input,
+.camcfg-subsection-unavailable select {
+  cursor: not-allowed;
+}
+
+.camcfg-subsection-unavailable .camcfg-capability-note {
+  opacity: 1;
+}
 @media (max-width: 430px) {
   .camcfg-control-grid { grid-template-columns: 1fr; }
 }
