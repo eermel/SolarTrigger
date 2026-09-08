@@ -57,6 +57,12 @@ class FakeCameraWorker:
             raise self._error
         return self._result
 
+    def test_photo_fast(self, speed):
+        self.calls.append(("fast", speed))
+        if self._error is not None:
+            raise self._error
+        return self._result
+
 
 class FakeCameraWorkerRuntime:
     def __init__(self, workers):
@@ -196,7 +202,7 @@ def test_test_photo_returns_capture_result_and_timing(monkeypatch):
     }
     assert datetime.fromisoformat(payload["started_at"]).tzinfo is not None
     assert payload["duration_s"] > 0
-    assert worker.calls == [(["1/125"], 0, None)]
+    assert worker.calls == [("fast", "1/125")]
     assert runtime.reconciled_config is not None
     assert len(events) == 1
     kind, trace = events[0]

@@ -1215,9 +1215,19 @@ async function rescanDevices() {
   }
 }
 
+function waitForBrowserPaint() {
+  return new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
+
 async function refreshRigDevices(silent = false) {
   const buttons = document.querySelectorAll('#devices-rescan, #add-camera-rescan');
   buttons.forEach(button => { button.disabled = true; });
+
+  // Do not let a slow USB inventory postpone the disabled visual state.
+  await waitForBrowserPaint();
+
   try {
     const response = await fetch('/api/rigs/devices/refresh', {method: 'POST'});
     const inventory = await response.json();
@@ -1296,9 +1306,23 @@ async function characterizationRequest(action, payload = {}) {
   await pollCameraCharacterization();
 }
 async function startCameraCharacterization() {
+  const button = document.getElementById('camera-characterization-start');
+  const select = document.getElementById('camera-characterization-select');
+  const locator = select ? select.value : '';
+
+  // Immediate operator feedback, before USB/backend work starts.
+  if (button) button.disabled = true;
+  if (select) select.disabled = true;
+
+  await waitForBrowserPaint();
+
   try {
-    await characterizationRequest('start', {locator: document.getElementById('camera-characterization-select').value});
-  } catch (error) { flash(error.message, 'red'); }
+    await characterizationRequest('start', {locator});
+  } catch (error) {
+    if (select) select.disabled = false;
+    if (button) button.disabled = !locator;
+    flash(error.message, 'red');
+  }
 }
 async function cancelCameraCharacterization() {
   try { await characterizationRequest('cancel'); } catch (error) { flash(error.message, 'red'); }
@@ -1874,6 +1898,7 @@ socket.on('log_history', lines => {
   const slewButtons = Array.from(document.querySelectorAll('.mount-slew-button'));
   let homing = false;
   let trackingEnabled = false;
+  let trackingCommandPending = false;
 
   function selectedMountTriggerRunning() {
     const rig = selectedControlsRig();
@@ -1970,7 +1995,12 @@ socket.on('log_history', lines => {
     trackingSwitch.checked = trackingEnabled;
 
     trackingMode.disabled = triggerRunning || modes.length === 0;
-    trackingSwitch.disabled = triggerRunning || !capabilities || capabilities.toggle !== true;
+    trackingSwitch.disabled = (
+      triggerRunning
+      || trackingCommandPending
+      || !capabilities
+      || capabilities.toggle !== true
+    );
     scheduleMountRefresh(homing ? 400 : 1500);
   }
 
@@ -2064,10 +2094,24 @@ socket.on('log_history', lines => {
     });
   });
 
-  trackingSwitch.addEventListener('change', () => {
-    postMount(mountUrl(trackingSwitch.checked
-      ? 'tracking/start'
-      : 'tracking/stop'));
+  trackingSwitch.addEventListener('change', async () => {
+    const requestedTracking = trackingSwitch.checked;
+
+    // A checkbox changes visually before the "change" handler runs.
+    // Restore the last authoritative mount state immediately. The switch
+    // becomes green only when /status confirms tracking_enabled=true.
+    trackingSwitch.checked = trackingEnabled;
+    trackingCommandPending = true;
+    trackingSwitch.disabled = true;
+
+    try {
+      await postMount(mountUrl(requestedTracking
+        ? 'tracking/start'
+        : 'tracking/stop'));
+    } finally {
+      trackingCommandPending = false;
+      await refreshMount();
+    }
   });
 
   document.addEventListener('controlsrigchange', () => {
@@ -6070,6 +6114,11 @@ async function runSequencerRig(
     );
 
     await loadTriggerConfigList();
+
+    appendSequencerLog(
+      `RIG ${rigId}: sequence generated successfully`,
+      'success'
+    );
 
     flash(
       `RIG ${rigId} Execution Plan generated`,

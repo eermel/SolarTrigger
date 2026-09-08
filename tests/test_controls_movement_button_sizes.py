@@ -67,3 +67,27 @@ def test_mount_movement_buttons_are_double_size():
         body,
     )
     assert re.search(r"font-size\s*:\s*26px\s*;", body)
+
+def test_operator_action_buttons_match_mount_movement_height():
+    match = re.search(
+        r'#btn-focuser-home\s*,\s*'
+        r'#btn-focuser-go\s*,\s*'
+        r'#btn-mount-home\s*,\s*'
+        r'\.cam-rig-button\s*,\s*'
+        r'\[id\^="btn-run-sequencer-rig-"\]\s*,\s*'
+        r'\[id\^="btn-clean-execution-plans-rig-"\]\s*,\s*'
+        r'#btn-run-all-sequencers\s*\{(?P<body>.*?)\}',
+        CSS,
+        re.DOTALL,
+    )
+    assert match
+
+    body = match.group("body")
+    assert re.search(
+        r'height\s*:\s*calc\(var\(--btn-h\)\s*\*\s*2\)\s*;',
+        body,
+    )
+    assert re.search(
+        r'min-height\s*:\s*calc\(var\(--btn-h\)\s*\*\s*2\)\s*;',
+        body,
+    )

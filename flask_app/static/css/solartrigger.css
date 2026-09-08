@@ -618,6 +618,21 @@ header {
   font-size: 26px;
 }
 
+/*
+ * Primary operator actions use the same 60 px touch height as N/E/S/W.
+ * Widths remain unchanged.
+ */
+#btn-focuser-home,
+#btn-focuser-go,
+#btn-mount-home,
+.cam-rig-button,
+[id^="btn-run-sequencer-rig-"],
+[id^="btn-clean-execution-plans-rig-"],
+#btn-run-all-sequencers {
+  height: calc(var(--btn-h) * 2);
+  min-height: calc(var(--btn-h) * 2);
+}
+
 .mount-slew-pad {
   display: grid;
   grid-template-columns: repeat(3, 96px);

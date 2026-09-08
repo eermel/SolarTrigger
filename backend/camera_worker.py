@@ -279,6 +279,22 @@ class CameraWorker:
             slowest_override_seconds=slowest_override_seconds,
         )
 
+    def test_photo_fast(self, speed):
+        """Fire one atomic PHOTO for the Camera-tab diagnostic button.
+
+        This deliberately bypasses exposure/capture-mode SET operations.
+        It remains a normal manual worker job: it does not acquire sequencer
+        priority and therefore cannot jump ahead of trigger operations.
+        """
+        return self._call(
+            "execute_photo",
+            {
+                "shutter": str(speed),
+                "expected_frames": 1,
+            },
+            recover_connection=True,
+        )
+
     def test_photo_diagnostic(
         self,
         speeds,

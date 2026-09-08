@@ -15,11 +15,21 @@ class DummyService:
         self.close_calls = 0
         self.capture_started = threading.Event()
         self.release_capture = threading.Event()
+        self.execute_photo_calls = []
+        self.shoot_speed_list_calls = []
 
     def close(self) -> None:
         self.close_calls += 1
 
+    def execute_photo(self, params):
+        self.execute_photo_calls.append(dict(params))
+        result = params["shutter"]
+        self.capture_started.set()
+        self.release_capture.wait()
+        return result
+
     def shoot_speed_list(self, speeds, **_kwargs):
+        self.shoot_speed_list_calls.append(list(speeds))
         result = speeds[0]
         self.capture_started.set()
         self.release_capture.wait()
@@ -135,6 +145,38 @@ def test_two_camera_workers_do_not_block_each_other():
     assert not _camera_worker_threads(201)
     assert not _camera_worker_threads(202)
     assert [service.close_calls for service in services] == [1, 1]
+
+    # Generic test_photo() keeps its historical manual-job semantics.
+    assert services[0].execute_photo_calls == []
+    assert services[1].execute_photo_calls == []
+    assert services[0].shoot_speed_list_calls == [["A complete"]]
+    assert services[1].shoot_speed_list_calls == [["B complete"]]
+
+
+def test_camera_test_photo_fast_uses_atomic_execute_photo():
+    service = DummyService()
+    service.release_capture.set()
+
+    worker = CameraWorker(
+        rig_id=204,
+        service_factory=lambda: service,
+    )
+
+    worker.start()
+    try:
+        result = worker.test_photo_fast("1/125")
+    finally:
+        worker.stop(timeout=1.0)
+
+    assert result == "1/125"
+    assert service.execute_photo_calls == [
+        {
+            "shutter": "1/125",
+            "expected_frames": 1,
+        }
+    ]
+    assert service.shoot_speed_list_calls == []
+
 
 def test_single_camera_prepare_then_trigger_via_worker_stops_cleanly():
     camera = FakeCamera()
