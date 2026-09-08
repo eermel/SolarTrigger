@@ -332,6 +332,8 @@ def test_preview_rig_override_is_ephemeral(preview_api):
                 "photo": {
                     "anti_trailing_enabled": False,
                     "motion_tolerance_px": 0.5,
+                    "mechanical_vibration_enabled": False,
+                    "mechanical_vibration_delay_s": 2,
                     "iso_compensation_enabled": False,
                     "iso_max": 3200,
                     "atmos_enabled": False,

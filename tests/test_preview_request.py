@@ -107,6 +107,8 @@ def test_preview_payload_accepts_temporary_rig_override():
             "photo": {
                 "anti_trailing_enabled": True,
                 "motion_tolerance_px": 1.0,
+                "mechanical_vibration_enabled": True,
+                "mechanical_vibration_delay_s": 2,
                 "iso_compensation_enabled": False,
                 "iso_max": 3200,
                 "atmos_enabled": True,
@@ -150,6 +152,8 @@ def test_preview_payload_rejects_unknown_override_fields():
             "photo": {
                 "anti_trailing_enabled": True,
                 "motion_tolerance_px": 1.0,
+                "mechanical_vibration_enabled": False,
+                "mechanical_vibration_delay_s": 2,
                 "iso_compensation_enabled": True,
                 "iso_max": 6400,
                 "atmos_enabled": False,
@@ -159,4 +163,50 @@ def test_preview_payload_rejects_unknown_override_fields():
     }
 
     with pytest.raises(ValueError, match="invalid or missing fields"):
+        validate_payload(payload, config)
+
+
+def test_preview_payload_rejects_invalid_mechanical_vibration_delay():
+    from backend.preview_request import validate_payload
+
+    config = {
+        "sequence": {
+            "common": {
+                "phases": {
+                    "totality": {},
+                }
+            }
+        }
+    }
+
+    payload = {
+        "intents": [{
+            "phase": "totality",
+            "target_time": "2027-08-02T10:12:58Z",
+            "deadline": None,
+            "shutter_min": "4",
+            "shutter_max": "1/4000",
+            "iso_target": 100,
+        }],
+        "rig_id": 1,
+        "rig_override": {
+            "optics": {
+                "focal_length_mm": 430.0,
+            },
+            "photo": {
+                "anti_trailing_enabled": True,
+                "motion_tolerance_px": 1.0,
+                "mechanical_vibration_enabled": True,
+                "mechanical_vibration_delay_s": 6,
+                "iso_compensation_enabled": True,
+                "iso_max": 6400,
+                "atmos_enabled": False,
+            },
+        },
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="mechanical_vibration_delay_s must be an integer from 0 to 5",
+    ):
         validate_payload(payload, config)
