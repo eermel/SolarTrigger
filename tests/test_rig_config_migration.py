@@ -216,6 +216,7 @@ def test_minimal_v2_config_validates_and_round_trips(tmp_path):
         "atmos_enabled": False,
         "anti_trailing_enabled": False,
         "mechanical_vibration_enabled": False,
+        "mechanical_vibration_delay_s": 2,
         "motion_tolerance_px": 1.0,
         "iso_compensation_enabled": True,
         "iso_max": 6400,
@@ -253,6 +254,7 @@ def test_load_fills_missing_defaults_without_overwriting_existing_values(tmp_pat
         "extension": "preserved",
         "atmos_enabled": True,
         "mechanical_vibration_enabled": False,
+        "mechanical_vibration_delay_s": 2,
         "motion_tolerance_px": 1.0,
         "iso_compensation_enabled": True,
     }

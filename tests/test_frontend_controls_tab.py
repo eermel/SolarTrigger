@@ -102,9 +102,19 @@ def test_trigger_initialization_uses_trigger_tab_index():
 def test_add_camera_sections_are_separate_and_devices_is_default():
     add_camera = INDEX.split('<div class="page" id="add-camera-panel">', 1)[1].split('</section>', 1)[0]
     devices = INDEX.split('<div class="page active" id="devices-panel">', 1)[1].split('</section>', 1)[0]
-    for identifier in ('camera-characterization-select', 'camera-characterization-log', 'camera-characterization-question'):
+    for identifier in (
+        'camera-characterization-select',
+        'camera-characterization-question',
+        'camera-validation-select',
+        'camera-add-log',
+    ):
         assert f'id="{identifier}"' in add_camera
         assert f'id="{identifier}"' not in devices
+
+    assert add_camera.count('id="camera-add-log"') == 1
+    assert 'id="camera-characterization-log"' not in add_camera
+    assert 'id="camera-validation-log"' not in add_camera
+    assert 'onclick="clearCameraAddLog()"' in add_camera
     assert 'id="add-camera-rescan"' in add_camera
     assert 'id="devices-rescan"' in devices
     assert 'id="erase-persistent-data-reboot"' in devices

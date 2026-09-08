@@ -186,6 +186,43 @@ def discover_profiles(directory=None):
     return result
 
 
+def one_ev_iso_values(profile, *, max_iso=25600):
+    """Return real camera ISO choices restricted to full 1 EV steps from ISO 100."""
+    commands = profile.get("commands", {}) if isinstance(profile, dict) else {}
+    iso_spec = commands.get("iso", {}) if isinstance(commands, dict) else {}
+    raw_values = iso_spec.get("values", {}) if isinstance(iso_spec, dict) else {}
+
+    available = set()
+    if isinstance(raw_values, dict):
+        for raw in raw_values:
+            try:
+                value = int(str(raw).strip())
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                available.add(value)
+
+    result = []
+    value = 100
+    while value <= int(max_iso):
+        if value in available:
+            result.append(value)
+        value *= 2
+    return result
+
+
+def exposure_ui_capabilities(backend, directory=None):
+    """Return planning-relevant camera capabilities without touching hardware."""
+    key = str(backend or "").strip()
+    profile = discover_profiles(directory).get(key)
+    if profile is None:
+        return {"strategy": None, "iso_values": []}
+    return {
+        "strategy": profile.get("strategy"),
+        "iso_values": one_ev_iso_values(profile),
+    }
+
+
 def profile_for_model(model, directory=None):
     matches = [
         profile

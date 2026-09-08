@@ -378,8 +378,42 @@ header {
 .rig-column.enabled { border-color: var(--green); }
 .rig-column:not(.enabled) { opacity: .55; }
 
+.camcfg-rigs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
 .camcfg-rig-column {
   transition: border-color .2s, opacity .2s;
+}
+.camcfg-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+.camcfg-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.camcfg-help {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.camcfg-capability-note {
+  margin-top: 6px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+@media (max-width: 760px) {
+  .camcfg-rigs-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 430px) {
+  .camcfg-control-grid { grid-template-columns: 1fr; }
 }
 .camcfg-rig-column:not(.enabled) {
   opacity: .55;
@@ -491,7 +525,8 @@ header {
 #log-container-gps_sync,
 #log-container-calculator,
 #log-container-trigger,
-#camera-characterization-log,
+#camera-add-log,
+#log-container-sequencer,
 #log-container-exposure_opt {
   background: #050810;
   border: 1px solid var(--border);

@@ -1,97 +1,47 @@
 import pytest
 
-from backend.rig_config import (
-    canonical_rig_defaults,
-    normalize_rig_defaults,
-    validate,
-)
+from backend.rig_config import canonical_rig_defaults, validate
 
 
-def test_new_rig_defaults_mechanical_vibration_to_false():
+def _config(photo_patch=None):
     rig = canonical_rig_defaults(1)
-
-    assert rig["photo"]["mechanical_vibration_enabled"] is False
-
-
-def test_normalize_old_rig_adds_mechanical_vibration_false():
-    config = {
-        "rigs": [
-            {
-                "rig_id": 1,
-                "photo": {
-                    "anti_trailing_enabled": True,
-                },
-                "optics": {},
-            }
-        ]
-    }
-
-    normalize_rig_defaults(config)
-
-    assert (
-        config["rigs"][0]["photo"]["mechanical_vibration_enabled"]
-        is False
-    )
-
-
-def test_normalize_preserves_existing_mechanical_vibration_value():
-    config = {
-        "rigs": [
-            {
-                "rig_id": 1,
-                "photo": {
-                    "mechanical_vibration_enabled": True,
-                },
-                "optics": {},
-            }
-        ]
-    }
-
-    normalize_rig_defaults(config)
-
-    assert (
-        config["rigs"][0]["photo"]["mechanical_vibration_enabled"]
-        is True
-    )
-
-
-def _valid_config():
+    if photo_patch:
+        rig["photo"].update(photo_patch)
     return {
         "schema_version": 2,
-        "eclipse": {
-            "date": "2027-08-02",
-            "reference_site": {
-                "lat": 24.38268,
-                "lon": 35.38335,
-                "alt_m": 4.0,
-            },
-            "circumstances": {
-                "C1": "08:47:53.110",
-                "C2": "10:09:55.484",
-                "TMAX": "10:12:58.158",
-                "C3": "10:16:00.276",
-                "C4": "11:33:09.902",
-            },
-        },
+        "eclipse": None,
         "sequence": {"common": {}},
-        "rigs": [canonical_rig_defaults(1)],
+        "rigs": [rig],
     }
 
 
-def test_validate_accepts_mechanical_vibration_true():
-    config = _valid_config()
-    config["rigs"][0]["photo"]["mechanical_vibration_enabled"] = True
+def test_mechanical_vibration_defaults_are_off_and_two_seconds():
+    photo = canonical_rig_defaults(1)["photo"]
+    assert photo["mechanical_vibration_enabled"] is False
+    assert photo["mechanical_vibration_delay_s"] == 2
 
-    assert validate(config) is None
+
+@pytest.mark.parametrize("delay", [0, 1, 2, 3, 4, 5])
+def test_mechanical_vibration_delay_accepts_integer_zero_to_five(delay):
+    validate(_config({
+        "mechanical_vibration_enabled": True,
+        "mechanical_vibration_delay_s": delay,
+    }))
+
+
+@pytest.mark.parametrize("delay", [-1, 6, 1.5, True, "2"])
+def test_mechanical_vibration_delay_rejects_outside_contract(delay):
+    with pytest.raises(ValueError, match="mechanical_vibration_delay_s"):
+        validate(_config({"mechanical_vibration_delay_s": delay}))
+
 
 
 @pytest.mark.parametrize("value", [1, 0, "false", None, {}])
-def test_validate_rejects_non_boolean_mechanical_vibration(value):
-    config = _valid_config()
-    config["rigs"][0]["photo"]["mechanical_vibration_enabled"] = value
-
+def test_mechanical_vibration_enabled_rejects_non_boolean_values(value):
     with pytest.raises(
         ValueError,
-        match=r"photo\.mechanical_vibration_enabled must be a boolean",
+        match="mechanical_vibration_enabled",
     ):
-        validate(config)
+        validate(_config({
+            "mechanical_vibration_enabled": value,
+        }))

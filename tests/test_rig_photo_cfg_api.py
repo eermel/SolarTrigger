@@ -53,6 +53,7 @@ def _normalized_rig(rig, *, atmos_enabled=False):
     photo.setdefault("atmos_enabled", atmos_enabled)
     photo.setdefault("anti_trailing_enabled", False)
     photo.setdefault("mechanical_vibration_enabled", False)
+    photo.setdefault("mechanical_vibration_delay_s", 2)
     photo.setdefault("motion_tolerance_px", 1.0)
     photo.setdefault("iso_compensation_enabled", True)
     photo.setdefault("iso_max", 6400)
@@ -94,6 +95,7 @@ def test_legacy_migration_initializes_photo_flags(tmp_path):
         "atmos_enabled": True,
         "anti_trailing_enabled": False,
         "mechanical_vibration_enabled": False,
+        "mechanical_vibration_delay_s": 2,
         "motion_tolerance_px": 1.0,
         "iso_compensation_enabled": True,
         "iso_max": 6400,
@@ -202,7 +204,7 @@ def test_photo_get_returns_four_persisted_rig_configs(photo_api):
     expected_1 = _normalized_rig(original["rigs"][0])
     expected_4 = _normalized_rig(original["rigs"][3])
 
-    assert set(rigs[0]) == {"rig_id", "photo"}
-    assert set(rigs[3]) == {"rig_id", "photo"}
+    assert set(rigs[0]) == {"rig_id", "photo", "camera_capabilities"}
+    assert set(rigs[3]) == {"rig_id", "photo", "camera_capabilities"}
     assert rigs[0]["photo"] == expected_1["photo"]
     assert rigs[3]["photo"] == expected_4["photo"]
