@@ -80,6 +80,10 @@ function renderRigPhotoConfig(payload) {
     const mechanical = document.getElementById(`rig-${rigId}-mechanical-vibration-switch`);
     const mechanicalDelay = document.getElementById(`rig-${rigId}-mechanical-vibration-delay`);
     const mechanicalNote = document.getElementById(`rig-${rigId}-mechanical-vibration-note`);
+    const mechanicalSection = mechanical
+      ? mechanical.closest('.camcfg-mechanical-vibration-section')
+      : null;
+    const mechanicalAvailable = capabilities.strategy === 'sequential';
     const isoComp = document.getElementById(`rig-${rigId}-iso-comp-switch`);
     const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
 
@@ -91,9 +95,22 @@ function renderRigPhotoConfig(payload) {
         : String(photo.motion_tolerance_px);
     }
 
+    if (mechanicalSection) {
+      mechanicalSection.classList.toggle(
+        'camcfg-subsection-unavailable',
+        !mechanicalAvailable
+      );
+      mechanicalSection.setAttribute(
+        'aria-disabled',
+        mechanicalAvailable ? 'false' : 'true'
+      );
+    }
+
     if (mechanical) {
-      mechanical.checked = photo.mechanical_vibration_enabled === true;
-      mechanical.disabled = capabilities.strategy === 'bracket';
+      mechanical.checked = mechanicalAvailable
+        ? photo.mechanical_vibration_enabled === true
+        : false;
+      mechanical.disabled = !mechanicalAvailable;
     }
 
     if (mechanicalDelay) {
@@ -102,7 +119,7 @@ function renderRigPhotoConfig(payload) {
           ? 2
           : photo.mechanical_vibration_delay_s
       );
-      mechanicalDelay.disabled = capabilities.strategy === 'bracket';
+      mechanicalDelay.disabled = !mechanicalAvailable;
     }
 
     if (mechanicalNote) {
@@ -150,6 +167,15 @@ function readRigPhotoConfig(rigId) {
   const mechanical = document.getElementById(`rig-${rigId}-mechanical-vibration-switch`);
   const mechanicalDelay = document.getElementById(`rig-${rigId}-mechanical-vibration-delay`);
   const isoComp = document.getElementById(`rig-${rigId}-iso-comp-switch`);
+
+  const persistedRig = Array.isArray(rigPhotoState.rigs)
+    ? rigPhotoState.rigs.find(
+        rig => Number(rig.rig_id) === Number(rigId)
+      )
+    : null;
+  const persistedPhoto = persistedRig && persistedRig.photo
+    ? persistedRig.photo
+    : {};
   const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
   const atmo = document.getElementById('cfg-atmo-switch');
 
@@ -172,8 +198,18 @@ function readRigPhotoConfig(rigId) {
     photo: {
       anti_trailing_enabled: Boolean(antiBlur && antiBlur.checked),
       motion_tolerance_px: toleranceValue,
-      mechanical_vibration_enabled: Boolean(mechanical && mechanical.checked),
-      mechanical_vibration_delay_s: delayValue,
+      mechanical_vibration_enabled:
+        mechanical && mechanical.disabled
+          ? persistedPhoto.mechanical_vibration_enabled === true
+          : Boolean(mechanical && mechanical.checked),
+      mechanical_vibration_delay_s:
+        mechanicalDelay && mechanicalDelay.disabled
+          ? (
+              Number.isInteger(Number(persistedPhoto.mechanical_vibration_delay_s))
+                ? Number(persistedPhoto.mechanical_vibration_delay_s)
+                : 2
+            )
+          : delayValue,
       iso_compensation_enabled: Boolean(isoComp && isoComp.checked),
       iso_max: isoMaxValue,
       atmos_enabled: Boolean(atmo && atmo.checked),

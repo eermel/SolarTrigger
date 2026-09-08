@@ -71,3 +71,23 @@ def test_camera_rig_buttons_are_twenty_five_percent_shorter():
     assert '.cam-rig-button {' in CSS
     assert 'height: 22.5px' in CSS
     assert 'min-height: 22.5px' in CSS
+
+
+def test_mechanical_vibration_unavailable_section_is_fully_disabled_visually():
+    assert "camcfg-subsection-unavailable" in JS
+    assert "mechanicalAvailable = capabilities.strategy === 'sequential'" in JS
+    assert "mechanical.checked = mechanicalAvailable" in JS
+    assert "mechanical.disabled = !mechanicalAvailable" in JS
+    assert "mechanicalDelay.disabled = !mechanicalAvailable" in JS
+    assert ".camcfg-subsection-unavailable {" in CSS
+    assert "filter: grayscale(1)" in CSS
+
+
+def test_unavailable_mechanical_vibration_preserves_persisted_configuration():
+    assert "persistedPhoto.mechanical_vibration_enabled === true" in JS
+    assert "persistedPhoto.mechanical_vibration_delay_s" in JS
+
+
+def test_mechanical_vibration_display_name_is_attenuation():
+    assert "Camera mechanical vibrations attenuation" in INDEX
+    assert "Camera mechanical vibration</div>" not in INDEX
