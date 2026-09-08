@@ -251,6 +251,10 @@ class TriggerService:
             for rig_id in range(1, 5)
         }
         self._active_circumstances_paths = {}
+        self._analysis_suppressed_by_rig = {
+            rig_id: False
+            for rig_id in range(1, 5)
+        }
 
     @property
     def _proc(self):
@@ -515,6 +519,7 @@ class TriggerService:
                 return False
 
             self._starting_by_rig[rig_id] = True
+            self._analysis_suppressed_by_rig[rig_id] = False
 
             dry_run_now_start_utc = None
             if dry_run_now:
@@ -738,6 +743,11 @@ class TriggerService:
                 line=raw.rstrip()
                 if not line: continue
                 level=self.line_level_fn(line); line=self.line_clean_fn(line)
+                if line.startswith("TRIGGER_RUN_ANALYSIS "):
+                    with self._lock:
+                        suppress_analysis = self._analysis_suppressed_by_rig[rig_id]
+                    if suppress_analysis:
+                        continue
                 if "PHASE 1a" in line: self._set_phase(rig_id, "partial")
                 elif "PHASE 1b" in line or "DIAMOND RING" in line: self._set_phase(rig_id, "diamond_ring")
                 elif "PHASE 2" in line: self._set_phase(rig_id, "totality")
@@ -759,6 +769,7 @@ class TriggerService:
                     self._procs[rig_id] = None
                     self._starting_by_rig[rig_id] = False
                     self._active_circumstances_paths.pop(rig_id, None)
+                    self._analysis_suppressed_by_rig[rig_id] = False
 
             if owns_process:
                 self.state.update_trigger_rig(
@@ -800,6 +811,9 @@ class TriggerService:
 
         if proc is None or proc.poll() is not None:
             return False
+
+        with self._lock:
+            self._analysis_suppressed_by_rig[rig_id] = True
 
         try:
             proc.send_signal(signal.SIGUSR1)
@@ -851,6 +865,9 @@ class TriggerService:
                 "status": "not_running",
                 "rig_id": rig_id,
             }
+
+        with self._lock:
+            self._analysis_suppressed_by_rig[rig_id] = True
 
         try:
             proc.terminate()

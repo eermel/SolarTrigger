@@ -130,6 +130,10 @@ from backend.execution_plan_runtime import (
     load_execution_plan,
     rebase_execution_plan,
 )
+from backend.trigger_run_analysis import (
+    TriggerRunAnalysis,
+    format_trigger_run_analysis,
+)
 from backend.timeline import build_timeline, rebase_timeline, format_hms_ms
 from services.camera_service import CameraService, CaptureIntent, PreparedCapture
 from plugins.camera.base import CaptureResult
@@ -2022,29 +2026,53 @@ def _run_execution_plan_v2():
 
     _photo_override_event.clear()
 
+    analysis = TriggerRunAnalysis(
+        plan,
+        plan_name=Path(args.execution_plan).name,
+    )
+
+    def _runtime_analysis_log(message):
+        analysis.observe(message)
+        _log(message)
+
     runtime = ExecutionPlanRuntime(
         clock=_runtime_clock,
         camera_client=camera,
-        log_fn=_log,
+        log_fn=_runtime_analysis_log,
         stop_event=_photo_override_event,
     )
+
+    def _emit_run_analysis():
+        for summary_line in format_trigger_run_analysis(
+            analysis.finalize()
+        ):
+            _log(summary_line)
 
     # Strict preflight before timed commands.  Characterized GET-only
     # invariants (e.g. an A6600 physical M dial) fail here, before START.
     try:
         runtime.prepare_for_execution(plan)
     except Exception as exc:
+        analysis.mark_fatal(exc)
         _log(
             f"{Colors.RED}CAMERA PREPARATION FAILED — "
             f"{exc}{Colors.RESET}"
         )
+        if not _photo_override_event.is_set():
+            _emit_run_analysis()
         raise
 
     _log(
         f"{Colors.GREEN}### EXECUTION PLAN V2 START{Colors.RESET}"
     )
 
-    runtime.run(plan)
+    try:
+        runtime.run(plan)
+    except Exception as exc:
+        analysis.mark_fatal(exc)
+        if not _photo_override_event.is_set():
+            _emit_run_analysis()
+        raise
 
     if _photo_override_event.is_set():
         totality_plan = _execution_plan_for_phase(
@@ -2089,6 +2117,9 @@ def _run_execution_plan_v2():
     _log(
         f"{Colors.GREEN}✅ EXECUTION PLAN V2 COMPLETED{Colors.RESET}"
     )
+
+    if not _photo_override_event.is_set():
+        _emit_run_analysis()
 
 
 def main():
