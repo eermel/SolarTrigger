@@ -129,7 +129,7 @@ class CameraWorker:
         if deadline is None:
             return None
         if self._clock is None:
-            raise RuntimeError("horloge d'exécution non configurée")
+            raise RuntimeError("execution clock is not configured")
         return time.monotonic() + self._clock.remaining(deadline)
 
     def connect(self):
@@ -277,6 +277,22 @@ class CameraWorker:
             photo_num_start=photo_num_start,
             deadline=deadline,
             slowest_override_seconds=slowest_override_seconds,
+        )
+
+    def test_photo_fast(self, speed):
+        """Fire one atomic PHOTO for the Camera-tab diagnostic button.
+
+        This deliberately bypasses exposure/capture-mode SET operations.
+        It remains a normal manual worker job: it does not acquire sequencer
+        priority and therefore cannot jump ahead of trigger operations.
+        """
+        return self._call(
+            "execute_photo",
+            {
+                "shutter": str(speed),
+                "expected_frames": 1,
+            },
+            recover_connection=True,
         )
 
     def test_photo_diagnostic(

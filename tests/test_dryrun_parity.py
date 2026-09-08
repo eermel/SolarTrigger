@@ -42,7 +42,7 @@ def test_dry_run_startup_log_describes_timeline_translation():
     log_block_end = SRC.index(")", start) + 1
     log_block = SRC[log_block_start:log_block_end]
 
-    assert "timeline translatée" in log_block
+    assert "timeline shifted" in log_block
     assert "appareil simulé" not in log_block
     assert "accès matériel caméra totalement désactivé" not in log_block
 
@@ -54,20 +54,59 @@ def test_dry_run_cli_help_describes_timeline_translation():
         if 'add_argument("--dry-run"' in line
     )
 
-    assert "timeline translatée" in help_line
+    assert "timeline shifted" in help_line
     assert "sans appareil" not in help_line
 
 
-def test_rebase_timeline_calls_are_guarded_by_dry_run():
-    guarded_region = _indented_block(SRC, "if args.dry_run:")
-    occurrences = [
-        index
-        for index in range(len(SRC))
-        if SRC.startswith("rebase_timeline(", index)
+def test_rebase_timeline_calls_are_guarded_by_dry_run_modes():
+    import ast
+
+    tree = ast.parse(SRC)
+
+    dry_run_now_branch = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.If)
+        and ast.unparse(node.test) == "args.dry_run_now_start"
+    )
+
+    assert len(dry_run_now_branch.orelse) == 1
+
+    dry_run_branch = dry_run_now_branch.orelse[0]
+
+    assert isinstance(dry_run_branch, ast.If)
+    assert ast.unparse(dry_run_branch.test) == "args.dry_run"
+
+    def rebase_calls(statements):
+        module = ast.Module(
+            body=statements,
+            type_ignores=[],
+        )
+        return [
+            node
+            for node in ast.walk(module)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "rebase_timeline"
+        ]
+
+    now_calls = rebase_calls(dry_run_now_branch.body)
+    legacy_calls = rebase_calls(dry_run_branch.body)
+
+    # Chaque mode translate sa timeline exactement une fois.
+    assert len(now_calls) == 1
+    assert len(legacy_calls) == 1
+
+    all_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "rebase_timeline"
     ]
 
-    assert occurrences
-    assert guarded_region.count("rebase_timeline(") == len(occurrences)
+    # Aucun rebase de timeline ne doit exister hors de ces deux modes.
+    assert len(all_calls) == 2
 
 
 def test_readme_quick_help_describes_dry_run_parity():
@@ -81,7 +120,7 @@ def test_readme_quick_help_describes_dry_run_parity():
     assert "chronologie" in normalized or "timeline" in normalized or "parité matérielle" in normalized
 
 
-def test_execution_plan_dry_run_uses_one_uniform_plan_rebase():
+def test_execution_plan_dry_run_modes_use_one_uniform_plan_rebase_each():
     import ast
 
     tree = ast.parse(SRC)
@@ -92,22 +131,43 @@ def test_execution_plan_dry_run_uses_one_uniform_plan_rebase():
         and node.name == "_run_execution_plan_v2"
     )
 
-    dry_run_branch = next(
+    dry_run_now_branch = next(
         node
         for node in function.body
         if isinstance(node, ast.If)
-        and ast.unparse(node.test) == "args.dry_run"
+        and ast.unparse(node.test) == "args.dry_run_now_start"
     )
 
-    guarded_calls = [
-        node
-        for node in ast.walk(dry_run_branch)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "rebase_execution_plan"
-    ]
+    assert len(dry_run_now_branch.orelse) == 1
 
-    # Le plan principal ne doit être rebasé qu'une seule fois pour le
-    # dry-run. D'autres rebases peuvent exister dans la fonction, notamment
-    # pour chaque cycle du TOTALITY OVERRIDE.
-    assert len(guarded_calls) == 1
+    dry_run_branch = dry_run_now_branch.orelse[0]
+
+    assert isinstance(dry_run_branch, ast.If)
+    assert ast.unparse(dry_run_branch.test) == "args.dry_run"
+
+    def plan_rebase_calls(statements):
+        module = ast.Module(
+            body=statements,
+            type_ignores=[],
+        )
+        return [
+            node
+            for node in ast.walk(module)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "rebase_execution_plan"
+        ]
+
+    now_calls = plan_rebase_calls(
+        dry_run_now_branch.body
+    )
+    legacy_calls = plan_rebase_calls(
+        dry_run_branch.body
+    )
+
+    # Chaque mode translate le plan principal exactement une fois.
+    assert len(now_calls) == 1
+    assert len(legacy_calls) == 1
+
+    # Les éventuels autres rebases de la fonction appartiennent notamment
+    # au TOTALITY OVERRIDE et ne font pas partie du rebase initial.

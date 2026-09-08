@@ -7,6 +7,11 @@ class FakeSdk:
         self.serial_supported = serial_supported
         self.open_calls = []
         self.close_calls = []
+        self.open_ids = set()
+        self.positions = {
+            sdk_id: 123
+            for sdk_id in self.ids
+        }
 
     def EAFGetNum(self):
         return len(self.ids)
@@ -19,10 +24,12 @@ class FakeSdk:
         if sdk_id not in self.ids:
             return 1
         self.open_calls.append(sdk_id)
+        self.open_ids.add(sdk_id)
         return 0
 
     def EAFClose(self, sdk_id):
         self.close_calls.append(sdk_id)
+        self.open_ids.discard(sdk_id)
         return 0
 
     def EAFStop(self, _sdk_id):
@@ -35,12 +42,20 @@ class FakeSdk:
         return 0
 
     def EAFGetSerialNumber(self, sdk_id, output):
+        if sdk_id not in self.open_ids:
+            return 9
         if not self.serial_supported:
             return 8
 
         value = sdk_id + 1
         for index in range(8):
             output._obj.id[index] = value
+        return 0
+
+    def EAFGetPosition(self, sdk_id, output):
+        if sdk_id not in self.open_ids:
+            return 9
+        output._obj.value = self.positions[sdk_id]
         return 0
 
 
@@ -98,6 +113,62 @@ def test_four_eafs_have_distinct_device_ids(monkeypatch):
 
     assert sdk.open_calls == [0, 3, 7, 12]
     assert sdk.close_calls == [0, 3, 7, 12]
+
+
+def test_inventory_does_not_close_persistent_worker_session(
+    monkeypatch,
+):
+    sdk = FakeSdk(ids=(0,), serial_supported=True)
+    worker_driver = make_driver(monkeypatch, sdk)
+    inventory_driver = make_driver(monkeypatch, sdk)
+
+    worker_driver.connect(device_id="zwo_eaf:0")
+
+    try:
+        assert worker_driver.get_position() == 123
+        assert sdk.open_calls == [0]
+        assert sdk.close_calls == []
+
+        devices = inventory_driver.enumerate_devices()
+
+        assert devices[0]["device_id"] == "zwo_eaf:0"
+
+        # L'inventaire partage la session déjà ouverte :
+        # aucun second EAFOpen et surtout aucun EAFClose.
+        assert sdk.open_calls == [0]
+        assert sdk.close_calls == []
+
+        # Reproduction exacte de la régression production :
+        # le worker doit encore pouvoir lire sa position après detection.
+        assert worker_driver.get_position() == 123
+
+    finally:
+        worker_driver.disconnect()
+
+    assert sdk.close_calls == [0]
+
+
+def test_two_logical_owners_close_sdk_only_after_last_release(
+    monkeypatch,
+):
+    sdk = FakeSdk(ids=(7,))
+    first = make_driver(monkeypatch, sdk)
+    second = make_driver(monkeypatch, sdk)
+
+    first.connect(device_id="zwo_eaf:7")
+    second.connect(device_id="zwo_eaf:7")
+
+    assert sdk.open_calls == [7]
+    assert sdk.close_calls == []
+
+    first.disconnect()
+
+    assert sdk.close_calls == []
+    assert second.get_position() == 123
+
+    second.disconnect()
+
+    assert sdk.close_calls == [7]
 
 
 def test_supported_serial_is_exposed(monkeypatch):

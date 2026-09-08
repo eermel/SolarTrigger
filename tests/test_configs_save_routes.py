@@ -211,7 +211,7 @@ def test_config_save_rejects_invalid_filename_without_writing(
     response = client.post("/api/configs/save", json={"filename": filename})
 
     assert response.status_code == 400
-    assert response.get_json() == {"error": "Nom de fichier invalide"}
+    assert response.get_json() == {"error": "Invalid filename"}
     assert not configs_dir.exists()
     assert state_store.snapshot() == initial_state
     assert emitted == []
@@ -301,7 +301,7 @@ def test_config_save_collision_without_overwrite_returns_409(
 
     assert response.status_code == 409
     assert response.get_json() == {
-        "error": "Le fichier existe déjà",
+        "error": "File already exists",
         "filename": filename,
     }
     assert json.loads(destination.read_text(encoding="utf-8")) == original

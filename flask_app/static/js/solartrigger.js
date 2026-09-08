@@ -30,6 +30,40 @@ let rigDevicesState = {rigs: DEFAULT_RIGS, inventory: {camera: [], mount: [], fo
 let rigPhotoState = {rigs: []};
 let globalDevicesState = null;
 
+function populateRigIsoMaxSelect(select, values, requestedValue) {
+  if (!select) return;
+
+  const isoValues = Array.isArray(values)
+    ? values.map(Number).filter(value => Number.isInteger(value) && value > 0)
+    : [];
+
+  select.replaceChildren();
+
+  if (!isoValues.length) {
+    const option = document.createElement('option');
+    option.value = String(requestedValue || 6400);
+    option.textContent = `${option.value} — profile unavailable`;
+    select.appendChild(option);
+    select.disabled = true;
+    return;
+  }
+
+  isoValues.forEach(value => {
+    const option = document.createElement('option');
+    option.value = String(value);
+    option.textContent = String(value);
+    select.appendChild(option);
+  });
+
+  const requested = Number(requestedValue);
+  const selected = isoValues.includes(requested)
+    ? requested
+    : isoValues.filter(value => value <= requested).at(-1) || isoValues[0];
+
+  select.value = String(selected);
+  select.disabled = false;
+}
+
 function renderRigPhotoConfig(payload) {
   const rigs = Array.isArray(payload && payload.rigs) ? payload.rigs : [];
   rigPhotoState = {rigs};
@@ -39,9 +73,13 @@ function renderRigPhotoConfig(payload) {
     if (!Number.isInteger(rigId) || rigId < 1 || rigId > 4) return;
 
     const photo = rig.photo || {};
+    const capabilities = rig.camera_capabilities || {};
 
     const antiBlur = document.getElementById(`rig-${rigId}-antiblur-switch`);
     const tolerance = document.getElementById(`rig-${rigId}-pixel-tolerance`);
+    const mechanical = document.getElementById(`rig-${rigId}-mechanical-vibration-switch`);
+    const mechanicalDelay = document.getElementById(`rig-${rigId}-mechanical-vibration-delay`);
+    const mechanicalNote = document.getElementById(`rig-${rigId}-mechanical-vibration-note`);
     const isoComp = document.getElementById(`rig-${rigId}-iso-comp-switch`);
     const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
 
@@ -52,12 +90,38 @@ function renderRigPhotoConfig(payload) {
         ? '1.0'
         : String(photo.motion_tolerance_px);
     }
+
+    if (mechanical) {
+      mechanical.checked = photo.mechanical_vibration_enabled === true;
+      mechanical.disabled = capabilities.strategy === 'bracket';
+    }
+
+    if (mechanicalDelay) {
+      mechanicalDelay.value = String(
+        photo.mechanical_vibration_delay_s == null
+          ? 2
+          : photo.mechanical_vibration_delay_s
+      );
+      mechanicalDelay.disabled = capabilities.strategy === 'bracket';
+    }
+
+    if (mechanicalNote) {
+      mechanicalNote.textContent = capabilities.strategy === 'bracket'
+        ? 'Camera strategy: BRACKET — Unavailable with bracket capture.'
+        : capabilities.strategy === 'sequential'
+          ? 'Camera strategy: SEQUENTIAL — Delay is applied only after exposures of 1/60 s or slower.'
+          : 'Camera strategy: unavailable until a characterized camera is assigned.';
+    }
+
     if (isoComp) {
       isoComp.checked = photo.iso_compensation_enabled !== false;
     }
-    if (isoMax) {
-      isoMax.value = String(photo.iso_max == null ? 6400 : photo.iso_max);
-    }
+
+    populateRigIsoMaxSelect(
+      isoMax,
+      capabilities.iso_values,
+      photo.iso_max == null ? 6400 : photo.iso_max
+    );
   });
 
   const firstRig = rigs.find(rig => Number(rig.rig_id) === 1);
@@ -83,15 +147,21 @@ async function loadRigPhotoConfig() {
 function readRigPhotoConfig(rigId) {
   const antiBlur = document.getElementById(`rig-${rigId}-antiblur-switch`);
   const tolerance = document.getElementById(`rig-${rigId}-pixel-tolerance`);
+  const mechanical = document.getElementById(`rig-${rigId}-mechanical-vibration-switch`);
+  const mechanicalDelay = document.getElementById(`rig-${rigId}-mechanical-vibration-delay`);
   const isoComp = document.getElementById(`rig-${rigId}-iso-comp-switch`);
   const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
   const atmo = document.getElementById('cfg-atmo-switch');
 
   const toleranceValue = Number(tolerance && tolerance.value);
+  const delayValue = Number(mechanicalDelay && mechanicalDelay.value);
   const isoMaxValue = Number(isoMax && isoMax.value);
 
   if (!Number.isFinite(toleranceValue) || toleranceValue <= 0) {
     throw new Error('Pixel tolerance must be strictly positive');
+  }
+  if (!Number.isInteger(delayValue) || delayValue < 0 || delayValue > 5) {
+    throw new Error('Camera mechanical vibration delay must be an integer from 0 to 5 seconds');
   }
   if (!Number.isInteger(isoMaxValue) || isoMaxValue <= 0) {
     throw new Error('Invalid ISO Max');
@@ -102,6 +172,8 @@ function readRigPhotoConfig(rigId) {
     photo: {
       anti_trailing_enabled: Boolean(antiBlur && antiBlur.checked),
       motion_tolerance_px: toleranceValue,
+      mechanical_vibration_enabled: Boolean(mechanical && mechanical.checked),
+      mechanical_vibration_delay_s: delayValue,
       iso_compensation_enabled: Boolean(isoComp && isoComp.checked),
       iso_max: isoMaxValue,
       atmos_enabled: Boolean(atmo && atmo.checked),
@@ -148,7 +220,7 @@ async function persistGlobalAtmos(enabled, showFeedback = true) {
     await loadRigPhotoConfig();
     if (showFeedback) {
       flash(
-        `Atmospheric Attenuation : ${enabled ? 'ON' : 'OFF'} pour tous les RIG`,
+        `Atmospheric Attenuation : ${enabled ? 'ON' : 'OFF'} for all RIGs`,
         'green'
       );
     }
@@ -195,6 +267,8 @@ function readExposureOptConfig() {
       photo: {
         anti_trailing_enabled: current.photo.anti_trailing_enabled,
         motion_tolerance_px: current.photo.motion_tolerance_px,
+        mechanical_vibration_enabled: current.photo.mechanical_vibration_enabled,
+        mechanical_vibration_delay_s: current.photo.mechanical_vibration_delay_s,
         iso_compensation_enabled: current.photo.iso_compensation_enabled,
         iso_max: current.photo.iso_max
       }
@@ -637,14 +711,14 @@ function encodedRigBinding(device) {
 }
 
 function rigDeviceDisplayLabel(category, device) {
-  if (!device) return 'Inconnu';
+  if (!device) return 'Unknown';
 
   let label =
     device.display_label
     || device.model
     || device.serial
     || device.backend
-    || 'Inconnu';
+    || 'Unknown';
 
   if (category === 'camera' && device.serial) {
     const serial = String(device.serial);
@@ -1215,9 +1289,19 @@ async function rescanDevices() {
   }
 }
 
+function waitForBrowserPaint() {
+  return new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
+
 async function refreshRigDevices(silent = false) {
   const buttons = document.querySelectorAll('#devices-rescan, #add-camera-rescan');
   buttons.forEach(button => { button.disabled = true; });
+
+  // Do not let a slow USB inventory postpone the disabled visual state.
+  await waitForBrowserPaint();
+
   try {
     const response = await fetch('/api/rigs/devices/refresh', {method: 'POST'});
     const inventory = await response.json();
@@ -1231,6 +1315,83 @@ async function refreshRigDevices(silent = false) {
   } finally {
     buttons.forEach(button => { button.disabled = false; });
   }
+}
+
+const cameraAddLogState = {
+  characterization: [],
+  validation: [],
+  characterizationOffset: 0,
+  validationOffset: 0,
+  characterizationResult: '',
+  clearedCharacterizationResult: '',
+};
+
+function renderCameraAddLog() {
+  const log = document.getElementById('camera-add-log');
+  if (!log) return;
+
+  const sections = [];
+  const characterization = cameraAddLogState.characterization.slice(
+    cameraAddLogState.characterizationOffset
+  );
+  const validation = cameraAddLogState.validation.slice(
+    cameraAddLogState.validationOffset
+  );
+
+  const result = (
+    cameraAddLogState.characterizationResult &&
+    cameraAddLogState.characterizationResult !==
+      cameraAddLogState.clearedCharacterizationResult
+  )
+    ? cameraAddLogState.characterizationResult
+    : '';
+
+  if (characterization.length || result) {
+    sections.push(
+      ['=== CAMERA CHARACTERIZATION ===', ...characterization, result]
+        .filter(Boolean)
+        .join('\n')
+    );
+  }
+
+  if (validation.length) {
+    sections.push(
+      ['=== CAMERA VALIDATION ===', ...validation].join('\n')
+    );
+  }
+
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
+  log.textContent = sections.join('\n\n');
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+
+function updateCameraAddLog(source, lines, result = null) {
+  const normalized = Array.isArray(lines) ? lines.map(String) : [];
+  const offsetKey = `${source}Offset`;
+
+  if (normalized.length < cameraAddLogState[offsetKey]) {
+    cameraAddLogState[offsetKey] = 0;
+  }
+
+  cameraAddLogState[source] = normalized;
+
+  if (source === 'characterization') {
+    cameraAddLogState.characterizationResult = result
+      ? JSON.stringify(result, null, 2)
+      : '';
+  }
+
+  renderCameraAddLog();
+}
+
+function clearCameraAddLog() {
+  cameraAddLogState.characterizationOffset =
+    cameraAddLogState.characterization.length;
+  cameraAddLogState.validationOffset =
+    cameraAddLogState.validation.length;
+  cameraAddLogState.clearedCharacterizationResult =
+    cameraAddLogState.characterizationResult;
+  renderCameraAddLog();
 }
 
 let cameraCharacterizationQuestion = null;
@@ -1257,10 +1418,7 @@ async function pollCameraCharacterization() {
     select.disabled = status.running;
     document.getElementById('camera-characterization-start').disabled = status.running || !select.options.length;
     document.getElementById('camera-characterization-cancel').disabled = !status.running;
-    const log = document.getElementById('camera-characterization-log');
-    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
-    log.textContent = status.logs.join('\n') + (status.result ? '\n' + JSON.stringify(status.result, null, 2) : '');
-    if (atBottom) log.scrollTop = log.scrollHeight;
+    updateCameraAddLog('characterization', status.logs, status.result);
     cameraCharacterizationQuestion = status.question?.id || null;
     document.getElementById('camera-characterization-question').hidden = !status.question;
     document.getElementById('camera-characterization-prompt').textContent = status.question?.message || '';
@@ -1280,8 +1438,10 @@ async function pollCameraCharacterization() {
     cameraCharacterizationWasRunning = status.running;
     if (completed) setTimeout(() => refreshRigDevices(true), 0);
   } catch (error) {
-    const log = document.getElementById('camera-characterization-log');
-    if (log && !log.textContent) log.textContent = `Characterization status unavailable: ${error.message}`;
+    updateCameraAddLog(
+      'characterization',
+      [`Characterization status unavailable: ${error.message}`]
+    );
   } finally {
     cameraCharacterizationPolling = false;
   }
@@ -1296,9 +1456,23 @@ async function characterizationRequest(action, payload = {}) {
   await pollCameraCharacterization();
 }
 async function startCameraCharacterization() {
+  const button = document.getElementById('camera-characterization-start');
+  const select = document.getElementById('camera-characterization-select');
+  const locator = select ? select.value : '';
+
+  // Immediate operator feedback, before USB/backend work starts.
+  if (button) button.disabled = true;
+  if (select) select.disabled = true;
+
+  await waitForBrowserPaint();
+
   try {
-    await characterizationRequest('start', {locator: document.getElementById('camera-characterization-select').value});
-  } catch (error) { flash(error.message, 'red'); }
+    await characterizationRequest('start', {locator});
+  } catch (error) {
+    if (select) select.disabled = false;
+    if (button) button.disabled = !locator;
+    flash(error.message, 'red');
+  }
 }
 async function cancelCameraCharacterization() {
   try { await characterizationRequest('cancel'); } catch (error) { flash(error.message, 'red'); }
@@ -1362,7 +1536,7 @@ async function playSound(filename) {
   }
 
   const buf = state.audioBuffers[filename];
-  if (!buf) { console.warn('Son non disponible :', filename); return; }
+  if (!buf) { console.warn('Sound unavailable:', filename); return; }
 
   try {
     if (state.currentSound) { try { state.currentSound.stop(); } catch(e){} }
@@ -1447,7 +1621,7 @@ async function loadSupportedEclipses() {
       select.value = 'auto';
     }
   } catch (error) {
-    console.warn('Impossible de charger la liste des éclipses:', error);
+    console.warn('Unable to load eclipse list:', error);
   }
 }
 
@@ -1464,7 +1638,7 @@ async function _reanchorClockFromStatus() {
       updateRigs(payload.rigs || DEFAULT_RIGS);
     }
   } catch (e) {
-    console.warn('Impossible de recaler l\'heure depuis le statut:', e);
+    console.warn('Unable to re-anchor time from status:', e);
   }
 }
 
@@ -1482,7 +1656,7 @@ socket.on('connect', async () => {
       updateRigs(payload.rigs || DEFAULT_RIGS);
     }
   } catch (e) {
-    console.warn('Impossible de recaler l\'heure après connexion:', e);
+    console.warn('Unable to re-anchor time after connection:', e);
   }
 });
 socket.io.on('reconnect', _reanchorClockFromStatus);
@@ -1511,7 +1685,7 @@ socket.on('gps_sync_done', async d => {
       }
     }
   } catch (e) {
-    console.warn('Impossible de rafraîchir l\'état GPS:', e);
+    console.warn('Unable to refresh GPS state:', e);
   }
 
   // Si l'heure système a été modifiée, recaler également l'horloge Pi.
@@ -1583,7 +1757,7 @@ socket.on('eclipse_calculated', d => {
   if (d.status === 'success' && d.data) {
     // Appliquer la timezone DST AVANT renderContacts pour que les heures locales soient correctes
     if (d.timezone_override) {
-      console.log('[DST] timezone_override reçu:', d.timezone_override);
+      console.log('[DST] timezone_override received:', d.timezone_override);
       _gpsTimezone = d.timezone_override;
       const sysTz = document.getElementById('sys-timezone');
       if (sysTz) sysTz.textContent = d.timezone_override;
@@ -1874,6 +2048,7 @@ socket.on('log_history', lines => {
   const slewButtons = Array.from(document.querySelectorAll('.mount-slew-button'));
   let homing = false;
   let trackingEnabled = false;
+  let trackingCommandPending = false;
 
   function selectedMountTriggerRunning() {
     const rig = selectedControlsRig();
@@ -1970,7 +2145,12 @@ socket.on('log_history', lines => {
     trackingSwitch.checked = trackingEnabled;
 
     trackingMode.disabled = triggerRunning || modes.length === 0;
-    trackingSwitch.disabled = triggerRunning || !capabilities || capabilities.toggle !== true;
+    trackingSwitch.disabled = (
+      triggerRunning
+      || trackingCommandPending
+      || !capabilities
+      || capabilities.toggle !== true
+    );
     scheduleMountRefresh(homing ? 400 : 1500);
   }
 
@@ -2064,10 +2244,24 @@ socket.on('log_history', lines => {
     });
   });
 
-  trackingSwitch.addEventListener('change', () => {
-    postMount(mountUrl(trackingSwitch.checked
-      ? 'tracking/start'
-      : 'tracking/stop'));
+  trackingSwitch.addEventListener('change', async () => {
+    const requestedTracking = trackingSwitch.checked;
+
+    // A checkbox changes visually before the "change" handler runs.
+    // Restore the last authoritative mount state immediately. The switch
+    // becomes green only when /status confirms tracking_enabled=true.
+    trackingSwitch.checked = trackingEnabled;
+    trackingCommandPending = true;
+    trackingSwitch.disabled = true;
+
+    try {
+      await postMount(mountUrl(requestedTracking
+        ? 'tracking/start'
+        : 'tracking/stop'));
+    } finally {
+      trackingCommandPending = false;
+      await refreshMount();
+    }
   });
 
   document.addEventListener('controlsrigchange', () => {
@@ -2328,7 +2522,7 @@ function updateGPS(gps) {
 
 const PHASE_LABELS = {
   idle:         'IDLE',
-  waiting:      'EN ATTENTE',
+  waiting:      'WAITING',
   partial:      'PARTIAL',
   diamond_ring: '💎 DIAMOND RING',
   totality:     '🌑 TOTALITY',
@@ -2353,10 +2547,17 @@ function updatePhase(phase) {
   if (ring)  { ring.classList.toggle('active', phase === 'totality' || phase === 'diamond_ring'); }
   if (dot)   { dot.className = phase !== 'idle' ? 'dot on' : 'dot off'; }
 
-  const btnStart = document.getElementById('btn-start');
-  const btnStop  = document.getElementById('btn-stop');
-  const btnTot   = document.getElementById('btn-totality-only');
-  if (btnStart) btnStart.disabled = (phase !== 'idle');
+  const btnStart     = document.getElementById('btn-start');
+  const btnDryRun    = document.getElementById('btn-dryrun');
+  const btnDryRunNow = document.getElementById('btn-dryrun-now');
+  const btnStop      = document.getElementById('btn-stop');
+  const btnTot       = document.getElementById('btn-totality-only');
+
+  const triggerStartLocked = (phase !== 'idle');
+
+  if (btnStart)     btnStart.disabled     = triggerStartLocked;
+  if (btnDryRun)    btnDryRun.disabled    = triggerStartLocked;
+  if (btnDryRunNow) btnDryRunNow.disabled = triggerStartLocked;
   if (btnStop)  btnStop.disabled  = false;
   if (btnTot) {
     btnTot.style.opacity = '1';
@@ -2390,7 +2591,7 @@ function updateSpeedsSelection() {
   const selected = Array.from(checkboxes)
     .filter(cb => cb.checked)
     .map(cb => DEFAULT_SPEEDS[parseInt(cb.id.split('-')[1])]);
-  console.log('Vitesses sélectionnées:', selected);
+  console.log('Selected shutter speeds:', selected);
 }
 
 function getSpeedsFromGrid() {
@@ -2532,11 +2733,11 @@ function renderContacts(data) {
 
   const contacts = [
     { key: 'TSTART',  utc: data.TSTART || data.tstart, local_json: null, label: 'TSTART', desc: 'Sequence start', style: 'color:var(--green)' },
-    { key: 'C1',      utc: data.C1 || data.c1,          local_json: data.C1_local,  label: 'C1',  desc: '1er contact', style: '' },
+    { key: 'C1',      utc: data.C1 || data.c1,          local_json: data.C1_local,  label: 'C1',  desc: 'First contact', style: '' },
     { key: 'C2',      utc: data.C2 || data.c2,          local_json: data.C2_local,  label: 'C2',  desc: 'Totality start', style: '' },
     { key: 'TMILIEU', utc: tmilieu,                      local_json: null,           label: 'MID', desc: 'Mid-totality', style: '' },
     { key: 'C3',      utc: data.C3 || data.c3,          local_json: data.C3_local,  label: 'C3',  desc: 'Totality end', style: '' },
-    { key: 'C4',      utc: data.C4 || data.c4,          local_json: data.C4_local,  label: 'C4',  desc: '4e contact', style: '' },
+    { key: 'C4',      utc: data.C4 || data.c4,          local_json: data.C4_local,  label: 'C4',  desc: 'Fourth contact', style: '' },
     { key: 'TEND',    utc: data.TEND  || data.tend,     local_json: null, label: 'TEND',  desc: 'Sequence end', style: 'color:var(--green)' },
   ].map(c => ({
     ...c,
@@ -2811,10 +3012,10 @@ async function calculateEclipse() {
   const tz  = parseFloat(document.getElementById('inp-tz').value)  || 0;
   const ecl = document.getElementById('inp-eclipse').value;
 
-  if (isNaN(lat) || isNaN(lon)) { flash('Lat/Lon requis', 'red'); return; }
+  if (isNaN(lat) || isNaN(lon)) { flash('Lat/Lon required', 'red'); return; }
 
   const btn = document.getElementById('btn-calc');
-  btn.disabled = true; btn.textContent = '⏳ Calcul en cours…';
+  btn.disabled = true; btn.textContent = '⏳ Calculation in progress…';
 
   try {
     const r = await fetch('/api/eclipse/calculate', {
@@ -2986,6 +3187,39 @@ async function startTrigger() {
     }
   } else {
     flash('Trigger started ▶', 'green');
+  }
+}
+
+async function startDryRunNow() {
+  if (!confirm(
+    '🧪 Start DRY-RUN NOW?\n' +
+    'TSTART will be fixed to current UTC time + 1 minute.\n' +
+    'Every timeline and Execution Plan interval will remain unchanged.\n' +
+    'The source .plan file will NOT be modified. Sounds are included.'
+  )) return;
+
+  const r = await fetch('/api/trigger/dryrun_now', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({rig_id: selectedTriggerRigId})
+  });
+
+  const d = await r.json();
+
+  if (d.error) {
+    flash(d.message || d.error, 'red');
+
+    if (
+      d.code === 'GPS_NOT_SYNCED' ||
+      d.code === 'GPS_SYNC_STALE'
+    ) {
+      setTimeout(() => showTab(1), 1500);
+    }
+  } else {
+    flash(
+      'Dry-run NOW started — TSTART = UTC now + 1 minute',
+      'blue'
+    );
   }
 }
 
@@ -6031,6 +6265,11 @@ async function runSequencerRig(
 
     await loadTriggerConfigList();
 
+    appendSequencerLog(
+      `RIG ${rigId}: sequence generated successfully`,
+      'success'
+    );
+
     flash(
       `RIG ${rigId} Execution Plan generated`,
       'green'
@@ -6297,3 +6536,205 @@ refreshRigDevices(true);
 loadSupportedEclipses();
 loadEclipseData();
 loadCameraStatus();
+
+// ════════════════════════════════════════════════════════════════
+// CAMERA VALIDATION — end-to-end real execution-plan run
+// ════════════════════════════════════════════════════════════════
+let cameraValidationPolling = false;
+let cameraValidationTimer = null;
+let cameraValidationQuestionId = null;
+let cameraValidationLastResultId = null;
+
+function formatValidationDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return minutes ? `${minutes} min ${String(rest).padStart(2, '0')} s` : `${rest} s`;
+}
+
+function renderCameraValidationStatus(status) {
+  const select = document.getElementById('camera-validation-select');
+  const start = document.getElementById('camera-validation-start');
+  const cancel = document.getElementById('camera-validation-cancel');
+  const summary = document.getElementById('camera-validation-summary');
+  const question = document.getElementById('camera-validation-question');
+  const prompt = document.getElementById('camera-validation-prompt');
+  const deleteButton = document.getElementById('camera-validation-delete-files');
+
+  if (!select || !start || !cancel || !summary || !question || !prompt || !deleteButton) return;
+
+  const current = select.value;
+  const candidates = Array.isArray(status.candidates) ? status.candidates : [];
+  select.innerHTML = '<option value="">— Characterized camera —</option>';
+  candidates.forEach(camera => {
+    const option = document.createElement('option');
+    option.value = camera.transport_locator || '';
+    option.textContent = camera.display_label || camera.model || camera.backend || 'Camera';
+    if (option.value === current) option.selected = true;
+    select.appendChild(option);
+  });
+
+  start.disabled = Boolean(status.running) || !select.value;
+  cancel.disabled = !status.running;
+  updateCameraAddLog('validation', status.logs);
+
+  const prepared = status.prepared;
+  const result = status.result;
+  if (status.running) {
+    summary.textContent = `Validation running — phase: ${status.phase || 'running'}`;
+  } else if (result && result.analysis) {
+    const analysis = result.analysis;
+    const timing = analysis.timing || {};
+    const timingText = Number.isFinite(timing.stddev_ms)
+      ? ` · σ=${timing.stddev_ms.toFixed(1)} ms · max|Δ|=${Number(timing.max_abs_ms || 0).toFixed(1)} ms`
+      : '';
+    const countText = analysis.actual_count_complete === false
+      ? `${analysis.confirmed_photos}/${analysis.expected_photos} confirmed minimum`
+      : `${analysis.confirmed_photos}/${analysis.expected_photos} confirmed`;
+    summary.textContent = `${analysis.verdict} — ${countText}${timingText}`;
+  } else if (prepared) {
+    summary.textContent = `${prepared.expected_photos} photos · ${formatValidationDuration(prepared.estimated_duration_s)} estimated`;
+  } else {
+    summary.textContent = 'Prepare a deterministic real-camera validation run.';
+  }
+
+  const q = status.question;
+  cameraValidationQuestionId = q ? q.id : null;
+  question.hidden = !q;
+  prompt.textContent = q ? q.message : '';
+
+  const fail = Boolean(result && result.analysis && result.analysis.verdict === 'FAIL');
+  deleteButton.hidden = !fail;
+  if (result && result.validation_id) cameraValidationLastResultId = result.validation_id;
+}
+
+async function pollCameraValidation() {
+  if (cameraValidationPolling) return;
+  cameraValidationPolling = true;
+  try {
+    const response = await fetch('/api/camera-validation');
+    const status = await response.json();
+    if (!response.ok) throw new Error(status.error || `HTTP ${response.status}`);
+    renderCameraValidationStatus(status);
+  } catch (error) {
+    const summary = document.getElementById('camera-validation-summary');
+    if (summary) summary.textContent = `Validation status unavailable: ${error.message}`;
+  } finally {
+    cameraValidationPolling = false;
+  }
+}
+
+async function prepareCameraValidation() {
+  const select = document.getElementById('camera-validation-select');
+  if (!select || !select.value) {
+    flash('Select a characterized camera first.', 'red');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/camera-validation/prepare', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({locator: select.value}),
+    });
+    const prepared = await response.json();
+    if (!response.ok) throw new Error(prepared.error || `HTTP ${response.status}`);
+
+    const bracketText = Array.isArray(prepared.supported_bracket_frames) && prepared.supported_bracket_frames.length
+      ? prepared.supported_bracket_frames.join('/')
+      : 'none';
+    const authorized = confirm(
+      'REAL CAMERA VALIDATION\n\n' +
+      `Camera: ${(prepared.camera && prepared.camera.manufacturer) || ''} ${(prepared.camera && prepared.camera.model) || ''}\n` +
+      `Expected photos: ${prepared.expected_photos}\n` +
+      `Estimated total duration: ${formatValidationDuration(prepared.estimated_duration_s)}\n` +
+      `Native brackets exercised: ${bracketText}\n\n` +
+      'The real execution-plan runtime and camera workers will be used.\n' +
+      'Camera settings will change and real RAW photos will be written to the card.\n\n' +
+      'Authorize validation now?'
+    );
+
+    if (!authorized) {
+      await pollCameraValidation();
+      return;
+    }
+
+    const startResponse = await fetch('/api/camera-validation/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: prepared.token}),
+    });
+    const started = await startResponse.json();
+    if (!startResponse.ok) throw new Error(started.error || `HTTP ${startResponse.status}`);
+    flash(`Camera validation started — ${prepared.expected_photos} photos expected`, 'green');
+    await pollCameraValidation();
+  } catch (error) {
+    flash(`Camera validation: ${error.message}`, 'red');
+  }
+}
+
+async function cancelCameraValidation() {
+  try {
+    const response = await fetch('/api/camera-validation/cancel', {method: 'POST'});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    await pollCameraValidation();
+  } catch (error) {
+    flash(`Camera validation cancel: ${error.message}`, 'red');
+  }
+}
+
+async function answerCameraValidation(outcome) {
+  if (!cameraValidationQuestionId) return;
+  try {
+    const response = await fetch('/api/camera-validation/answer', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question_id: cameraValidationQuestionId, outcome}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    cameraValidationQuestionId = null;
+    await pollCameraValidation();
+  } catch (error) {
+    flash(`Camera validation confirmation: ${error.message}`, 'red');
+  }
+}
+
+async function deleteFailedCameraValidationFiles() {
+  if (!cameraValidationLastResultId) return;
+  if (!confirm(
+    'DELETE THE GENERATED CAMERA PROFILE AND TIMING FILES?\n\n' +
+    'Only the exact profile/timing files associated with this failed validation will be deleted.\n' +
+    'The validation report, .plan and run log will be kept for debugging.\n\n' +
+    'This action cannot be undone.'
+  )) return;
+
+  try {
+    const response = await fetch('/api/camera-validation/delete-files', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({confirm: true}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    flash(`Deleted ${Array.isArray(data.deleted) ? data.deleted.length : 0} generated camera file(s)`, 'yellow');
+    await pollCameraValidation();
+    setTimeout(() => refreshRigDevices(true), 0);
+  } catch (error) {
+    flash(`Camera validation delete: ${error.message}`, 'red');
+  }
+}
+
+function startCameraValidationPolling() {
+  pollCameraValidation();
+  if (cameraValidationTimer) clearInterval(cameraValidationTimer);
+  cameraValidationTimer = setInterval(pollCameraValidation, 1000);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startCameraValidationPolling);
+} else {
+  startCameraValidationPolling();
+}
+// END CAMERA VALIDATION

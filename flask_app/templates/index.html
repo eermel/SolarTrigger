@@ -97,6 +97,7 @@
           <div class="card-title">Device discovery</div>
           <button class="btn btn-primary btn-full" id="add-camera-rescan" onclick="refreshRigDevices()">↻ Refresh devices</button>
         </div>
+
         <div class="card">
           <div class="card-title">Camera Characterization</div>
           <div style="display:flex;gap:12px;align-items:center">
@@ -105,15 +106,53 @@
             <button class="btn" id="camera-characterization-cancel" onclick="cancelCameraCharacterization()" disabled>Cancel</button>
           </div>
           <p style="font-size:12px">Local tests · RAW · ISO 100 · Photos remain on the card. Camera settings will change.</p>
-        </div>
-        <div class="card">
-          <div class="card-title">Camera characterization log</div>
-          <pre id="camera-characterization-log" role="log" style="height:320px;overflow:auto;white-space:pre-wrap;font-family:var(--mono);font-size:12px"></pre>
           <div id="camera-characterization-question" hidden>
             <p id="camera-characterization-prompt"></p>
             <button class="btn btn-primary" onclick="answerCameraCharacterization(true)">YES — PHOTOS TAKEN</button>
             <button class="btn btn-danger" onclick="answerCameraCharacterization(false)">NO — INCORRECT/MISSING PHOTOS</button>
           </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Camera Validation</div>
+          <div style="display:flex;gap:12px;align-items:center">
+            <select id="camera-validation-select" aria-label="Characterized camera" style="flex:1;min-width:0">
+              <option value="">— Characterized camera —</option>
+            </select>
+            <button class="btn btn-primary" id="camera-validation-start" onclick="prepareCameraValidation()">Validate</button>
+            <button class="btn" id="camera-validation-cancel" onclick="cancelCameraValidation()" disabled>Cancel</button>
+          </div>
+          <p style="font-size:12px">
+            End-to-end real run · .plan · scheduler · IPC · camera worker · RAW files remain on the card.
+          </p>
+          <div id="camera-validation-summary" style="font-family:var(--mono);font-size:12px;color:var(--text-dim);margin:8px 0">
+            Prepare a deterministic real-camera validation run.
+          </div>
+          <div id="camera-validation-question" hidden style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px">
+            <p id="camera-validation-prompt" style="grid-column:1 / -1"></p>
+            <button class="btn btn-primary" onclick="answerCameraValidation('ok')">YES — ALL PHOTOS OK</button>
+            <button class="btn" onclick="answerCameraValidation('extra')">EXTRA PHOTOS</button>
+            <button class="btn btn-danger" onclick="answerCameraValidation('incorrect')">MISSING / INCORRECT</button>
+          </div>
+          <button
+            class="btn btn-danger btn-full"
+            id="camera-validation-delete-files"
+            type="button"
+            hidden
+            style="margin-top:10px"
+            onclick="deleteFailedCameraValidationFiles()">
+            Delete generated camera profile/timing after FAIL
+          </button>
+        </div>
+
+        <div class="card" style="flex-shrink:0">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>Camera log</span>
+            <button class="btn btn-secondary" type="button"
+              style="font-size:10px;padding:4px 9px"
+              onclick="clearCameraAddLog()">CLEAR</button>
+          </div>
+          <pre id="camera-add-log" role="log"></pre>
         </div>
       </section>
     </div>
@@ -147,7 +186,7 @@
             id="erase-persistent-data-reboot"
             type="button"
             onclick="erasePersistentDataAndReboot()">
-            ⚠ ERASE ALL PERSISTANT DATA &amp; REBOOT ⚠
+            ⚠ ERASE ALL PERSISTENT DATA &amp; REBOOT ⚠
           </button>
         </div>
       </section>
@@ -461,62 +500,72 @@
       </div>
 
       <section class="camera-rigs-section">
-        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
-
+        <div class="camcfg-rigs-grid">
           <div class="card camcfg-rig-column" id="camcfg-rig-column-1" data-rig-id="1">
             <div class="card-title camcfg-rig-title">RIG 1</div>
 
             <div class="camcfg-subsection camcfg-antiblur-section">
-              <div class="camcfg-switch-row">
-                <div class="camcfg-subsection-title">Anti-blur</div>
-                <div class="focuser-mode-switch">
-                  <input type="checkbox"
-                    id="rig-1-antiblur-switch"
-                    role="switch"
-                    aria-label="Anti-blur RIG 1"
-                    onchange="persistRigPhoto(1)">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">Anti-blur</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-1-antiblur-switch" role="switch" aria-label="Anti-blur RIG 1" onchange="persistRigPhoto(1)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Pixel tolerance</label>
+                  <input type="number" id="rig-1-pixel-tolerance" min="0.1" step="0.1" value="1.0" onblur="persistRigPhoto(1)">
                 </div>
               </div>
+              <p class="camcfg-help">Limits exposure time to reduce blur from the Sun's apparent motion caused by Earth's rotation. Not applicable when an astronomical tracking mount is used.</p>
+            </div>
 
-              <div class="field">
-                <label>Pixel tolerance</label>
-                <input type="number"
-                  id="rig-1-pixel-tolerance"
-                  min="0.1"
-                  step="0.1"
-                  value="1.0"
-                  onblur="persistRigPhoto(1)">
+            <div class="camcfg-subsection camcfg-mechanical-vibration-section">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">Camera mechanical vibration</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-1-mechanical-vibration-switch" role="switch" aria-label="Camera mechanical vibration RIG 1" onchange="persistRigPhoto(1)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Delay between frames (s)</label>
+                  <div class="select-chev">
+                    <select id="rig-1-mechanical-vibration-delay" onchange="persistRigPhoto(1)">
+                      <option value="0">0</option>
+                      <option value="1">1</option>
+                      <option value="2" selected>2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                    </select>
+                  </div>
+                </div>
               </div>
+              <p class="camcfg-help">Adds a settling delay after each slow exposure (1/60 s or slower) to reduce vibration from a DSLR mirror or mechanical shutter. Sequential capture only; unavailable with BRACKET capture.</p>
+              <div class="camcfg-capability-note" id="rig-1-mechanical-vibration-note"></div>
             </div>
 
             <div class="camcfg-subsection camcfg-iso-section">
-              <div class="camcfg-switch-row">
-                <div class="camcfg-subsection-title">ISO compensation</div>
-                <div class="focuser-mode-switch">
-                  <input type="checkbox"
-                    id="rig-1-iso-comp-switch"
-                    role="switch"
-                    aria-label="ISO Compensation RIG 1"
-                    onchange="persistRigPhoto(1)">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">ISO compensation</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-1-iso-comp-switch" role="switch" aria-label="ISO Compensation RIG 1" onchange="persistRigPhoto(1)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>ISO max</label>
+                  <div class="select-chev">
+                    <select id="rig-1-iso-max" onchange="persistRigPhoto(1)">
+                      <option value="6400" selected>6400</option>
+                    </select>
+                  </div>
                 </div>
               </div>
-
-              <div class="field">
-                <label>ISO max</label>
-                <div class="select-chev">
-                  <select id="rig-1-iso-max"
-                    onchange="persistRigPhoto(1)">
-                    <option>100</option>
-                    <option>200</option>
-                    <option>400</option>
-                    <option>800</option>
-                    <option>1600</option>
-                    <option>3200</option>
-                    <option selected>6400</option>
-                  </select>
-                </div>
-              </div>
+              <p class="camcfg-help">Raises ISO when necessary to preserve the requested exposure while respecting the Anti-blur shutter-time limit. Used only when Anti-blur is active; not applicable when an astronomical tracking mount is used.</p>
             </div>
+
             <div class="camcfg-rig-body rig-preview" id="rig-preview-1"></div>
           </div>
 
@@ -524,56 +573,67 @@
             <div class="card-title camcfg-rig-title">RIG 2</div>
 
             <div class="camcfg-subsection camcfg-antiblur-section">
-              <div class="camcfg-switch-row">
-                <div class="camcfg-subsection-title">Anti-blur</div>
-                <div class="focuser-mode-switch">
-                  <input type="checkbox"
-                    id="rig-2-antiblur-switch"
-                    role="switch"
-                    aria-label="Anti-blur RIG 2"
-                    onchange="persistRigPhoto(2)">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">Anti-blur</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-2-antiblur-switch" role="switch" aria-label="Anti-blur RIG 2" onchange="persistRigPhoto(2)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Pixel tolerance</label>
+                  <input type="number" id="rig-2-pixel-tolerance" min="0.1" step="0.1" value="1.0" onblur="persistRigPhoto(2)">
                 </div>
               </div>
+              <p class="camcfg-help">Limits exposure time to reduce blur from the Sun's apparent motion caused by Earth's rotation. Not applicable when an astronomical tracking mount is used.</p>
+            </div>
 
-              <div class="field">
-                <label>Pixel tolerance</label>
-                <input type="number"
-                  id="rig-2-pixel-tolerance"
-                  min="0.1"
-                  step="0.1"
-                  value="1.0"
-                  onblur="persistRigPhoto(2)">
+            <div class="camcfg-subsection camcfg-mechanical-vibration-section">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">Camera mechanical vibration</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-2-mechanical-vibration-switch" role="switch" aria-label="Camera mechanical vibration RIG 2" onchange="persistRigPhoto(2)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Delay between frames (s)</label>
+                  <div class="select-chev">
+                    <select id="rig-2-mechanical-vibration-delay" onchange="persistRigPhoto(2)">
+                      <option value="0">0</option>
+                      <option value="1">1</option>
+                      <option value="2" selected>2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                    </select>
+                  </div>
+                </div>
               </div>
+              <p class="camcfg-help">Adds a settling delay after each slow exposure (1/60 s or slower) to reduce vibration from a DSLR mirror or mechanical shutter. Sequential capture only; unavailable with BRACKET capture.</p>
+              <div class="camcfg-capability-note" id="rig-2-mechanical-vibration-note"></div>
             </div>
 
             <div class="camcfg-subsection camcfg-iso-section">
-              <div class="camcfg-switch-row">
-                <div class="camcfg-subsection-title">ISO compensation</div>
-                <div class="focuser-mode-switch">
-                  <input type="checkbox"
-                    id="rig-2-iso-comp-switch"
-                    role="switch"
-                    aria-label="ISO Compensation RIG 2"
-                    onchange="persistRigPhoto(2)">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">ISO compensation</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-2-iso-comp-switch" role="switch" aria-label="ISO Compensation RIG 2" onchange="persistRigPhoto(2)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>ISO max</label>
+                  <div class="select-chev">
+                    <select id="rig-2-iso-max" onchange="persistRigPhoto(2)">
+                      <option value="6400" selected>6400</option>
+                    </select>
+                  </div>
                 </div>
               </div>
-
-              <div class="field">
-                <label>ISO max</label>
-                <div class="select-chev">
-                  <select id="rig-2-iso-max"
-                    onchange="persistRigPhoto(2)">
-                    <option>100</option>
-                    <option>200</option>
-                    <option>400</option>
-                    <option>800</option>
-                    <option>1600</option>
-                    <option>3200</option>
-                    <option selected>6400</option>
-                  </select>
-                </div>
-              </div>
+              <p class="camcfg-help">Raises ISO when necessary to preserve the requested exposure while respecting the Anti-blur shutter-time limit. Used only when Anti-blur is active; not applicable when an astronomical tracking mount is used.</p>
             </div>
+
             <div class="camcfg-rig-body rig-preview" id="rig-preview-2"></div>
           </div>
 
@@ -581,56 +641,67 @@
             <div class="card-title camcfg-rig-title">RIG 3</div>
 
             <div class="camcfg-subsection camcfg-antiblur-section">
-              <div class="camcfg-switch-row">
-                <div class="camcfg-subsection-title">Anti-blur</div>
-                <div class="focuser-mode-switch">
-                  <input type="checkbox"
-                    id="rig-3-antiblur-switch"
-                    role="switch"
-                    aria-label="Anti-blur RIG 3"
-                    onchange="persistRigPhoto(3)">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">Anti-blur</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-3-antiblur-switch" role="switch" aria-label="Anti-blur RIG 3" onchange="persistRigPhoto(3)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Pixel tolerance</label>
+                  <input type="number" id="rig-3-pixel-tolerance" min="0.1" step="0.1" value="1.0" onblur="persistRigPhoto(3)">
                 </div>
               </div>
+              <p class="camcfg-help">Limits exposure time to reduce blur from the Sun's apparent motion caused by Earth's rotation. Not applicable when an astronomical tracking mount is used.</p>
+            </div>
 
-              <div class="field">
-                <label>Pixel tolerance</label>
-                <input type="number"
-                  id="rig-3-pixel-tolerance"
-                  min="0.1"
-                  step="0.1"
-                  value="1.0"
-                  onblur="persistRigPhoto(3)">
+            <div class="camcfg-subsection camcfg-mechanical-vibration-section">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">Camera mechanical vibration</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-3-mechanical-vibration-switch" role="switch" aria-label="Camera mechanical vibration RIG 3" onchange="persistRigPhoto(3)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Delay between frames (s)</label>
+                  <div class="select-chev">
+                    <select id="rig-3-mechanical-vibration-delay" onchange="persistRigPhoto(3)">
+                      <option value="0">0</option>
+                      <option value="1">1</option>
+                      <option value="2" selected>2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                    </select>
+                  </div>
+                </div>
               </div>
+              <p class="camcfg-help">Adds a settling delay after each slow exposure (1/60 s or slower) to reduce vibration from a DSLR mirror or mechanical shutter. Sequential capture only; unavailable with BRACKET capture.</p>
+              <div class="camcfg-capability-note" id="rig-3-mechanical-vibration-note"></div>
             </div>
 
             <div class="camcfg-subsection camcfg-iso-section">
-              <div class="camcfg-switch-row">
-                <div class="camcfg-subsection-title">ISO compensation</div>
-                <div class="focuser-mode-switch">
-                  <input type="checkbox"
-                    id="rig-3-iso-comp-switch"
-                    role="switch"
-                    aria-label="ISO Compensation RIG 3"
-                    onchange="persistRigPhoto(3)">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">ISO compensation</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-3-iso-comp-switch" role="switch" aria-label="ISO Compensation RIG 3" onchange="persistRigPhoto(3)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>ISO max</label>
+                  <div class="select-chev">
+                    <select id="rig-3-iso-max" onchange="persistRigPhoto(3)">
+                      <option value="6400" selected>6400</option>
+                    </select>
+                  </div>
                 </div>
               </div>
-
-              <div class="field">
-                <label>ISO max</label>
-                <div class="select-chev">
-                  <select id="rig-3-iso-max"
-                    onchange="persistRigPhoto(3)">
-                    <option>100</option>
-                    <option>200</option>
-                    <option>400</option>
-                    <option>800</option>
-                    <option>1600</option>
-                    <option>3200</option>
-                    <option selected>6400</option>
-                  </select>
-                </div>
-              </div>
+              <p class="camcfg-help">Raises ISO when necessary to preserve the requested exposure while respecting the Anti-blur shutter-time limit. Used only when Anti-blur is active; not applicable when an astronomical tracking mount is used.</p>
             </div>
+
             <div class="camcfg-rig-body rig-preview" id="rig-preview-3"></div>
           </div>
 
@@ -638,59 +709,69 @@
             <div class="card-title camcfg-rig-title">RIG 4</div>
 
             <div class="camcfg-subsection camcfg-antiblur-section">
-              <div class="camcfg-switch-row">
-                <div class="camcfg-subsection-title">Anti-blur</div>
-                <div class="focuser-mode-switch">
-                  <input type="checkbox"
-                    id="rig-4-antiblur-switch"
-                    role="switch"
-                    aria-label="Anti-blur RIG 4"
-                    onchange="persistRigPhoto(4)">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">Anti-blur</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-4-antiblur-switch" role="switch" aria-label="Anti-blur RIG 4" onchange="persistRigPhoto(4)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Pixel tolerance</label>
+                  <input type="number" id="rig-4-pixel-tolerance" min="0.1" step="0.1" value="1.0" onblur="persistRigPhoto(4)">
                 </div>
               </div>
+              <p class="camcfg-help">Limits exposure time to reduce blur from the Sun's apparent motion caused by Earth's rotation. Not applicable when an astronomical tracking mount is used.</p>
+            </div>
 
-              <div class="field">
-                <label>Pixel tolerance</label>
-                <input type="number"
-                  id="rig-4-pixel-tolerance"
-                  min="0.1"
-                  step="0.1"
-                  value="1.0"
-                  onblur="persistRigPhoto(4)">
+            <div class="camcfg-subsection camcfg-mechanical-vibration-section">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">Camera mechanical vibration</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-4-mechanical-vibration-switch" role="switch" aria-label="Camera mechanical vibration RIG 4" onchange="persistRigPhoto(4)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Delay between frames (s)</label>
+                  <div class="select-chev">
+                    <select id="rig-4-mechanical-vibration-delay" onchange="persistRigPhoto(4)">
+                      <option value="0">0</option>
+                      <option value="1">1</option>
+                      <option value="2" selected>2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                    </select>
+                  </div>
+                </div>
               </div>
+              <p class="camcfg-help">Adds a settling delay after each slow exposure (1/60 s or slower) to reduce vibration from a DSLR mirror or mechanical shutter. Sequential capture only; unavailable with BRACKET capture.</p>
+              <div class="camcfg-capability-note" id="rig-4-mechanical-vibration-note"></div>
             </div>
 
             <div class="camcfg-subsection camcfg-iso-section">
-              <div class="camcfg-switch-row">
-                <div class="camcfg-subsection-title">ISO compensation</div>
-                <div class="focuser-mode-switch">
-                  <input type="checkbox"
-                    id="rig-4-iso-comp-switch"
-                    role="switch"
-                    aria-label="ISO Compensation RIG 4"
-                    onchange="persistRigPhoto(4)">
+              <div class="camcfg-control-grid">
+                <div class="camcfg-control">
+                  <div class="camcfg-subsection-title">ISO compensation</div>
+                  <div class="focuser-mode-switch">
+                    <input type="checkbox" id="rig-4-iso-comp-switch" role="switch" aria-label="ISO Compensation RIG 4" onchange="persistRigPhoto(4)">
+                  </div>
+                </div>
+                <div class="field">
+                  <label>ISO max</label>
+                  <div class="select-chev">
+                    <select id="rig-4-iso-max" onchange="persistRigPhoto(4)">
+                      <option value="6400" selected>6400</option>
+                    </select>
+                  </div>
                 </div>
               </div>
-
-              <div class="field">
-                <label>ISO max</label>
-                <div class="select-chev">
-                  <select id="rig-4-iso-max"
-                    onchange="persistRigPhoto(4)">
-                    <option>100</option>
-                    <option>200</option>
-                    <option>400</option>
-                    <option>800</option>
-                    <option>1600</option>
-                    <option>3200</option>
-                    <option selected>6400</option>
-                  </select>
-                </div>
-              </div>
+              <p class="camcfg-help">Raises ISO when necessary to preserve the requested exposure while respecting the Anti-blur shutter-time limit. Used only when Anti-blur is active; not applicable when an astronomical tracking mount is used.</p>
             </div>
+
             <div class="camcfg-rig-body rig-preview" id="rig-preview-4"></div>
           </div>
-
         </div>
       </section>
 
@@ -1128,8 +1209,8 @@
       <div class="card" style="display:none">
         <div class="card-title">Time synchronization</div>
         <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:11px;margin-bottom:12px">
-          <div><span style="color:var(--text-dim)">Fuseau : </span><span id="cam-time-sync-timezone">UTC</span></div>
-          <div><span style="color:var(--text-dim)">Dernier statut : </span><span id="cam-time-sync-status">--</span></div>
+          <div><span style="color:var(--text-dim)">Timezone: </span><span id="cam-time-sync-timezone">UTC</span></div>
+          <div><span style="color:var(--text-dim)">Last status: </span><span id="cam-time-sync-status">--</span></div>
           <div><span style="color:var(--text-dim)">Last attempt: </span><span id="cam-time-sync-attempted">--</span></div>
           <div id="cam-time-sync-message" style="color:var(--text-dim)">No synchronization requested.</div>
         </div>
@@ -1244,16 +1325,28 @@
       <div style="display:flex;gap:10px;align-items:stretch">
 
         <!-- Boutons START / STOP -->
-        <div style="display:flex;flex-direction:column;gap:8px;min-width:110px">
-          <button class="btn" id="btn-dryrun" onclick="startDryRun()"
-                  style="flex:1;background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
+        <div class="trigger-action-stack" style="display:flex;flex-direction:column;gap:8px;min-width:110px">
+          <button class="btn trigger-action-button"
+                  id="btn-dryrun-now"
+                  onclick="startDryRunNow()"
+                  style="background:rgba(0,140,200,.30);border:1px solid rgba(0,180,255,.7);color:#9addff;font-size:11px"
+                  title="Same execution plan and camera as START. TSTART is UTC now + 60 seconds. The source .plan is never modified.">🧪 DRY-RUN NOW</button>
+          <button class="btn trigger-action-button"
+                  id="btn-dryrun"
+                  onclick="startDryRun()"
+                  style="background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
                   title="Same execution plan and camera as START, using today UTC date and the original UTC times">🧪 DRY-RUN ×1</button>
-          <button class="btn btn-success" id="btn-start" onclick="startTrigger()" style="flex:1">▶ START</button>
-          <button class="btn" id="btn-totality-only" onclick="startTotalityOnly()"
-                  style="flex:1;background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);
-                         color:var(--accent);font-size:11px"
+          <button class="btn btn-success trigger-action-button"
+                  id="btn-start"
+                  onclick="startTrigger()">▶ START</button>
+          <button class="btn trigger-action-button"
+                  id="btn-totality-only"
+                  onclick="startTotalityOnly()"
+                  style="background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);color:var(--accent);font-size:11px"
                   title="Immediate photo override: replaces the current photo sequence with the compiled totality sequence; audio continues until STOP">⚠ Override for Totality Sequence</button>
-          <button class="btn btn-danger"  id="btn-stop"  onclick="stopTrigger()" style="flex:1">■ STOP</button>
+          <button class="btn btn-danger trigger-action-button"
+                  id="btn-stop"
+                  onclick="stopTrigger()">■ STOP</button>
         </div>
 
         <!-- Config + sélecteur JSON -->
@@ -1322,7 +1415,7 @@
         </div>
         <!-- Contacts C1..C4 + countdown -->
         <div id="trigger-contacts">
-          <div style="color:var(--text-dim);font-size:11px;font-family:var(--mono)">En attente du calcul…</div>
+          <div style="color:var(--text-dim);font-size:11px;font-family:var(--mono)">Waiting for calculation…</div>
         </div>
       </div>
 

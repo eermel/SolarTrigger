@@ -211,20 +211,20 @@ class ProfilePlugin(CameraPlugin):
             return spec.get("set") is not False
 
     def _display_model(self) -> str:
-        model = str(self.profile.get("model") or "appareil photo")
+        model = str(self.profile.get("model") or "camera")
         model = re.sub(r"\s*\(PC Control\)\s*$", "", model)
         return model.replace("Alpha-A", "A")
 
     def _manual_instruction(self, key, target, actual) -> str:
         model = self._display_model()
         if key == "manual_mode" and str(target).casefold() in {"m", "manual"}:
-            return f"Mettre le {model} en mode manuel (M)."
+            return f"Set the {model} to manual mode (M)."
         if key == "raw":
-            return f"Régler le {model} en RAW (actuel: {actual})."
+            return f"Set the {model} to RAW (current: {actual})."
         if key == "capture_target":
             return (
-                f"Régler la destination d'enregistrement du {model} sur "
-                f"{target} (actuel: {actual})."
+                f"Set the recording destination of the {model} to "
+                f"{target} (current: {actual})."
             )
         if (
             key == "capture_mode"
@@ -232,13 +232,13 @@ class ProfilePlugin(CameraPlugin):
             in {"single shot", "single", "single frame"}
         ):
             return (
-                f"Mettre le {model} en mode de déclenchement vue par vue "
-                f"(Single Shot, actuel: {actual})."
+                f"Set the {model} in single-shot release mode "
+                f"(Single Shot, current: {actual})."
             )
 
         return (
-            f"Régler physiquement {key}={target} sur le {model} "
-            f"(actuel: {actual})."
+            f"Physically set {key}={target} on the {model} "
+            f"(current: {actual})."
         )
 
     def _ensure(self, key, value=None) -> bool:
@@ -264,8 +264,8 @@ class ProfilePlugin(CameraPlugin):
                 actual = self._read(key)
             except Exception as read_exc:
                 raise CameraPreflightError(
-                    f"Communication avec {self._display_model()} impossible "
-                    f"pendant le précontrôle de {key}: {read_exc}"
+                    f"Communication with {self._display_model()} failed "
+                    f"during preflight of {key}: {read_exc}"
                 ) from exc
             raise CameraPreflightError(
                 self._manual_instruction(key, target, actual)
@@ -323,7 +323,7 @@ class ProfilePlugin(CameraPlugin):
             key = self._SEMANTIC.get(str(parameter))
             if key is None or key not in self.commands:
                 raise CameraPreflightError(
-                    f"Paramètre requis non caractérisé: {parameter}"
+                    f"Required parameter is not characterized: {parameter}"
                 )
             if self._ensure(key, value):
                 changed.append(str(parameter))
@@ -570,15 +570,64 @@ class ProfilePlugin(CameraPlugin):
                     )
                 )
 
+        # VALIDATION-ONLY LATE CONFIRMATION V2
+        # The production Trigger remains fail-closed at the characterized
+        # budget. Camera Validation can keep observing FILE_ADDED briefly after
+        # that budget to distinguish "late USB confirmation" from a truly
+        # missing physical photo. The overrun is still measured and reported.
+        late_confirmation = False
+        validation_grace_ms = params.get("validation_confirmation_grace_ms", 0)
+        if (
+            isinstance(validation_grace_ms, bool)
+            or not isinstance(validation_grace_ms, (int, float))
+            or not math.isfinite(float(validation_grace_ms))
+            or float(validation_grace_ms) < 0
+        ):
+            raise ValueError("invalid validation_confirmation_grace_ms")
+        if (
+            guarded
+            and len(observed) < count
+            and float(validation_grace_ms) > 0
+        ):
+            grace_deadline = (
+                time.monotonic()
+                + float(validation_grace_ms) / 1000.0
+            )
+            while (
+                len(observed) < count
+                and time.monotonic() < grace_deadline
+            ):
+                if check:
+                    check()
+                kind, data = self.camera.wait_for_event(100)
+                if kind == gp.GP_EVENT_FILE_ADDED:
+                    observed.add(
+                        (
+                            getattr(data, "folder", ""),
+                            getattr(data, "name", str(data)),
+                        )
+                    )
+            late_confirmation = len(observed) == count
+
         if len(observed) != count:
-            raise RuntimeError(
+            error = RuntimeError(
                 f"Capture not confirmed: {len(observed)}/{count}"
             )
+            # Preserve the machine-observed count across the worker/IPC
+            # boundary so validation can report X/N instead of a generic
+            # INTERNAL_ERROR. Runtime behaviour remains fail-closed.
+            error.observed_frames = len(observed)
+            error.expected_frames = count
+            raise error
 
         return CaptureResult(
             frames=count,
             planned=count,
-            detail="profile capture",
+            detail=(
+                "profile capture; validation confirmation after budget"
+                if late_confirmation
+                else "profile capture"
+            ),
         )
 
     def prepare_capture(self, intent):

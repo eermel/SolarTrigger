@@ -63,11 +63,11 @@ def find_bu353n5_port():
     le Vendor ID / Product ID Prolific PL2303 dans /sys/bus/usb.
     Retourne le chemin du port (ex: /dev/ttyUSB0) ou None.
     """
-    logging.info(f"{Colors.BLUE}Recherche du GPS (VID:{BU353N5_VENDOR_ID} PID:{BU353N5_PRODUCT_ID})...{Colors.RESET}")
+    logging.info(f"{Colors.BLUE}Searching for GPS (VID:{BU353N5_VENDOR_ID} PID:{BU353N5_PRODUCT_ID})...{Colors.RESET}")
 
     # Lien udev stable cree par install_solareclipse.sh.
     if os.path.exists("/dev/gps0"):
-        logging.info(f"{Colors.GREEN}GPS détecté via lien stable : /dev/gps0{Colors.RESET}")
+        logging.info(f"{Colors.GREEN}GPS detected via stable symlink: /dev/gps0{Colors.RESET}")
         return "/dev/gps0"
 
     # Parcourir les devices USB ttyUSB*
@@ -89,7 +89,7 @@ def find_bu353n5_port():
                     if vid == BU353N5_VENDOR_ID and pid == BU353N5_PRODUCT_ID:
                         tty_name = os.path.basename(tty_path)
                         port = f"/dev/{tty_name}"
-                        logging.info(f"{Colors.GREEN}GPS BU-353N5 détecté sur : {port}{Colors.RESET}")
+                        logging.info(f"{Colors.GREEN}GPS BU-353N5 detected on: {port}{Colors.RESET}")
                         return port
                     break  # VID/PID trouvés mais ne correspondent pas
         except Exception:
@@ -137,7 +137,7 @@ def parse_gprmc(sentence):
         if not (sentence.startswith("$GPRMC") or sentence.startswith("$GNRMC")):
             return None
         if not nmea_checksum_valid(sentence):
-            logging.debug("Checksum GPRMC invalide")
+            logging.debug("Invalid GPRMC checksum")
             return None
 
         parts = sentence.split(",")
@@ -179,7 +179,7 @@ def parse_gprmc(sentence):
         return dt_utc, lat_deg, lon_deg, speed_kt
 
     except Exception as e:
-        logging.debug(f"Erreur parsing GPRMC : {e}")
+        logging.debug(f"GPRMC parsing error: {e}")
         return None
 
 def parse_gpgga(sentence):
@@ -236,35 +236,35 @@ def sync_system_time(dt_utc, dry_run=False):
     prefix = [] if os.geteuid() == 0 else ["/usr/bin/sudo", "-n"]
     cmd = prefix + [_date_bin, "-u", date_cmd]
 
-    logging.info(f"{Colors.CYAN}Commande sync : {' '.join(cmd)}{Colors.RESET}")
+    logging.info(f"{Colors.CYAN}Sync command: {' '.join(cmd)}{Colors.RESET}")
 
     if dry_run:
-        logging.info(f"{Colors.CYAN}[DRY-RUN] Commande qui serait exécutée : {' '.join(cmd)}{Colors.RESET}")
+        logging.info(f"{Colors.CYAN}[DRY-RUN] Command that would be executed: {' '.join(cmd)}{Colors.RESET}")
         return True
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
-            logging.info(f"{Colors.GREEN}✅ Heure système synchronisée : {dt_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC{Colors.RESET}")
+            logging.info(f"{Colors.GREEN}✅ System clock synchronized: {dt_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC{Colors.RESET}")
 
             # Synchroniser aussi le RTC hardware si présent
             subprocess.run(prefix + [_hwclock_bin, "--systohc"], capture_output=True)
-            logging.info(f"{Colors.GREEN}✅ RTC hardware mis à jour.{Colors.RESET}")
+            logging.info(f"{Colors.GREEN}✅ Hardware RTC updated.{Colors.RESET}")
             return True
         else:
-            logging.error(f"{Colors.RED}Échec de 'date' (code {result.returncode}) : {result.stderr.strip()}{Colors.RESET}")
+            logging.error(f"{Colors.RED}'date' failed (code {result.returncode}) : {result.stderr.strip()}{Colors.RESET}")
             return False
     except FileNotFoundError as e:
-        logging.error(f"{Colors.RED}Commande introuvable : {e}{Colors.RESET}")
+        logging.error(f"{Colors.RED}Command not found: {e}{Colors.RESET}")
         return False
     except Exception as e:
-        logging.error(f"{Colors.RED}Erreur sync heure : {e}{Colors.RESET}")
+        logging.error(f"{Colors.RED}Clock synchronization error: {e}{Colors.RESET}")
         return False
 
 def check_root():
     """Vérifie les droits root. Si non-root, on utilisera sudo pour date/hwclock."""
     if os.geteuid() != 0:
-        logging.warning(f"{Colors.YELLOW}Non-root : 'date' et 'hwclock' seront appelés via sudo.{Colors.RESET}")
+        logging.warning(f"{Colors.YELLOW}Non-root: 'date' and 'hwclock' will be called through sudo.{Colors.RESET}")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # BOUCLE PRINCIPALE
@@ -292,19 +292,19 @@ def compute_median_time(fix_timestamps):
     now_utc     = datetime.now(tz=timezone.utc)
     corrected   = now_utc.replace(microsecond=0) + __import__("datetime").timedelta(seconds=round(median_offset))
 
-    logging.info(f"{Colors.CYAN}Offsets GPS/système (s) : {[f'{o:+.1f}' for o in offsets_sorted]}{Colors.RESET}")
-    logging.info(f"{Colors.CYAN}Offset médian retenu    : {median_offset:+.3f}s{Colors.RESET}")
+    logging.info(f"{Colors.CYAN}GPS/system offsets (s): {[f'{o:+.1f}' for o in offsets_sorted]}{Colors.RESET}")
+    logging.info(f"{Colors.CYAN}Selected median offset: {median_offset:+.3f}s{Colors.RESET}")
 
     # Alerte si la dérive dépasse 2 secondes
     if abs(median_offset) > 2.0:
         logging.warning(
-            f"{Colors.ORANGE}⚠️  Dérive horloge système détectée : {median_offset:+.1f}s "
-            f"— synchronisation indispensable !{Colors.RESET}"
+            f"{Colors.ORANGE}⚠️  System clock drift detected: {median_offset:+.1f}s "
+            f"— synchronization required!{Colors.RESET}"
         )
     elif abs(median_offset) > 0.5:
-        logging.info(f"{Colors.YELLOW}Dérive horloge : {median_offset:+.3f}s{Colors.RESET}")
+        logging.info(f"{Colors.YELLOW}Clock drift: {median_offset:+.3f}s{Colors.RESET}")
     else:
-        logging.info(f"{Colors.GREEN}Dérive horloge : {median_offset:+.3f}s (excellente){Colors.RESET}")
+        logging.info(f"{Colors.GREEN}Clock drift: {median_offset:+.3f}s (excellent){Colors.RESET}")
 
     return corrected
 
@@ -313,10 +313,10 @@ def open_serial(port):
     while True:
         try:
             ser = serial.Serial(port, baudrate=BAUD_RATE, timeout=READ_TIMEOUT)
-            logging.info(f"{Colors.GREEN}Port série {port} ouvert à {BAUD_RATE} baud.{Colors.RESET}")
+            logging.info(f"{Colors.GREEN}Serial port {port} opened at {BAUD_RATE} baud.{Colors.RESET}")
             return ser
         except serial.SerialException as e:
-            logging.warning(f"{Colors.YELLOW}Port série inaccessible ({e}), retry dans 5s...{Colors.RESET}")
+            logging.warning(f"{Colors.YELLOW}Serial port unavailable ({e}), retrying in 5s...{Colors.RESET}")
             time.sleep(5)
 
 def wait_for_gps_fix(port, verbose, dry_run):
@@ -332,7 +332,7 @@ def wait_for_gps_fix(port, verbose, dry_run):
     while True:   # Retry infini
         attempt += 1
         if attempt > 1:
-            logging.info(f"{Colors.YELLOW}--- Tentative #{attempt} de synchronisation GPS ---{Colors.RESET}")
+            logging.info(f"{Colors.YELLOW}--- GPS synchronization attempt #{attempt} ---{Colors.RESET}")
 
         ser = open_serial(port)
 
@@ -341,8 +341,8 @@ def wait_for_gps_fix(port, verbose, dry_run):
         last_progress  = 0
 
         logging.info(
-            f"{Colors.YELLOW}En attente de {FIXES_REQUIRED} fixes GPS consécutifs valides "
-            f"(retry infini — Ctrl+C pour annuler)...{Colors.RESET}"
+            f"{Colors.YELLOW}Waiting for {FIXES_REQUIRED} consecutive valid GPS fixes "
+            f"(infinite retry — Ctrl+C to cancel)...{Colors.RESET}"
         )
 
         try:
@@ -353,7 +353,7 @@ def wait_for_gps_fix(port, verbose, dry_run):
                     raw_line = ser.readline()
                     line = raw_line.decode("ascii", errors="ignore").strip()
                 except serial.SerialException as e:
-                    logging.warning(f"{Colors.YELLOW}Perte du port série : {e}. Réouverture...{Colors.RESET}")
+                    logging.warning(f"{Colors.YELLOW}Serial port lost: {e}. Reopening...{Colors.RESET}")
                     ser.close()
                     fix_timestamps = []
                     ser = open_serial(port)
@@ -377,7 +377,7 @@ def wait_for_gps_fix(port, verbose, dry_run):
                             f"alt={_alt:.1f} sats={satellites}"
                         )
                     if verbose:
-                        logging.info(f"{Colors.BLUE}Satellites visibles : {satellites}{Colors.RESET}")
+                        logging.info(f"{Colors.BLUE}Visible satellites: {satellites}{Colors.RESET}")
 
                 # Fix depuis GPRMC
                 result = parse_gprmc(line)
@@ -397,7 +397,7 @@ def wait_for_gps_fix(port, verbose, dry_run):
 
                     if len(fix_timestamps) >= FIXES_REQUIRED:
                         # Calcul médiane et synchronisation
-                        logging.info(f"{Colors.CYAN}━━━ {FIXES_REQUIRED} fixes collectés — calcul de la précision ━━━{Colors.RESET}")
+                        logging.info(f"{Colors.CYAN}━━━ {FIXES_REQUIRED} fixes collected — computing accuracy ━━━{Colors.RESET}")
                         dt_synced = compute_median_time(fix_timestamps)
                         ser.close()
                         return sync_system_time(dt_synced, dry_run=dry_run)
@@ -408,23 +408,23 @@ def wait_for_gps_fix(port, verbose, dry_run):
                     if now - last_progress >= 15 and not fix_timestamps:
                         last_progress = now
                         logging.info(
-                            f"{Colors.YELLOW}⏳ Recherche du signal GPS... "
-                            f"(sats visibles : {satellites if satellites is not None else '?'}, "
+                            f"{Colors.YELLOW}⏳ Searching for GPS signal... "
+                            f"(visible sats: {satellites if satellites is not None else '?'}, "
                             f"fixes : {len(fix_timestamps)}/{FIXES_REQUIRED})"
                             f"{Colors.RESET}"
                         )
                     # Reset UNIQUEMENT si on reçoit un RMC avec status V (perte de fix réelle)
                     # Les trames GGA, GSA, GSV, PAIR ne doivent PAS resetter la séquence
                     if fix_timestamps and is_rmc_void(line):
-                        logging.warning(f"{Colors.YELLOW}Fix RMC perdu (status V) — remise à zéro.{Colors.RESET}")
+                        logging.warning(f"{Colors.YELLOW}RMC fix lost (status V) — resetting.{Colors.RESET}")
                         fix_timestamps = []
 
         except KeyboardInterrupt:
-            logging.info(f"\n{Colors.RED}Synchronisation GPS annulée par l'utilisateur.{Colors.RESET}")
+            logging.info(f"\n{Colors.RED}GPS synchronization cancelled by user.{Colors.RESET}")
             ser.close()
             return False
         except Exception as e:
-            logging.error(f"{Colors.RED}Erreur inattendue : {e}. Retry...{Colors.RESET}")
+            logging.error(f"{Colors.RED}Unexpected error: {e}. Retrying...{Colors.RESET}")
             if ser.is_open:
                 ser.close()
             time.sleep(3)
@@ -435,7 +435,7 @@ def wait_for_gps_fix(port, verbose, dry_run):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Synchronisation heure système via GPS USB BU-353N5",
+        description="System clock synchronization via BU-353N5 USB GPS",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=(
             "Exemples :\n"
@@ -446,11 +446,11 @@ def parse_args():
         )
     )
     parser.add_argument("--port",    type=str, default=None,
-                        help="Port série forcé (ex: /dev/ttyUSB0). Détection auto si absent.")
+                        help="Forced serial port (e.g. /dev/ttyUSB0). Auto-detect if omitted.")
     parser.add_argument("--verbose", action="store_true",
-                        help="Affiche toutes les trames NMEA reçues")
+                        help="Display all received NMEA sentences")
     parser.add_argument("--dry-run", action="store_true",
-                        help="Simule la synchronisation sans modifier l'heure système")
+                        help="Simulate synchronization without changing the system clock")
     return parser.parse_args()
 
 def main():
@@ -463,7 +463,7 @@ def main():
     print("╔══════════════════════════════════════════════════╗")
     print("║   GPS Time Sync — GlobalSat BU-353N5             ║")
     print("║   Raspberry Pi — Solar Eclipse Trigger           ║")
-    print(f"║   Précision : {FIXES_REQUIRED} fixes GPS + médiane              ║")
+    print(f"║   Precision: {FIXES_REQUIRED} GPS fixes + median              ║")
     print("╚══════════════════════════════════════════════════╝")
     print(f"{Colors.RESET}")
 
@@ -477,7 +477,7 @@ def main():
             port = find_bu353n5_port()
             if port:
                 break
-            logging.warning(f"{Colors.YELLOW}GPS BU-353N5 non détecté, retry dans 5s... (branchez le GPS){Colors.RESET}")
+            logging.warning(f"{Colors.YELLOW}GPS BU-353N5 not detected, retrying in 5s... (plug in the GPS){Colors.RESET}")
             time.sleep(5)
 
     # Lancer la synchronisation (retry infini intégré)
@@ -488,10 +488,10 @@ def main():
     )
 
     if success:
-        logging.info(f"{Colors.GREEN}✅ Synchronisation GPS terminée avec succès.{Colors.RESET}")
+        logging.info(f"{Colors.GREEN}✅ GPS synchronization completed successfully.{Colors.RESET}")
         sys.exit(0)
     else:
-        logging.error(f"{Colors.RED}❌ Synchronisation GPS annulée.{Colors.RESET}")
+        logging.error(f"{Colors.RED}❌ GPS synchronization cancelled.{Colors.RESET}")
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ def test_installer_does_not_install_unused_socketio_client_dependencies():
     assert "requests \\" not in INSTALLER
     assert "python-socketio[client]" not in INSTALLER
 
-    # Le serveur Socket.IO et son transport WebSocket restent requis.
+    # Le serveur Socket.IO et son transport WebSocket restent required.
     assert "flask-socketio" in INSTALLER
     assert "simple-websocket" in INSTALLER
 
@@ -68,7 +68,7 @@ def test_installer_preserves_runtime_scripts_directory():
 
 def test_installer_recreates_runtime_scripts_directory_after_preflight():
     cleanup = 'rm -rf "$SCRIPTS_DIR"'
-    missing = 'error "Script runtime manquant : $src"'
+    missing = 'error "Missing runtime script: $src"'
     copy = 'cp "$src" "$SCRIPTS_DIR/$script"'
 
     assert cleanup in INSTALLER

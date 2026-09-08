@@ -21,7 +21,7 @@ except ImportError:  # permet d'importer/tester le plugin sans pyserial
 
 class SerialNmeaGps(GpsPlugin):
     plugin_id = "serial_nmea"
-    display_name = "GPS serie NMEA (USB/TTL)"
+    display_name = "NMEA serial GPS (USB/TTL)"
 
     def __init__(self, log_fn=print, config=None):
         super().__init__(log_fn, config)
@@ -134,19 +134,19 @@ class SerialNmeaGps(GpsPlugin):
 
     def connect(self):
         if serial is None:
-            raise RuntimeError("pyserial est requis pour le plugin serial_nmea")
+            raise RuntimeError("pyserial is required for the serial_nmea plugin")
         if self.connected:
             return
         port = self._find_configured_port(self.config)
         if not port:
-            raise RuntimeError("Aucun port GPS serie detecte")
+            raise RuntimeError("No serial GPS port detected")
         baudrate = int(self.config.get("baudrate", 4800))
         timeout = float(self.config.get("timeout", 1.0))
         self._serial = serial.Serial(port, baudrate=baudrate, timeout=timeout)
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._reader_loop, name="gps-nmea", daemon=True)
         self._thread.start()
-        self.log(f"GPS NMEA connecte sur {port} @ {baudrate} baud")
+        self.log(f"NMEA GPS connected on {port} @ {baudrate} baud")
 
     def disconnect(self):
         self._stop_event.set()

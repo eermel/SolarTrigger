@@ -4,7 +4,7 @@ SRC = (Path(__file__).parents[1] / 'scripts' / 'eclipse_trigger.py').read_text(e
 
 
 def test_simulation_has_no_camera_service_connection():
-    assert '⚡ SIM : accès matériel caméra totalement désactivé' in SRC
+    assert '⚡ SIM: camera hardware access fully disabled' in SRC
     assert 'camera_service = None' in SRC
     assert 'camera_service = CameraService(log_fn=_log, clock=_runtime_clock)' in SRC
 

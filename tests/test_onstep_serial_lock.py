@@ -104,7 +104,7 @@ def test_query_text_restores_timeout_after_serial_exception():
     )
     mount.serial = serial_stub
 
-    with pytest.raises(OnStepError, match="Erreur de communication"):
+    with pytest.raises(OnStepError, match="Communication error"):
         mount._query_text(b":GU#", timeout=0.1)
 
     assert serial_stub.timeout == mount.timeout

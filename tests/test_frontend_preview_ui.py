@@ -123,7 +123,7 @@ def test_focal_length_is_owned_by_devices_optics():
     assert "focal_length_mm: focal" in persist_body
 
 
-def test_iso_max_has_supported_iso_grid():
+def test_iso_max_select_uses_dynamic_camera_capabilities_with_safe_fallback():
     for rig_id in range(1, 5):
         select = re.search(
             rf'<select[^>]*id="rig-{rig_id}-iso-max"[^>]*>'
@@ -134,11 +134,11 @@ def test_iso_max_has_supported_iso_grid():
         assert select
 
         body = select.group("body")
-        for iso in (100, 200, 400, 800, 1600, 3200, 6400):
-            assert re.search(rf"<option[^>]*>{iso}</option>", body) or (
-                iso == 6400
-                and re.search(r"<option\s+selected>6400</option>", body)
-            )
+        assert re.search(
+            r'<option\s+value="6400"\s+selected>6400</option>',
+            body,
+        )
+        assert not re.search(r'<option[^>]*>100</option>', body)
 
 
 def test_global_atmos_switch_persists_to_all_rigs():

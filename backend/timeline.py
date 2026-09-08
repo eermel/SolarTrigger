@@ -12,10 +12,10 @@ def parse_hms_seconds(value: str | None) -> float | None:
         return None
     parts = str(value).strip().split(":")
     if len(parts) != 3:
-        raise ValueError(f"Heure invalide: {value!r}")
+        raise ValueError(f"Invalid time: {value!r}")
     h, m, sec = int(parts[0]), int(parts[1]), float(parts[2])
     if not (0 <= h <= 23 and 0 <= m <= 59 and 0 <= sec < 60):
-        raise ValueError(f"Heure hors limites: {value!r}")
+        raise ValueError(f"Time out of range: {value!r}")
     return h * 3600.0 + m * 60.0 + sec
 
 
@@ -41,13 +41,13 @@ def parse_date_from_config(cfg: dict, fallback: date | None = None) -> date:
             pass
     if fallback is not None:
         return fallback
-    raise ValueError("Date des circonstances absente (_date)")
+    raise ValueError("Circumstances date is missing (_date)")
 
 
 def datetime_from_hms(day: date, value: str) -> datetime:
     seconds = parse_hms_seconds(value)
     if seconds is None:
-        raise ValueError("Heure absente")
+        raise ValueError("Missing time")
     return datetime.combine(day, dt_time()) + timedelta(seconds=seconds)
 
 

@@ -4,24 +4,32 @@
   "backend": "profile-nikon_nikon_dsc_d850_8769b3e7",
   "manufacturer": "Nikon",
   "model": "Nikon DSC D850",
-  "characterized_at": "2026-09-05T18:23:01.966512+00:00",
+  "characterized_at": "2026-09-07T21:20:19.911562+00:00",
   "strategy": "sequential",
   "commands": {
     "manual_mode": {
       "path": "/main/capturesettings/expprogram",
-      "value": "M"
+      "value": "M",
+      "get": true,
+      "set": true
     },
     "capture_target": {
       "path": "/main/settings/capturetarget",
-      "value": "Memory card"
+      "value": "Memory card",
+      "get": true,
+      "set": true
     },
     "raw": {
       "path": "/main/capturesettings/imagequality",
-      "value": "NEF (Raw)"
+      "value": "NEF (Raw)",
+      "get": true,
+      "set": true
     },
     "iso": {
       "path": "/main/imgsettings/iso",
       "value": "100",
+      "get": true,
+      "set": true,
       "values": {
         "32": "32",
         "40": "40",
@@ -58,9 +66,17 @@
         "51200": "51200"
       }
     },
+    "capture_mode": {
+      "path": "/main/capturesettings/capturemode",
+      "value": "Single Shot",
+      "get": true,
+      "set": false
+    },
     "shutter": {
       "path": "/main/capturesettings/shutterspeed2",
       "value": "1/500",
+      "get": true,
+      "set": true,
       "values": {
         "1/8000": "1/8000",
         "1/6400": "1/6400",
@@ -120,10 +136,14 @@
       }
     },
     "battery": {
-      "path": "/main/status/batterylevel"
+      "path": "/main/status/batterylevel",
+      "get": true,
+      "set": false
     },
     "aperture": {
       "path": "/main/capturesettings/f-number",
+      "get": true,
+      "set": true,
       "values": {
         "f/2.8": "f/2.8",
         "f/3.2": "f/3.2",
@@ -151,57 +171,29 @@
     }
   },
   "warnings": [
-    "capture_mode: unavailable",
-    "Physical shutter-start latency is unmeasured; no timing correction applied",
-    "No bracket command combination validated by the current discovery rules; sequential only"
+    "Physical shutter-start latency is unmeasured; no timing correction applied"
   ],
-  "settle_idle_s": 0.0,
-  "test_pause_s": 2.0,
-  "planning_timing": {
-    "single_ms": 1300,
-    "single_atomic_ms": 950
-  },
-  "brackets": {},
-  "benchmark": {
-    "iso": 100,
-    "step_ev": 1,
-    "repetitions": 5,
-    "speeds": [
-      "1/8000",
-      "1/4000",
-      "1/2000",
-      "1/1000",
-      "1/500",
-      "1/250",
-      "1/125",
-      "1/60",
-      "1/30"
-    ],
-    "sequential_ms": 11900
-  },
-  "raw_timings": {
-    "planning_timing": {
-      "single_ms": 1252.7024540031562,
-      "single_atomic_ms": 903.0711200030055
-    },
-    "brackets": {},
-    "benchmark": {
-      "iso": 100,
-      "step_ev": 1,
-      "repetitions": 5,
-      "speeds": [
-        "1/8000",
-        "1/4000",
-        "1/2000",
-        "1/1000",
-        "1/500",
-        "1/250",
-        "1/125",
-        "1/60",
-        "1/30"
+  "timing_contract": {
+    "version": 3,
+    "safety_policy": {
+      "basis": "maximum_observed",
+      "relative_margin_percent": 10,
+      "fixed_margin_ms": 50,
+      "rounding_ms": 50,
+      "order": [
+        "maximum_observed",
+        "multiply_by_1.10",
+        "add_50_ms",
+        "round_up_to_50_ms"
       ],
-      "sequential_ms": 11882.86027399954
-    }
+      "formula": "ceil50(max_observed_ms * 1.10 + 50)",
+      "version": 3
+    },
+    "set_overhead_ms": 950,
+    "single_overhead_ms": 1200,
+    "bracket_overhead_ms": 0,
+    "bracket_inter_image_ms": 0,
+    "supported_bracket_frames": []
   },
-  "timing_rounding_ms": 50
+  "brackets": {}
 }

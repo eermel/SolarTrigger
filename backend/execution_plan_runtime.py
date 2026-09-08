@@ -448,7 +448,8 @@ class ExecutionPlanRuntime:
                         self.log(
                             f"EXECUTION_PLAN rig={rig_id} "
                             f"pending_set_already_effective "
-                            f"parameter={parameter} value={desired}"
+                            f"parameter={parameter} value={desired} "
+                            f"index={command['index']}"
                         )
                         continue
 
@@ -556,6 +557,7 @@ class ExecutionPlanRuntime:
             self.log(
                 f"EXECUTION_PLAN rig={rig_id} "
                 f"action={action} "
+                f"index={command['index']} "
                 f"scheduled={target.isoformat()}Z "
                 f"dispatch={dispatch_time.isoformat()}Z "
                 f"lateness_ms={lateness_ms:+.3f}"
@@ -620,6 +622,7 @@ class ExecutionPlanRuntime:
                 ):
                     self.log(
                         f"WARNING execution_plan rig={rig_id} "
+                        f"index={command['index']} "
                         f"budget_overrun_ms={elapsed_ms:.1f}; "
                         "elapsed commands will be skipped"
                     )

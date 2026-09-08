@@ -21,17 +21,17 @@ class GpsController:
 
     def _run(self, timeout_s, mode="time_location"):
         synced = False
-        self.log("▶ Acquisition GPS demandée par l'opérateur…", "gps", "gps_sync")
+        self.log("▶ GPS acquisition requested by operator…", "gps", "gps_sync")
         try:
             if mode not in {"time_location", "time_only", "location_only"}:
-                raise ValueError(f"Mode GPS inconnu : {mode}")
+                raise ValueError(f"Unknown GPS mode: {mode}")
             from services.gps_service import GpsService
             cfg = json.loads(self.config_file.read_text(encoding="utf-8"))
             service = GpsService.from_config(cfg, log_fn=lambda m: self.log(str(m), "gps", "gps_sync"))
             snap = service.initialize(timeout_s=timeout_s, require_gga=True)
             pos = snap.position
             if pos is None or snap.gps_time is None:
-                raise RuntimeError("GPS sans position ou heure exploitable")
+                raise RuntimeError("GPS has no usable position or time")
             self.log(f"GPS_FIX lat={pos.latitude:.6f} lon={pos.longitude:.6f} "
                      f"alt={pos.altitude_m if pos.altitude_m is not None else 0.0:.1f} "
                      f"sats={pos.satellites or 0} hdop={pos.hdop if pos.hdop is not None else 'n/a'}",
@@ -39,7 +39,7 @@ class GpsController:
             values = {"gps_sync_running": False}
             if mode in {"time_location", "time_only"}:
                 if not self.time_sync_fn(snap.gps_time, dry_run=False):
-                    raise RuntimeError("Échec de synchronisation de l'heure système")
+                    raise RuntimeError("System clock synchronization failed")
                 values.update({
                     "synced": True,
                     "sync_time": datetime.now(timezone.utc).isoformat(),
@@ -71,11 +71,11 @@ class GpsController:
             gps_snap = self.state.update_section("gps", values)
             self.state.set("gps_sync_running", False); self.state.save(); synced = True
             if mode == "time_only":
-                self.log("✅ Heure GPS synchronisée", "success", "gps_sync")
+                self.log("✅ GPS time synchronized", "success", "gps_sync")
             elif mode == "location_only":
-                self.log(f"✅ Position GPS acquise — {tz_str}", "success", "gps_sync")
+                self.log(f"✅ GPS position acquired — {tz_str}", "success", "gps_sync")
             else:
-                self.log(f"✅ GPS synchronisé — {tz_str}", "success", "gps_sync")
+                self.log(f"✅ GPS synchronized — {tz_str}", "success", "gps_sync")
             self.emit("gps_update", gps_snap)
         except Exception as exc:
             self.log(f"❌ GPS : {exc}", "error", "gps_sync")

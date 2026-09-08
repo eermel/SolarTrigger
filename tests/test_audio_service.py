@@ -54,7 +54,7 @@ def test_init_without_pygame_disables_audio_and_play_is_noop(monkeypatch):
     audio_service.init(logs.append)
     audio_service.play("anything.wav")
 
-    assert logs == ["WARNING pygame non installé — sons désactivés."]
+    assert logs == ["WARNING pygame is not installed — sounds disabled."]
     assert audio_service.pygame is None
     assert audio_service.SOUNDS_ENABLED is False
 
@@ -85,7 +85,7 @@ def test_play_logs_missing_sound(monkeypatch, tmp_path):
     audio_service.play("missing.wav")
 
     assert any(
-        f"WARNING Son introuvable : {tmp_path / 'missing.wav'}" in message
+        f"WARNING Sound file not found: {tmp_path / 'missing.wav'}" in message
         for message in logs
     )
     pygame.mixer.music.load.assert_not_called()
@@ -103,7 +103,7 @@ def test_load_error_logs_quits_and_reinitializes_mixer(monkeypatch, tmp_path):
     audio_service.play(sound.name)
 
     assert any(
-        message == "ERROR Erreur audio (broken.wav) : decoder failed"
+        message == "ERROR Audio error (broken.wav) : decoder failed"
         for message in logs
     )
     assert audio_service._mixer_ready is False

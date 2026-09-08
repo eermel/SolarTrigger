@@ -29,12 +29,12 @@ REQUIRED_FILES = [
 ]
 
 ECLIPSES = {
-    "2026-08-12": {"label": "2026 Aug 12 — Totale (Espagne/Méditerranée)", "val": "59"},
-    "2027-08-02": {"label": "2027 Aug 02 — Totale (Égypte/Louxor)",        "val": "61"},
-    "2028-07-22": {"label": "2028 Jul 22 — Totale",                         "val": "63"},
-    "2030-11-25": {"label": "2030 Nov 25 — Totale",                         "val": "69"},
-    "2034-03-20": {"label": "2034 Mar 20 — Totale",                         "val": "76"},
-    "2035-09-02": {"label": "2035 Sep 02 — Totale",                         "val": "79"},
+    "2026-08-12": {"label": "2026 Aug 12 — Total (Spain/Mediterranean)", "val": "59"},
+    "2027-08-02": {"label": "2027 Aug 02 — Total (Egypt/Luxor)",        "val": "61"},
+    "2028-07-22": {"label": "2028 Jul 22 — Total",                         "val": "63"},
+    "2030-11-25": {"label": "2030 Nov 25 — Total",                         "val": "69"},
+    "2034-03-20": {"label": "2034 Mar 20 — Total",                         "val": "76"},
+    "2035-09-02": {"label": "2035 Sep 02 — Total",                         "val": "79"},
 }
 
 
@@ -54,7 +54,7 @@ def setup_files():
             src = d / fname
             if src.exists():
                 shutil.copy2(src, dst)
-                print(f"{G}  Copié : {fname}{RE}")
+                print(f"{G}  Copied: {fname}{RE}")
                 found = True
                 break
         if not found:
@@ -63,13 +63,13 @@ def setup_files():
         if not (JUBIER_DIR / css).exists():
             (JUBIER_DIR / css).write_text("/* placeholder */")
     if missing:
-        print(f"{R}Fichiers manquants dans {JUBIER_DIR} :{RE}")
+        print(f"{R}Missing files in {JUBIER_DIR} :{RE}")
         for f in missing:
             print(f"  {R}✗ {f}{RE}")
-        print(f"\n{Y}Copiez les fichiers JS de Xavier Jubier dans :{RE}")
+        print(f"\n{Y}Copy the Xavier Jubier JS files to:{RE}")
         print(f"  {JUBIER_DIR}")
         sys.exit(1)
-    print(f"{G}  Fichiers Jubier OK{RE}")
+    print(f"{G}  Jubier files OK{RE}")
 
 
 JS_CALCULATE = """(params) => {
@@ -80,7 +80,7 @@ JS_CALCULATE = """(params) => {
     const { lat_dd, lon_dd, alt_m, tz_offset, eclipse_val } = params;
 
     if (typeof getall === 'undefined' || typeof obsvconst === 'undefined') {
-        return { error: 'Fonctions Jubier non disponibles (getall, obsvconst)' };
+        return { error: 'Jubier functions unavailable (getall, obsvconst)' };
     }
 
     const D2R = Math.PI / 180.0;
@@ -164,7 +164,7 @@ def run_playwright(lat, lon, alt, tz_offset, eclipse_val):
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print(f"{R}Playwright manquant :{RE}")
+        print(f"{R}Playwright missing:{RE}")
         print(f"  pip3 install playwright --break-system-packages")
         print(f"  playwright install chromium")
         sys.exit(1)
@@ -189,7 +189,7 @@ def run_playwright(lat, lon, alt, tz_offset, eclipse_val):
     for cp in chromium_system_paths:
         if Path(cp).exists():
             launch_kwargs["executable_path"] = cp
-            print(f"{G}  Chromium système : {cp}{RE}")
+            print(f"{G}  System Chromium: {cp}{RE}")
             break
 
     params = {
@@ -204,26 +204,26 @@ def run_playwright(lat, lon, alt, tz_offset, eclipse_val):
         browser = pw.chromium.launch(**launch_kwargs)
         page = browser.new_page()
 
-        print(f"{B}  Chargement du calculateur JS Jubier...{RE}")
+        print(f"{B}  Loading Jubier JS calculator...{RE}")
         try:
             page.goto("about:blank")
             page.add_script_tag(
                 path=str(JUBIER_DIR / "SunMoonCalculatorSVG_VML.js")
             )
         except Exception as e:
-            print(f"{R}  Erreur de chargement du calculateur JS : {e}{RE}")
+            print(f"{R}  Failed to load Jubier JS calculator: {e}{RE}")
             browser.close()
             sys.exit(1)
 
         try:
             page.wait_for_function("typeof getall !== 'undefined'", timeout=10000)
         except Exception:
-            print(f"{R}  Les fonctions JS Jubier ne se sont pas chargées.{RE}")
-            print(f"{Y}  Vérifiez que SunMoonCalculatorSVG_VML.js est dans {JUBIER_DIR}{RE}")
+            print(f"{R}  Jubier JS functions did not load.{RE}")
+            print(f"{Y}  Check that SunMoonCalculatorSVG_VML.js is in {JUBIER_DIR}{RE}")
             browser.close()
             sys.exit(1)
 
-        print(f"{B}  Exécution de l'algorithme Jubier...{RE}")
+        print(f"{B}  Running Jubier algorithm...{RE}")
         result = page.evaluate(JS_CALCULATE, params)
         browser.close()
 
@@ -274,7 +274,7 @@ def generate_json(res, lat, lon, alt, tz_offset, eclipse_key, output="todayeclip
     date_str = eclipse_key
 
     cfg = {
-        "_comment":              "Calculé par eclipse_calculator_jubier.py — Algorithme JS Xavier Jubier",
+        "_comment":              "Calculated by eclipse_calculator_jubier.py — Xavier Jubier JS algorithm",
         "_eclipse":              label,
         "_type_global":          type_global,
         "_type":                 res["eclipse_type"],
@@ -289,7 +289,7 @@ def generate_json(res, lat, lon, alt, tz_offset, eclipse_key, output="todayeclip
             "latitude": float(lat),
             "longitude": float(lon),
             "altitude_m": float(alt),
-            "comment": "Circonstances calculées pour cette position GPS et cette altitude.",
+            "comment": "Circumstances calculated for this GPS position and altitude.",
         },
         "_timezone":             tz_str,
         "title":                 label,
@@ -346,8 +346,8 @@ def print_results(res, lat, lon, alt, tz_offset, eclipse_key):
     print(f"║  Lat {lat:+.5f}°  Lon {lon:+.5f}°  Alt {alt}m{'':<17}║")
     print(f"║  Type      : {res['eclipse_type']:<48}║")
     print(f"║  Magnitude : {res['magnitude']:<48}║")
-    print(f"║  Totalité  : {dur:<48}║")
-    print(f"║  Soleil    : {res['sun_alt_tmax']:<5} altitude à TMAX{'':<34}║")
+    print(f"║  Totality  : {dur:<48}║")
+    print(f"║  Sun       : {res['sun_alt_tmax']:<5} altitude at TMAX{'':<34}║")
     print(f"╠══════════════════════════════════════════════════════════════╣{RE}")
 
 
@@ -360,51 +360,51 @@ def auto_eclipse():
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Calcul circonstances éclipse — JS Jubier via Playwright/Chromium headless",
+        description="Calculate eclipse circumstances — Jubier JS via Playwright/headless Chromium",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    ap.add_argument("--lat",     type=float, help="Latitude décimale (+ Nord, - Sud)")
-    ap.add_argument("--lon",     type=float, help="Longitude décimale (+ Est, - Ouest)")
-    ap.add_argument("--alt",     type=float, default=0,    help="Altitude en mètres (défaut: 0)")
-    ap.add_argument("--tz",      type=float, default=0,    help="Offset UTC total en heures ex: 2 pour UTC+2 (inclure DST si applicable)")
-    ap.add_argument("--eclipse", type=str,   default=None, help="Clé éclipse : 2026-08-12 ou 2027-08-02 etc.")
+    ap.add_argument("--lat",     type=float, help="Decimal latitude (+ North, - South)")
+    ap.add_argument("--lon",     type=float, help="Decimal longitude (+ East, - West)")
+    ap.add_argument("--alt",     type=float, default=0,    help="Altitude in meters (default: 0)")
+    ap.add_argument("--tz",      type=float, default=0,    help="Total UTC offset in hours, e.g. 2 for UTC+2 (include DST when applicable)")
+    ap.add_argument("--eclipse", type=str,   default=None, help="Eclipse key: 2026-08-12 or 2027-08-02, etc.")
     ap.add_argument("--output",  type=str,   default="todayeclipse.json")
-    ap.add_argument("--list",    action="store_true", help="Lister les éclipses disponibles")
-    ap.add_argument("--no-json", action="store_true", help="Afficher seulement, sans générer le JSON")
+    ap.add_argument("--list",    action="store_true", help="List available eclipses")
+    ap.add_argument("--no-json", action="store_true", help="Display only, without generating JSON")
     args = ap.parse_args()
 
     print("╔══════════════════════════════════════════════════════════════╗")
     print("║  Solar Eclipse Calculator — JS Xavier Jubier + Playwright   ║")
-    print("║  Les calculs sont effectués par le JS original de Jubier    ║")
+    print("║  Calculations use the original Jubier JS    ║")
     print("╚══════════════════════════════════════════════════════════════╝")
 
     if args.list:
         next_e = auto_eclipse()
-        print(f"{G}Éclipses disponibles :{RE}")
+        print(f"{G}Available eclipses:{RE}")
         for k, v in ECLIPSES.items():
-            mark = f"  {Y}◄ prochaine{RE}" if k == next_e else ""
+            mark = f"  {Y}◄ next{RE}" if k == next_e else ""
             print(f"  {Y}{k}{RE}  {v['label']}{mark}")
         sys.exit(0)
 
     if args.lat is None or args.lon is None:
         ap.print_help()
-        print(f"\n{R}Erreur : --lat et --lon sont obligatoires.{RE}")
+        print(f"\n{R}Error: --lat and --lon are required.{RE}")
         sys.exit(1)
 
     eclipse_key = args.eclipse or auto_eclipse()
     if eclipse_key not in ECLIPSES:
-        print(f"{R}Éclipse inconnue : '{eclipse_key}'{RE}")
-        print(f"Disponibles : {', '.join(ECLIPSES.keys())}")
+        print(f"{R}Unknown eclipse: '{eclipse_key}'{RE}")
+        print(f"Available: {', '.join(ECLIPSES.keys())}")
         sys.exit(1)
 
-    print(f"{B}Éclipse  : {Y}{eclipse_key}{RE} — {ECLIPSES[eclipse_key]['label']}")
+    print(f"{B}Eclipse  : {Y}{eclipse_key}{RE} — {ECLIPSES[eclipse_key]['label']}")
     print(f"{B}Position : Lat {args.lat:+.5f}°  Lon {args.lon:+.5f}°  Alt {args.alt}m{RE}")
-    print(f"{B}Fuseau   : UTC{args.tz:+.1f}{RE}\n")
+    print(f"{B}Timezone : UTC{args.tz:+.1f}{RE}\n")
 
-    print(f"{B}[1/2] Vérification du calculateur JS Jubier...{RE}")
+    print(f"{B}[1/2] Checking Jubier JS calculator...{RE}")
     setup_files()
 
-    print(f"{B}[2/2] Calcul via Chromium headless + JS Jubier...{RE}")
+    print(f"{B}[2/2] Calculation with headless Chromium + Jubier JS...{RE}")
     result = run_playwright(
         lat          = args.lat,
         lon          = args.lon,
@@ -414,13 +414,13 @@ def main():
     )
 
     if not result or "error" in result:
-        msg = result.get("error", "Résultat vide") if result else "Pas de résultat"
-        print(f"{R}❌ Erreur : {msg}{RE}")
+        msg = result.get("error", "Empty result") if result else "No result"
+        print(f"{R}❌ Error: {msg}{RE}")
         sys.exit(1)
 
     if not args.no_json:
         generate_json(result, args.lat, args.lon, args.alt, args.tz, eclipse_key, args.output)
-        print(f"\n{G}✅ Fichier généré : {Y}{args.output}{RE}")
+        print(f"\n{G}✅ File generated: {Y}{args.output}{RE}")
 
 
 if __name__ == "__main__":

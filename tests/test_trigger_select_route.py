@@ -150,7 +150,7 @@ def test_trigger_start_rejects_missing_execution_plan_circumstances(
     assert response.status_code == 400
     assert response.get_json() == {
         "error": (
-            "Circumstances du plan introuvables : "
+            "Execution plan circumstances not found: "
             "test_circumstances.json"
         ),
         "code": "EXECUTION_PLAN_CIRCUMSTANCES_NOT_FOUND",

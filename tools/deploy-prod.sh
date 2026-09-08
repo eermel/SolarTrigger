@@ -142,12 +142,14 @@ fi
 echo
 echo "=== frontend JavaScript ==="
 rsync "${RSYNC_OPTS[@]}" --delete \
+    --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
     "$SRC/flask_app/static/js/" \
     "$DST_HOST:$DST/static/js/"
 
 echo
 echo "=== frontend CSS ==="
 rsync "${RSYNC_OPTS[@]}" --delete \
+    --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
     "$SRC/flask_app/static/css/" \
     "$DST_HOST:$DST/static/css/"
 
@@ -160,6 +162,7 @@ rsync "${RSYNC_OPTS[@]}" \
 echo
 echo "=== web sounds ==="
 rsync "${RSYNC_OPTS[@]}" \
+    --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
     "$SRC/Sounds/" \
     "$DST_HOST:$DST/static/sounds/"
 

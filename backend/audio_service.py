@@ -42,7 +42,7 @@ def init(log_fn, colors=None, driver="alsa"):
         import pygame as pygame_module
     except ImportError:
         pygame = None
-        _log("WARNING pygame non installé — sons désactivés.")
+        _log("WARNING pygame is not installed — sounds disabled.")
         return
 
     pygame = pygame_module
@@ -52,10 +52,10 @@ def init(log_fn, colors=None, driver="alsa"):
             pygame.mixer.init()
             pygame.mixer.quit()
             SOUNDS_ENABLED = True
-            _log(f"Audio Jack OK (driver {driver.upper()} sur sortie jack)")
+            _log(f"Audio Jack OK (driver {driver.upper()} on jack output)")
         except Exception as exc:
             SOUNDS_ENABLED = False
-            _log(f"pygame.mixer {driver.upper()} échoué : {exc} — sons désactivés.")
+            _log(f"pygame.mixer {driver.upper()} failed: {exc} — sounds disabled.")
 
 
 def set_sounds_dir(path):
@@ -75,7 +75,7 @@ def _ensure_mixer():
         _mixer_ready = True
         return True
     except Exception as exc:
-        _log(f"{_color('YELLOW')}pygame.mixer init echouee : {exc}{_color('RESET')}")
+        _log(f"{_color('YELLOW')}pygame.mixer init failed: {exc}{_color('RESET')}")
         return False
 
 
@@ -87,7 +87,7 @@ def play(filename):
         return
     path = os.path.join(_sounds_dir, filename)
     if not os.path.isfile(path):
-        _log(f"WARNING {_color('YELLOW')}Son introuvable : {path}{_color('RESET')}")
+        _log(f"WARNING {_color('YELLOW')}Sound file not found: {path}{_color('RESET')}")
         return
 
     with _pygame_lock:
@@ -102,7 +102,7 @@ def play(filename):
                 pygame.mixer.music.stop()
         except Exception as exc:
             _log(
-                f"ERROR {_color('RED')}Erreur audio ({filename}) : "
+                f"ERROR {_color('RED')}Audio error ({filename}) : "
                 f"{exc}{_color('RESET')}"
             )
             _mixer_ready = False

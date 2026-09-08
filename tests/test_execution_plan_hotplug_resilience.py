@@ -156,7 +156,7 @@ def test_failed_set_is_retried_asap_and_preserves_next_photo():
         ("PHOTO", "1/125"),
     ]
 
-    # PHOTO1 n'est pas perdue : le SET requis a finalement réussi
+    # PHOTO1 n'est pas perdue : le SET required a finalement réussi
     # suffisamment tôt pour permettre son exécution.
     assert not any(
         "photo_lost=1" in message

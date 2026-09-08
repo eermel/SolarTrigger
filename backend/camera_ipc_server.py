@@ -635,11 +635,29 @@ class CameraIpcServer:
 
             rig_id, worker = self._worker(params, allowed=allowed)
 
-            result = self._call_worker(
-                worker.execute_photo,
-                photo_params,
-                **scheduled_options,
-            )
+            try:
+                result = self._call_worker(
+                    worker.execute_photo,
+                    photo_params,
+                    **scheduled_options,
+                )
+            except IpcError:
+                raise
+            except Exception as exc:
+                observed = getattr(exc, "observed_frames", None)
+                expected = getattr(exc, "expected_frames", None)
+                if (
+                    isinstance(observed, int)
+                    and not isinstance(observed, bool)
+                    and isinstance(expected, int)
+                    and not isinstance(expected, bool)
+                    and 0 <= observed < expected
+                ):
+                    raise IpcError(
+                        "CAPTURE_COUNT_ERROR",
+                        f"Capture count mismatch: {observed}/{expected}",
+                    ) from exc
+                raise
 
             return {
                 "rig_id": rig_id,

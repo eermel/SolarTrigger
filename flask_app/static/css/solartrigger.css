@@ -378,8 +378,42 @@ header {
 .rig-column.enabled { border-color: var(--green); }
 .rig-column:not(.enabled) { opacity: .55; }
 
+.camcfg-rigs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
 .camcfg-rig-column {
   transition: border-color .2s, opacity .2s;
+}
+.camcfg-control-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+.camcfg-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.camcfg-help {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.camcfg-capability-note {
+  margin-top: 6px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+@media (max-width: 760px) {
+  .camcfg-rigs-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 430px) {
+  .camcfg-control-grid { grid-template-columns: 1fr; }
 }
 .camcfg-rig-column:not(.enabled) {
   opacity: .55;
@@ -491,7 +525,8 @@ header {
 #log-container-gps_sync,
 #log-container-calculator,
 #log-container-trigger,
-#camera-characterization-log,
+#camera-add-log,
+#log-container-sequencer,
 #log-container-exposure_opt {
   background: #050810;
   border: 1px solid var(--border);
@@ -606,18 +641,48 @@ header {
   color: white;
   border-color: var(--red);
 }
+/*
+ * CONTROLS movement buttons
+ * Large touch targets for outdoor/iPad operation.
+ * Movement controls are exactly 2x their previous dimensions.
+ */
+#btn-focuser-minus,
+#btn-focuser-plus {
+  height: calc(var(--btn-h) * 2);
+  min-height: calc(var(--btn-h) * 2);
+  font-size: 26px;
+}
+
+/*
+ * Primary operator actions use the same 60 px touch height as N/E/S/W.
+ * Widths remain unchanged.
+ */
+#btn-focuser-home,
+#btn-focuser-go,
+#btn-mount-home,
+.cam-rig-button,
+[id^="btn-run-sequencer-rig-"],
+[id^="btn-clean-execution-plans-rig-"],
+#btn-run-all-sequencers {
+  height: calc(var(--btn-h) * 2);
+  min-height: calc(var(--btn-h) * 2);
+}
+
 .mount-slew-pad {
   display: grid;
-  grid-template-columns: repeat(3, 48px);
-  grid-template-rows: repeat(3, 48px);
-  gap: 5px;
+  grid-template-columns: repeat(3, 96px);
+  grid-template-rows: repeat(3, 60px);
+  gap: 10px;
   justify-content: center;
   margin: 12px 0;
 }
 .mount-slew-button {
-  min-width: 48px;
-  min-height: var(--btn-h);
+  width: 96px;
+  height: calc(var(--btn-h) * 2);
+  min-width: 96px;
+  min-height: calc(var(--btn-h) * 2);
   padding: 0;
+  font-size: 26px;
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
@@ -777,4 +842,13 @@ header {
   min-height: var(--btn-h);
   line-height: 1;
   white-space: nowrap;
+}
+
+/* ── TRIGGER ACTION BUTTONS ───────────────────────────────────
+ * Primary trigger actions use 1.5x the standard 30 px height.
+ */
+.trigger-action-stack > .trigger-action-button {
+  height: calc(var(--btn-h) * 1.5);
+  min-height: calc(var(--btn-h) * 1.5);
+  flex: 0 0 calc(var(--btn-h) * 1.5);
 }

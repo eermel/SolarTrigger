@@ -39,7 +39,7 @@ _RATE_MAP = {
 
 class OnStepMount(MountPlugin):
     plugin_id = "onstep"
-    display_name = "OnStep / Tessek Mini 11 (LX200 serie)"
+    display_name = "OnStep / Tessek Mini 11 (LX200 serial)"
 
     def __init__(self, log_fn=print, config=None):
         super().__init__(log_fn, config)
@@ -134,7 +134,7 @@ class OnStepMount(MountPlugin):
     # -- suivi ------------------------------------------------------------- #
     def start_tracking(self, rate=RATE_SIDEREAL):
         if rate not in _RATE_MAP:
-            raise ValueError(f"Taux de suivi inconnu : {rate}")
+            raise ValueError(f"Unknown tracking rate: {rate}")
         self.mount.start_tracking(_RATE_MAP[rate])
 
     def stop_tracking(self):
@@ -149,13 +149,13 @@ class OnStepMount(MountPlugin):
 
     def set_tracking_mode(self, mode):
         if mode not in (RATE_SOLAR, RATE_SIDEREAL):
-            raise ValueError(f"Mode de suivi inconnu : {mode}")
+            raise ValueError(f"Unknown tracking mode: {mode}")
         self.mount.select_tracking_rate(_RATE_MAP[mode])
 
     # -- mouvements -------------------------------------------------------- #
     def move(self, direction):
         if direction not in _DIRECTION_MAP:
-            raise ValueError(f"Direction inconnue : {direction}")
+            raise ValueError(f"Unknown direction: {direction}")
         self.mount.move(_DIRECTION_MAP[direction])
 
     def stop(self):

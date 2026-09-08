@@ -269,8 +269,8 @@ def test_rig1_is_always_active_but_optional_rigs_are_not():
                     "interval_s": 30,
                     "iso": 100,
                     "aperture": "f/8",
-                    "shutter_min": "1/250",
-                    "shutter_max": "1/1000",
+                    "shutter_min": "1/500",
+                    "shutter_max": "1/2000",
                     "step_ev": 1.0,
                 },
                 "diamond_ring": _photo()["phases"]["diamond_ring"],
@@ -328,8 +328,8 @@ def test_sony_target_expands_to_physical_shutters():
                 "interval_s": 30,
                 "iso": 100,
                 "aperture": "f/8",
-                "shutter_min": "1/250",
-                "shutter_max": "1/1000",
+                "shutter_min": "1/500",
+                "shutter_max": "1/2000",
                 "step_ev": 1.0,
             },
         },
@@ -348,15 +348,15 @@ def test_sony_target_expands_to_physical_shutters():
     assert capture.aperture == "f/8"
 
     assert capture.original_shutters == (
+        "1/2000",
         "1/1000",
         "1/500",
-        "1/250",
     )
 
     assert capture.final_exposure_plan == (
+        {"shutter": "1/2000", "iso": 100},
         {"shutter": "1/1000", "iso": 100},
         {"shutter": "1/500", "iso": 100},
-        {"shutter": "1/250", "iso": 100},
     )
 
     assert capture.motion_policy == "none"
@@ -389,8 +389,8 @@ def _sony_materialized_capture():
                     "duration_s": 30,
                     "iso": 100,
                     "aperture": "f/8",
-                    "shutter_min": "1/60",
-                    "shutter_max": "1/1000",
+                    "shutter_min": "1/500",
+                    "shutter_max": "1/8000",
                     "step_ev": 1.0,
                 },
             },
@@ -413,11 +413,11 @@ def test_materialized_sony_capture_uses_real_prepare_capture():
     assert audited.planned_count == 5
 
     assert audited.exposure_plan == (
+        {"shutter": "1/8000", "iso": 100},
+        {"shutter": "1/4000", "iso": 100},
+        {"shutter": "1/2000", "iso": 100},
         {"shutter": "1/1000", "iso": 100},
         {"shutter": "1/500", "iso": 100},
-        {"shutter": "1/250", "iso": 100},
-        {"shutter": "1/125", "iso": 100},
-        {"shutter": "1/60", "iso": 100},
     )
 
 
@@ -443,7 +443,7 @@ def test_sony_audit_contains_native_bracket_commands():
     assert operations[2] == {
         "action": "set",
         "parameter": "shutterspeed",
-        "value": "1/250",
+        "value": "1/2000",
     }
 
     assert operations[3] == {
@@ -457,11 +457,11 @@ def test_sony_audit_contains_native_bracket_commands():
     assert operations[4]["value"] == "1"
     assert operations[4]["frames"] == 5
     assert operations[4]["physical_views"] == [
+        "1/8000",
+        "1/4000",
+        "1/2000",
         "1/1000",
         "1/500",
-        "1/250",
-        "1/125",
-        "1/60",
     ]
 
     assert operations[5]["action"] == "expect_frames"
@@ -599,7 +599,7 @@ def test_sony_bracket_preparation_is_scheduled_backwards():
     ] == [
         ("set", "iso", "100"),
         ("set", "capturemode", "Single Shot"),
-        ("set", "shutterspeed", "1/250"),
+        ("set", "shutterspeed", "1/2000"),
         (
             "set",
             "capturemode",
@@ -674,7 +674,7 @@ def test_trigger_initial_state_removes_unnecessary_first_sony_sets():
             "exposuremode": "Manual",
             "iso": "100",
             "capturemode": "Single Shot",
-            "shutterspeed": "1/250",
+            "shutterspeed": "1/2000",
         },
     )
 
@@ -691,7 +691,7 @@ def test_trigger_initial_state_removes_unnecessary_first_sony_sets():
         {
             "action": "set",
             "parameter": "shutterspeed",
-            "value": "1/250",
+            "value": "1/2000",
         },
         {
             "action": "set",
@@ -702,7 +702,7 @@ def test_trigger_initial_state_removes_unnecessary_first_sony_sets():
 
     assert final_state["exposuremode"] == "Manual"
     assert final_state["iso"] == "100"
-    assert final_state["shutterspeed"] == "1/250"
+    assert final_state["shutterspeed"] == "1/2000"
     assert (
         final_state["capturemode"]
         == "Continuous Bracket 1.0 EV 5 Img."
@@ -725,7 +725,7 @@ def test_second_identical_sony_bracket_only_keeps_required_mode_transitions():
         {
             "iso": "100",
             "capturemode": "Single Shot",
-            "shutterspeed": "1/250",
+            "shutterspeed": "1/2000",
         },
     )
 
@@ -759,7 +759,7 @@ def test_second_identical_sony_bracket_only_keeps_required_mode_transitions():
         {
             "action": "set",
             "parameter": "shutterspeed",
-            "value": "1/250",
+            "value": "1/2000",
         },
         {
             "action": "set",
@@ -769,7 +769,7 @@ def test_second_identical_sony_bracket_only_keeps_required_mode_transitions():
     ]
 
     assert state["iso"] == "100"
-    assert state["shutterspeed"] == "1/250"
+    assert state["shutterspeed"] == "1/2000"
 
 
 def test_reduced_capture_changes_scheduling_lead_time():
@@ -782,7 +782,7 @@ def test_reduced_capture_changes_scheduling_lead_time():
         {
             "iso": "100",
             "capturemode": "Single Shot",
-            "shutterspeed": "1/250",
+            "shutterspeed": "1/2000",
         },
     )
 
@@ -841,12 +841,12 @@ def test_reducer_keeps_independent_state_per_rig():
             1: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
             2: {
                 "iso": "200",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
         },
     )
@@ -918,7 +918,7 @@ def test_merge_preserves_simultaneous_commands_from_multiple_rigs():
         {
             "iso": "100",
             "capturemode": "Single Shot",
-            "shutterspeed": "1/250",
+            "shutterspeed": "1/2000",
         },
     )
 
@@ -927,7 +927,7 @@ def test_merge_preserves_simultaneous_commands_from_multiple_rigs():
         {
             "iso": "100",
             "capturemode": "Single Shot",
-            "shutterspeed": "1/250",
+            "shutterspeed": "1/2000",
         },
     )
 
@@ -975,12 +975,12 @@ def test_global_merge_does_not_delay_second_rig():
             1: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
             2: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
         },
         timing_profiles={
@@ -1013,12 +1013,12 @@ def test_rig_state_reduction_is_independent_before_merge():
             1: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
             2: {
                 "iso": "200",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
         },
         timing_profiles={
@@ -1065,12 +1065,12 @@ def test_merge_orders_different_rig_command_times_globally():
             1: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
             2: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
         },
         timing_profiles={
@@ -1122,13 +1122,13 @@ def _two_rig_merged_plan():
             "exposuremode": "Manual",
             "iso": "100",
             "capturemode": "Single Shot",
-            "shutterspeed": "1/250",
+            "shutterspeed": "1/2000",
         },
         2: {
             "exposuremode": "Manual",
             "iso": "100",
             "capturemode": "Single Shot",
-            "shutterspeed": "1/250",
+            "shutterspeed": "1/2000",
         },
     }
 
@@ -1195,7 +1195,7 @@ def test_execution_plan_keeps_trigger_initial_state_as_requirement_only():
         "exposuremode": "Manual",
         "iso": "100",
         "capturemode": "Single Shot",
-        "shutterspeed": "1/250",
+        "shutterspeed": "1/2000",
     }
 
     # Initial state is established before execution and must not be
@@ -1256,7 +1256,7 @@ def test_execution_plan_text_exposes_real_sony_bracket():
     ) in lines
 
     assert (
-        "2027-08-02T10:03:59.720Z | RIG1 | PHOTO 1/250"
+        "2027-08-02T10:03:59.720Z | RIG1 | PHOTO 1/2000"
     ) in lines
 
     # Plugin/runtime protocol details never enter the Trigger command stream.
@@ -1288,7 +1288,7 @@ def test_initial_state_is_derived_from_first_capture_only():
         1: {
             "iso": "100",
             "capturemode": "Single Shot",
-            "shutterspeed": "1/250",
+            "shutterspeed": "1/2000",
         },
     }
 
@@ -1329,12 +1329,12 @@ def test_multirig_can_use_different_timing_for_same_backend():
             1: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
             2: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
         },
         timing_profiles={
@@ -1400,7 +1400,7 @@ def test_execution_plan_format_keeps_runtime_post_trigger_with_its_capture():
         {
             "iso": "100",
             "capturemode": "Single Shot",
-            "shutterspeed": "1/250",
+            "shutterspeed": "1/2000",
         },
     )
 
@@ -1419,7 +1419,7 @@ def test_execution_plan_format_keeps_runtime_post_trigger_with_its_capture():
             1: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
         },
     )
@@ -1485,7 +1485,7 @@ def test_periodic_bracket_is_skipped_when_atomic_end_exceeds_deadline():
             1: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
         },
         timing_profiles={
@@ -1527,7 +1527,7 @@ def test_periodic_bracket_is_kept_when_atomic_end_fits_deadline():
             1: {
                 "iso": "100",
                 "capturemode": "Single Shot",
-                "shutterspeed": "1/250",
+                "shutterspeed": "1/2000",
             },
         },
         timing_profiles={

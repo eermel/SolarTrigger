@@ -285,7 +285,7 @@ print("CAPTURE_SELECTION=" + json.dumps({
         text=True,
     )
 
-    assert "Stratégie photo dérivée de capture v2" in result.stdout
+    assert "Photo strategy derived from capture v2" in result.stdout
     assert "CIRCUMSTANCES_MUST_NOT_BE_USED" not in result.stdout
     selected_line = next(
         line for line in result.stdout.splitlines() if line.startswith("CAPTURE_SELECTION=")

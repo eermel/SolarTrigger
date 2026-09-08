@@ -73,7 +73,7 @@ class NikonBasePlugin(CameraPlugin):
             self.camera.trigger_capture()
             return True
         except gp.GPhoto2Error as e:
-            self.log(f"   [{self.name}] declenchement {speed} : {e}")
+            self.log(f"   [{self.name}] trigger {speed} : {e}")
             return False
 
     def set_parameter(self, parameter, value, fallback_parameter=None):
@@ -122,7 +122,7 @@ class NikonBasePlugin(CameraPlugin):
 
     def init_settings(self, aperture=None, iso=None, image_format="NEF (Raw)",
                       white_balance="Daylight"):
-        self.log(f"   [{self.name}] init reglages")
+        self.log(f"   [{self.name}] initializing settings")
         self._set("expprogram", "M")
         if iso is not None:
             self._set("iso", str(iso))
@@ -196,19 +196,19 @@ class NikonBasePlugin(CameraPlugin):
         import datetime
         speeds = _speeds_between(v_max, v_min, step_il)
         self.log(f"   [{self.name}] {v_max}->{v_min} @ {step_il} IL : "
-                 f"{len(speeds)} vues")
+                 f"{len(speeds)} frames")
         count = 0
         for sp in speeds:
             if deadline is not None:
                 remaining = seconds_until_deadline(deadline)
                 if remaining < (_parse(sp) + 1.5):
-                    self.log(f"   [{self.name}] deadline : tronque (ok)")
+                    self.log(f"   [{self.name}] deadline: truncated (ok)")
                     break
             if self._set_speed(sp) and self._fire(sp):
                 count += 1
             time.sleep(0.05)
         return CaptureResult(frames=count, planned=len(speeds),
-                             detail="photo-par-photo")
+                             detail="one-by-one")
 
 
 class NikonDSLRPlugin(NikonBasePlugin):
@@ -232,7 +232,7 @@ class NikonDSLRPlugin(NikonBasePlugin):
             pass
         known = ("d850", "d780", "d6", "d5", "d500", "d810", "d750")
         if not any(k in _norm(model) for k in known):
-            self.log(f"   [nikon-dslr] AVERTISSEMENT : modele '{model}' non "
+            self.log(f"   [nikon-dslr] WARNING: model '{model}' non "
                      f"explicitement valide ; fallback reflex (photo-par-photo).")
         super().init_settings(*args, **kwargs)
 
@@ -287,6 +287,6 @@ class NikonZPlugin(NikonBasePlugin):
         super().init_settings(*args, **kwargs)
         # Z-series : liveview requis pour certains opcodes. Base testable.
         if self._set("viewfinder", "1"):
-            self.log("   [nikon-z] viewfinder=1 (liveview actif)")
+            self.log("   [nikon-z] viewfinder=1 (live view active)")
         else:
-            self.log("   [nikon-z] viewfinder non reglable (a diagnostiquer)")
+            self.log("   [nikon-z] viewfinder cannot be configured (diagnosis required)")

@@ -23,10 +23,10 @@ def atmospheric_compensation_active(h_deg: float) -> bool:
     try:
         altitude = float(h_deg)
     except (TypeError, ValueError) as exc:
-        raise ValueError("h_deg doit etre numerique") from exc
+        raise ValueError("h_deg must be numeric") from exc
 
     if not math.isfinite(altitude):
-        raise ValueError("h_deg doit etre fini")
+        raise ValueError("h_deg must be finite")
 
     return altitude < ATMOS_ACTIVE_BELOW_DEG
 
@@ -46,7 +46,7 @@ def facteur_atmospherique(h_deg: float, H_m: float) -> float:
         h = float(h_deg)
         H = float(H_m)
     except (TypeError, ValueError):
-        raise ValueError("h_deg et H_m doivent etre numeriques")
+        raise ValueError("h_deg and H_m must be numeric")
 
     def F(hd: float, Hm: float) -> float:
         if hd > 0.0:
@@ -88,15 +88,15 @@ def _atmospheric_event_order(timeline: dict) -> tuple[str, ...]:
     """
 
     if not isinstance(timeline, dict):
-        raise ValueError("timeline atmospherique invalide")
+        raise ValueError("invalid atmospheric timeline")
 
     c2 = timeline.get("C2")
     c3 = timeline.get("C3")
 
     if (c2 is None) != (c3 is None):
         raise ValueError(
-            "timeline atmospherique invalide: "
-            "C2 et C3 doivent etre tous deux presents ou absents"
+            "invalid atmospheric timeline: "
+            "C2 and C3 must both be present or absent"
         )
 
     if c2 is None:
@@ -107,7 +107,7 @@ def _atmospheric_event_order(timeline: dict) -> tuple[str, ...]:
     for key in order:
         if not isinstance(timeline.get(key), datetime):
             raise ValueError(
-                f"timeline atmospherique incomplete: {key} manquant"
+                f"timeline atmospherique incomplete: {key} missing"
             )
 
     return order
@@ -126,7 +126,7 @@ def validate_atmospheric_timeline(timeline: dict) -> None:
             expected = "C1 < C2 < TMAX < C3 < C4"
 
         raise ValueError(
-            f"timeline atmospherique invalide: {expected} requis"
+            f"invalid atmospheric timeline: {expected} required"
         )
 
 
@@ -148,17 +148,17 @@ def interpolate_altitude(t: datetime, timeline: dict, alts: dict) -> float:
         raw = alts.get(altitude_key)
         if raw is None:
             raise ValueError(
-                f"altitude atmospherique manquante: {altitude_key}"
+                f"missing atmospheric altitude: {altitude_key}"
             )
         try:
             value = float(raw)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"altitude atmospherique invalide: {altitude_key}"
+                f"invalid atmospheric altitude: {altitude_key}"
             ) from exc
         if not math.isfinite(value):
             raise ValueError(
-                f"altitude atmospherique invalide: {altitude_key}"
+                f"invalid atmospheric altitude: {altitude_key}"
             )
         heights[key] = value
 

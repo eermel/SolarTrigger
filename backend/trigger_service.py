@@ -1,9 +1,12 @@
 from __future__ import annotations
 from pathlib import Path
 import json, os, signal, subprocess, sys, threading, time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from backend.timeline import build_timeline, parse_date_from_config, sequence_seconds
 from backend.execution_plan_runtime import load_execution_plan
+
+DRY_RUN_NOW_DELAY_S = 60.0
+
 
 class TriggerValidationError(RuntimeError):
     def __init__(self, message, code="TRIGGER_INVALID"):
@@ -14,7 +17,7 @@ def validate_eclipse(ecl):
     errors = []
 
     if c1 is None or c4 is None:
-        errors.append("C1 ou C4 manquant")
+        errors.append("C1 or C4 missing")
     else:
         if ts is not None and ts >= c1:
             errors.append(
@@ -23,7 +26,7 @@ def validate_eclipse(ecl):
 
         if (c2 is None) != (c3 is None):
             errors.append(
-                "C2 et C3 doivent être tous deux présents ou absents"
+                "C2 and C3 must both be present or absent"
             )
 
         elif c2 is not None:
@@ -56,10 +59,10 @@ def validate_eclipse(ecl):
                         < tl["C3"]
                     ):
                         errors.append(
-                            "C2 < TMAX < C3 non respecté"
+                            "C2 < TMAX < C3 constraint not satisfied"
                         )
                 except Exception as exc:
-                    errors.append(f"TMAX invalide: {exc}")
+                    errors.append(f"Invalid TMAX: {exc}")
 
         else:
             # Eclipse partielle : C2 et C3 n'existent pas.
@@ -75,10 +78,10 @@ def validate_eclipse(ecl):
                         < tl["C4"]
                     ):
                         errors.append(
-                            "C1 < TMAX < C4 non respecté"
+                            "C1 < TMAX < C4 constraint not satisfied"
                         )
                 except Exception as exc:
-                    errors.append(f"TMAX invalide: {exc}")
+                    errors.append(f"Invalid TMAX: {exc}")
 
         if te is not None and c4 >= te:
             errors.append(
@@ -87,7 +90,7 @@ def validate_eclipse(ecl):
 
     if errors:
         raise TriggerValidationError(
-            "❌ JSON incohérent : " + " | ".join(errors),
+            "❌ Inconsistent JSON: " + " | ".join(errors),
             "JSON_INVALID",
         )
 
@@ -95,14 +98,14 @@ def validate_execution_rigs(config):
     """Validate rig requirements only when real hardware execution starts."""
     if not isinstance(config, dict):
         raise TriggerValidationError(
-            "Configuration RIG invalide.",
+            "Invalid RIG configuration.",
             "RIG_CONFIG_INVALID",
         )
 
     rigs = config.get("rigs")
     if not isinstance(rigs, list):
         raise TriggerValidationError(
-            "Configuration RIG invalide.",
+            "Invalid RIG configuration.",
             "RIG_CONFIG_INVALID",
         )
 
@@ -118,7 +121,7 @@ def validate_execution_rigs(config):
     rig1 = by_id.get(1)
     if not isinstance(rig1, dict):
         raise TriggerValidationError(
-            "RIG 1 est obligatoire pour exécuter le trigger.",
+            "RIG 1 is required to run the trigger.",
             "RIG1_REQUIRED",
         )
 
@@ -139,8 +142,8 @@ def validate_execution_rigs(config):
 
         if not backend or backend in {"none", "external"}:
             raise TriggerValidationError(
-                f"RIG {rig_id} nécessite une caméra configurée "
-                "pour exécuter le trigger.",
+                f"RIG {rig_id} requires a configured camera "
+                "to run the trigger.",
                 "RIG_CAMERA_REQUIRED",
             )
 
@@ -155,20 +158,20 @@ def validate_execution_rig(config, rig_id):
         or not 1 <= rig_id <= 4
     ):
         raise TriggerValidationError(
-            f"RIG invalide : {rig_id}",
+            f"Invalid RIG: {rig_id}",
             "RIG_ID_INVALID",
         )
 
     if not isinstance(config, dict):
         raise TriggerValidationError(
-            "Configuration RIG invalide.",
+            "Invalid RIG configuration.",
             "RIG_CONFIG_INVALID",
         )
 
     rigs = config.get("rigs")
     if not isinstance(rigs, list):
         raise TriggerValidationError(
-            "Configuration RIG invalide.",
+            "Invalid RIG configuration.",
             "RIG_CONFIG_INVALID",
         )
 
@@ -184,13 +187,13 @@ def validate_execution_rig(config, rig_id):
 
     if rig is None:
         raise TriggerValidationError(
-            f"RIG {rig_id} introuvable.",
+            f"RIG {rig_id} not found.",
             "RIG_NOT_FOUND",
         )
 
     if rig.get("enabled") is not True:
         raise TriggerValidationError(
-            f"RIG {rig_id} n'est pas actif.",
+            f"RIG {rig_id} is not active.",
             "RIG_DISABLED",
         )
 
@@ -201,8 +204,8 @@ def validate_execution_rig(config, rig_id):
 
     if not backend or backend in {"none", "external"}:
         raise TriggerValidationError(
-            f"RIG {rig_id} nécessite une caméra configurée "
-            "pour exécuter le trigger.",
+            f"RIG {rig_id} requires a configured camera "
+            "to run the trigger.",
             "RIG_CAMERA_REQUIRED",
         )
 
@@ -248,6 +251,10 @@ class TriggerService:
             for rig_id in range(1, 5)
         }
         self._active_circumstances_paths = {}
+        self._analysis_suppressed_by_rig = {
+            rig_id: False
+            for rig_id in range(1, 5)
+        }
 
     @property
     def _proc(self):
@@ -312,7 +319,7 @@ class TriggerService:
             or not 1 <= rig_id <= 4
         ):
             raise TriggerValidationError(
-                f"RIG invalide : {rig_id}",
+                f"Invalid RIG: {rig_id}",
                 "RIG_ID_INVALID",
             )
 
@@ -321,7 +328,7 @@ class TriggerService:
 
         if not isinstance(filename, str) or not filename.strip():
             raise TriggerValidationError(
-                f"Aucun plan d'exécution sélectionné pour RIG {rig_id}.",
+                f"No execution plan selected for RIG {rig_id}.",
                 "EXECUTION_PLAN_NOT_LOADED",
             )
 
@@ -329,7 +336,7 @@ class TriggerService:
 
         if Path(filename).name != filename:
             raise TriggerValidationError(
-                f"Nom de plan d'exécution invalide pour RIG {rig_id}.",
+                f"Invalid execution plan name for RIG {rig_id}.",
                 "EXECUTION_PLAN_INVALID",
             )
 
@@ -337,7 +344,7 @@ class TriggerService:
 
         if not path.is_file():
             raise TriggerValidationError(
-                f"Plan d'exécution introuvable pour RIG {rig_id} : {filename}",
+                f"Execution plan not found for RIG {rig_id} : {filename}",
                 "EXECUTION_PLAN_NOT_FOUND",
             )
 
@@ -345,8 +352,8 @@ class TriggerService:
             plan = load_execution_plan(path)
         except Exception as exc:
             raise TriggerValidationError(
-                f"Plan d'exécution illisible "
-                f"pour RIG {rig_id} : {filename}",
+                f"Unreadable execution plan "
+                f"for RIG {rig_id} : {filename}",
                 "EXECUTION_PLAN_INVALID",
             ) from exc
 
@@ -378,8 +385,8 @@ class TriggerService:
 
         if incompatible_rig:
             raise TriggerValidationError(
-                f"Plan d'exécution incompatible "
-                f"pour RIG {rig_id} : {filename}",
+                f"Incompatible execution plan "
+                f"for RIG {rig_id} : {filename}",
                 "EXECUTION_PLAN_INVALID",
             )
 
@@ -390,7 +397,7 @@ class TriggerService:
             gps = self.state.snapshot("gps") or {}
             if not gps.get("synced"):
                 raise TriggerValidationError(
-                    "⚠️ GPS non synchronisé. Synchronisez l'heure avant de démarrer.",
+                    "⚠️ GPS is not synchronized. Synchronize the clock before starting.",
                     "GPS_NOT_SYNCED",
                 )
 
@@ -410,8 +417,8 @@ class TriggerService:
 
                     if age > 7200:
                         raise TriggerValidationError(
-                            f"⚠️ Dernière synchro GPS il y a "
-                            f"{int(age // 60)} min. Resynchronisez.",
+                            f"⚠️ Last GPS synchronization was "
+                            f"{int(age // 60)} min ago. Synchronize again.",
                             "GPS_SYNC_STALE",
                         )
                 except TriggerValidationError:
@@ -427,7 +434,7 @@ class TriggerService:
             )
         except Exception as exc:
             raise TriggerValidationError(
-                "Plan d'exécution illisible.",
+                "Unreadable execution plan.",
                 "EXECUTION_PLAN_INVALID",
             ) from exc
 
@@ -440,7 +447,7 @@ class TriggerService:
             or Path(filename).name != filename.strip()
         ):
             raise TriggerValidationError(
-                "Circumstances absentes du plan d'exécution.",
+                "Circumstances are missing from the execution plan.",
                 "EXECUTION_PLAN_CIRCUMSTANCES_INVALID",
             )
 
@@ -455,7 +462,7 @@ class TriggerService:
 
         if circumstances_path is None:
             raise TriggerValidationError(
-                f"Circumstances du plan introuvables : {filename}",
+                f"Execution plan circumstances not found: {filename}",
                 "EXECUTION_PLAN_CIRCUMSTANCES_NOT_FOUND",
             )
 
@@ -468,38 +475,41 @@ class TriggerService:
             validate_eclipse(ecl)
         except Exception as exc:
             raise TriggerValidationError(
-                f"Circumstances du plan invalides : {filename}",
+                f"Invalid execution plan circumstances: {filename}",
                 "EXECUTION_PLAN_CIRCUMSTANCES_INVALID",
             ) from exc
 
         self._active_circumstances_paths[rig_id] = circumstances_path
         return ecl
 
-    def start(self, rig_id=1, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0):
+    def start(self, rig_id=1, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0, dry_run_now=False):
         if (
             not isinstance(rig_id, int)
             or isinstance(rig_id, bool)
             or not 1 <= rig_id <= 4
         ):
             raise TriggerValidationError(
-                f"RIG invalide : {rig_id}",
+                f"Invalid RIG: {rig_id}",
                 "RIG_ID_INVALID",
             )
 
         try:
             speed=float(speed)
         except (TypeError, ValueError):
-            raise TriggerValidationError("Facteur de simulation invalide.", "SIM_SPEED_INVALID")
-        if simulate and dry_run:
-            raise TriggerValidationError("Simulation et dry-run sont mutuellement exclusifs.", "TRIGGER_MODE_INVALID")
+            raise TriggerValidationError("Invalid simulation factor.", "SIM_SPEED_INVALID")
+        if sum(bool(mode) for mode in (simulate, dry_run, dry_run_now)) > 1:
+            raise TriggerValidationError(
+                "Simulation, dry-run, and dry-run-now are mutually exclusive.",
+                "TRIGGER_MODE_INVALID",
+            )
         if simulate and not (1.0 <= speed <= 1000.0):
-            raise TriggerValidationError("Facteur de simulation hors limites (1 à 1000).", "SIM_SPEED_INVALID")
+            raise TriggerValidationError("Simulation factor out of range (1 to 1000).", "SIM_SPEED_INVALID")
         try:
             dry_run_delay=float(dry_run_delay)
         except (TypeError, ValueError):
-            raise TriggerValidationError("Délai dry-run invalide.", "DRYRUN_DELAY_INVALID")
+            raise TriggerValidationError("Invalid dry-run delay.", "DRYRUN_DELAY_INVALID")
         if dry_run and not (0.0 <= dry_run_delay <= 3600.0):
-            raise TriggerValidationError("Délai dry-run hors limites (0 à 3600 s).", "DRYRUN_DELAY_INVALID")
+            raise TriggerValidationError("Dry-run delay out of range (0 to 3600 s).", "DRYRUN_DELAY_INVALID")
         with self._lock:
             proc = self._procs[rig_id]
             if (
@@ -509,6 +519,26 @@ class TriggerService:
                 return False
 
             self._starting_by_rig[rig_id] = True
+            self._analysis_suppressed_by_rig[rig_id] = False
+
+            dry_run_now_start_utc = None
+            if dry_run_now:
+                dry_run_now_start = (
+                    datetime.now(timezone.utc)
+                    + timedelta(seconds=DRY_RUN_NOW_DELAY_S)
+                )
+                dry_run_now_start_utc = (
+                    dry_run_now_start
+                    .isoformat(timespec="milliseconds")
+                    .replace("+00:00", "Z")
+                )
+                self.log(
+                    f"🧪 DRY-RUN NOW RIG {rig_id} — "
+                    f"TSTART fixed at {dry_run_now_start_utc} "
+                    f"(UTC now + {DRY_RUN_NOW_DELAY_S:.0f}s)",
+                    "info",
+                    "trigger",
+                )
 
             try:
                 ecl = self.validate_start(
@@ -537,8 +567,16 @@ class TriggerService:
                     self._active_circumstances_paths.pop(rig_id, None)
                     raise
             gen=ecl.get("_generated_utc", ""); today=datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            if gen and today not in gen: self.log(f"⚠️ todayeclipse.json généré le {gen[:10]} — éclipse pas aujourd'hui ?", "warning", "trigger")
-            mode="simulation" if simulate else ("dryrun" if dry_run else "real")
+            if gen and today not in gen: self.log(f"⚠️ todayeclipse.json generated on {gen[:10]} — eclipse not today?", "warning", "trigger")
+            mode = (
+                "simulation"
+                if simulate
+                else "dryrun_now"
+                if dry_run_now
+                else "dryrun"
+                if dry_run
+                else "real"
+            )
             try:
                 self.state.update_trigger_rig(
                     rig_id,
@@ -560,6 +598,8 @@ class TriggerService:
                         speed,
                         dry_run,
                         dry_run_delay,
+                        dry_run_now,
+                        dry_run_now_start_utc,
                         ipc_session,
                         execution_plan_path,
                         rig_id,
@@ -575,7 +615,7 @@ class TriggerService:
                     try:
                         self.camera_runtime.close_ipc_session(ipc_session.session_id)
                     except Exception as exc:
-                        self.log(f"Erreur fermeture session IPC caméra : {exc}","error","trigger")
+                        self.log(f"Camera IPC session close error: {exc}","error","trigger")
                 try:
                     self.state.update_trigger_rig(
                         rig_id,
@@ -602,14 +642,24 @@ class TriggerService:
             {"rig_id": rig_id, "phase": phase},
         )
 
-    def _run(self, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0,
-             ipc_session=None, execution_plan_path=None, rig_id=1):
+    def _run(
+        self,
+        simulate=False,
+        speed=60.0,
+        dry_run=False,
+        dry_run_delay=30.0,
+        dry_run_now=False,
+        dry_run_now_start_utc=None,
+        ipc_session=None,
+        execution_plan_path=None,
+        rig_id=1,
+    ):
         proc=None
         try:
             circumstances_path = self._active_circumstances_paths.get(rig_id)
             if circumstances_path is None:
                 raise TriggerValidationError(
-                    "Circumstances du plan non résolues.",
+                    "Execution plan circumstances were not resolved.",
                     "EXECUTION_PLAN_CIRCUMSTANCES_INVALID",
                 )
 
@@ -628,6 +678,15 @@ class TriggerService:
 
             if simulate:
                 cmd += ["--simulate", "--speed", str(speed)]
+            elif dry_run_now:
+                if not dry_run_now_start_utc:
+                    raise RuntimeError(
+                        "DRY-RUN NOW without an absolute TSTART"
+                    )
+                cmd += [
+                    "--dry-run-now-start",
+                    dry_run_now_start_utc,
+                ]
             elif dry_run:
                 cmd += [
                     "--dry-run",
@@ -647,7 +706,15 @@ class TriggerService:
             )
             with self._lock:
                 self._procs[rig_id] = proc
-            mode="simulation" if simulate else ("dryrun" if dry_run else "real")
+            mode = (
+                "simulation"
+                if simulate
+                else "dryrun_now"
+                if dry_run_now
+                else "dryrun"
+                if dry_run
+                else "real"
+            )
             self.state.update_trigger_rig(
                 rig_id,
                 {
@@ -661,13 +728,26 @@ class TriggerService:
                 "trigger_phase",
                 {"rig_id": rig_id, "phase": "waiting"},
             )
-            label="► Trigger simulation démarré." if simulate else ("► Dry-run ×1 démarré." if dry_run else "► Trigger démarré.")
+            label = (
+                "► Trigger simulation started."
+                if simulate
+                else "► Dry-run NOW started."
+                if dry_run_now
+                else "► Dry-run ×1 started."
+                if dry_run
+                else "► Trigger started."
+            )
             self.log(label,"success","trigger")
             for raw in iter(proc.stdout.readline, ""):
                 if not raw and proc.poll() is not None: break
                 line=raw.rstrip()
                 if not line: continue
                 level=self.line_level_fn(line); line=self.line_clean_fn(line)
+                if line.startswith("TRIGGER_RUN_ANALYSIS "):
+                    with self._lock:
+                        suppress_analysis = self._analysis_suppressed_by_rig[rig_id]
+                    if suppress_analysis:
+                        continue
                 if "PHASE 1a" in line: self._set_phase(rig_id, "partial")
                 elif "PHASE 1b" in line or "DIAMOND RING" in line: self._set_phase(rig_id, "diamond_ring")
                 elif "PHASE 2" in line: self._set_phase(rig_id, "totality")
@@ -675,13 +755,13 @@ class TriggerService:
                 self.log(line,level,"trigger")
             proc.wait()
         except Exception as exc:
-            self.log(f"ERREUR thread trigger : {exc}","error","trigger")
+            self.log(f"Trigger thread ERROR: {exc}","error","trigger")
         finally:
             if ipc_session is not None:
                 try:
                     self.camera_runtime.close_ipc_session(ipc_session.session_id)
                 except Exception as exc:
-                    self.log(f"Erreur fermeture session IPC caméra : {exc}","error","trigger")
+                    self.log(f"Camera IPC session close error: {exc}","error","trigger")
 
             with self._lock:
                 owns_process = self._procs[rig_id] is proc
@@ -689,6 +769,7 @@ class TriggerService:
                     self._procs[rig_id] = None
                     self._starting_by_rig[rig_id] = False
                     self._active_circumstances_paths.pop(rig_id, None)
+                    self._analysis_suppressed_by_rig[rig_id] = False
 
             if owns_process:
                 self.state.update_trigger_rig(
@@ -707,7 +788,7 @@ class TriggerService:
 
             code = proc.returncode if proc else "?"
             self.log(
-                f"■ Trigger terminé (code {code}).",
+                f"■ Trigger finished (code {code}).",
                 "info",
                 "trigger",
             )
@@ -731,11 +812,14 @@ class TriggerService:
         if proc is None or proc.poll() is not None:
             return False
 
+        with self._lock:
+            self._analysis_suppressed_by_rig[rig_id] = True
+
         try:
             proc.send_signal(signal.SIGUSR1)
         except Exception as exc:
             self.log(
-                f"Erreur override totalité : {exc}",
+                f"Totality override error: {exc}",
                 "error",
                 "trigger",
             )
@@ -755,7 +839,7 @@ class TriggerService:
         )
 
         self.log(
-            f"🌑 RIG {rig_id} — Override totalité envoyé au scheduler photo — audio conservé.",
+            f"🌑 RIG {rig_id} — Totality override sent to the photo scheduler — audio preserved.",
             "warning",
             "trigger",
         )
@@ -782,6 +866,9 @@ class TriggerService:
                 "rig_id": rig_id,
             }
 
+        with self._lock:
+            self._analysis_suppressed_by_rig[rig_id] = True
+
         try:
             proc.terminate()
         except Exception:
@@ -800,7 +887,7 @@ class TriggerService:
                 pass
 
             self.log(
-                f"■ RIG {rig_id} — Trigger tué (SIGKILL) après timeout.",
+                f"■ RIG {rig_id} — Trigger killed (SIGKILL) after timeout.",
                 "warning",
                 "trigger",
             )
@@ -809,9 +896,9 @@ class TriggerService:
 
         self.log(
             (
-                f"⚠️ RIG {rig_id} — processus toujours actif après SIGKILL."
+                f"⚠️ RIG {rig_id} — process still active after SIGKILL."
                 if still
-                else f"■ RIG {rig_id} — Trigger arrêté manuellement."
+                else f"■ RIG {rig_id} — Trigger stopped manually."
             ),
             "error" if still else "warning",
             "trigger",

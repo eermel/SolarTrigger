@@ -50,9 +50,9 @@ class GpsService:
     def __init__(self, plugin: GpsPlugin, *, poll_interval=0.5, stale_after=3.0,
                  log_fn=print, monotonic_fn=time.monotonic):
         if poll_interval <= 0:
-            raise ValueError("poll_interval doit etre > 0")
+            raise ValueError("poll_interval must be > 0")
         if stale_after <= 0:
-            raise ValueError("stale_after doit etre > 0")
+            raise ValueError("stale_after must be > 0")
 
         self.plugin = plugin
         self.poll_interval = float(poll_interval)
@@ -185,7 +185,7 @@ class GpsService:
         """
         timeout_s = float(timeout_s)
         if timeout_s <= 0:
-            raise ValueError("timeout_s doit etre > 0")
+            raise ValueError("timeout_s must be > 0")
         deadline = self._monotonic() + timeout_s
         self.start()
         try:
@@ -202,9 +202,9 @@ class GpsService:
                 if complete:
                     return snap
                 if snap.state == GpsServiceState.ERROR:
-                    raise RuntimeError(snap.message or "Erreur GPS")
+                    raise RuntimeError(snap.message or "GPS error")
                 self._stop_event.wait(min(self.poll_interval, max(0.01, deadline - self._monotonic())))
-            raise TimeoutError(f"Timeout GPS apres {timeout_s:.1f}s")
+            raise TimeoutError(f"GPS timeout after {timeout_s:.1f}s")
         finally:
             self.stop()
 

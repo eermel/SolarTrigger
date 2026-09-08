@@ -380,7 +380,7 @@ def test_get_only_manual_mode_mismatch_has_actionable_a6600_message(monkeypatch)
         plugin.preflight({"iso": "100"})
 
     assert "Sony A6600" in str(error.value)
-    assert "mode manuel (M)" in str(error.value)
+    assert "manual mode (M)" in str(error.value)
 
 
 def test_preflight_get_first_does_not_resend_equal_iso(monkeypatch):

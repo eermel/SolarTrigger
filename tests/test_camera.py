@@ -36,13 +36,13 @@ def _open_camera():
     try:
         import gphoto2 as gp
     except ImportError:
-        sys.exit("module Python gphoto2 requis pour dialoguer avec le boitier.")
+        sys.exit("module Python gphoto2 required pour dialoguer avec le boitier.")
     try:
         cam = gp.Camera()
         cam.init()
         return cam, gp
     except gp.GPhoto2Error as e:
-        sys.exit(f"Init camera impossible : {e}")
+        sys.exit(f"Init camera failed : {e}")
 
 
 def _read_config(cam, gp, names):
@@ -78,7 +78,7 @@ def main():
     if args.plan:
         vmax, vmin, step = args.plan[0], args.plan[1], float(args.plan[2])
         s, nf, seq = planner.plan(vmax, vmin, step)
-        print(f"PLAN {vmax}->{vmin} @ {step} IL : step {s}, {nf} vues")
+        print(f"PLAN {vmax}->{vmin} @ {step} IL : step {s}, {nf} frames")
         for item in seq:
             if isinstance(item, planner.SinglePhoto):
                 print(f"   PHOTO {item.speed}")
@@ -87,7 +87,7 @@ def main():
                       f"-> {item.views}")
         return
 
-    # --- toutes les autres etapes necessitent le boitier ------------------ #
+    # --- every autres etapes necessitent le boitier ------------------ #
     cam, gp = _open_camera()
     plugin = None
     try:
@@ -106,7 +106,7 @@ def main():
             _read_config(cam, gp, args.config)
 
         if args.init or args.single or args.seq:
-            print("--- init reglages ---")
+            print("--- initializing settings ---")
             plugin.init_settings(aperture=args.aperture, iso=args.iso)
 
         if args.init and not (args.single or args.seq):

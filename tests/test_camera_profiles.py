@@ -116,8 +116,15 @@ def test_compile_profile_audit_to_photo_units(monkeypatch, profile):
     monkeypatch.setattr(camera_profiles, "discover_profiles", lambda: {profile["backend"]: profile})
     target = SimpleNamespace(phase="TOTALITY", target_time=datetime.now(timezone.utc),
                              deadline=None, phase_window="phase_2", sequence_index=0)
-    capture = SimpleNamespace(backend=profile["backend"], rig_id=1, target=target,
-                              aperture=None, final_exposure_plan=tuple(intent(profile).exposure_plan))
+    capture = SimpleNamespace(
+        backend=profile["backend"],
+        rig_id=1,
+        target=target,
+        aperture=None,
+        final_exposure_plan=tuple(intent(profile).exposure_plan),
+        mechanical_vibration_enabled=False,
+        mechanical_vibration_delay_s=2,
+    )
     audited = audit_materialized_capture(capture)
     units = _split_totality_single_photos(audited)
     assert sum(u.planned_count for u in units) == 9
@@ -155,6 +162,9 @@ class SimulatedCamera:
         self.now = 0
         self.events = []
         self.counter = 0
+        self.capture_isos = []
+        self.exit_count = 0
+        self.init_count = 0
         self.config = SimulatedWidget("main", children=[
             SimulatedWidget("expprogram", "A", ["A", "M"]),
             SimulatedWidget("capturetarget", "RAM", ["RAM", "card"]),
@@ -166,10 +176,21 @@ class SimulatedCamera:
 
     def get_config(self): return self.config
     def set_config(self, config): self.now += .25
+    def exit(self):
+        self.exit_count += 1
+    def init(self):
+        self.init_count += 1
     def trigger_capture(self):
         mode = self.config.get_child_by_name("capturemode").value
         n = int(mode.split()[-2]) if "Bracket" in mode else 1
-        assert self.config.get_child_by_name("iso").value == "100"
+
+        # Discovery captures historically ran only at ISO 100.  The final
+        # operational V3 qualification deliberately alternates ISO 100/200
+        # to exercise the exact scheduled SET -> PHOTO path.
+        iso = self.config.get_child_by_name("iso").value
+        assert iso in ("100", "200")
+        self.capture_isos.append(iso)
+
         assert self.config.get_child_by_name("capturetarget").value == "card"
         assert self.config.get_child_by_name("imageformat").value == "RAW"
         for _ in range(n):
@@ -195,20 +216,51 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     monkeypatch.setattr(module.time, "monotonic", lambda: camera.now)
     monkeypatch.setattr(module.time, "sleep", lambda seconds: setattr(camera, "now", camera.now + seconds))
     confirmations = []
+    qualification_starts = []
+
     def confirm(self, message, kind="result"):
+        if (
+            kind == "start"
+            and "Final operational qualification" in message
+        ):
+            qualification_starts.append((kind, camera.counter))
+            return True
+
         confirmations.append((kind, camera.counter))
         if kind == "start":
-            assert len(confirmations) == 1 or confirmations[-2][0] == "result"
+            assert (
+                len(confirmations) == 1
+                or confirmations[-2][0] == "result"
+            )
         else:
             assert confirmations[-2][0] == "start"
             assert camera.counter > confirmations[-2][1]
         return True
+
     monkeypatch.setattr(CharacterizationJob, "ask", confirm)
-    result, timing = module.characterize(camera, {"manufacturer": "Test", "model": "Test Camera"}, CharacterizationJob())
+    result, timing = module.characterize(
+        camera,
+        {"manufacturer": "Test", "model": "Test Camera"},
+        CharacterizationJob(),
+    )
+
     assert confirmations[0] == ("start", 0)
     assert confirmations[-1][0] == "result"
-    assert len(confirmations) == 12  # Two methods, single + brackets 3/5, two prompts each.
-    assert camera.counter == 108  # discovery + five timing trials per method/size; no redundant sustained qualification.
+    assert len(confirmations) == 12
+    assert len(qualification_starts) == 1
+
+    # Historical discovery/timing = 108 physical images.
+    # Main operational recipe = 4 singles + bracket 3 + bracket 5 = 12.
+    # Cold-bracket proof adds one bracket-5 as the first PHOTO of a second
+    # fresh session: 108 + 12 + 5 = 125 physical images.
+    assert camera.counter == 125
+    assert camera.exit_count == 2
+    assert camera.init_count == 2
+
+    # Discovery is ISO100-only, while operational qualification must prove
+    # at least one real alternate-ISO transition before publication.
+    assert "100" in camera.capture_isos
+    assert "200" in camera.capture_isos
     for key, raw in timing["raw_timing"].items():
         if isinstance(raw, (int, float)):
             assert timing["timing"][key] >= raw
@@ -237,7 +289,7 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
         for sample in trial["samples"]:
             assert sample["test_pause_ms"] >= 2000
             assert sample["total_ms"] < sample["test_pause_ms"]
-            summed = sum(sample[k] for k in ("trigger_call_ms", "frame_wait_ms", "release_ms", "post_release_wait_ms", "settle_ms"))
+            summed = sum(sample[k] for k in ("pre_trigger_drain_ms", "trigger_call_ms", "frame_wait_ms", "release_ms", "post_release_wait_ms", "settle_ms"))
             assert summed == pytest.approx(sample["total_ms"], abs=0.01)
 
 
@@ -343,20 +395,20 @@ def test_command_exclusion_is_bracket_only_and_sizes_are_sorted(monkeypatch, pro
             current[0] = message
             return True
         if reject_single:
-            return not ('1 photo(s)' in current[0] and "'method': 'capture'" in current[0])
-        return not ('3 photo(s)' in current[0] and "'method': 'trigger_capture'" in current[0])
+            return not ('1 RAW photo(s)' in current[0] and "'method': 'capture'" in current[0])
+        return not ('3 RAW photo(s)' in current[0] and "'method': 'trigger_capture'" in current[0])
     monkeypatch.setattr(CharacterizationJob, 'ask', ask)
     result, timing = module.characterize(camera, {'manufacturer': 'Test', 'model': 'Camera'}, CharacterizationJob())
-    bracket_starts = [m for m in starts if '1 photo(s)' not in m]
-    assert '3 photo(s)' in bracket_starts[0]
+    bracket_starts = [m for m in starts if '1 RAW photo(s)' not in m]
+    assert '3 RAW photo(s)' in bracket_starts[0]
     if not reject_single:
-        assert not any('5 photo(s)' in m and "'method': 'trigger_capture'" in m for m in starts)
+        assert not any('5 RAW photo(s)' in m and "'method': 'trigger_capture'" in m for m in starts)
         rejected = [t for t in timing['timing_trials'] if t['frames'] > 1 and t['trigger']['method'] == 'trigger_capture']
         assert len(rejected) == 1 and rejected[0]['status'] == 'rejected' and 'samples' not in rejected[0]
         assert result['commands']['trigger_single']['method'] == 'trigger_capture'
         assert result['bracket_command']['method'] == 'capture'
     else:
-        assert any('5 photo(s)' in m and "'method': 'capture'" in m for m in starts)
+        assert any('5 RAW photo(s)' in m and "'method': 'capture'" in m for m in starts)
     assert len({json.dumps(v['trigger'], sort_keys=True) for v in result['brackets'].values()}) == 1
 
 
@@ -417,10 +469,26 @@ def test_characterization_preserves_single_shot_target_for_readonly_capture_mode
         ),
     )
 
+    physical_preflight_prompts = []
+
+    def confirm_d850(self, message, kind="result"):
+        if (
+            kind == "start"
+            and "Correct this setting physically" in message
+        ):
+            physical_preflight_prompts.append(message)
+
+            # Simulate the human moving the physical release-mode selector.
+            # Direct assignment is deliberate: forbidden_set() below proves
+            # that the backend itself never issued an USB SET.
+            drive.value = "Single Shot"
+
+        return True
+
     monkeypatch.setattr(
         CharacterizationJob,
         "ask",
-        lambda self, message, kind="result": True,
+        confirm_d850,
     )
 
     result, timing = module.characterize(
@@ -440,12 +508,18 @@ def test_characterization_preserves_single_shot_target_for_readonly_capture_mode
     assert spec["get"] is True
     assert spec["set"] is False
 
-    # Characterization did not alter the physical GET-only selector.
-    assert drive.value == "Burst"
+    # The backend never altered the GET-only selector.  The simulated
+    # operator did so only after the qualification preflight requested it.
+    assert physical_preflight_prompts
+    assert drive.value == "Single Shot"
 
     # GET-only drive mode means no native USB bracket manipulation.
     assert result["strategy"] == "sequential"
     assert timing is not None
+
+    # Qualification still exercised a fresh camera session.
+    assert camera.exit_count == 1
+    assert camera.init_count == 1
 
 
 def test_single_shot_operator_instruction_is_unambiguous(profile):
@@ -457,7 +531,7 @@ def test_single_shot_operator_instruction_is_unambiguous(profile):
         "Burst",
     )
 
-    assert "mode de déclenchement vue par vue" in message
+    assert "single-shot release mode" in message
     assert "Single Shot" in message
     assert "Burst" in message
     assert "S / Single Shot" not in message

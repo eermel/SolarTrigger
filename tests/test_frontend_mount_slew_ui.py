@@ -197,16 +197,27 @@ def test_tracking_switch_reflects_status_and_preserves_tracking_commands():
 def test_tracking_switch_posts_start_when_on_and_stop_when_off():
     handler = _between(
         MOUNT_JS,
-        "trackingSwitch.addEventListener('change', () => {",
+        "trackingSwitch.addEventListener('change', async () => {",
         "socket.on('connect'",
     )
-    assert re.search(
-        r"postMount\(\s*mountUrl\(\s*trackingSwitch\.checked\s*"
-        r"\?\s*['\"]tracking/start['\"]\s*"
-        r":\s*['\"]tracking/stop['\"]\s*\)\s*\)",
-        handler,
-    )
 
+    # The user's click is only a requested state.  The visible switch is
+    # immediately restored to the last state confirmed by mount /status.
+    assert "const requestedTracking = trackingSwitch.checked;" in handler
+    assert "trackingSwitch.checked = trackingEnabled;" in handler
+
+    # While the physical mount command is in progress the control is locked.
+    assert "trackingCommandPending = true;" in handler
+    assert "trackingSwitch.disabled = true;" in handler
+
+    # Both physical commands remain available.
+    assert "'tracking/start'" in handler
+    assert "'tracking/stop'" in handler
+    assert "requestedTracking" in handler
+
+    # The UI becomes authoritative again only after refreshing actual status.
+    assert "trackingCommandPending = false;" in handler
+    assert "await refreshMount();" in handler
 
 def test_tracking_mode_change_only_posts_the_selected_mode():
     handler = _between(
@@ -228,11 +239,19 @@ def test_tracking_controls_are_disabled_during_trigger():
         r"trackingMode\.disabled\s*=\s*triggerRunning\s*\|\|\s*modes\.length\s*===\s*0",
         MOUNT_JS,
     )
+
+    # Tracking cannot be changed while a trigger is running, while a previous
+    # tracking command is still awaiting hardware confirmation, or when the
+    # mount does not support the toggle capability.
     assert re.search(
-        r"trackingSwitch\.disabled\s*=\s*triggerRunning\s*\|\|",
+        r"trackingSwitch\.disabled\s*=\s*\(\s*"
+        r"triggerRunning\s*"
+        r"\|\|\s*trackingCommandPending\s*"
+        r"\|\|",
         MOUNT_JS,
     )
 
+    assert "capabilities.toggle !== true" in MOUNT_JS
 
 def test_tracking_switch_on_state_uses_the_shared_green_style():
     checked = re.search(

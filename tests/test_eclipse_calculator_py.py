@@ -35,7 +35,7 @@ def test_cli_generates_trigger_json_for_minimal_eclipses(tmp_path, date_iso):
         "latitude": 25.2854,
         "longitude": 32.5907,
         "altitude_m": 76.0,
-        "comment": "Circonstances calculées pour cette position GPS et cette altitude.",
+        "comment": "Circumstances calculated for this GPS position and altitude.",
     }
     local_type = data["_type"].lower()
 

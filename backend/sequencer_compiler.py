@@ -31,6 +31,12 @@ CONTACT_MAX_FRAMES = 5
 # crossing C3.
 C3_CONTACT_MAX_EXPOSURE_S = 1.0 / 500.0
 
+# Hard photographic safety outside totality.
+#
+# Partial and Diamond Ring must never use an exposure slower than 1/500 s.
+# Exactly 1/500 s is valid.  Only TOTALITY may use longer exposures.
+OUTSIDE_TOTALITY_MAX_EXPOSURE_S = 1.0 / 500.0
+
 
 @dataclass(frozen=True)
 class CaptureTarget:
@@ -322,6 +328,8 @@ class MaterializedRigCapture:
     motion_ceiling_s: float | None
     corrections: tuple[str, ...]
     warnings: tuple[str, ...]
+    mechanical_vibration_enabled: bool = False
+    mechanical_vibration_delay_s: int = 2
 
 
 def _camera_backend(rig: dict[str, Any]) -> str:
@@ -396,6 +404,43 @@ def apply_exposure_optimization(
     return result
 
 
+def _mechanical_vibration_policy_from_rig(
+    rig: dict[str, Any],
+) -> tuple[bool, int]:
+    """Return the validated per-RIG mechanical-vibration policy."""
+
+    photo = rig.get("photo", {})
+
+    if not isinstance(photo, dict):
+        raise ValueError("rig.photo must be an object")
+
+    enabled = photo.get(
+        "mechanical_vibration_enabled",
+        False,
+    )
+    delay_s = photo.get(
+        "mechanical_vibration_delay_s",
+        2,
+    )
+
+    if not isinstance(enabled, bool):
+        raise ValueError(
+            "mechanical_vibration_enabled must be boolean"
+        )
+
+    if (
+        isinstance(delay_s, bool)
+        or not isinstance(delay_s, int)
+        or delay_s < 0
+        or delay_s > 5
+    ):
+        raise ValueError(
+            "mechanical_vibration_delay_s must be an integer from 0 to 5"
+        )
+
+    return enabled, delay_s
+
+
 def _phase_photo_config(
     photo_config: dict[str, Any],
     phase: str,
@@ -443,6 +488,11 @@ def materialize_capture_target_for_rig(
         raise ValueError("rig_id must be an integer")
 
     backend = _camera_backend(rig)
+
+    (
+        mechanical_vibration_enabled,
+        mechanical_vibration_delay_s,
+    ) = _mechanical_vibration_policy_from_rig(rig)
 
     phase_cfg = _phase_photo_config(
         photo_config,
@@ -551,6 +601,12 @@ def materialize_capture_target_for_rig(
                 materialized.get("warnings", [])
             )
 
+    _validate_non_totality_exposure_plan(
+        rig_id=rig_id,
+        phase=target.phase,
+        exposure_plan=exposure_plan,
+    )
+
     return MaterializedRigCapture(
         rig_id=rig_id,
         backend=backend,
@@ -564,6 +620,8 @@ def materialize_capture_target_for_rig(
         motion_ceiling_s=motion_ceiling_s,
         corrections=tuple(corrections),
         warnings=tuple(warnings),
+        mechanical_vibration_enabled=mechanical_vibration_enabled,
+        mechanical_vibration_delay_s=mechanical_vibration_delay_s,
     )
 
 
@@ -621,6 +679,9 @@ class AuditedRigCapture:
     estimated_total_s: float | None
     planned_count: int | None
     operations: tuple[dict[str, Any], ...]
+    camera_strategy: str = "sequential"
+    mechanical_vibration_enabled: bool = False
+    mechanical_vibration_delay_s: int = 2
 
 
 def _capture_intent_from_materialized(
@@ -701,6 +762,13 @@ def audit_materialized_sony_capture(
             deepcopy(operation)
             for operation in operations
         ),
+        camera_strategy="bracket",
+        mechanical_vibration_enabled=(
+            capture.mechanical_vibration_enabled
+        ),
+        mechanical_vibration_delay_s=(
+            capture.mechanical_vibration_delay_s
+        ),
     )
 
 
@@ -751,6 +819,13 @@ def audit_materialized_nikon_capture(
             deepcopy(operation)
             for operation in operations
         ),
+        camera_strategy="sequential",
+        mechanical_vibration_enabled=(
+            capture.mechanical_vibration_enabled
+        ),
+        mechanical_vibration_delay_s=(
+            capture.mechanical_vibration_delay_s
+        ),
     )
 
 
@@ -773,6 +848,13 @@ def audit_materialized_capture(
             prepared_mode="profile", estimated_total_s=prepared.estimated_total_s,
             planned_count=prepared.planned_count,
             operations=tuple(plugin.audit_prepared_capture(prepared)),
+            camera_strategy=str(profile["strategy"]).strip().lower(),
+            mechanical_vibration_enabled=(
+                capture.mechanical_vibration_enabled
+            ),
+            mechanical_vibration_delay_s=(
+                capture.mechanical_vibration_delay_s
+            ),
         )
 
     from plugins.camera import _load_plugin_classes
@@ -788,6 +870,17 @@ def audit_materialized_capture(
             prepared_mode=str(prepared.token[0]), estimated_total_s=prepared.estimated_total_s,
             planned_count=prepared.planned_count,
             operations=tuple(plugin.audit_prepared_capture(prepared)),
+            camera_strategy=(
+                "bracket"
+                if capture.backend == "sony"
+                else "sequential"
+            ),
+            mechanical_vibration_enabled=(
+                capture.mechanical_vibration_enabled
+            ),
+            mechanical_vibration_delay_s=(
+                capture.mechanical_vibration_delay_s
+            ),
         )
 
     raise ValueError(
@@ -1766,6 +1859,71 @@ def _shutter_seconds(value: Any) -> float:
     return seconds
 
 
+MECHANICAL_VIBRATION_SLOW_THRESHOLD_S = 1.0 / 60.0
+
+
+def _mechanical_vibration_delay_delta(
+    capture: AuditedRigCapture,
+) -> timedelta:
+    """Return planner-only settling reservation after one physical PHOTO.
+
+    No runtime WAIT command is created.  The returned duration only extends
+    the RIG availability cursor used when positioning the following command.
+
+    Mechanical-vibration settling is:
+      * totality-only;
+      * sequential-strategy-only;
+      * applied at 1/60 s inclusive and slower.
+    """
+
+    if capture.target.phase != "totality":
+        return timedelta(0)
+
+    if capture.camera_strategy == "bracket":
+        return timedelta(0)
+
+    if capture.camera_strategy != "sequential":
+        raise ValueError(
+            f"unsupported camera strategy for RIG "
+            f"{capture.rig_id}: {capture.camera_strategy!r}"
+        )
+
+    enabled = capture.mechanical_vibration_enabled
+    delay_s = capture.mechanical_vibration_delay_s
+
+    if not isinstance(enabled, bool):
+        raise ValueError(
+            "mechanical_vibration_enabled must be boolean"
+        )
+
+    if not enabled:
+        return timedelta(0)
+
+    if (
+        isinstance(delay_s, bool)
+        or not isinstance(delay_s, int)
+        or delay_s < 0
+        or delay_s > 5
+    ):
+        raise ValueError(
+            "mechanical_vibration_delay_s must be an integer from 0 to 5"
+        )
+
+    if delay_s == 0:
+        return timedelta(0)
+
+    slow = any(
+        _shutter_seconds(exposure.get("shutter"))
+        >= MECHANICAL_VIBRATION_SLOW_THRESHOLD_S - 1e-12
+        for exposure in capture.exposure_plan
+    )
+
+    if not slow:
+        return timedelta(0)
+
+    return timedelta(seconds=delay_s)
+
+
 def _validate_contact_frame_count(
     capture: AuditedRigCapture,
 ) -> None:
@@ -1777,6 +1935,36 @@ def _validate_contact_frame_count(
         raise ValueError(
             f"contact PHOTO exceeds {CONTACT_MAX_FRAMES} exposures "
             f"for RIG {capture.rig_id}: {count}"
+        )
+
+
+def _validate_non_totality_exposure_plan(
+    *,
+    rig_id: int,
+    phase: str,
+    exposure_plan: Any,
+) -> None:
+    """Fail closed if a non-totality PHOTO is slower than 1/500 s."""
+
+    normalized_phase = str(phase).strip().lower()
+
+    if normalized_phase == "totality":
+        return
+
+    unsafe = [
+        str(exposure.get("shutter"))
+        for exposure in exposure_plan
+        if (
+            _shutter_seconds(exposure.get("shutter"))
+            > OUTSIDE_TOTALITY_MAX_EXPOSURE_S + 1e-12
+        )
+    ]
+
+    if unsafe:
+        raise ValueError(
+            f"{normalized_phase or 'unknown'} exposure slower than "
+            f"1/500 s outside totality for RIG {rig_id}: "
+            f"{', '.join(unsafe)}"
         )
 
 
@@ -2446,6 +2634,13 @@ def compile_and_merge_scheduled_rigs(
                     _scheduled_static_bounds(candidate_scheduled)
                 )
 
+                candidate_available_end = (
+                    candidate_end
+                    + _mechanical_vibration_delay_delta(
+                        reduced_candidate
+                    )
+                )
+
                 if (
                     current_end is not None
                     and candidate_start < current_end
@@ -2507,13 +2702,13 @@ def compile_and_merge_scheduled_rigs(
 
                 # Never start a totality PHOTO which cannot finish before
                 # the reserved C3 preparation boundary.
-                if candidate_end > stop_at:
+                if candidate_available_end > stop_at:
                     break
 
                 scheduled.extend(candidate_scheduled)
 
                 state = candidate_state
-                current_end = candidate_end
+                current_end = candidate_available_end
 
                 photo_index += 1
                 unit_index = (
