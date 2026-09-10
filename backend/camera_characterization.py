@@ -200,6 +200,7 @@ def _persistent_profile_document(profile):
         "model",
         "characterized_at",
         "strategy",
+        "capabilities",
         "commands",
         "warnings",
         "capture_timeout_s",
@@ -833,6 +834,39 @@ def characterize(camera, entry, job):
                         "(GET=yes SET=no, transition not proven; "
                         f"{detail})"
                     )
+
+    auxiliary_capabilities = {
+        "clock": {"local_sync_supported": False, "probe_error": "not_run"},
+        "shutter": {"control_detected": False, "probe_error": "not_run"},
+    }
+    try:
+        from backend.camera_auxiliary_capabilities import (
+            characterize_auxiliary_capabilities,
+        )
+        auxiliary_capabilities, auxiliary_commands = (
+            characterize_auxiliary_capabilities(camera, job)
+        )
+        commands.update(auxiliary_commands)
+        job.checkpoint(
+            auxiliary_capabilities=auxiliary_capabilities,
+            commands=commands,
+        )
+    except Cancelled:
+        raise
+    except Exception as exc:
+        auxiliary_capabilities = {
+            "clock": {
+                "local_sync_supported": False,
+                "probe_error": str(exc),
+            },
+            "shutter": {
+                "control_detected": False,
+                "probe_error": str(exc),
+            },
+        }
+        job.log(
+            f"OPTIONAL CAPABILITIES probe failed non-fatally: {exc}"
+        )
 
     if "battery" not in commands:
         warnings.append("battery: unavailable")
@@ -1472,6 +1506,7 @@ def characterize(camera, entry, job):
             datetime.now(timezone.utc).isoformat()
         ),
         "strategy": "sequential",
+        "capabilities": auxiliary_capabilities,
         "commands": commands,
         "warnings": warnings,
         "settle_idle_s": 0.0,

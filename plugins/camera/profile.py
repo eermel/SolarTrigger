@@ -308,6 +308,7 @@ class ProfilePlugin(CameraPlugin):
             "manual_mode",
             "capture_target",
             "raw",
+            "shutter_mode",
             "capture_mode",
             "self_timer",
             "time_lapse",
@@ -1170,6 +1171,17 @@ class ProfilePlugin(CameraPlugin):
             planned_count=len(plan),
             plugin_name=self.name,
             materialized=plan,
+        )
+
+    def sync_datetime(self, ref):
+        from backend.camera_auxiliary_capabilities import sync_profile_datetime
+
+        return sync_profile_datetime(
+            self.camera,
+            self.profile,
+            ref,
+            plugin_name=self.name,
+            model=self._display_model(),
         )
 
     def audit_prepared_capture(self, prepared):
