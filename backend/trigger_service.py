@@ -402,29 +402,41 @@ class TriggerService:
                 )
 
             sync_time = gps.get("sync_time")
-            if sync_time:
-                try:
-                    sync_dt = datetime.fromisoformat(
-                        sync_time.replace("Z", "+00:00")
-                    )
-                    if sync_dt.tzinfo is None:
-                        sync_dt = sync_dt.replace(tzinfo=timezone.utc)
+            if not isinstance(sync_time, str) or not sync_time.strip():
+                raise TriggerValidationError(
+                    "⚠️ GPS synchronization timestamp is missing or invalid. "
+                    "Synchronize again.",
+                    "GPS_SYNC_TIME_INVALID",
+                )
 
-                    age = (
-                        datetime.now(timezone.utc)
-                        - sync_dt.astimezone(timezone.utc)
-                    ).total_seconds()
+            try:
+                sync_dt = datetime.fromisoformat(
+                    sync_time.strip().replace("Z", "+00:00")
+                )
+                if sync_dt.tzinfo is None:
+                    # Backward compatibility: historical state may contain a
+                    # timezone-naive timestamp, which SolarTrigger treated as UTC.
+                    sync_dt = sync_dt.replace(tzinfo=timezone.utc)
 
-                    if age > 7200:
-                        raise TriggerValidationError(
-                            f"⚠️ Last GPS synchronization was "
-                            f"{int(age // 60)} min ago. Synchronize again.",
-                            "GPS_SYNC_STALE",
-                        )
-                except TriggerValidationError:
-                    raise
-                except Exception:
-                    pass
+                age = (
+                    datetime.now(timezone.utc)
+                    - sync_dt.astimezone(timezone.utc)
+                ).total_seconds()
+            except Exception as exc:
+                # START is safety-critical: an unreadable synchronization
+                # timestamp must never bypass the freshness check.
+                raise TriggerValidationError(
+                    "⚠️ GPS synchronization timestamp is invalid. "
+                    "Synchronize again.",
+                    "GPS_SYNC_TIME_INVALID",
+                ) from exc
+
+            if age > 7200:
+                raise TriggerValidationError(
+                    f"⚠️ Last GPS synchronization was "
+                    f"{int(age // 60)} min ago. Synchronize again.",
+                    "GPS_SYNC_STALE",
+                )
 
         plan_path = self._resolve_execution_plan(rig_id)
 
