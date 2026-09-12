@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import re
 import time
+from types import SimpleNamespace
 
 from .base import (
     CameraPlugin,
@@ -695,6 +696,59 @@ class ProfilePlugin(CameraPlugin):
             normalized_plan.append(normalized_exposure)
 
         plan = normalized_plan
+
+        # Explicit execution-group markers are physical boundaries, not
+        # merely metadata. In particular, an auxiliary Atmos exposure must
+        # remain one single PHOTO and must never be absorbed into or reshape
+        # the user's configured native bracket.
+        segments = []
+        current = []
+
+        for exposure in plan:
+            if (
+                current
+                and exposure.get("sequence_group")
+                != current[-1].get("sequence_group")
+            ):
+                segments.append(current)
+                current = []
+            current.append(exposure)
+
+        if current:
+            segments.append(current)
+
+        if len(segments) > 1:
+            prepared_segments = [
+                self.prepare_capture(
+                    SimpleNamespace(exposure_plan=segment)
+                )
+                for segment in segments
+            ]
+            return PreparedCapture(
+                token=(
+                    "profile",
+                    [
+                        operation
+                        for prepared in prepared_segments
+                        for operation in prepared.token[1]
+                    ],
+                ),
+                estimated_total_s=sum(
+                    float(prepared.estimated_total_s or 0.0)
+                    for prepared in prepared_segments
+                ),
+                exposures_s=[
+                    exposure_s
+                    for prepared in prepared_segments
+                    for exposure_s in prepared.exposures_s
+                ],
+                planned_count=sum(
+                    int(prepared.planned_count or 0)
+                    for prepared in prepared_segments
+                ),
+                plugin_name=self.name,
+                materialized=plan,
+            )
 
         contract = self.profile.get("timing_contract")
         if isinstance(contract, dict):
