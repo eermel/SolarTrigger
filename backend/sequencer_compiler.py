@@ -906,6 +906,12 @@ def audit_materialized_capture(
 ) -> AuditedRigCapture:
     """Dispatch a materialized RIG capture to its offline camera compiler."""
 
+    if capture.backend == "sony":
+        return audit_materialized_sony_capture(capture)
+
+    if capture.backend in {"nikon", "nikon-dslr", "nikon-z"}:
+        return audit_materialized_nikon_capture(capture)
+
     if capture.backend.startswith("profile-"):
         from backend.camera_profiles import discover_profiles
         from plugins.camera.profile import ProfilePlugin

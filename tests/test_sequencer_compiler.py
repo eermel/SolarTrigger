@@ -481,7 +481,8 @@ def test_c2_places_one_atmos_single_before_priority_native_bracket(
         {"shutter": "1/500", "iso": 100},
     )
 
-    audited = audit_materialized_sony_capture(capture)
+    # Use the same generic dispatch path as the anchor-first compiler.
+    audited = audit_materialized_capture(capture)
     assert audited.prepared_mode == "sony_exposure_mixed"
 
     triggers = [
