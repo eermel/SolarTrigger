@@ -379,7 +379,7 @@ class CameraService:
             # A materialized per-view plan may leave the physical camera
             # at its final ISO. Forget only the cached ISO so the next
             # apply_phase_settings() is forced to restore the phase ISO.
-            if prepared.materialized is not None:
+            if getattr(prepared, "materialized", None) is not None:
                 self._last_phase_settings.pop("iso", None)
 
     def preflight(self, required_state=None):

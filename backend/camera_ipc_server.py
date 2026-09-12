@@ -787,7 +787,11 @@ class CameraIpcServer:
             if augmented is not None:
                 context.update(augmented)
             with self._state_lock:
-                self._tokens[token_id] = (session, rig_id, prepared.token, context)
+                # Keep the complete PreparedCapture inside the server.  Its
+                # ``token`` member is opaque plugin state, but both
+                # CameraService and camera plugins consume the wrapper so
+                # they can also use planned_count/materialized metadata.
+                self._tokens[token_id] = (session, rig_id, prepared, context)
             response = {
                 "token_id": token_id,
                 "estimated_total_s": prepared.estimated_total_s,

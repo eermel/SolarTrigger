@@ -12,16 +12,18 @@ from backend.generic_worker import ExpiredJobError
 class FakeWorker:
     def __init__(self):
         self.token = object()
+        self.prepared = None
         self.triggered_token = None
 
     def prepare_capture(self, _intent):
-        return SimpleNamespace(
+        self.prepared = SimpleNamespace(
             token=self.token,
             estimated_total_s=0.75,
             exposures_s=[0.25, 0.5],
             planned_count=2,
             plugin_name="fake-camera",
         )
+        return self.prepared
 
     def trigger_prepared(self, token, deadline=None):
         self.triggered_token = token
@@ -76,10 +78,12 @@ def test_prepare_capture_persists_logical_intent_metadata(tmp_path):
         }
     )
 
-    stored_session, rig_id, opaque_token, metadata = server._tokens[
+    stored_session, rig_id, stored_prepared, metadata = server._tokens[
         response["token_id"]
     ]
-    assert (stored_session, rig_id, opaque_token) == (session, 3, worker.token)
+    assert (stored_session, rig_id) == (session, 3)
+    assert stored_prepared is worker.prepared
+    assert stored_prepared.token is worker.token
     assert metadata == {
         "rig_id": 3,
         "phase": "C2",
@@ -102,7 +106,7 @@ def test_prepare_capture_persists_logical_intent_metadata(tmp_path):
             "params": {"rig_id": 3, "token_id": response["token_id"]},
         }
     ) == {"triggered": True}
-    assert worker.triggered_token is worker.token
+    assert worker.triggered_token is worker.prepared
 
     legacy_token = object()
     server._tokens["legacy-token"] = (session, 3, legacy_token)

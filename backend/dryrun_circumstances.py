@@ -36,6 +36,10 @@ def generate_dryrun_now(
     for name in ("C1", "C2", "TMAX", "C3", "C4"):
         if timeline.get(name) is not None:
             generated[name] = (timeline[name] + delta).strftime("%H:%M:%S.%f")[:-3]
+        # Local values belong to the source eclipse and become false after
+        # translating UTC contacts.  The UI derives local display values from
+        # the translated UTC time and the current configured timezone.
+        generated.pop(f"{name}_local", None)
     generated["TSTART"] = target_start.strftime("%H:%M:%S.%f")[:-3]
     generated["TEND"] = (
         timeline["C4"] + delta + timedelta(minutes=margin_min)

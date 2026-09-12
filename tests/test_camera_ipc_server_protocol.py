@@ -26,6 +26,7 @@ class FakeWorker:
     def __init__(self, clock=None):
         self.clock = clock
         self.calls = []
+        self.prepared = None
 
     def connect(self):
         self.calls.append(("connect",))
@@ -40,18 +41,19 @@ class FakeWorker:
 
     def prepare_capture(self, intent):
         self.calls.append(("prepare_capture", intent))
-        return SimpleNamespace(
+        self.prepared = SimpleNamespace(
             token=object(), estimated_total_s=0.5, exposures_s=[0.5],
-            planned_count=1, plugin_name="fake-camera"
+            planned_count=1, plugin_name="fake-camera", materialized=None,
         )
+        return self.prepared
 
     def _consume_deadline(self, deadline):
         if deadline is not None and self.clock is not None:
             self.clock.remaining(deadline)
 
-    def trigger_prepared(self, token, deadline=None):
+    def trigger_prepared(self, prepared, deadline=None):
         self._consume_deadline(deadline)
-        self.calls.append(("trigger_prepared", token, deadline))
+        self.calls.append(("trigger_prepared", prepared, deadline))
         return {"triggered": True}
 
     def shoot_speed_list(self, speeds, **options):
@@ -403,6 +405,11 @@ def test_session_token_lifecycle_and_single_deadline_conversion(tmp_path):
         "deadline": "2026-08-12T18:00:01+00:00",
     }, session)
     assert result == {"triggered": True}
+    trigger_call = next(
+        call for call in worker.calls if call[0] == "trigger_prepared"
+    )
+    assert trigger_call[1] is worker.prepared
+    assert trigger_call[1].token is worker.prepared.token
     assert clock.calls == [datetime(2026, 8, 12, 18, 0, 1)]
     assert server_clock.calls == []
     with pytest.raises(IpcError) as consumed:
