@@ -106,7 +106,11 @@ def test_ipc_deadline_is_converted_once_at_camera_service_boundary(
             }
         )
 
-        assert result is plugin.result
+        assert result == {
+            "frames": 1,
+            "planned": 1,
+            "detail": "ok",
+        }
         assert worker_clocks == [clock]
         assert server_clocks == [clock]
         assert clock.calls == [datetime(2026, 8, 12, 18, 0)]

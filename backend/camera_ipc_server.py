@@ -857,14 +857,11 @@ class CameraIpcServer:
                 ) from exc
 
             end_utc = datetime.now(timezone.utc)
+            result = self._capture_response(result)
             payload = self._trigger_trace_payload(metadata, start_utc, end_utc)
             payload["status"] = "success"
             for field in ("frames", "planned"):
-                value = (
-                    result.get(field)
-                    if isinstance(result, dict)
-                    else getattr(result, field, None)
-                )
+                value = result.get(field)
                 if value is not None:
                     payload[field] = value
             rig_trace.trace_event("camera.trigger_prepared", payload)
@@ -927,14 +924,11 @@ class CameraIpcServer:
                 ) from exc
 
             end_utc = datetime.now(timezone.utc)
+            result = self._capture_response(result)
             payload = self._trigger_trace_payload(metadata, start_utc, end_utc)
             payload["status"] = "success"
             for field in ("frames", "planned"):
-                value = (
-                    result.get(field)
-                    if isinstance(result, dict)
-                    else getattr(result, field, None)
-                )
+                value = result.get(field)
                 if value is not None:
                     payload[field] = value
             rig_trace.trace_event("camera.shoot_speed_list", payload)
@@ -949,6 +943,28 @@ class CameraIpcServer:
             raise IpcError("EXPIRED", "camera worker job expired") from exc
         except BusyDeviceError as exc:
             raise IpcError("BUSY", "camera worker still owns a USB operation") from exc
+
+    @staticmethod
+    def _capture_response(result: Any) -> dict[str, Any]:
+        """Convert a camera capture result at the IPC boundary."""
+        if isinstance(result, dict):
+            return dict(result)
+
+        frames = getattr(result, "frames", None)
+        planned = getattr(result, "planned", None)
+        detail = getattr(result, "detail", "")
+        if (
+            isinstance(frames, bool)
+            or not isinstance(frames, int)
+            or isinstance(planned, bool)
+            or not isinstance(planned, int)
+            or not isinstance(detail, str)
+        ):
+            raise IpcError(
+                "INVALID_RESPONSE",
+                "camera operation returned an invalid capture result",
+            )
+        return {"frames": frames, "planned": planned, "detail": detail}
 
     @staticmethod
     def _trigger_trace_payload(metadata, start_utc, end_utc):

@@ -54,7 +54,7 @@ class FakeWorker:
     def trigger_prepared(self, prepared, deadline=None):
         self._consume_deadline(deadline)
         self.calls.append(("trigger_prepared", prepared, deadline))
-        return {"triggered": True}
+        return SimpleNamespace(frames=1, planned=1, detail="fake capture")
 
     def shoot_speed_list(self, speeds, **options):
         self._consume_deadline(options.get("deadline"))
@@ -404,7 +404,11 @@ def test_session_token_lifecycle_and_single_deadline_conversion(tmp_path):
         "rig_id": 1, "token_id": token_id,
         "deadline": "2026-08-12T18:00:01+00:00",
     }, session)
-    assert result == {"triggered": True}
+    assert result == {
+        "frames": 1,
+        "planned": 1,
+        "detail": "fake capture",
+    }
     trigger_call = next(
         call for call in worker.calls if call[0] == "trigger_prepared"
     )
