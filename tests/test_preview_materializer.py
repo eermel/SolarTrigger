@@ -37,8 +37,20 @@ def test_atmos_is_per_rig_and_requires_complete_context(monkeypatch):
     )
 
     assert added is True
-    assert theoretical is None
-    assert updated[2] == "1/31.25"
+    assert theoretical == "1/125"
+    assert updated == (
+        False,
+        "1/1000",
+        "1/125",
+        1.0,
+        [
+            "1/1000",
+            "1/500",
+            "1/250",
+            "1/125",
+            "1/125",
+        ],
+    )
     with pytest.raises(materializer.PreviewMaterializationError, match="incomplete") as error:
         materializer.apply_atmos_if_enabled({"photo": {"atmos_enabled": True}}, plan, target, {})
     assert error.value.code == "CONFIG_INVALID"
@@ -96,7 +108,9 @@ def test_policy_mapping_and_exposure_assembly():
     assert materializer.assemble_exposures_s((False, "1/1000", "1/60", 2.0, ["1/1000", "1/500", "1/60"])) == pytest.approx([0.001, 0.002, 1 / 60])
 
 
-def test_atmospheric_extension_adds_ev_steps_without_iso_compensation(monkeypatch):
+def test_atmos_adds_one_centre_corrected_exposure_without_iso_compensation(
+    monkeypatch,
+):
     target = datetime(2026, 8, 12, 12)
     timeline = {
         "C1": target - timedelta(hours=2),
@@ -110,12 +124,12 @@ def test_atmospheric_extension_adds_ev_steps_without_iso_compensation(monkeypatc
         "altitudes": {f"{key}_alt_deg": 20 for key in timeline},
         "location": {"altitude_m": 0},
     }
-    plan = (True, "1/1000", "1/125", 1.0, None)
+    plan = (True, "1/2000", "1/500", 1.0, None)
 
     monkeypatch.setattr(
         materializer,
         "facteur_atmospherique",
-        lambda _h, _alt: 4.0,
+        lambda _h, _alt: 8.0,
     )
 
     updated, applied, theoretical = materializer.apply_atmos_if_enabled(
@@ -126,27 +140,25 @@ def test_atmospheric_extension_adds_ev_steps_without_iso_compensation(monkeypatc
     )
 
     assert applied is True
-    assert theoretical is None
+    assert theoretical == "1/125"
 
-    # Runtime parity:
-    # 1/125 -> 1/62.5 -> 1/31.25 for a 4x attenuation factor.
+    # The configured 3-view bracket stays intact. Atmos is calculated from
+    # its EV centre (1/1000 x 8 = 1/125) and adds one physical exposure.
     assert updated == (
-        True,
-        "1/1000",
-        "1/31.25",
+        False,
+        "1/2000",
+        "1/500",
         1.0,
-        None,
+        ["1/2000", "1/1000", "1/500", "1/125"],
     )
 
     exposures = materializer.assemble_exposures_s(updated)
 
     assert exposures == pytest.approx([
+        1 / 2000,
         1 / 1000,
         1 / 500,
-        1 / 250,
         1 / 125,
-        1 / 62.5,
-        1 / 31.25,
     ])
 
 
@@ -397,7 +409,13 @@ def test_preview_atmos_accepts_partial_eclipse_context(monkeypatch):
     )
 
     assert applied is True
-    assert updated[2] == "1/125"
+    assert updated == (
+        False,
+        "1/2000",
+        "1/500",
+        1.0,
+        ["1/2000", "1/1000", "1/500", "1/250"],
+    )
 
 
 

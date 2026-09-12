@@ -26,6 +26,7 @@ from backend.nikon_exposure_planner import (
 from backend.motion_constraint_resolver import resolve_motion_constraint
 from backend.executable_exposure_plan import (
     expand_executable_shutters as _shared_expand_executable_shutters,
+    nearest_executable_shutter,
 )
 from services.camera_service import _normalized_speed_plan
 
@@ -69,15 +70,6 @@ def normalize_intent_plan(intent: Any) -> tuple[bool, str, str, float, list[str]
     return True, str(fastest), str(slowest), step, None
 
 
-def _format_seconds_as_speed(seconds: float) -> str:
-    """Format an exposure duration like the runtime atmospheric transformer."""
-    if seconds <= 0:
-        return "0"
-    if seconds >= 1.0:
-        return f"{seconds:g}"
-    return f"1/{1.0 / seconds:g}"
-
-
 def _context(eclipse_ctx: Mapping[str, Any] | Callable[[], Mapping[str, Any]]) -> Mapping[str, Any]:
     context = eclipse_ctx() if callable(eclipse_ctx) else eclipse_ctx
     if not isinstance(context, Mapping):
@@ -95,7 +87,12 @@ def apply_atmos_if_enabled(
     bool,
     str | None,
 ]:
-    """Extend a regular EV bracket exactly like the runtime Atmos transformer."""
+    """Add one Atmos exposure derived from a regular bracket's EV centre.
+
+    The configured bracket is kept byte-for-byte in its executable order.
+    Atmospheric attenuation is applied to its logarithmic midpoint and the
+    nearest shutter supported by the configured camera is appended once.
+    """
 
     photo = rig_snapshot.get("photo")
     enabled = isinstance(photo, Mapping) and photo.get("atmos_enabled") is True
@@ -147,26 +144,37 @@ def apply_atmos_if_enabled(
             "atmospheric eclipse context is invalid"
         ) from exc
 
-    original_slowest = parse_speed(slowest)
-    target_slowest = original_slowest * float(factor)
+    original_shutters = _shared_expand_executable_shutters(
+        rig_snapshot,
+        plan,
+    )
 
-    if target_slowest <= original_slowest:
+    if not original_shutters:
         return plan, False, None
 
-    # Same algorithm as scripts/eclipse_trigger.py:
-    # advance by complete EV steps until the atmospheric target is reached
-    # or exceeded.  The resulting bracket therefore contains the newly
-    # added exposure(s).
-    next_exposure = original_slowest * (2.0 ** step)
-    while next_exposure < target_slowest:
-        next_exposure *= 2.0 ** step
+    fastest_seconds = parse_speed(original_shutters[0])
+    slowest_seconds = parse_speed(original_shutters[-1])
+    centre_seconds = math.sqrt(fastest_seconds * slowest_seconds)
+    target_seconds = centre_seconds * float(factor)
 
-    extended_slowest = _format_seconds_as_speed(next_exposure)
+    if target_seconds <= centre_seconds:
+        return plan, False, None
+
+    atmos_shutter = nearest_executable_shutter(
+        rig_snapshot,
+        target_seconds,
+    )
 
     return (
-        (True, fastest, extended_slowest, step, None),
+        (
+            False,
+            fastest,
+            slowest,
+            step,
+            [*original_shutters, atmos_shutter],
+        ),
         True,
-        None,
+        atmos_shutter,
     )
 
 
@@ -260,9 +268,9 @@ def build_exposure_diff_lines(
 ) -> list[str]:
     """Return only visible exposure differences.
 
-    Sequence alignment is intentional: Atmos extends the slow tail and
-    Anti-blur truncates/changes the slow tail. Camera-specific planners are
-    applied before this comparison.
+    Sequence alignment is intentional: Atmos appends one centre-corrected
+    exposure and Anti-blur truncates/changes the slow tail. Camera-specific
+    planners are applied before this comparison.
 
     ``final_isos`` carries the ISO actually applied to each exposure when
     motion compensation is materialized per exposure. ``final_iso`` remains

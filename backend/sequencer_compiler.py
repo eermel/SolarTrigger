@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
+from backend.exposure_selection import parse_speed
+
 CRITICAL_TRANSITION_MARGIN_MS = 250.0
 
 # Contact-transition policy.
@@ -30,6 +32,9 @@ CONTACT_MAX_FRAMES = 5
 # no exposure slower/longer than 1/500 s may belong to the PHOTO group
 # crossing C3.
 C3_CONTACT_MAX_EXPOSURE_S = 1.0 / 500.0
+
+ATMOS_EXPOSURE_GROUP = "atmos_single"
+
 
 @dataclass(frozen=True)
 class CaptureTarget:
@@ -456,6 +461,18 @@ def _phase_photo_config(
     return cfg
 
 
+def _contact_kind(target: CaptureTarget) -> str | None:
+    """Return the exact anchor contact represented by a capture target."""
+
+    if target.phase != "diamond_ring" or target.deadline is not None:
+        return None
+    if target.phase_window == "phase_1b":
+        return "C2"
+    if target.phase_window == "phase_3a":
+        return "C3"
+    return None
+
+
 def materialize_capture_target_for_rig(
     target: CaptureTarget,
     rig: dict[str, Any],
@@ -517,7 +534,7 @@ def materialize_capture_target_for_rig(
         original_plan,
     )
 
-    plan, atmos_applied, _theoretical_slowest = (
+    plan, atmos_applied, atmos_shutter = (
         apply_atmos_if_enabled(
             rig,
             original_plan,
@@ -531,18 +548,58 @@ def materialize_capture_target_for_rig(
     corrections: list[str] = []
     warnings: list[str] = []
 
-    physical_shutters = expand_executable_shutters(
-        rig,
-        plan,
-    )
+    physical_shutters = list(original_shutters)
+    atmos_index: int | None = None
+    contact = _contact_kind(target)
 
-    exposure_plan = [
-        {
+    if atmos_applied and atmos_shutter is not None:
+        omit_reason = None
+
+        if (
+            contact is not None
+            and len(original_shutters) >= CONTACT_MAX_FRAMES
+        ):
+            omit_reason = "contact_frame_limit"
+        elif (
+            contact == "C3"
+            and parse_speed(atmos_shutter)
+            > C3_CONTACT_MAX_EXPOSURE_S + 1e-12
+        ):
+            omit_reason = "c3_shutter_limit"
+
+        if omit_reason is not None:
+            plan = original_plan
+            atmos_applied = False
+            warnings.append(
+                f"atmos_exposure_omitted_{omit_reason}"
+            )
+        elif contact == "C2":
+            # C2 is the priority: take the auxiliary Atmos single first,
+            # then leave the configured native bracket as the contact anchor.
+            physical_shutters = [
+                str(atmos_shutter),
+                *original_shutters,
+            ]
+            atmos_index = 0
+        else:
+            physical_shutters = [
+                *original_shutters,
+                str(atmos_shutter),
+            ]
+            atmos_index = len(original_shutters)
+
+    exposure_plan = []
+
+    for index, speed in enumerate(physical_shutters):
+        exposure = {
             "shutter": str(speed),
             "iso": iso,
         }
-        for speed in physical_shutters
-    ]
+
+        if index == atmos_index:
+            exposure["sequence_group"] = ATMOS_EXPOSURE_GROUP
+
+        exposure_plan.append(exposure)
 
     if motion_policy != "none":
         policy = deepcopy(rig)
@@ -579,18 +636,27 @@ def materialize_capture_target_for_rig(
                 ),
             )
 
-            exposure_plan = [
-                {
+            exposure_plan = []
+
+            for index, item in enumerate(
+                materialized["exposure_plan"]
+            ):
+                exposure = {
                     "shutter": str(item["shutter"]),
                     "iso": int(item["iso"]),
                 }
-                for item in materialized["exposure_plan"]
-            ]
 
-            corrections = list(
+                if index == atmos_index:
+                    exposure["sequence_group"] = (
+                        ATMOS_EXPOSURE_GROUP
+                    )
+
+                exposure_plan.append(exposure)
+
+            corrections.extend(
                 materialized.get("corrections", [])
             )
-            warnings = list(
+            warnings.extend(
                 materialized.get("warnings", [])
             )
 
@@ -695,6 +761,15 @@ def _capture_intent_from_materialized(
             {
                 "shutter": str(item["shutter"]),
                 "iso": int(item["iso"]),
+                **(
+                    {
+                        "sequence_group": str(
+                            item["sequence_group"]
+                        )
+                    }
+                    if item.get("sequence_group") is not None
+                    else {}
+                ),
             }
             for item in capture.final_exposure_plan
         ],
@@ -722,7 +797,20 @@ def audit_materialized_sony_capture(
     intent = _capture_intent_from_materialized(capture)
 
     prepared = plugin.prepare_capture(intent)
-    operations = plugin.audit_prepared_capture(prepared)
+    operations = [
+        deepcopy(operation)
+        for operation in plugin.audit_prepared_capture(prepared)
+    ]
+
+    if _contact_kind(capture.target) is not None:
+        bracket_operations = [
+            operation
+            for operation in operations
+            if operation.get("action") == "bracket_press"
+        ]
+
+        if len(bracket_operations) == 1:
+            bracket_operations[0]["contact_anchor"] = True
 
     mode = (
         str(prepared.token[0])
@@ -745,10 +833,7 @@ def audit_materialized_sony_capture(
         prepared_mode=mode,
         estimated_total_s=prepared.estimated_total_s,
         planned_count=prepared.planned_count,
-        operations=tuple(
-            deepcopy(operation)
-            for operation in operations
-        ),
+        operations=tuple(operations),
         camera_strategy="bracket",
         mechanical_vibration_enabled=(
             capture.mechanical_vibration_enabled
@@ -997,9 +1082,10 @@ def _operation_reservation_duration_ms(
             "delay duration_ms",
         )
 
-    if (
-        action == "trigger_capture"
-        and (backend in {"nikon", "nikon-dslr", "nikon-z"} or backend.startswith("profile-"))
+    if action == "trigger_capture" and (
+        backend == "sony"
+        or backend in {"nikon", "nikon-dslr", "nikon-z"}
+        or backend.startswith("profile-")
     ):
         return _timing_ms(
             profile.trigger_single_duration_ms,
@@ -1076,7 +1162,27 @@ def schedule_audited_capture(
     trigger_index = None
     trigger_latency_ms = None
 
-    for index, operation in enumerate(operations):
+    priority_indexes = [
+        index
+        for index, operation in enumerate(operations)
+        if operation.get("contact_anchor") is True
+        and operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    if len(priority_indexes) > 1:
+        raise ValueError(
+            "audited capture contains multiple contact anchors"
+        )
+
+    search_indexes = (
+        priority_indexes
+        if priority_indexes
+        else range(len(operations))
+    )
+
+    for index in search_indexes:
+        operation = operations[index]
         action = operation.get("action")
 
         if action == "bracket_press":
@@ -1114,7 +1220,9 @@ def schedule_audited_capture(
 
     command_times[trigger_index] = trigger_command_time
 
-    # Schedule preparation backwards.
+    # Schedule preparation backwards. A priority contact bracket can have an
+    # auxiliary Atmos single before it, so the pre-anchor side may contain a
+    # complete deterministic single-photo block as well as ordinary SETs.
     cursor = trigger_command_time
 
     for index in range(trigger_index - 1, -1, -1):
@@ -1125,16 +1233,27 @@ def schedule_audited_capture(
             command_times[index] = cursor
             continue
 
-        if action != "set":
+        if action == "set":
+            duration_ms = _set_operation_duration_ms(
+                operation,
+                profile,
+            )
+        elif action == "trigger_capture":
+            duration_ms = _timing_ms(
+                profile.trigger_single_duration_ms,
+                "trigger_single_duration_ms",
+            )
+        elif action in {"delay", "settle_idle"}:
+            duration_ms = _operation_reservation_duration_ms(
+                capture.backend,
+                operation,
+                profile,
+            )
+        else:
             raise ValueError(
                 "unsupported pre-trigger audited operation: "
                 f"{action!r}"
             )
-
-        duration_ms = _set_operation_duration_ms(
-            operation,
-            profile,
-        )
 
         cursor = (
             cursor
@@ -1219,6 +1338,52 @@ def schedule_audited_capture(
                 cursor
                 + timedelta(milliseconds=duration_ms)
             )
+
+    elif (
+        trigger_action == "bracket_press"
+        and any(
+            operation.get("action")
+            in {"trigger_capture", "bracket_press"}
+            for operation in operations[trigger_index + 1:]
+        )
+    ):
+        # A mixed Sony group may retain its native bracket and append one
+        # auxiliary Atmos single. The native bracket reservation includes its
+        # expect/release/settle protocol; schedule the next segment only after
+        # that atomic reservation has completed.
+        cursor = (
+            trigger_command_time
+            + timedelta(
+                milliseconds=_operation_reservation_duration_ms(
+                    capture.backend,
+                    operations[trigger_index],
+                    profile,
+                )
+            )
+        )
+        inside_atomic_protocol = True
+
+        for index in range(trigger_index + 1, len(operations)):
+            operation = operations[index]
+            action = operation.get("action")
+
+            if action == "segment":
+                inside_atomic_protocol = False
+                continue
+
+            if inside_atomic_protocol:
+                continue
+
+            command_times[index] = cursor
+            duration_ms = _operation_reservation_duration_ms(
+                capture.backend,
+                operation,
+                profile,
+            )
+            cursor += timedelta(milliseconds=duration_ms)
+
+            if action == "bracket_press":
+                inside_atomic_protocol = True
 
     result: list[ScheduledOperation] = []
 
@@ -2757,7 +2922,7 @@ def _execution_command(
             "params": {
                 key: deepcopy(value)
                 for key, value in operation.items()
-                if key != "action"
+                if key not in {"action", "contact_anchor"}
             },
         }
 

@@ -12,6 +12,7 @@ from backend.exposure_selection import (
     parse_speed,
 )
 from backend.nikon_exposure_planner import (
+    NIKON_SPEEDS,
     _speeds_between as nikon_speeds_between,
 )
 
@@ -111,4 +112,41 @@ def expand_executable_shutters(
     return [str(speed) for speed in (speeds or [])]
 
 
-__all__ = ["expand_executable_shutters"]
+def nearest_executable_shutter(
+    rig_snapshot: Mapping[str, Any],
+    target_seconds: float,
+) -> str:
+    """Return the camera-supported shutter nearest to an EV target."""
+
+    if (
+        isinstance(target_seconds, bool)
+        or not isinstance(target_seconds, (int, float))
+        or not math.isfinite(float(target_seconds))
+        or float(target_seconds) <= 0
+    ):
+        raise ValueError("target shutter must be positive and finite")
+
+    backend = _camera_backend(rig_snapshot)
+
+    if backend == "sony":
+        supported = sony_exposure_planner.SONY_SPEEDS
+    elif backend in {"nikon", "nikon-dslr", "nikon-z"}:
+        supported = NIKON_SPEEDS
+    else:
+        supported = [
+            (str(speed), parse_speed(str(speed)))
+            for speed in DEFAULT_SUPPORTED_SHUTTERS
+        ]
+
+    target_ev = math.log2(float(target_seconds))
+
+    return min(
+        supported,
+        key=lambda item: abs(math.log2(float(item[1])) - target_ev),
+    )[0]
+
+
+__all__ = [
+    "expand_executable_shutters",
+    "nearest_executable_shutter",
+]

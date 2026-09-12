@@ -334,23 +334,33 @@ class SonyPlugin(CameraPlugin):
 
         if intent.exposure_plan is not None:
             plan = tuple(
-                (str(item["shutter"]), int(item["iso"]))
+                (
+                    str(item["shutter"]),
+                    int(item["iso"]),
+                    item.get("sequence_group"),
+                )
                 for item in intent.exposure_plan
             )
             if not plan:
                 raise ValueError("capture exposure plan is empty")
 
-            # Split the final physical plan into contiguous ISO-constant
-            # segments. Each segment is independently eligible for Sony
-            # native bracket optimisation.
+            # Split the final physical plan into contiguous execution groups.
+            # Atmos singles carry an explicit group marker so adding one view
+            # never degrades the configured native bracket into exact singles.
             segments = []
             current = []
 
-            for pair in plan:
-                if current and pair[1] != current[-1][1]:
+            for item in plan:
+                if (
+                    current
+                    and (
+                        item[1] != current[-1][1]
+                        or item[2] != current[-1][2]
+                    )
+                ):
                     segments.append(tuple(current))
                     current = []
-                current.append(pair)
+                current.append(item)
 
             if current:
                 segments.append(tuple(current))
@@ -358,15 +368,23 @@ class SonyPlugin(CameraPlugin):
             executable_segments = []
 
             for segment in segments:
-                shutters = [speed for speed, _iso in segment]
+                shutters = [
+                    speed
+                    for speed, _iso, _group in segment
+                ]
                 iso = segment[0][1]
+                sequence_group = segment[0][2]
 
                 fastest, slowest, step_il, regular = (
                     _normalized_speed_plan(shutters)
                 )
 
                 sequence = None
-                description = "materialized exact singles"
+                description = (
+                    "materialized Atmos single"
+                    if sequence_group == "atmos_single"
+                    else "materialized exact singles"
+                )
 
                 if regular:
                     step, _, candidate = planner.plan(
@@ -388,7 +406,7 @@ class SonyPlugin(CameraPlugin):
                 if sequence is None:
                     sequence = tuple(
                         planner.SinglePhoto(speed)
-                        for speed, _iso in segment
+                        for speed, _iso, _group in segment
                     )
 
                 executable_segments.append(
@@ -418,20 +436,23 @@ class SonyPlugin(CameraPlugin):
                         ),
                         exposures_s=[
                             planner.parse_speed(speed)
-                            for speed, _iso in plan
+                            for speed, _iso, _group in plan
                         ],
                         planned_count=len(plan),
                         plugin_name=self.name,
                         materialized=[
                             {"shutter": speed, "iso": pair_iso}
-                            for speed, pair_iso in plan
+                            for speed, pair_iso, _group in plan
                         ],
                     )
 
                 return PreparedCapture(
                     token=(
                         "sony_exposure_singles",
-                        plan,
+                        tuple(
+                            (speed, pair_iso)
+                            for speed, pair_iso, _group in plan
+                        ),
                         intent.deadline,
                         description,
                     ),
@@ -441,19 +462,19 @@ class SonyPlugin(CameraPlugin):
                     ),
                     exposures_s=[
                         planner.parse_speed(speed)
-                        for speed, _iso in plan
+                        for speed, _iso, _group in plan
                     ],
                     planned_count=len(plan),
                     plugin_name=self.name,
                     materialized=[
                         {"shutter": speed, "iso": pair_iso}
-                        for speed, pair_iso in plan
+                        for speed, pair_iso, _group in plan
                     ],
                 )
 
-            # Hybrid Sony execution:
-            # each ISO-constant segment may be a native bracket sequence or
-            # exact singles. Segment boundaries come only from exposure_plan.
+            # Hybrid Sony execution: each contiguous execution group may be a
+            # native bracket sequence or exact singles. Boundaries come from
+            # ISO changes and explicit sequence_group markers.
             return PreparedCapture(
                 token=(
                     "sony_exposure_mixed",
@@ -468,13 +489,13 @@ class SonyPlugin(CameraPlugin):
                 ),
                 exposures_s=[
                     planner.parse_speed(speed)
-                    for speed, _iso in plan
+                    for speed, _iso, _group in plan
                 ],
                 planned_count=len(plan),
                 plugin_name=self.name,
                 materialized=[
                     {"shutter": speed, "iso": iso}
-                    for speed, iso in plan
+                    for speed, iso, _group in plan
                 ],
             )
 

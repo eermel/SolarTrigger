@@ -62,30 +62,32 @@ Quand elle est active, `_capture_intent` exige :
 - les altitudes géométriques persistées C1/C2/TMAX/C3/C4 ;
 - l'heure cible de la capture.
 
-L'extension Atmos n'est appliquée que si le plan est régulier, c'est-à-dire
-si ses écarts sont approximativement constants en EV (ou si le plan est déjà
-fourni sous forme de bornes et d'un pas). Une liste explicite irrégulière reste
-inchangée : aucune exposition intermédiaire n'est inventée.
+La matérialisation Atmos du Sequencer n'est appliquée que si le plan est
+régulier, c'est-à-dire si ses écarts sont approximativement constants en EV
+(ou si le plan est fourni sous forme de bornes et d'un pas). Une liste
+explicite irrégulière reste inchangée.
 
-`_capture_intent` interpole l'altitude géométrique à l'heure cible, calcule le
-facteur, puis multiplie la durée de la vitesse la plus lente par ce facteur.
-À partir de la borne lente existante, il avance par multiplicateurs
-`2 ** step_ev`. La nouvelle borne est inclusive : si la cible dépasse la
-borne courante, le premier pas égal ou supérieur à la cible est retenu.
+Le Sequencer développe d'abord le bracket physique propre au boîtier. Il
+calcule ensuite son centre logarithmique en EV, multiplie la durée de cette
+exposition centrale par le facteur atmosphérique et sélectionne le cran réel
+le plus proche sur la grille du boîtier. Le bracket configuré reste intact et
+une seule photo Atmos est ajoutée, même si sa vitesse coïncide avec une vue du
+bracket. Atmos ne compense jamais cette photo par une modification d'ISO.
 
-- Pour une liste explicite régulière, les vitesses calculées sont ajoutées à
-  la liste et formatées par `_format_seconds_as_speed` (durée brute à partir
-  de 1 s, notation `1/x` sous 1 s).
-- Pour un plan décrit par bornes, `shutter_min` est remplacé par la nouvelle
-  borne lente formatée. La voie matérielle reçoit ainsi la borne étendue dans
-  le `CaptureIntent`. L'ancienne API `shoot_speed_list` représente le même
-  mécanisme matériel sous la forme de `slowest_override_seconds` : elle ne
-  l'accepte que pour un plan régulier, refuse tout raccourcissement, puis
-  transmet les bornes au plugin.
-- `_sim_capture_speed_list`, voie de simulation historique, applique de même
-  une extension inclusive par `step_ev`, ajoute une liste explicite de
-  vitesses formatées, refuse un plan irrégulier ou une borne plus courte, et
-  ne réalise aucun appel gphoto2.
+Pour Sony, la photo Atmos forme un groupe d'exécution simple distinct : le
+bracket utilisateur conserve donc son déclenchement natif au lieu d'être
+dégradé en une série de photos simples.
+
+- À l'ancre C2, la photo Atmos est exécutée avant le bracket ; le bracket
+  natif reste l'opération prioritaire calée sur C2.
+- À l'ancre C3, la photo Atmos est omise si elle est plus lente que `1/500 s`.
+- À C2 comme à C3, elle est également omise si son ajout ferait dépasser la
+  limite de cinq vues du groupe de contact.
+
+La transformation Atmos historique de `scripts/eclipse_trigger.py` reste une
+voie de compatibilité. Elle est neutralisée pour les plans du Sequencer dès
+que la politique Atmos par RIG est active ; le plan compilé décrit alors seul
+les expositions physiques à exécuter.
 
 La normalisation par `services.camera_service._normalized_speed_plan` trie les
 vitesses de la plus rapide à la plus lente et retire automatiquement les
