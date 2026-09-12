@@ -1262,6 +1262,15 @@ def schedule_audited_capture(
                 operation,
                 profile,
             )
+        elif (
+            capture.backend.startswith("profile-")
+            and action in {"trigger_capture", "bracket_press"}
+        ):
+            duration_ms = _operation_reservation_duration_ms(
+                capture.backend,
+                operation,
+                profile,
+            )
         elif action == "trigger_capture":
             duration_ms = _timing_ms(
                 profile.trigger_single_duration_ms,
@@ -1286,18 +1295,19 @@ def schedule_audited_capture(
 
         command_times[index] = cursor
 
-    # Exact-single sequences are deterministic from the measured USB
-    # timings.  Calculate their complete timeline here.  Timing helpers such
-    # as DELAY / SETTLE_IDLE advance the clock but will not become Trigger
-    # commands in the final execution plan.
+    # Exact-single sequences and characterized profile PHOTO groups are
+    # deterministic from their measured USB timings. Calculate their complete
+    # timeline here. Timing helpers such as DELAY / SETTLE_IDLE advance the
+    # clock but will not become Trigger commands in the final execution plan.
     #
-    # Sony native bracket is different: bracket_press is one high-level PHOTO
-    # command and its expect/release/idle protocol remains private to the
-    # Sony plugin.
+    # A direct Sony native bracket is different: bracket_press is one
+    # high-level PHOTO command and its expect/release/idle protocol remains
+    # private to the Sony plugin. Characterized profile brackets already carry
+    # their complete atomic duration and can be mixed with profile singles.
     trigger_action = operations[trigger_index].get("action")
 
     deterministic_post_trigger = (
-        (capture.backend.startswith("profile-") and trigger_action == "trigger_capture")
+        capture.backend.startswith("profile-")
         or
         capture.backend in {"nikon", "nikon-dslr", "nikon-z"}
         or (
@@ -1347,6 +1357,16 @@ def schedule_audited_capture(
                     (operation.get("duration_ms", profile.trigger_single_duration_ms)
                      if capture.backend.startswith("profile-") else profile.trigger_single_duration_ms),
                     "trigger_single_duration_ms",
+                )
+
+            elif (
+                action == "bracket_press"
+                and capture.backend.startswith("profile-")
+            ):
+                duration_ms = _operation_reservation_duration_ms(
+                    capture.backend,
+                    operation,
+                    profile,
                 )
 
             elif action == "segment":

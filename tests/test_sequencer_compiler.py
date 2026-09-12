@@ -193,6 +193,7 @@ def test_invalid_sequence_margin_is_rejected(margin):
 
 
 from backend.sequencer_compiler import (
+    AuditedRigCapture,
     CaptureTarget,
     apply_exposure_optimization,
     materialize_capture_target_for_rig,
@@ -644,6 +645,161 @@ def test_c2_profile_bracket_marks_native_bracket_as_contact_anchor(
 
     assert scheduled_triggers[0].command_time < target.target_time
     assert scheduled_triggers[1].command_time == target.target_time
+
+
+def test_profile_mixed_single_then_bracket_schedules_every_photo():
+    backend = "profile-test"
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 4, 30),
+        phase="diamond_ring",
+        phase_window="phase_1b",
+        sequence_index=1,
+        deadline=datetime(2027, 8, 2, 10, 4, 40),
+    )
+    audited = AuditedRigCapture(
+        rig_id=1,
+        backend=backend,
+        target=target,
+        aperture="f/8",
+        exposure_plan=(
+            {"shutter": "1/125", "iso": 100},
+            {"shutter": "1/2000", "iso": 100},
+            {"shutter": "1/1000", "iso": 100},
+            {"shutter": "1/500", "iso": 100},
+        ),
+        prepared_mode="profile",
+        estimated_total_s=4.0,
+        planned_count=4,
+        operations=(
+            {
+                "action": "trigger_capture",
+                "shutter": "1/125",
+                "expected_frames": 1,
+                "duration_ms": 500,
+            },
+            {
+                "action": "set",
+                "parameter": "capturemode",
+                "value": "Single Shot",
+            },
+            {
+                "action": "set",
+                "parameter": "shutterspeed",
+                "value": "1/1000",
+            },
+            {
+                "action": "set",
+                "parameter": "capturemode",
+                "value": "Continuous Bracket 1.0 EV 3 Img.",
+            },
+            {
+                "action": "bracket_press",
+                "centre": "1/1000",
+                "frames": 3,
+                "expected_frames": 3,
+                "physical_views": ["1/2000", "1/1000", "1/500"],
+                "duration_ms": 2500,
+            },
+        ),
+        camera_strategy="bracket",
+    )
+    timing = CameraTimingProfile(
+        backend=backend,
+        set_capturemode_ms=900,
+        set_shutter_ms=800,
+        trigger_single_duration_ms=500,
+        bracket_atomic_ms_by_frames={3: 2500},
+    )
+
+    scheduled = schedule_audited_capture(audited, timing)
+    photos = [
+        item
+        for item in scheduled
+        if item.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    assert [item.operation["action"] for item in photos] == [
+        "trigger_capture",
+        "bracket_press",
+    ]
+    assert all(item.command_time is not None for item in scheduled)
+    assert photos[0].command_time < photos[1].command_time
+
+
+def test_profile_mixed_bracket_then_single_schedules_every_photo():
+    backend = "profile-test"
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 4, 30),
+        phase="diamond_ring",
+        phase_window="phase_1b",
+        sequence_index=1,
+        deadline=datetime(2027, 8, 2, 10, 4, 40),
+    )
+    audited = AuditedRigCapture(
+        rig_id=1,
+        backend=backend,
+        target=target,
+        aperture="f/8",
+        exposure_plan=(
+            {"shutter": "1/2000", "iso": 100},
+            {"shutter": "1/1000", "iso": 100},
+            {"shutter": "1/500", "iso": 100},
+            {"shutter": "1/125", "iso": 100},
+        ),
+        prepared_mode="profile",
+        estimated_total_s=4.0,
+        planned_count=4,
+        operations=(
+            {
+                "action": "bracket_press",
+                "centre": "1/1000",
+                "frames": 3,
+                "expected_frames": 3,
+                "physical_views": ["1/2000", "1/1000", "1/500"],
+                "duration_ms": 2500,
+            },
+            {
+                "action": "set",
+                "parameter": "capturemode",
+                "value": "Single Shot",
+            },
+            {
+                "action": "set",
+                "parameter": "shutterspeed",
+                "value": "1/125",
+            },
+            {
+                "action": "trigger_capture",
+                "shutter": "1/125",
+                "expected_frames": 1,
+                "duration_ms": 500,
+            },
+        ),
+        camera_strategy="bracket",
+    )
+    timing = CameraTimingProfile(
+        backend=backend,
+        set_capturemode_ms=900,
+        set_shutter_ms=800,
+        trigger_single_duration_ms=500,
+        bracket_atomic_ms_by_frames={3: 2500},
+    )
+
+    scheduled = schedule_audited_capture(audited, timing)
+    photos = [
+        item
+        for item in scheduled
+        if item.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    assert [item.operation["action"] for item in photos] == [
+        "bracket_press",
+        "trigger_capture",
+    ]
+    assert all(item.command_time is not None for item in scheduled)
+    assert photos[0].command_time < photos[1].command_time
 
 
 def test_c3_omits_unsafe_atmos_single_and_keeps_native_bracket(
