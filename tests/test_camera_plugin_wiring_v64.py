@@ -4,14 +4,15 @@ import re
 ROOT=Path(__file__).parents[1]
 TRIGGER=(ROOT/'scripts/eclipse_trigger.py').read_text(encoding='utf-8')
 def test_main_trigger_contains_totality_override_path():
-    assert '_photo_override_event' in TRIGGER
     assert 'SIGUSR1' in TRIGGER
-    assert 'TOTALITY OVERRIDE' in TRIGGER
+    assert 'totality_override' in TRIGGER
 
 
-def test_camera_profile_is_applied_before_eclipse_file():
-    # Camera profile is applied before eclipse file: sequence values win.
-    assert TRIGGER.index('if args.camera:') < TRIGGER.index('if args.file:')
+def test_trigger_loads_only_the_three_selected_inputs():
+    assert 'args.file' in TRIGGER
+    assert 'args.camera' in TRIGGER
+    assert 'args.exposure_opt' in TRIGGER
+    assert '--execution-plan' not in TRIGGER
 
 
 def test_plugin_owns_brand_specific_shutter_names():

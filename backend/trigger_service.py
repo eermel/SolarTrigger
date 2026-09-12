@@ -1,12 +1,9 @@
 from __future__ import annotations
 from pathlib import Path
-import json, os, signal, subprocess, sys, threading, time
-from datetime import datetime, timedelta, timezone
-from backend.timeline import build_timeline, parse_date_from_config, sequence_seconds
-from backend.execution_plan_runtime import load_execution_plan
-
-DRY_RUN_NOW_DELAY_S = 60.0
-
+import json, os, signal, subprocess, sys, threading
+from datetime import datetime, timezone
+from backend.timeline import build_timeline, sequence_seconds
+from backend.phase_trigger import build_phase_schedule
 
 class TriggerValidationError(RuntimeError):
     def __init__(self, message, code="TRIGGER_INVALID"):
@@ -255,6 +252,8 @@ class TriggerService:
             for rig_id in range(1, 5)
         }
         self._active_circumstances_paths = {}
+        self._active_photo_paths = {}
+        self._active_exposure_opt_paths = {}
         self._analysis_suppressed_by_rig = {
             rig_id: False
             for rig_id in range(1, 5)
@@ -316,87 +315,48 @@ class TriggerService:
 
         return None
 
-    def _resolve_execution_plan(self, rig_id=1):
-        if (
-            not isinstance(rig_id, int)
-            or isinstance(rig_id, bool)
-            or not 1 <= rig_id <= 4
-        ):
-            raise TriggerValidationError(
-                f"Invalid RIG: {rig_id}",
-                "RIG_ID_INVALID",
-            )
-
-        state_key = f"execution_plan_file_rig_{rig_id}"
-        filename = self.state.get(state_key)
-
+    def _resolve_named_config(self, filename, subdir, *, bundled=False):
         if not isinstance(filename, str) or not filename.strip():
-            raise TriggerValidationError(
-                f"No execution plan selected for RIG {rig_id}.",
-                "EXECUTION_PLAN_NOT_LOADED",
-            )
-
+            return None
         filename = filename.strip()
+        if Path(filename).name != filename or Path(filename).suffix.lower() != ".json":
+            return None
+        path = self.configs_dir / subdir / filename
+        if path.is_file():
+            return path
+        if bundled:
+            path = self.product_configs_dir / subdir / filename
+            if path.is_file():
+                return path
+        return None
 
-        if Path(filename).name != filename:
-            raise TriggerValidationError(
-                f"Invalid execution plan name for RIG {rig_id}.",
-                "EXECUTION_PLAN_INVALID",
-            )
-
-        path = self.configs_dir / "execution_plan" / filename
-
-        if not path.is_file():
-            raise TriggerValidationError(
-                f"Execution plan not found for RIG {rig_id} : {filename}",
-                "EXECUTION_PLAN_NOT_FOUND",
-            )
-
-        try:
-            plan = load_execution_plan(path)
-        except Exception as exc:
-            raise TriggerValidationError(
-                f"Unreadable execution plan "
-                f"for RIG {rig_id} : {filename}",
-                "EXECUTION_PLAN_INVALID",
-            ) from exc
-
-        plan_rig_ids = {
-            command.get("rig_id")
-            for command in plan.get(
-                "commands",
-                [],
-            )
-            if isinstance(command, dict)
+    def _resolve_trigger_inputs(self, rig_id, selected=None):
+        selected = selected if isinstance(selected, dict) else {}
+        names = {
+            "circumstances": selected.get("circumstances_file"),
+            "photo": selected.get("photo_file"),
+            "exposure_opt": selected.get("exposure_opt_file"),
         }
 
-        plan_rig_ids.discard(None)
-
-        if path.suffix.lower() == ".plan":
-            incompatible_rig = (
-                plan_rig_ids != {rig_id}
-            )
-        else:
-            # Legacy schema-v2 JSON plans historically allowed an empty
-            # command list. Preserve that behaviour during migration.
-            #
-            # If a legacy JSON plan does contain explicit RIG ids, they must
-            # still all match the selected RIG.
-            incompatible_rig = (
-                bool(plan_rig_ids)
-                and plan_rig_ids != {rig_id}
-            )
-
-        if incompatible_rig:
+        paths = {
+            "circumstances": self._resolve_named_config(names["circumstances"], "circumstances"),
+            "photo": self._resolve_named_config(names["photo"], "photo_cfg", bundled=True),
+            "exposure_opt": self._resolve_named_config(names["exposure_opt"], "exposure_opt"),
+        }
+        missing = [name for name, path in paths.items() if path is None]
+        if missing:
             raise TriggerValidationError(
-                f"Incompatible execution plan "
-                f"for RIG {rig_id} : {filename}",
-                "EXECUTION_PLAN_INVALID",
+                "Select the circumstances, Photo Setup and Exposure Optimization files.",
+                "TRIGGER_INPUTS_NOT_LOADED",
             )
+        return paths
 
-        return path
+    def _clear_active_inputs(self, rig_id):
+        self._active_circumstances_paths.pop(rig_id, None)
+        self._active_photo_paths.pop(rig_id, None)
+        self._active_exposure_opt_paths.pop(rig_id, None)
 
-    def validate_start(self, rig_id=1, require_gps=True):
+    def validate_start(self, rig_id=1, require_gps=True, selected=None):
         if require_gps:
             gps = self.state.snapshot("gps") or {}
             if not gps.get("synced"):
@@ -442,45 +402,9 @@ class TriggerService:
                     "GPS_SYNC_STALE",
                 )
 
-        plan_path = self._resolve_execution_plan(rig_id)
-
-        try:
-            plan = load_execution_plan(
-                plan_path
-            )
-        except Exception as exc:
-            raise TriggerValidationError(
-                "Unreadable execution plan.",
-                "EXECUTION_PLAN_INVALID",
-            ) from exc
-
-        sources = plan.get("sources") or {}
-        filename = sources.get("circumstances_file")
-
-        if (
-            not isinstance(filename, str)
-            or not filename.strip()
-            or Path(filename).name != filename.strip()
-        ):
-            raise TriggerValidationError(
-                "Circumstances are missing from the execution plan.",
-                "EXECUTION_PLAN_CIRCUMSTANCES_INVALID",
-            )
-
-        filename = filename.strip()
-
-        circumstances_path = (
-            self.configs_dir / "circumstances" / filename
-        )
-
-        if not circumstances_path.is_file():
-            circumstances_path = None
-
-        if circumstances_path is None:
-            raise TriggerValidationError(
-                f"Execution plan circumstances not found: {filename}",
-                "EXECUTION_PLAN_CIRCUMSTANCES_NOT_FOUND",
-            )
+        paths = self._resolve_trigger_inputs(rig_id, selected)
+        circumstances_path = paths["circumstances"]
+        filename = circumstances_path.name
 
         try:
             ecl = json.loads(
@@ -489,16 +413,40 @@ class TriggerService:
             if not isinstance(ecl, dict):
                 raise ValueError("invalid JSON root")
             validate_eclipse(ecl)
+            photo = json.loads(paths["photo"].read_text(encoding="utf-8"))
+            exposure_opt = json.loads(
+                paths["exposure_opt"].read_text(encoding="utf-8")
+            )
+            if not isinstance(photo, dict) or photo.get("config_type") not in (None, "photo_setup"):
+                raise ValueError("invalid Photo Setup")
+            if (
+                not isinstance(exposure_opt, dict)
+                or exposure_opt.get("config_type") != "exposure_optimization"
+            ):
+                raise ValueError("invalid Exposure Optimization")
+            if not any(
+                isinstance(item, dict) and item.get("rig_id") == rig_id
+                for item in exposure_opt.get("rigs", ())
+            ):
+                raise ValueError(f"Exposure Optimization has no RIG {rig_id}")
+            timeline = build_timeline(
+                ecl,
+                fallback_date=datetime.now(timezone.utc).date(),
+            )
+            build_phase_schedule(timeline, photo)
         except Exception as exc:
             raise TriggerValidationError(
-                f"Invalid execution plan circumstances: {filename}",
-                "EXECUTION_PLAN_CIRCUMSTANCES_INVALID",
+                f"Invalid trigger inputs: {exc}",
+                "TRIGGER_INPUTS_INVALID",
             ) from exc
 
         self._active_circumstances_paths[rig_id] = circumstances_path
+        self._active_photo_paths[rig_id] = paths["photo"]
+        self._active_exposure_opt_paths[rig_id] = paths["exposure_opt"]
         return ecl
 
-    def start(self, rig_id=1, simulate=False, speed=60.0, dry_run=False, dry_run_delay=30.0, dry_run_now=False):
+    def start(self, rig_id=1, simulate=False, speed=60.0, dry_run=False,
+              selected=None):
         if (
             not isinstance(rig_id, int)
             or isinstance(rig_id, bool)
@@ -513,19 +461,13 @@ class TriggerService:
             speed=float(speed)
         except (TypeError, ValueError):
             raise TriggerValidationError("Invalid simulation factor.", "SIM_SPEED_INVALID")
-        if sum(bool(mode) for mode in (simulate, dry_run, dry_run_now)) > 1:
+        if simulate and dry_run:
             raise TriggerValidationError(
-                "Simulation, dry-run, and dry-run-now are mutually exclusive.",
+                "Simulation and dry-run are mutually exclusive.",
                 "TRIGGER_MODE_INVALID",
             )
         if simulate and not (1.0 <= speed <= 1000.0):
             raise TriggerValidationError("Simulation factor out of range (1 to 1000).", "SIM_SPEED_INVALID")
-        try:
-            dry_run_delay=float(dry_run_delay)
-        except (TypeError, ValueError):
-            raise TriggerValidationError("Invalid dry-run delay.", "DRYRUN_DELAY_INVALID")
-        if dry_run and not (0.0 <= dry_run_delay <= 3600.0):
-            raise TriggerValidationError("Dry-run delay out of range (0 to 3600 s).", "DRYRUN_DELAY_INVALID")
         with self._lock:
             proc = self._procs[rig_id]
             if (
@@ -537,41 +479,33 @@ class TriggerService:
             self._starting_by_rig[rig_id] = True
             self._analysis_suppressed_by_rig[rig_id] = False
 
-            dry_run_now_start_utc = None
-            if dry_run_now:
-                dry_run_now_start = (
-                    datetime.now(timezone.utc)
-                    + timedelta(seconds=DRY_RUN_NOW_DELAY_S)
-                )
-                dry_run_now_start_utc = (
-                    dry_run_now_start
-                    .isoformat(timespec="milliseconds")
-                    .replace("+00:00", "Z")
-                )
-                self.log(
-                    f"🧪 DRY-RUN NOW RIG {rig_id} — "
-                    f"TSTART fixed at {dry_run_now_start_utc} "
-                    f"(UTC now + {DRY_RUN_NOW_DELAY_S:.0f}s)",
-                    "info",
-                    "trigger",
-                )
-
             try:
                 ecl = self.validate_start(
                     rig_id=rig_id,
                     require_gps=not simulate,
+                    selected=selected,
                 )
             except Exception:
                 self._starting_by_rig[rig_id] = False
                 raise
-
-            execution_plan_path = self._resolve_execution_plan(rig_id)
 
             ipc_session = None
             if not simulate and self.rig_config_loader is not None:
                 try:
                     config = self.rig_config_loader()
                     validate_execution_rig(config, rig_id)
+
+                    exposure_data = json.loads(
+                        self._active_exposure_opt_paths[rig_id].read_text(encoding="utf-8")
+                    )
+                    overrides = {
+                        item.get("rig_id"): item.get("photo")
+                        for item in exposure_data.get("rigs", ())
+                        if isinstance(item, dict) and isinstance(item.get("photo"), dict)
+                    }
+                    for item in config.get("rigs", ()):
+                        if item.get("rig_id") == rig_id and rig_id in overrides:
+                            item.setdefault("photo", {}).update(overrides[rig_id])
 
                     if self.camera_runtime is not None:
                         self.camera_runtime.reconcile(config)
@@ -580,15 +514,13 @@ class TriggerService:
                         )
                 except Exception:
                     self._starting_by_rig[rig_id] = False
-                    self._active_circumstances_paths.pop(rig_id, None)
+                    self._clear_active_inputs(rig_id)
                     raise
             gen=ecl.get("_generated_utc", ""); today=datetime.now(timezone.utc).strftime("%Y-%m-%d")
             if gen and today not in gen: self.log(f"⚠️ todayeclipse.json generated on {gen[:10]} — eclipse not today?", "warning", "trigger")
             mode = (
                 "simulation"
                 if simulate
-                else "dryrun_now"
-                if dry_run_now
                 else "dryrun"
                 if dry_run
                 else "real"
@@ -613,11 +545,7 @@ class TriggerService:
                         simulate,
                         speed,
                         dry_run,
-                        dry_run_delay,
-                        dry_run_now,
-                        dry_run_now_start_utc,
                         ipc_session,
-                        execution_plan_path,
                         rig_id,
                     ),
                     name=f"eclipse-trigger-process-rig-{rig_id}",
@@ -626,7 +554,7 @@ class TriggerService:
                 thread.start()
             except Exception:
                 self._starting_by_rig[rig_id] = False
-                self._active_circumstances_paths.pop(rig_id, None)
+                self._clear_active_inputs(rig_id)
                 if ipc_session is not None:
                     try:
                         self.camera_runtime.close_ipc_session(ipc_session.session_id)
@@ -663,11 +591,7 @@ class TriggerService:
         simulate=False,
         speed=60.0,
         dry_run=False,
-        dry_run_delay=30.0,
-        dry_run_now=False,
-        dry_run_now_start_utc=None,
         ipc_session=None,
-        execution_plan_path=None,
         rig_id=1,
     ):
         proc=None
@@ -675,8 +599,8 @@ class TriggerService:
             circumstances_path = self._active_circumstances_paths.get(rig_id)
             if circumstances_path is None:
                 raise TriggerValidationError(
-                    "Execution plan circumstances were not resolved.",
-                    "EXECUTION_PLAN_CIRCUMSTANCES_INVALID",
+                    "Trigger circumstances were not resolved.",
+                    "TRIGGER_INPUTS_NOT_LOADED",
                 )
 
             cmd = [
@@ -687,30 +611,25 @@ class TriggerService:
                 str(circumstances_path),
             ]
 
-            if execution_plan_path is None:
-                execution_plan_path = self._resolve_execution_plan(rig_id)
-
-            cmd += ["--execution-plan", str(execution_plan_path)]
+            photo_path = self._active_photo_paths.get(rig_id)
+            exposure_opt_path = self._active_exposure_opt_paths.get(rig_id)
+            if photo_path is None or exposure_opt_path is None:
+                raise TriggerValidationError(
+                    "Trigger input files were not resolved.",
+                    "TRIGGER_INPUTS_NOT_LOADED",
+                )
+            cmd += [
+                "--camera", str(photo_path),
+                "--exposure-opt", str(exposure_opt_path),
+            ]
 
             if simulate:
                 cmd += ["--simulate", "--speed", str(speed)]
-            elif dry_run_now:
-                if not dry_run_now_start_utc:
-                    raise RuntimeError(
-                        "DRY-RUN NOW without an absolute TSTART"
-                    )
-                cmd += [
-                    "--dry-run-now-start",
-                    dry_run_now_start_utc,
-                ]
             elif dry_run:
-                cmd += [
-                    "--dry-run",
-                    "--dry-run-delay",
-                    str(dry_run_delay),
-                ]
+                cmd.append("--dry-run")
 
             env=self._subprocess_env(ipc_session)
+            env["SET_TRIGGER_RIG_ID"] = str(rig_id)
             proc=subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -725,8 +644,6 @@ class TriggerService:
             mode = (
                 "simulation"
                 if simulate
-                else "dryrun_now"
-                if dry_run_now
                 else "dryrun"
                 if dry_run
                 else "real"
@@ -747,8 +664,6 @@ class TriggerService:
             label = (
                 "► Trigger simulation started."
                 if simulate
-                else "► Dry-run NOW started."
-                if dry_run_now
                 else "► Dry-run ×1 started."
                 if dry_run
                 else "► Trigger started."
@@ -764,7 +679,9 @@ class TriggerService:
                         suppress_analysis = self._analysis_suppressed_by_rig[rig_id]
                     if suppress_analysis:
                         continue
-                if "PHASE 1a" in line: self._set_phase(rig_id, "partial")
+                if line.startswith("TRIGGER_PHASE "):
+                    self._set_phase(rig_id, line.split(None, 1)[1])
+                elif "PHASE 1a" in line: self._set_phase(rig_id, "partial")
                 elif "PHASE 1b" in line or "DIAMOND RING" in line: self._set_phase(rig_id, "diamond_ring")
                 elif "PHASE 2" in line: self._set_phase(rig_id, "totality")
                 elif "PHASE 3a" in line or "PHASE 3b" in line: self._set_phase(rig_id, "partial_end")
@@ -784,7 +701,7 @@ class TriggerService:
                 if owns_process:
                     self._procs[rig_id] = None
                     self._starting_by_rig[rig_id] = False
-                    self._active_circumstances_paths.pop(rig_id, None)
+                    self._clear_active_inputs(rig_id)
                     self._analysis_suppressed_by_rig[rig_id] = False
 
             if owns_process:

@@ -266,9 +266,20 @@ class CameraService:
                       white_balance="Daylight"):
         if not self.plugin:
             raise RuntimeError("camera is not connected")
-        return self.plugin.init_settings(aperture=aperture, iso=iso,
-                                         image_format=image_format,
-                                         white_balance=white_balance)
+        # A new trigger run or phase entry treats camera state as unknown.
+        # Only a fully successful initialization may repopulate the SET cache.
+        self._last_phase_settings.clear()
+        result = self.plugin.init_settings(
+            aperture=aperture,
+            iso=iso,
+            image_format=image_format,
+            white_balance=white_balance,
+        )
+        if aperture is not None:
+            self._last_phase_settings["aperture"] = aperture
+        if iso is not None:
+            self._last_phase_settings["iso"] = iso
+        return result
 
     def set_exposure_settings(self, aperture=None, iso=None):
         if not self.plugin:

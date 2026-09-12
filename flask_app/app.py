@@ -246,6 +246,7 @@ from backend.sequencer_plan_service import (
     compile_execution_plan_from_files,
     compile_rig_execution_plan_from_files,
 )
+from backend.dryrun_circumstances import generate_dryrun_now
 from backend.execution_plan_runtime import (
     ExecutionPlanError,
     load_execution_plan,
@@ -3211,6 +3212,14 @@ def api_configs_save_photo():
     if not isinstance(phases, dict):
         return jsonify({"error": "Invalid or missing phases"}), 400
 
+    sequence_margin = data.get("sequence_margin_min")
+    if (
+        isinstance(sequence_margin, bool)
+        or not isinstance(sequence_margin, (int, float))
+        or sequence_margin < 0
+    ):
+        return jsonify({"error": "Invalid sequence_margin_min"}), 400
+
     for phase_name in ("partial", "diamond_ring", "totality"):
         phase = phases.get(phase_name)
         if not isinstance(phase, dict):
@@ -3237,6 +3246,17 @@ def api_configs_save_photo():
             }), 400
 
         phase.setdefault("step_ev", 1.0)
+
+    diamond = phases["diamond_ring"]
+    overlap = diamond.get("totality_overlap_s")
+    if (
+        isinstance(overlap, bool)
+        or not isinstance(overlap, (int, float))
+        or overlap < 5
+    ):
+        return jsonify({
+            "error": "Diamond Ring totality_overlap_s must be at least 5 s"
+        }), 400
 
     filename = requested
     if not filename.endswith(".json"):
@@ -4977,7 +4997,11 @@ def api_trigger_start():
     rig_id = payload.get("rig_id", 1)
 
     try:
-        if not _trigger_service.start(rig_id=rig_id, simulate=False):
+        if not _trigger_service.start(
+            rig_id=rig_id,
+            simulate=False,
+            selected=payload,
+        ):
             return jsonify({
                 "error": f"Trigger RIG {rig_id} is already running.",
                 "rig_id": rig_id,
@@ -5002,7 +5026,12 @@ def api_trigger_simulate():
     payload = request.get_json(silent=True) or {}
     speed = payload.get("speed", 60.0)
     try:
-        if not _trigger_service.start(simulate=True, speed=speed):
+        if not _trigger_service.start(
+            rig_id=payload.get("rig_id", 1),
+            simulate=True,
+            speed=speed,
+            selected=payload,
+        ):
             return jsonify({"error": "Trigger is already running."}), 409
         return jsonify({"status": "started", "mode": "simulation", "speed": float(speed)})
     except TriggerValidationError as exc:
@@ -5010,50 +5039,16 @@ def api_trigger_simulate():
             return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
 
-@app.route("/api/trigger/dryrun_now", methods=["POST"])
-def api_trigger_dryrun_now():
-    """Dry-run réel d'un RIG avec TSTART figé à UTC now + 60 s."""
-    payload = request.get_json(silent=True) or {}
-    rig_id = payload.get("rig_id", 1)
-
-    try:
-        if not _trigger_service.start(
-            rig_id=rig_id,
-            dry_run_now=True,
-        ):
-            return jsonify({
-                "error": f"Trigger RIG {rig_id} is already running.",
-                "rig_id": rig_id,
-            }), 409
-
-        return jsonify({
-            "status": "started",
-            "mode": "dryrun_now",
-            "speed": 1.0,
-            "tstart_delay_s": 60.0,
-            "rig_id": rig_id,
-        })
-
-    except TriggerValidationError as exc:
-        return jsonify({
-            "error": str(exc),
-            "code": exc.code,
-            "rig_id": rig_id,
-        }), 400
-
-
 @app.route("/api/trigger/dryrun", methods=["POST"])
 def api_trigger_dryrun():
     """Dry-run ×1 d'un seul RIG."""
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
-    delay = payload.get("delay_s", 30.0)
-
     try:
         if not _trigger_service.start(
             rig_id=rig_id,
             dry_run=True,
-            dry_run_delay=delay,
+            selected=payload,
         ):
             return jsonify({
                 "error": f"Trigger RIG {rig_id} is already running.",
@@ -5064,7 +5059,6 @@ def api_trigger_dryrun():
             "status": "started",
             "mode": "dryrun",
             "speed": 1.0,
-            "delay_s": float(delay),
             "rig_id": rig_id,
         })
 
@@ -5074,6 +5068,45 @@ def api_trigger_dryrun():
             "code": exc.code,
             "rig_id": rig_id,
         }), 400
+
+
+@app.route("/api/trigger/generate_dryrun_now", methods=["POST"])
+def api_trigger_generate_dryrun_now():
+    """Create circumstances translated so effective TSTART is now + 5 min."""
+    payload = request.get_json(silent=True) or {}
+    circumstances_name = str(payload.get("circumstances_file", "")).strip()
+    photo_name = str(payload.get("photo_file", "")).strip()
+    if Path(circumstances_name).name != circumstances_name:
+        return jsonify({"error": "Invalid circumstances filename"}), 400
+    if Path(photo_name).name != photo_name:
+        return jsonify({"error": "Invalid Photo Setup filename"}), 400
+
+    circumstances_path = _resolve_config_file(circumstances_name, "circumstances")
+    photo_path = CONFIGS_DIR / "photo_cfg" / photo_name
+    if not photo_path.is_file() and photo_name == "photo_default.json":
+        photo_path = PRODUCT_CONFIGS_DIR / "photo_cfg" / photo_name
+    if not circumstances_path.is_file() or not photo_path.is_file():
+        return jsonify({"error": "Select valid circumstances and Photo Setup files"}), 400
+
+    try:
+        circumstances = json.loads(circumstances_path.read_text(encoding="utf-8"))
+        photo = json.loads(photo_path.read_text(encoding="utf-8"))
+        generated = generate_dryrun_now(
+            circumstances,
+            photo,
+            datetime.now(timezone.utc),
+        )
+
+        destination_dir = CONFIGS_DIR / "circumstances"
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"dryrun_now_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+        (destination_dir / filename).write_text(
+            json.dumps(generated, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        return jsonify({"status": "ok", "filename": filename, "circumstances": generated})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
 
 @app.route("/api/trigger/stop", methods=["POST"])
 def api_trigger_stop():

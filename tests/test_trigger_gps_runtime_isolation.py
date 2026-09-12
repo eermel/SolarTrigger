@@ -57,26 +57,27 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    execution_plan_dir = configs / "execution_plan"
-    execution_plan_dir.mkdir(parents=True)
-    execution_plan_name = "test_execution_plan.json"
-    (execution_plan_dir / execution_plan_name).write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "config_type": "execution_plan",
-                "sequence_start_utc": "2027-08-02T10:00:00.000Z",
-                "sequence_end_utc": "2027-08-02T10:40:00.000Z",
-                "initial_state_required": {},
-                "sources": {
-                    "circumstances_file": circumstances_name,
-                },
-                "commands": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    store.set("execution_plan_file_rig_1", execution_plan_name)
+    photo_dir = configs / "photo_cfg"
+    photo_dir.mkdir(parents=True)
+    (photo_dir / "photo.json").write_text(json.dumps({
+        "config_type": "photo_setup",
+        "sequence_margin_min": 10,
+        "phases": {
+            "partial": {"interval_s": 60},
+            "diamond_ring": {
+                "interval_s": 1,
+                "duration_s": 30,
+                "totality_overlap_s": 5,
+            },
+            "totality": {"interval_s": 0},
+        },
+    }), encoding="utf-8")
+    exposure_dir = configs / "exposure_opt"
+    exposure_dir.mkdir(parents=True)
+    (exposure_dir / "exposure.json").write_text(json.dumps({
+        "config_type": "exposure_optimization",
+        "rigs": [{"rig_id": 1, "photo": {}}],
+    }), encoding="utf-8")
 
     allow_process_exit = threading.Event()
     process_completed = threading.Event()
@@ -115,12 +116,13 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
     real_validate_start = TriggerService.validate_start
     validate_calls = []
 
-    def counting_validate_start(self, rig_id=1, require_gps=True):
+    def counting_validate_start(self, rig_id=1, require_gps=True, selected=None):
         validate_calls.append(require_gps)
         return real_validate_start(
             self,
             rig_id=rig_id,
             require_gps=require_gps,
+            selected=selected,
         )
 
     monkeypatch.setattr(TriggerService, "validate_start", counting_validate_start)
@@ -135,7 +137,11 @@ def test_trigger_gps_loss_after_start_does_not_interrupt(tmp_path, monkeypatch):
         lambda *args: None,
     )
 
-    assert svc.start(simulate=False, dry_run=False) is True
+    assert svc.start(simulate=False, dry_run=False, selected={
+        "circumstances_file": circumstances_name,
+        "photo_file": "photo.json",
+        "exposure_opt_file": "exposure.json",
+    }) is True
     assert store.snapshot("trigger")["rigs"]["1"]["running"] is True
 
     store.update_section("gps", {"connected": False, "synced": False})

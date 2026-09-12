@@ -16,6 +16,13 @@ sys.modules.setdefault("gphoto2", ModuleType("gphoto2"))
 import flask_app.app as flask_module
 
 
+TRIGGER_SELECTION = {
+    "circumstances_file": "test_circumstances.json",
+    "photo_file": "photo.json",
+    "exposure_opt_file": "exposure.json",
+}
+
+
 def _configure_trigger_route(
     tmp_path,
     monkeypatch,
@@ -61,6 +68,34 @@ def _configure_trigger_route(
             eclipse_file.read_text(encoding="utf-8"),
             encoding="utf-8",
         )
+
+    photo_dir = configs_dir / "photo_cfg"
+    photo_dir.mkdir(parents=True)
+    (photo_dir / "photo.json").write_text(
+        json.dumps({
+            "config_type": "photo_setup",
+            "sequence_margin_min": 10,
+            "phases": {
+                "partial": {"interval_s": 60},
+                "diamond_ring": {
+                    "interval_s": 1,
+                    "duration_s": 30,
+                    "totality_overlap_s": 5,
+                },
+                "totality": {"interval_s": 0},
+            },
+        }),
+        encoding="utf-8",
+    )
+    exposure_dir = configs_dir / "exposure_opt"
+    exposure_dir.mkdir(parents=True)
+    (exposure_dir / "exposure.json").write_text(
+        json.dumps({
+            "config_type": "exposure_optimization",
+            "rigs": [{"rig_id": 1, "photo": {}}],
+        }),
+        encoding="utf-8",
+    )
 
     execution_plan_dir = configs_dir / "execution_plan"
     execution_plan_dir.mkdir(parents=True)
@@ -145,15 +180,12 @@ def test_trigger_start_rejects_missing_execution_plan_circumstances(
         encoding="utf-8",
     )
 
-    response = client.post("/api/trigger/start")
+    response = client.post("/api/trigger/start", json=TRIGGER_SELECTION)
 
     assert response.status_code == 400
     assert response.get_json() == {
-        "error": (
-            "Execution plan circumstances not found: "
-            "test_circumstances.json"
-        ),
-        "code": "EXECUTION_PLAN_CIRCUMSTANCES_NOT_FOUND",
+        "error": "Select the circumstances, Photo Setup and Exposure Optimization files.",
+        "code": "TRIGGER_INPUTS_NOT_LOADED",
         "rig_id": 1,
     }
 
@@ -167,7 +199,7 @@ def test_trigger_start_does_not_require_legacy_global_capture(
         capture=False,
     )
 
-    response = client.post("/api/trigger/start")
+    response = client.post("/api/trigger/start", json=TRIGGER_SELECTION)
 
     assert response.status_code == 200
     assert response.get_json() == {
@@ -187,7 +219,7 @@ def test_trigger_start_accepts_operator_selected_circumstances_date(
         eclipse_date=another_date,
     )
 
-    response = client.post("/api/trigger/start")
+    response = client.post("/api/trigger/start", json=TRIGGER_SELECTION)
 
     assert response.status_code == 200
     assert response.get_json() == {
@@ -200,7 +232,7 @@ def test_trigger_start_accepts_operator_selected_circumstances_date(
 def test_trigger_start_succeeds_when_preconditions_are_met(tmp_path, monkeypatch):
     client = _configure_trigger_route(tmp_path, monkeypatch)
 
-    response = client.post("/api/trigger/start")
+    response = client.post("/api/trigger/start", json=TRIGGER_SELECTION)
 
     assert response.status_code == 200
     assert response.get_json() == {
@@ -393,7 +425,7 @@ def test_trigger_start_accepts_legacy_capture_directory(tmp_path, monkeypatch):
         camera_subdir="capture",
     )
 
-    response = client.post("/api/trigger/start")
+    response = client.post("/api/trigger/start", json=TRIGGER_SELECTION)
 
     assert response.status_code == 200
     assert response.get_json() == {
@@ -500,7 +532,7 @@ def test_trigger_dryrun_accepts_circumstances_from_another_date(tmp_path, monkey
 
     response = client.post(
         "/api/trigger/dryrun",
-        json={"delay_s": 0},
+        json=TRIGGER_SELECTION,
     )
 
     assert response.status_code == 200
@@ -508,7 +540,6 @@ def test_trigger_dryrun_accepts_circumstances_from_another_date(tmp_path, monkey
         "status": "started",
         "mode": "dryrun",
         "speed": 1.0,
-        "delay_s": 0.0,
         "rig_id": 1,
     }
 
@@ -525,7 +556,7 @@ def test_trigger_simulation_accepts_circumstances_from_another_date(
 
     response = client.post(
         "/api/trigger/simulate",
-        json={"speed": 60},
+        json={"speed": 60, **TRIGGER_SELECTION},
     )
 
     assert response.status_code == 200
@@ -534,4 +565,3 @@ def test_trigger_simulation_accepts_circumstances_from_another_date(
         "mode": "simulation",
         "speed": 60.0,
     }
-

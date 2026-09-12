@@ -205,6 +205,19 @@ def test_phase_settings_only_send_changed_values():
     ]
 
 
+def test_initialization_replaces_cached_phase_state_only_after_success():
+    plugin = FakePlugin(FakeCamera())
+    service = CameraService()
+    service.plugin = plugin
+    service._last_phase_settings = {"aperture": "f/11", "iso": "800"}
+
+    service.init_settings(aperture="f/8", iso="100")
+    service.apply_phase_settings(aperture="f/8", iso="100")
+
+    assert service._last_phase_settings == {"aperture": "f/8", "iso": "100"}
+    assert [call for call in plugin.calls if call[0] == "exposure"] == []
+
+
 def test_prepare_then_trigger_converts_deadline_at_service_boundary(monkeypatch):
     deadline = datetime(2026, 8, 12, 17, 47, tzinfo=timezone.utc)
     target_time = datetime(2026, 8, 12, 17, 46, tzinfo=timezone.utc)

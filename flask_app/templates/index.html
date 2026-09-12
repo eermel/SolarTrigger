@@ -66,7 +66,7 @@
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M4 20h16M6 17l3-6 3 3 3-8 3 11"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="6" r="1"/></svg>
       <span>EXPO. OPT.</span>
     </button>
-    <button class="tab" data-page-index="5" id="sequencer-tab" onclick="showTab(5)">
+    <button class="tab" data-page-index="5" id="sequencer-tab" onclick="showTab(5)" hidden>
       <svg viewBox="0 0 24 24" stroke-width="1.5">
         <circle cx="5" cy="6" r="2"/>
         <circle cx="12" cy="12" r="2"/>
@@ -368,6 +368,14 @@
           <button class="btn btn-secondary" type="button" style="font-size:11px;padding:7px 10px"
             onclick="cleanCameraConfigs()">🧹 CLEAN</button>
         </div>
+        <div class="grid2" style="margin-top:10px">
+          <div class="field"><label>SEQUENCE MARGIN (MIN)</label>
+            <input type="number" id="cfg-sequence-margin" value="60" step="1" min="0">
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px">
+          TSTART = C1 − margin / TEND = C4 + margin
+        </div>
       </div>
 
       <!-- ── CARD 2 : Phase Partielle ── -->
@@ -410,8 +418,16 @@
             <input type="number" id="cfg-dr-duration" value="40" step="1" min="1">
           </div>
           <div class="field"><label>INTERVAL (S)</label>
-            <input type="number" id="cfg-dr-interval" value="4" step="1" min="1">
+            <input type="number" id="cfg-dr-interval" value="4" step="1" min="0">
           </div>
+        </div>
+        <div class="grid2" style="margin-bottom:8px">
+          <div class="field"><label>TOTALITY OVERLAP X (S)</label>
+            <input type="number" id="cfg-dr-overlap" value="5" step="0.1" min="5">
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">
+          Diamond Ring continues until C2 + X and starts at C3 − X. Minimum: 5 s.
         </div>
         <div class="grid2" style="margin-bottom:8px">
           <div class="field"><label>ISO</label>
@@ -805,7 +821,7 @@
 
     <!-- ═══════════════ PAGE 3 : CAMÉRA ═══════════════ -->
     <!-- ═══════════════ SEQUENCER ═══════════════ -->
-    <div class="page" id="sequencer-panel">
+    <div class="page" id="sequencer-panel" hidden>
 
       <!-- Inputs -->
       <div class="card">
@@ -1302,14 +1318,14 @@
         <div class="trigger-action-stack" style="display:flex;flex-direction:column;gap:8px;min-width:110px">
           <button class="btn trigger-action-button"
                   id="btn-dryrun-now"
-                  onclick="startDryRunNow()"
+                  onclick="generateDryRunNow()"
                   style="background:rgba(0,140,200,.30);border:1px solid rgba(0,180,255,.7);color:#9addff;font-size:11px"
-                  title="Same execution plan and camera as START. TSTART is UTC now + 60 seconds. The source .plan is never modified.">🧪 DRY-RUN NOW</button>
+                  title="Create selectable circumstances with TSTART at UTC now + 5 minutes. It does not start cameras.">🧪 GENERATE DRY-RUN NOW</button>
           <button class="btn trigger-action-button"
                   id="btn-dryrun"
                   onclick="startDryRun()"
                   style="background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
-                  title="Same execution plan and camera as START, using today UTC date and the original UTC times">🧪 DRY-RUN ×1</button>
+                  title="Same three selected files as START, using today UTC date and the original UTC times">🧪 DRY-RUN ×1</button>
           <button class="btn btn-success trigger-action-button"
                   id="btn-start"
                   onclick="startTrigger()">▶ START</button>
@@ -1317,7 +1333,7 @@
                   id="btn-totality-only"
                   onclick="startTotalityOnly()"
                   style="background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);color:var(--accent);font-size:11px"
-                  title="Immediate photo override: replaces the current photo sequence with the compiled totality sequence; audio continues until STOP">⚠ Override for Totality Sequence</button>
+                  title="Immediate photo override: replaces the current phase with the Photo Setup totality cycle; global timing audio continues until STOP">⚠ Override for Totality Sequence</button>
           <button class="btn btn-danger trigger-action-button"
                   id="btn-stop"
                   onclick="stopTrigger()">■ STOP</button>
@@ -1327,17 +1343,12 @@
         <div class="card" style="flex:1;margin:0;padding:12px">
           <div class="card-title" style="margin-bottom:8px">Active configuration</div>
 
-          <!-- Execution Plan sélectionné pour START / DRY-RUN -->
-          <div style="font-size:10px;color:var(--text-dim);margin-bottom:3px">Sequence loader</div>
-          <div style="display:flex;gap:6px;margin-bottom:8px">
-            <select id="trigger-config-select"
-                    style="flex:1;background:var(--bg3);border:1px solid var(--border);
-                           border-radius:8px;padding:6px 8px;color:var(--text);
-                           font-family:var(--mono);font-size:11px"
-                    onchange="loadTriggerPlan(this.value)">
-              <option value="">— Select an Execution Plan —</option>
-            </select>
-          </div>
+          <label for="trigger-circumstances-select" style="font-size:10px;color:var(--text-dim)">Eclipse circumstances</label>
+          <select id="trigger-circumstances-select" onchange="loadTriggerCircumstances(this.value)" style="width:100%;margin:3px 0 8px"></select>
+          <label for="trigger-photo-select" style="font-size:10px;color:var(--text-dim)">Photo Setup</label>
+          <select id="trigger-photo-select" style="width:100%;margin:3px 0 8px"></select>
+          <label for="trigger-exposure-opt-select" style="font-size:10px;color:var(--text-dim)">Exposure Optimization</label>
+          <select id="trigger-exposure-opt-select" style="width:100%;margin:3px 0 8px"></select>
 
           <!-- Infos config active -->
           <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">

@@ -1009,6 +1009,8 @@ class CameraIpcServer:
                 "POLICY_INVALID",
                 "iso_compensation_enabled must be a boolean",
             )
+        if intent.phase == "diamond_ring":
+            iso_compensation_enabled = False
 
         with self._state_lock:
             iso_requested = self._rig_iso_targets.get(rig_id)
@@ -1074,6 +1076,8 @@ class CameraIpcServer:
                 raise ValueError(
                     "iso_compensation_enabled must be a boolean"
                 )
+            if intent.phase == "diamond_ring":
+                iso_compensation_enabled = False
 
             with self._state_lock:
                 iso_requested = self._rig_iso_targets.get(rig_id)

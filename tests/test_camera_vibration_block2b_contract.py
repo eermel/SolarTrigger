@@ -85,34 +85,26 @@ def test_totality_override_only_signals_selected_running_rig(
     not hasattr(signal, "SIGUSR1"),
     reason="SIGUSR1 is required by Totality Override",
 )
-def test_totality_override_does_not_resolve_or_recompile_plan(
+def test_totality_override_does_not_replace_selected_inputs(
     tmp_path,
-    monkeypatch,
 ):
     service, _logs, _emits = _service(tmp_path)
 
     service._procs[3] = _Process()
 
-    def forbidden_plan_resolution(*_args, **_kwargs):
-        raise AssertionError(
-            "Totality Override must reuse the already-running .plan"
-        )
-
-    monkeypatch.setattr(
-        service,
-        "_resolve_execution_plan",
-        forbidden_plan_resolution,
-    )
+    selected = tmp_path / "circumstances.json"
+    service._active_circumstances_paths[3] = selected
 
     assert service.override_totality(rig_id=3) is True
 
     assert service._procs[3].signals == [
         signal.SIGUSR1
     ]
+    assert service._active_circumstances_paths[3] == selected
 
 
 # ---------------------------------------------------------------------------
-# REAL / DRY-RUN EXECUTION PLAN PARITY
+# REAL / DRY-RUN INPUT PARITY
 # ---------------------------------------------------------------------------
 
 
@@ -134,12 +126,7 @@ class _FinishedProcess:
         return 0
 
 
-def _execution_plan_argument(command):
-    index = command.index("--execution-plan")
-    return command[index + 1]
-
-
-def test_real_and_dryrun_pass_the_same_plan_to_runtime(
+def test_real_and_dryrun_pass_the_same_three_sources_to_runtime(
     tmp_path,
     monkeypatch,
 ):
@@ -151,14 +138,12 @@ def test_real_and_dryrun_pass_the_same_plan_to_runtime(
         / "circumstances"
         / "eclipse.json"
     )
-    plan = (
-        tmp_path
-        / "configs"
-        / "execution_plan"
-        / "rig1.plan"
-    )
+    photo = tmp_path / "configs" / "photo_cfg" / "photo.json"
+    exposure = tmp_path / "configs" / "exposure_opt" / "expo.json"
 
     service._active_circumstances_paths[1] = circumstances
+    service._active_photo_paths[1] = photo
+    service._active_exposure_opt_paths[1] = exposure
 
     commands = []
 
@@ -175,22 +160,19 @@ def test_real_and_dryrun_pass_the_same_plan_to_runtime(
     service._run(
         simulate=False,
         dry_run=False,
-        dry_run_now=False,
-        execution_plan_path=plan,
         rig_id=1,
     )
 
     # _run() correctly cleans the active circumstances path at exit.
     # Restore the same source for the second execution.
     service._active_circumstances_paths[1] = circumstances
+    service._active_photo_paths[1] = photo
+    service._active_exposure_opt_paths[1] = exposure
 
     # DRY-RUN
     service._run(
         simulate=False,
         dry_run=True,
-        dry_run_delay=30.0,
-        dry_run_now=False,
-        execution_plan_path=plan,
         rig_id=1,
     )
 
@@ -199,32 +181,21 @@ def test_real_and_dryrun_pass_the_same_plan_to_runtime(
     real_command = commands[0]
     dryrun_command = commands[1]
 
-    assert _execution_plan_argument(
-        real_command
-    ) == str(plan)
-
-    assert _execution_plan_argument(
-        dryrun_command
-    ) == str(plan)
-
     assert "--dry-run" not in real_command
     assert "--dry-run" in dryrun_command
-
-    # The mode changes timeline execution only.
-    # It must never select or compile another plan.
-    assert (
-        _execution_plan_argument(real_command)
-        == _execution_plan_argument(dryrun_command)
-    )
+    for flag, path in (("--file", circumstances), ("--camera", photo), ("--exposure-opt", exposure)):
+        assert real_command[real_command.index(flag) + 1] == str(path)
+        assert dryrun_command[dryrun_command.index(flag) + 1] == str(path)
+    assert "--execution-plan" not in real_command + dryrun_command
 
 
 def test_dryrun_does_not_insert_runtime_wait_for_mechanical_vibration():
-    """Mechanical settling belongs to compiled timestamps, never runtime sleep."""
+    """The phase runtime does not carry legacy mechanical-vibration timing."""
 
-    import backend.execution_plan_runtime as execution_plan_runtime
     import inspect
+    import scripts.eclipse_trigger as eclipse_trigger
 
-    source = inspect.getsource(execution_plan_runtime)
+    source = inspect.getsource(eclipse_trigger)
 
     assert "mechanical_vibration_delay_s" not in source
     assert "mechanical_vibration_enabled" not in source

@@ -34,6 +34,22 @@ class FakeSonyPlugin(SonyPlugin):
         return 1
 
 
+class StatefulSonyPlugin(SonyPlugin):
+    def __init__(self):
+        super().__init__(camera=None, log_fn=lambda _message: None)
+        self.raw_sets = []
+
+    def _set(self, name, value):
+        self.raw_sets.append((name, str(value)))
+        return True, False, ""
+
+    def _drain_frames(self, expected, _longest_exp_s):
+        return expected
+
+    def _settle_idle(self, max_s=2.0):
+        return None
+
+
 def _intent(*, shutter_min=None, shutter_max=None, step_ev=None, speeds=None):
     return CaptureIntent(
         shutter_min=shutter_min,
@@ -122,6 +138,51 @@ def test_trigger_prepared_executes_sequence_with_service_monotonic_deadline(
     assert result.frames == prepared.planned_count
     assert result.planned == prepared.planned_count
     assert 0 <= result.frames <= result.planned
+
+
+def test_repeated_identical_native_bracket_only_presses_shutter_again():
+    plugin = StatefulSonyPlugin()
+    _step, _count, sequence = planner.plan("1/2000", "1/500", 1.0)
+    bracket = sequence[0]
+
+    assert plugin._fire_bracket(bracket) == bracket.nimg
+    first_calls = list(plugin.raw_sets)
+    assert ("capturemode", "Single Shot") in first_calls
+    assert ("shutterspeed", str(bracket.centre)) in first_calls
+    assert ("capturemode", str(bracket.mode_string)) in first_calls
+
+    plugin.raw_sets.clear()
+    assert plugin._fire_bracket(bracket) == bracket.nimg
+    assert plugin.raw_sets == [("bulb", "1"), ("bulb", "0")]
+
+
+def test_unchanged_iso_does_not_break_an_already_configured_bracket():
+    plugin = StatefulSonyPlugin()
+    plugin._known_settings = {
+        "iso": "100",
+        "capturemode": "Continuous Bracket 1.0 EV 3 Img.",
+    }
+
+    plugin.set_exposure_settings(iso="100")
+
+    assert plugin.raw_sets == []
+    assert plugin._known_settings["capturemode"].startswith("Continuous Bracket")
+
+
+def test_failed_setting_is_unknown_and_retried(monkeypatch):
+    plugin = StatefulSonyPlugin()
+    outcomes = iter(((False, False, "usb error"), (True, False, "")))
+
+    def flaky_set(name, value):
+        plugin.raw_sets.append((name, str(value)))
+        return next(outcomes)
+
+    monkeypatch.setattr(plugin, "_set", flaky_set)
+
+    assert plugin._set_state("iso", "100")[0] is False
+    assert "iso" not in plugin._state_cache()
+    assert plugin._set_state("iso", "100")[0] is True
+    assert plugin.raw_sets == [("iso", "100"), ("iso", "100")]
 
 
 @pytest.mark.parametrize(

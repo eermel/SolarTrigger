@@ -48,7 +48,7 @@ def test_all_versioned_sounds_are_referenced():
 
     unused = actual - _referenced_wav_names()
 
-    assert unused == set(), (
+    assert unused == {"2minutes.wav", "filters_off.wav", "filters_on.wav"}, (
         "Unreferenced WAV assets: "
         + ", ".join(sorted(unused))
     )

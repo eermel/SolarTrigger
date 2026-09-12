@@ -54,6 +54,26 @@ class SonyPlugin(CameraPlugin):
     # ------------------------------------------------------------------ #
     # Reglage bas niveau
     # ------------------------------------------------------------------ #
+    def _state_cache(self):
+        cache = getattr(self, "_known_settings", None)
+        if cache is None:
+            cache = {}
+            self._known_settings = cache
+        return cache
+
+    def _set_state(self, name, value):
+        """Set persistent camera state only when its known value changes."""
+        expected = str(value)
+        cache = self._state_cache()
+        if cache.get(name) == expected:
+            return True, False, ""
+        ok, readonly, error = self._set(name, value)
+        if ok:
+            cache[name] = expected
+        else:
+            cache.pop(name, None)
+        return ok, readonly, error
+
     def _set(self, name, value):
         """Ecrit une config. Retourne (ok, is_readonly, err)."""
         if gp is None:
@@ -78,7 +98,7 @@ class SonyPlugin(CameraPlugin):
     def _set_first_available(self, name, candidates):
         """Essaie plusieurs valeurs pour une config (ex. format RAW)."""
         for val in candidates:
-            ok, _, _ = self._set(name, val)
+            ok, _, _ = self._set_state(name, val)
             if ok:
                 return True, val
         return False, None
@@ -86,11 +106,17 @@ class SonyPlugin(CameraPlugin):
     def set_speed_blocking(self, speed, deadline=None):
         """Regle shutterspeed en re-essayant tant que 'read only' (boitier
         occupe). Ne se fie PAS a la relecture. True si applique."""
+        speed = str(speed)
+        cache = self._state_cache()
+        if cache.get("shutterspeed") == speed:
+            return True
         t0 = time.monotonic()
         while True:
             ok, ro, err = self._set("shutterspeed", speed)
             if ok:
+                cache["shutterspeed"] = speed
                 return True
+            cache.pop("shutterspeed", None)
             if not ro:
                 self.log(f"   [sony] set shutter speed {speed}: error {err}")
                 return False
@@ -118,7 +144,7 @@ class SonyPlugin(CameraPlugin):
 
         errors = []
         for name in candidates:
-            ok, _readonly, error = self._set(name, value)
+            ok, _readonly, error = self._set_state(name, value)
             if ok:
                 return True
             errors.append(f"{name}: {error}")
@@ -240,43 +266,55 @@ class SonyPlugin(CameraPlugin):
     # ------------------------------------------------------------------ #
     def init_settings(self, aperture=None, iso=None, image_format="RAW",
                       white_balance="Daylight"):
+        self._state_cache().clear()
         self.log("   [sony] initializing settings")
-        self._set("expprogram", "M")            # sinon shutterspeed read-only
-        self._set("focusmode", "Manual")        # pas d'AF pendant la totalite
-        self._set("capturetarget", "card")
-        self._set("capturemode", "Single Shot")  # etat de depart propre
+        self._set_state("expprogram", "M")       # sinon shutterspeed read-only
+        self._set_state("focusmode", "Manual")   # pas d'AF pendant la totalite
+        self._set_state("capturetarget", "card")
+        self._set_state("capturemode", "Single Shot")
         if iso is not None:
-            self._set("iso", str(iso))
+            self._set_state("iso", str(iso))
         if aperture is not None:
-            self._set("f-number", aperture)
+            self._set_state("f-number", aperture)
         if white_balance:
-            self._set("whitebalance", white_balance)
+            self._set_state("whitebalance", white_balance)
         if image_format:
             self._set_first_available(
                 "imagequality", [image_format, "RAW", "NEF (Raw)", "Raw"])
 
     def set_exposure_settings(self, aperture=None, iso=None):
-        # Speed can be read-only unless the body is in a neutral single-shot state.
-        self._set("capturemode", "Single Shot")
-        if iso is not None:
-            self._set("iso", str(iso))
-        if aperture is not None:
-            self._set("f-number", aperture)
+        cache = self._state_cache()
+        pending = []
+        if iso is not None and cache.get("iso") != str(iso):
+            pending.append(("iso", str(iso)))
+        if aperture is not None and cache.get("f-number") != str(aperture):
+            pending.append(("f-number", aperture))
+        if not pending:
+            return
+        # These settings can be read-only in a native bracket mode.
+        self._set_state("capturemode", "Single Shot")
+        for name, value in pending:
+            self._set_state(name, value)
 
     # ------------------------------------------------------------------ #
     # Une rafale bracket
     # ------------------------------------------------------------------ #
     def _fire_bracket(self, brk, deadline=None):
         """Execute un Bracket planner. Retourne le nb de frames capturees."""
-        # 1) etat propre + vitesse centrale (avec retry read-only)
-        self._set("capturemode", "Single Shot")
-        if not self.set_speed_blocking(brk.centre, deadline):
-            return 0
-        # 2) basculer en mode bracket
-        ok, _, err = self._set("capturemode", brk.mode_string)
-        if not ok:
-            self.log(f"   [sony] set mode {brk.mode_string}: error {err}")
-            return 0
+        cache = self._state_cache()
+        ready = (
+            cache.get("capturemode") == str(brk.mode_string)
+            and cache.get("shutterspeed") == str(brk.centre)
+        )
+        if not ready:
+            # Sony exposes the centre shutter as writable only in Single Shot.
+            self._set_state("capturemode", "Single Shot")
+            if not self.set_speed_blocking(brk.centre, deadline):
+                return 0
+            ok, _, err = self._set_state("capturemode", brk.mode_string)
+            if not ok:
+                self.log(f"   [sony] set mode {brk.mode_string}: error {err}")
+                return 0
         # 3) maintien obturateur -> rafale interne
         longest = max(planner.parse_speed(v) for v in brk.views)
         self._set("bulb", 1)
@@ -287,7 +325,7 @@ class SonyPlugin(CameraPlugin):
 
     def _fire_single(self, speed, deadline=None):
         """Une seule vue a `speed` (cas v_max == v_min)."""
-        self._set("capturemode", "Single Shot")
+        self._set_state("capturemode", "Single Shot")
         if not self.set_speed_blocking(speed, deadline):
             return 0
         try:
