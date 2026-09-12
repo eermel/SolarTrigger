@@ -2706,9 +2706,6 @@ def api_camera_sync_time():
     the persistent RIG worker could already own the same USB device.  All
     camera I/O must instead pass through that single serialized worker.
     """
-    inactive = require_device_active("camera")
-    if inactive is not None:
-        return inactive
     trigger_state = _state_store.snapshot("trigger") or {}
     rigs = trigger_state.get("rigs") or {}
     if (rigs.get("1") or {}).get("running"):

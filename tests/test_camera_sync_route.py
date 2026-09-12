@@ -137,30 +137,31 @@ def camera_sync_client(tmp_path, monkeypatch):
     return flask_module.app.test_client(), state_store
 
 
-def test_camera_sync_inactive_does_not_init_worker_or_acquire_lock(
+def test_camera_sync_uses_rig_worker_when_legacy_device_is_inactive(
     camera_sync_client, monkeypatch
 ):
     client, state_store = camera_sync_client
     state_store.update_section(
         "devices", {"camera": {"plugin": "none", "active": False}}
     )
-
-    class UnexpectedLock:
-        def acquire(self, **kwargs):
-            pytest.fail("camera sync lock must not be acquired")
-
-    monkeypatch.setattr(
-        flask_module,
-        "get_camera_worker_runtime",
-        lambda **_kwargs: pytest.fail("camera runtime must not be initialized"),
+    state_store.update_section(
+        "gps", {"utc_offset_minutes": 120, "timezone_name": "Europe/Paris"}
     )
-    monkeypatch.setattr(flask_module, "_camera_sync_lock", UnexpectedLock())
+    result = {
+        "status": "unsupported",
+        "datetime_synced": False,
+        "timezone_synced": False,
+        "message": "Synchronization is not characterized",
+    }
+    worker = FakeSyncWorker(result=result)
+    runtime, _config = _install_runtime(monkeypatch, worker)
 
     response = client.post("/api/camera/sync_time")
 
-    assert response.status_code == 409
-    assert response.get_json()["code"] == "DEVICE_INACTIVE"
-    assert response.get_json()["category"] == "camera"
+    assert response.status_code == 200
+    assert response.get_json() == result
+    assert len(worker.references) == 1
+    assert runtime.requested_rig_ids == [1]
 
 
 def test_camera_sync_requires_gps_offset_without_changing_state(
