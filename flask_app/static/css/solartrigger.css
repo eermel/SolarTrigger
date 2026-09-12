@@ -535,6 +535,8 @@ header {
 .log-line.orange  { color: var(--orange); }
 .log-line.pink    { color: var(--pink); }
 .log-line.info    { color: var(--text-dim); }
+.log-line.audio   { color: var(--yellow); }
+.log-line.phase   { color: var(--red); }
 
 .log-line.info    { color: var(--text-dim); }
 .log-line.gps     { color: var(--blue); }

@@ -96,6 +96,7 @@ def play(filename):
                 return
             pygame.mixer.music.load(path)
             pygame.mixer.music.play()
+            _log(f"TRIGGER_AUDIO {filename}")
             while pygame.mixer.music.get_busy() and not _stop_event.is_set():
                 time.sleep(0.1)
             if _stop_event.is_set():

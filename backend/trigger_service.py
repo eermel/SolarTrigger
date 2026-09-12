@@ -586,6 +586,28 @@ class TriggerService:
             {"rig_id": rig_id, "phase": phase},
         )
 
+    @staticmethod
+    def _runtime_log_event(line):
+        phase_events = {
+            "partial_before": ("PHASE 1 — Partial", "partial"),
+            "diamond_ring_c2": ("PHASE 2 — Diamond ring", "diamond_ring"),
+            "totality": ("PHASE 3 — Totality", "totality"),
+            "diamond_ring_c3": ("PHASE 4 — Diamond ring", "diamond_ring"),
+            "partial_after": ("PHASE 5 — Partial", "partial"),
+        }
+        if line.startswith("TRIGGER_PHASE "):
+            phase_name = line.split(None, 1)[1]
+            event = phase_events.get(phase_name)
+            if event is not None:
+                label, public_phase = event
+                return label, "phase", public_phase
+
+        if line.startswith("TRIGGER_AUDIO "):
+            filename = line.split(None, 1)[1]
+            return f"🔊 Sound played: {filename}", "audio", None
+
+        return line, None, None
+
     def _run(
         self,
         simulate=False,
@@ -674,13 +696,16 @@ class TriggerService:
                 line=raw.rstrip()
                 if not line: continue
                 level=self.line_level_fn(line); line=self.line_clean_fn(line)
+                line, event_level, public_phase = self._runtime_log_event(line)
+                if event_level is not None:
+                    level = event_level
                 if line.startswith("TRIGGER_RUN_ANALYSIS "):
                     with self._lock:
                         suppress_analysis = self._analysis_suppressed_by_rig[rig_id]
                     if suppress_analysis:
                         continue
-                if line.startswith("TRIGGER_PHASE "):
-                    self._set_phase(rig_id, line.split(None, 1)[1])
+                if public_phase is not None:
+                    self._set_phase(rig_id, public_phase)
                 elif "PHASE 1a" in line: self._set_phase(rig_id, "partial")
                 elif "PHASE 1b" in line or "DIAMOND RING" in line: self._set_phase(rig_id, "diamond_ring")
                 elif "PHASE 2" in line: self._set_phase(rig_id, "totality")

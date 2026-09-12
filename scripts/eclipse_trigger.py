@@ -101,6 +101,14 @@ def _speed_seconds(value: str) -> float:
     return float(text)
 
 
+def _phase_label(window: PhaseWindow) -> str:
+    return {
+        "partial": "Partial",
+        "diamond_ring": "Diamond ring",
+        "totality": "Totality",
+    }[window.photo_phase]
+
+
 class SimulationCamera:
     def __init__(self, clock: RuntimeClock, rig_snapshot: dict) -> None:
         self.clock = clock
@@ -296,7 +304,10 @@ def main() -> int:
                     rig_snapshot, plan, started, eclipse_context,
                 )
                 if atmos_added:
-                    log(f"INFO phase={window.name} atmos_exposure={atmos_speed}")
+                    log(
+                        f'INFO phase="{_phase_label(window)}" '
+                        f"atmos_exposure={atmos_speed}"
+                    )
             _regular, fastest, slowest, step_ev, speeds = plan
             deadline = (
                 _aware_utc(window.end)
@@ -326,10 +337,10 @@ def main() -> int:
             planned = getattr(result, "planned", None)
             if planned is not None and frames != planned:
                 log(
-                    f"ERROR phase={window.name} stage=photo "
+                    f'ERROR phase="{_phase_label(window)}" stage=photo '
                     f"captured={frames}/{planned}"
                 )
-            log(f"INFO phase={window.name} PHOTO frames={frames}")
+            log(f'INFO phase="{_phase_label(window)}" PHOTO frames={frames}')
             return True
 
         def wait_until(target: datetime) -> None:

@@ -60,17 +60,19 @@ def test_init_without_pygame_disables_audio_and_play_is_noop(monkeypatch):
 
 
 def test_play_uses_mixer_until_track_is_finished(monkeypatch, tmp_path):
+    logs = []
     pygame = fake_pygame(get_busy=[True, True, False])
     monkeypatch.setitem(sys.modules, "pygame", pygame)
     sound = tmp_path / "contact.wav"
     sound.touch()
 
-    audio_service.init(lambda message: None)
+    audio_service.init(logs.append)
     audio_service.set_sounds_dir(tmp_path)
     audio_service.play(sound.name)
 
     pygame.mixer.music.load.assert_called_once_with(str(sound))
     pygame.mixer.music.play.assert_called_once_with()
+    assert "TRIGGER_AUDIO contact.wav" in logs
     assert pygame.mixer.music.get_busy.call_count == 3
     pygame.mixer.music.stop.assert_not_called()
 
