@@ -188,6 +188,27 @@ def test_read_info_autoconnects_and_tolerates_missing_config(monkeypatch):
     }
 
 
+def test_connect_is_idempotent_for_an_already_connected_camera(monkeypatch):
+    camera = FakeCamera()
+    monkeypatch.setattr(
+        'services.camera_service.get_camera_model',
+        lambda connected_camera: 'Test Camera Model',
+    )
+    service = CameraService(
+        camera_factory=lambda: camera,
+        plugin_loader=loader,
+        log_fn=lambda *args: None,
+    )
+
+    first_plugin = service.connect()
+    second_plugin = service.connect()
+
+    assert second_plugin is first_plugin
+    assert service.camera is camera
+    assert camera.init_count == 1
+    assert camera.exit_count == 0
+
+
 def test_phase_settings_only_send_changed_values():
     plugin = FakePlugin(FakeCamera())
     service = CameraService()

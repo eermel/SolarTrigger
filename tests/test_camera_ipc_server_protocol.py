@@ -316,6 +316,72 @@ def test_prepare_capture_accepts_optional_metadata_and_echoes_request_id(
     assert forwarded_intent.request_id == expected_request_id
 
 
+@pytest.mark.parametrize(
+    "exposure_plan",
+    (
+        None,
+        [
+            {"shutter": "1/1000", "iso": 100},
+            {
+                "shutter": "1/500",
+                "iso": 200,
+                "sequence_group": "atmos_single",
+            },
+        ],
+    ),
+)
+def test_prepare_capture_accepts_serialized_exposure_plan(
+    tmp_path, exposure_plan
+):
+    worker = FakeWorker()
+    server = make_server(tmp_path, {1: worker})
+    intent_data = {
+        "shutter_min": "1/100",
+        "shutter_max": "1/100",
+        "step_ev": 1.0,
+        "speeds": None,
+        "phase": "partial",
+        "target_time": "2026-08-12T18:00:00Z",
+        "deadline": None,
+        "overflow_policy": None,
+        "exposure_plan": exposure_plan,
+    }
+
+    request(server, "prepare_capture", {"rig_id": 1, "intent": intent_data})
+
+    forwarded_intent = worker.calls[-1][1]
+    assert forwarded_intent.exposure_plan == exposure_plan
+
+
+@pytest.mark.parametrize(
+    "exposure_plan",
+    (
+        [],
+        [{"shutter": "1/500"}],
+        [{"shutter": "1/500", "iso": True}],
+        [{"shutter": "1/500", "iso": 100, "unexpected": "value"}],
+    ),
+)
+def test_prepare_capture_rejects_invalid_exposure_plan(tmp_path, exposure_plan):
+    server = make_server(tmp_path, {1: FakeWorker()})
+    intent_data = {
+        "shutter_min": "1/100",
+        "shutter_max": "1/100",
+        "step_ev": 1.0,
+        "speeds": None,
+        "phase": "partial",
+        "target_time": "2026-08-12T18:00:00Z",
+        "deadline": None,
+        "overflow_policy": None,
+        "exposure_plan": exposure_plan,
+    }
+
+    with pytest.raises(IpcError) as caught:
+        request(server, "prepare_capture", {"rig_id": 1, "intent": intent_data})
+
+    assert caught.value.code == "INVALID_REQUEST"
+
+
 def test_session_token_lifecycle_and_single_deadline_conversion(tmp_path):
     clock = CountingRuntimeClock()
     worker = FakeWorker(clock)

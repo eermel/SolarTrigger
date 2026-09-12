@@ -71,7 +71,13 @@ _REQUIRED_INTENT_KEYS = {
     "deadline",
     "overflow_policy",
 }
-_ALLOWED_INTENT_KEYS = _REQUIRED_INTENT_KEYS | {"origin", "request_id"}
+_ALLOWED_INTENT_KEYS = _REQUIRED_INTENT_KEYS | {
+    "origin",
+    "request_id",
+    "exposure_plan",
+}
+_REQUIRED_EXPOSURE_KEYS = {"shutter", "iso"}
+_ALLOWED_EXPOSURE_KEYS = _REQUIRED_EXPOSURE_KEYS | {"sequence_group"}
 _PARAM_KEYS = {
     "ping": set(),
     "list_active_camera_rigs": set(),
@@ -1290,6 +1296,44 @@ class CameraIpcServer:
             raise IpcError("INVALID_REQUEST", "speeds must be an array of strings or null")
         if not isinstance(intent["phase"], str):
             raise IpcError("INVALID_REQUEST", "phase must be a string")
+
+        exposure_plan = intent.get("exposure_plan")
+        if exposure_plan is None:
+            return
+        if not isinstance(exposure_plan, list) or not exposure_plan:
+            raise IpcError(
+                "INVALID_REQUEST",
+                "exposure_plan must be a non-empty array or null",
+            )
+        for index, exposure in enumerate(exposure_plan):
+            if not isinstance(exposure, dict):
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    f"exposure_plan[{index}] must be an object",
+                )
+            cls._validate_keys(
+                exposure,
+                _ALLOWED_EXPOSURE_KEYS,
+                _REQUIRED_EXPOSURE_KEYS,
+                f"exposure_plan[{index}]",
+            )
+            if not isinstance(exposure["shutter"], str) or not exposure["shutter"]:
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    f"exposure_plan[{index}].shutter must be a non-empty string",
+                )
+            iso = exposure["iso"]
+            if not isinstance(iso, int) or isinstance(iso, bool) or iso <= 0:
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    f"exposure_plan[{index}].iso must be a positive integer",
+                )
+            sequence_group = exposure.get("sequence_group")
+            if sequence_group is not None and not isinstance(sequence_group, str):
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    f"exposure_plan[{index}].sequence_group must be a string or null",
+                )
 
     def _validate_session(self, session: Any):
         with self._state_lock:
