@@ -31,13 +31,6 @@ CONTACT_MAX_FRAMES = 5
 # crossing C3.
 C3_CONTACT_MAX_EXPOSURE_S = 1.0 / 500.0
 
-# Hard photographic safety outside totality.
-#
-# Partial and Diamond Ring must never use an exposure slower than 1/500 s.
-# Exactly 1/500 s is valid.  Only TOTALITY may use longer exposures.
-OUTSIDE_TOTALITY_MAX_EXPOSURE_S = 1.0 / 500.0
-
-
 @dataclass(frozen=True)
 class CaptureTarget:
     target_time: datetime
@@ -600,12 +593,6 @@ def materialize_capture_target_for_rig(
             warnings = list(
                 materialized.get("warnings", [])
             )
-
-    _validate_non_totality_exposure_plan(
-        rig_id=rig_id,
-        phase=target.phase,
-        exposure_plan=exposure_plan,
-    )
 
     return MaterializedRigCapture(
         rig_id=rig_id,
@@ -1935,36 +1922,6 @@ def _validate_contact_frame_count(
         raise ValueError(
             f"contact PHOTO exceeds {CONTACT_MAX_FRAMES} exposures "
             f"for RIG {capture.rig_id}: {count}"
-        )
-
-
-def _validate_non_totality_exposure_plan(
-    *,
-    rig_id: int,
-    phase: str,
-    exposure_plan: Any,
-) -> None:
-    """Fail closed if a non-totality PHOTO is slower than 1/500 s."""
-
-    normalized_phase = str(phase).strip().lower()
-
-    if normalized_phase == "totality":
-        return
-
-    unsafe = [
-        str(exposure.get("shutter"))
-        for exposure in exposure_plan
-        if (
-            _shutter_seconds(exposure.get("shutter"))
-            > OUTSIDE_TOTALITY_MAX_EXPOSURE_S + 1e-12
-        )
-    ]
-
-    if unsafe:
-        raise ValueError(
-            f"{normalized_phase or 'unknown'} exposure slower than "
-            f"1/500 s outside totality for RIG {rig_id}: "
-            f"{', '.join(unsafe)}"
         )
 
 

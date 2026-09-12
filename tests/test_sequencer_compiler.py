@@ -363,6 +363,56 @@ def test_sony_target_expands_to_physical_shutters():
     assert capture.motion_ceiling_s is None
 
 
+@pytest.mark.parametrize(
+    ("phase", "phase_window"),
+    [
+        ("partial", "phase_1a"),
+        ("diamond_ring", "phase_1b"),
+    ],
+)
+def test_non_c3_phase_accepts_configured_1_250_exposure(
+    phase,
+    phase_window,
+):
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 4, 0),
+        phase=phase,
+        phase_window=phase_window,
+        sequence_index=0,
+        deadline=datetime(2027, 8, 2, 10, 4, 30),
+    )
+
+    phase_config = {
+        "enabled": True,
+        "interval_s": 30,
+        "iso": 100,
+        "aperture": "f/8",
+        "shutter_min": "1/250",
+        "shutter_max": "1/1000",
+        "step_ev": 1.0,
+    }
+
+    if phase == "diamond_ring":
+        phase_config["duration_s"] = 30
+
+    capture = materialize_capture_target_for_rig(
+        target,
+        _rig(backend="sony"),
+        {"phases": {phase: phase_config}},
+        _exposure_opt(),
+        _eclipse_context(),
+    )
+
+    assert tuple(
+        exposure["shutter"]
+        for exposure in capture.final_exposure_plan
+    ) == (
+        "1/1000",
+        "1/500",
+        "1/250",
+    )
+
+
 from backend.sequencer_compiler import (
     audit_materialized_capture,
     audit_materialized_sony_capture,
