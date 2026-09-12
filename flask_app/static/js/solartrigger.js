@@ -955,7 +955,15 @@ async function readRigCameraInfo(rigId, button) {
       method: 'POST',
     });
 
-    const data = await response.json();
+    const responseText = await response.text();
+    let data = {};
+    if (responseText) {
+      try {
+        data = JSON.parse(responseText);
+      } catch (_error) {
+        throw new Error(`HTTP ${response.status}: invalid server response`);
+      }
+    }
 
     if (!response.ok) {
       throw new Error(data.error || `HTTP error ${response.status}`);

@@ -248,6 +248,22 @@ def test_read_info_returns_camera_busy(monkeypatch):
     assert runtime.reconciled_config is not None
 
 
+def test_read_info_returns_json_and_camera_unavailable_on_worker_failure(monkeypatch):
+    worker = FakeCameraWorker(error=RuntimeError("Could not claim the USB device"))
+    client, runtime = _client(monkeypatch, _rig_config(), {1: worker})
+
+    response = client.post("/api/rigs/1/camera/read_info")
+
+    assert response.status_code == 503
+    assert response.is_json
+    assert response.get_json() == {
+        "error": "Could not claim the USB device",
+        "code": "CAMERA_UNAVAILABLE",
+        "rig_id": 1,
+    }
+    assert runtime.reconciled_config is not None
+
+
 def test_sync_time_is_scoped_to_requested_rig_without_persistence(monkeypatch):
     expected = {"status": "ok", "camera_datetime": "2026-08-28T12:34:56"}
     worker = FakeCameraWorker(expected)

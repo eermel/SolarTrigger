@@ -239,15 +239,19 @@ class CameraWorker:
         )
 
     def read_info(self):
-        def invoke():
-            return self._ensure_service().read_info()
-
-        return self._worker.submit_with_priority(
-            PRIORITY_DIAGNOSTIC, invoke, reject_if_busy=True
-        ).result()
+        # Diagnostic reads use the same recovery contract as Trigger SET/PHOTO
+        # operations.  A failed libgphoto2 transaction invalidates the handle
+        # before returning the error, so a later read can reconnect cleanly
+        # instead of retaining a poisoned USB owner.
+        return self._call(
+            "read_info",
+            priority=PRIORITY_DIAGNOSTIC,
+            recover_connection=True,
+            reject_if_busy=True,
+        )
 
     def sync_datetime(self, ref):
-        return self._call("sync_datetime", ref)
+        return self._call("sync_datetime", ref, recover_connection=True)
 
     def probe_info(self) -> dict[str, str | int | None]:
         def probe():

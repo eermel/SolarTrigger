@@ -272,7 +272,7 @@ from backend.generic_worker import BusyDeviceError
 from backend.mount_worker_runtime import get_mount_worker_runtime
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
-from services.camera_service import CameraService, _normalized_speed_plan
+from services.camera_service import _normalized_speed_plan
 from services.focuser_service import FocuserService
 from services.mount_service import MountService
 from plugins.mount.indi_client import IndiClientError
@@ -2500,7 +2500,12 @@ def api_rig_camera_read_info(rig_id):
             "status": "error",
             "error": str(exc),
         })
-        raise
+        log.warning("Camera information unavailable for rig %s: %s", rig_id, exc)
+        return jsonify({
+            "error": str(exc),
+            "code": "CAMERA_UNAVAILABLE",
+            "rig_id": rig_id,
+        }), 503
 
     end_utc = datetime.now(timezone.utc)
     trace_payload = {
@@ -2695,6 +2700,12 @@ def api_rig_camera_sync_time(rig_id):
 
 @app.route("/api/camera/sync_time", methods=["POST"])
 def api_camera_sync_time():
+    """Compatibility endpoint: synchronize RIG 1 through its USB owner.
+
+    The legacy implementation instantiated a standalone CameraService while
+    the persistent RIG worker could already own the same USB device.  All
+    camera I/O must instead pass through that single serialized worker.
+    """
     inactive = require_device_active("camera")
     if inactive is not None:
         return inactive
@@ -2710,7 +2721,6 @@ def api_camera_sync_time():
     if not _camera_sync_lock.acquire(blocking=False):
         return jsonify({"error": "Camera synchronization is already in progress."}), 409
 
-    camera_service = None
     try:
         gps_state = _state_store.snapshot("gps") or {}
         utc_offset_minutes = gps_state.get("utc_offset_minutes")
@@ -2726,9 +2736,13 @@ def api_camera_sync_time():
             timezone_name=gps_state.get("timezone_name"),
             utc_offset_minutes=utc_offset_minutes,
         )
-        camera_service = CameraService(log_fn=lambda message: log.info(message))
         try:
-            result = camera_service.sync_datetime(reference)
+            runtime = get_camera_worker_runtime(log_fn=log.info)
+            runtime.reconcile(load_rig_configuration())
+            worker = runtime.get_for_rig(1)
+            if worker is None:
+                raise RuntimeError("camera worker is unavailable")
+            result = worker.sync_datetime(reference)
         except Exception as exc:
             return jsonify({"error": f"No camera connected: {exc}"}), 404
 
@@ -2742,8 +2756,6 @@ def api_camera_sync_time():
         )
         return jsonify(result)
     finally:
-        if camera_service is not None:
-            camera_service.close()
         _camera_sync_lock.release()
 
 @app.route("/api/eclipse/supported")

@@ -87,6 +87,45 @@ if importlib.util.find_spec("flask") is None:
 from flask_app import app as flask_module
 
 
+class FakeSyncWorker:
+    def __init__(self, result=None, error=None):
+        self.result = result
+        self.error = error
+        self.references = []
+
+    def sync_datetime(self, reference):
+        self.references.append(reference)
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+class FakeSyncRuntime:
+    def __init__(self, worker):
+        self.worker = worker
+        self.reconciled = []
+        self.requested_rig_ids = []
+
+    def reconcile(self, config):
+        self.reconciled.append(config)
+
+    def get_for_rig(self, rig_id):
+        self.requested_rig_ids.append(rig_id)
+        return self.worker
+
+
+def _install_runtime(monkeypatch, worker):
+    runtime = FakeSyncRuntime(worker)
+    config = {"schema_version": 2, "rigs": []}
+    monkeypatch.setattr(
+        flask_module,
+        "get_camera_worker_runtime",
+        lambda **_kwargs: runtime,
+    )
+    monkeypatch.setattr(flask_module, "load_rig_configuration", lambda: config)
+    return runtime, config
+
+
 @pytest.fixture
 def camera_sync_client(tmp_path, monkeypatch):
     state_store = StateStore(tmp_path / "state.json")
@@ -98,7 +137,7 @@ def camera_sync_client(tmp_path, monkeypatch):
     return flask_module.app.test_client(), state_store
 
 
-def test_camera_sync_inactive_does_not_init_service_or_acquire_lock(
+def test_camera_sync_inactive_does_not_init_worker_or_acquire_lock(
     camera_sync_client, monkeypatch
 ):
     client, state_store = camera_sync_client
@@ -106,15 +145,15 @@ def test_camera_sync_inactive_does_not_init_service_or_acquire_lock(
         "devices", {"camera": {"plugin": "none", "active": False}}
     )
 
-    class UnexpectedCameraService:
-        def __init__(self, **kwargs):
-            pytest.fail("CameraService must not be initialized")
-
     class UnexpectedLock:
         def acquire(self, **kwargs):
             pytest.fail("camera sync lock must not be acquired")
 
-    monkeypatch.setattr(flask_module, "CameraService", UnexpectedCameraService)
+    monkeypatch.setattr(
+        flask_module,
+        "get_camera_worker_runtime",
+        lambda **_kwargs: pytest.fail("camera runtime must not be initialized"),
+    )
     monkeypatch.setattr(flask_module, "_camera_sync_lock", UnexpectedLock())
 
     response = client.post("/api/camera/sync_time")
@@ -151,32 +190,22 @@ def test_camera_sync_rejects_running_trigger_without_changing_state(
     assert state_store.snapshot() == before
 
 
-def test_camera_sync_returns_404_when_camera_init_fails_without_changing_state(
+def test_camera_sync_returns_404_when_worker_sync_fails_without_changing_state(
     camera_sync_client, monkeypatch
 ):
     client, state_store = camera_sync_client
     state_store.update_section("gps", {"utc_offset_minutes": 120})
     before = state_store.snapshot()
 
-    class CameraServiceWithInitFailure:
-        def __init__(self, **kwargs):
-            pass
-
-        def sync_datetime(self, reference):
-            raise RuntimeError("gphoto2 init failed")
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(
-        flask_module, "CameraService", CameraServiceWithInitFailure
-    )
+    worker = FakeSyncWorker(error=RuntimeError("gphoto2 init failed"))
+    runtime, _config = _install_runtime(monkeypatch, worker)
 
     response = client.post("/api/camera/sync_time")
 
     assert response.status_code == 404
     assert "gphoto2 init failed" in response.get_json()["error"]
     assert state_store.snapshot() == before
+    assert runtime.requested_rig_ids == [1]
 
 
 def test_camera_sync_persists_unsupported_result_with_utc_timestamps(
@@ -198,31 +227,21 @@ def test_camera_sync_persists_unsupported_result_with_utc_timestamps(
         "plugin": "base",
         "model": "Test Camera",
     }
-    references = []
-
-    class CameraServiceWithBaseSync:
-        def __init__(self, **kwargs):
-            pass
-
-        def sync_datetime(self, reference):
-            references.append(reference)
-            return result
-
-        def close(self):
-            pass
-
-    monkeypatch.setattr(flask_module, "CameraService", CameraServiceWithBaseSync)
+    worker = FakeSyncWorker(result=result)
+    runtime, config = _install_runtime(monkeypatch, worker)
 
     response = client.post("/api/camera/sync_time")
 
     assert response.status_code == 200
     assert response.get_json() == result
-    assert len(references) == 1
-    reference = references[0]
+    assert len(worker.references) == 1
+    reference = worker.references[0]
     assert (
         reference.datetime_local - reference.datetime_utc
     ).total_seconds() == pytest.approx(120 * 60)
     assert reference.timezone_name == "Europe/Paris"
+    assert runtime.reconciled == [config]
+    assert runtime.requested_rig_ids == [1]
 
     persisted = state_store.snapshot("camera")["time_sync"]
     assert {key: persisted[key] for key in result} == result
