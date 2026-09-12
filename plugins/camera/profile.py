@@ -122,6 +122,11 @@ class ProfilePlugin(CameraPlugin):
         self.profile = validate_profile(profile)
         self.name = self.profile["backend"]
         self.commands = self.profile["commands"]
+        # All access to a profile camera is serialized by its rig worker.
+        # Remember only settings that this instance has read or written
+        # successfully.  A failed capture invalidates this knowledge so the
+        # next physical group replays its complete characterized preamble.
+        self._known_settings = {}
 
     @staticmethod
     def matches(model_string):
@@ -247,6 +252,7 @@ class ProfilePlugin(CameraPlugin):
         target = self._resolved_value(key, value)
         actual = self._read(key)
         if str(actual) == str(target):
+            self._known_settings[key] = target
             return False
 
         if not self._live_writable(key):
@@ -271,6 +277,7 @@ class ProfilePlugin(CameraPlugin):
             raise CameraPreflightError(
                 self._manual_instruction(key, target, actual)
             ) from exc
+        self._known_settings[key] = target
         return True
 
     def _apply(self, key, value=None):
@@ -279,6 +286,7 @@ class ProfilePlugin(CameraPlugin):
         if not self._live_writable(key):
             actual = self._read(key)
             if str(actual) == str(target):
+                self._known_settings[key] = target
                 return False
             raise CameraPreflightError(
                 self._manual_instruction(key, target, actual)
@@ -290,6 +298,7 @@ class ProfilePlugin(CameraPlugin):
             else write_widget
         )
         writer(self.camera, self.commands[key]["path"], target)
+        self._known_settings[key] = target
         return True
 
     def preflight(self, required_state=None):
@@ -1241,25 +1250,95 @@ class ProfilePlugin(CameraPlugin):
     def audit_prepared_capture(self, prepared):
         return prepared.token[1]
 
+    @staticmethod
+    def _capture_groups(operations):
+        """Return indivisible SET...PHOTO groups in execution order."""
+        group = []
+        for operation in operations:
+            group.append(operation)
+            if operation.get("action") != "set":
+                yield tuple(group)
+                group = []
+        if group:
+            yield tuple(group)
+
+    @staticmethod
+    def _group_budget_seconds(group):
+        durations = [operation.get("duration_ms") for operation in group]
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+            for value in durations
+        ):
+            return None
+        return sum(float(value) for value in durations) / 1000.0
+
+    def _effective_capture_group(self, group):
+        """Drop a redundant preamble after an identical successful group.
+
+        Contract-v3 groups temporarily select Single Shot before changing
+        exposure controls, then restore the final bracket mode.  When ISO,
+        shutter and final capture mode are already exactly those requested,
+        none of those SETs is necessary and PHOTO can start immediately.
+        """
+        if not group or group[-1].get("action") == "set":
+            return group
+
+        desired = {}
+        for operation in group[:-1]:
+            if operation.get("action") != "set":
+                return group
+            key = self._SEMANTIC.get(str(operation.get("parameter")))
+            if key is None or key not in self.commands:
+                return group
+            desired[key] = self._resolved_value(key, operation.get("value"))
+
+        if desired and all(
+            key in self._known_settings
+            and str(self._known_settings[key]) == str(value)
+            for key, value in desired.items()
+        ):
+            return (group[-1],)
+        return group
+
     def trigger_prepared(self, prepared, deadline=None):
         frames = 0
-        for operation in self.audit_prepared_capture(prepared):
-            if (
-                deadline is not None
-                and seconds_until_deadline(deadline) <= 0
-            ):
-                break
-            if operation["action"] == "set":
-                self.set_parameter(
-                    operation["parameter"],
-                    operation["value"],
-                )
-            else:
-                frames += self.execute_photo(operation).frames
+        truncated = False
+        groups = self._capture_groups(self.audit_prepared_capture(prepared))
+        for group in groups:
+            effective_group = self._effective_capture_group(group)
+            if deadline is not None:
+                remaining = seconds_until_deadline(deadline)
+                budget = self._group_budget_seconds(effective_group)
+                if remaining <= 0 or (
+                    budget is not None and remaining < budget
+                ):
+                    self.log(
+                        f"   [{self.name}] deadline: capture group "
+                        "truncated before SET (ok)"
+                    )
+                    truncated = True
+                    break
+
+            try:
+                for operation in effective_group:
+                    if operation["action"] == "set":
+                        self.set_parameter(
+                            operation["parameter"],
+                            operation["value"],
+                        )
+                    else:
+                        frames += self.execute_photo(operation).frames
+            except Exception:
+                self._known_settings.clear()
+                raise
 
         return CaptureResult(
             frames,
             prepared.planned_count,
+            detail="deadline" if truncated else None,
         )
 
     def shoot_speeds(

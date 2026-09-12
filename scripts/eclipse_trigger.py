@@ -275,16 +275,29 @@ def main() -> int:
         def phase_config(window: PhaseWindow) -> dict:
             return photo_setup["phases"][window.photo_phase]
 
+        camera_initialized = False
+
         def initialize_phase(window: PhaseWindow) -> None:
+            nonlocal camera_initialized
             config = phase_config(window)
             log(f"TRIGGER_PHASE {window.name}")
-            camera.initialize(
-                aperture=config.get("aperture", "f/8"),
-                iso=str(config.get("iso", "100")),
-            )
+            if not camera_initialized:
+                camera.initialize(
+                    aperture=config.get("aperture", "f/8"),
+                    iso=str(config.get("iso", "100")),
+                )
+                camera_initialized = True
 
         def reconcile_phase(window: PhaseWindow) -> None:
+            nonlocal camera_initialized
             config = phase_config(window)
+            if not camera_initialized:
+                camera.initialize(
+                    aperture=config.get("aperture", "f/8"),
+                    iso=str(config.get("iso", "100")),
+                )
+                camera_initialized = True
+                return
             camera.apply_phase_settings(
                 aperture=config.get("aperture", "f/8"),
                 iso=str(config.get("iso", "100")),
@@ -309,11 +322,10 @@ def main() -> int:
                         f"atmos_exposure={atmos_speed}"
                     )
             _regular, fastest, slowest, step_ev, speeds = plan
-            deadline = (
-                _aware_utc(window.end)
-                if window.photo_phase == "totality"
-                else None
-            )
+            # Every phase boundary is authoritative.  The camera may finish
+            # an admitted atomic PHOTO group, but must never start a group
+            # whose characterized budget crosses into the next phase.
+            deadline = _aware_utc(window.end)
             intent = CaptureIntent(
                 shutter_min=None if speeds is not None else slowest,
                 shutter_max=None if speeds is not None else fastest,
@@ -327,21 +339,28 @@ def main() -> int:
                 request_id=uuid.uuid4().hex,
             )
             prepared = camera.prepare_capture(intent)
-            estimate = getattr(prepared, "estimated_total_s", None)
-            if (window.photo_phase == "totality" and estimate is not None
-                    and clock.now() + timedelta(seconds=float(estimate)) > window.end):
-                log("INFO totality capture not started: Diamond Ring C3 has priority")
-                return False
             result = camera.trigger_prepared(prepared, deadline=deadline)
             frames = getattr(result, "frames", 0)
             planned = getattr(result, "planned", None)
+            truncated = getattr(result, "detail", "") == "deadline"
             if planned is not None and frames != planned:
-                log(
-                    f'ERROR phase="{_phase_label(window)}" stage=photo '
-                    f"captured={frames}/{planned}"
-                )
+                if truncated:
+                    log(
+                        f'INFO phase="{_phase_label(window)}" stage=photo '
+                        f"captured={frames}/{planned} truncated="
+                        + (
+                            "C3_safety"
+                            if window.photo_phase == "totality"
+                            else "phase_boundary"
+                        )
+                    )
+                else:
+                    log(
+                        f'ERROR phase="{_phase_label(window)}" stage=photo '
+                        f"captured={frames}/{planned}"
+                    )
             log(f'INFO phase="{_phase_label(window)}" PHOTO frames={frames}')
-            return True
+            return not truncated
 
         def wait_until(target: datetime) -> None:
             remaining = (target - clock.now()).total_seconds()

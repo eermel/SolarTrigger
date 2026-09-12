@@ -17,6 +17,7 @@ from backend.camera_timing_contract import (
 )
 from backend.camera_timing import load_camera_timing_profile
 from plugins.camera.profile import ProfilePlugin
+from plugins.camera.base import CaptureResult
 
 
 def contract(**overrides):
@@ -131,6 +132,114 @@ def test_v3_profile_planner_emits_discrete_set_commands():
             [1 / 1000, 1 / 500, 1 / 250],
         )
     )
+
+
+def test_deadline_executes_groups_that_fit_instead_of_rejecting_full_cycle(
+    monkeypatch,
+):
+    current = [100.0]
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=profile())
+    operations = (
+        {"action": "set", "parameter": "iso", "value": "100", "duration_ms": 500},
+        {"action": "trigger_capture", "shutter": "1/1000", "frames": 1, "duration_ms": 500},
+        {"action": "set", "parameter": "iso", "value": "200", "duration_ms": 500},
+        {"action": "trigger_capture", "shutter": "1/250", "frames": 1, "duration_ms": 3000},
+    )
+    prepared = SimpleNamespace(
+        token=("profile", operations),
+        planned_count=2,
+    )
+    executed = []
+
+    def set_parameter(parameter, value):
+        executed.append(("set", parameter, value))
+        current[0] += 0.5
+
+    def execute_photo(operation):
+        executed.append(("photo", operation["shutter"]))
+        current[0] += operation["duration_ms"] / 1000.0
+        return CaptureResult(frames=operation["frames"], planned=operation["frames"])
+
+    monkeypatch.setattr("plugins.camera.base.time.monotonic", lambda: current[0])
+    monkeypatch.setattr(plugin, "set_parameter", set_parameter)
+    monkeypatch.setattr(plugin, "execute_photo", execute_photo)
+
+    result = plugin.trigger_prepared(prepared, deadline=103.0)
+
+    assert result.frames == 1
+    assert result.planned == 2
+    assert result.detail == "deadline"
+    assert executed == [
+        ("set", "iso", "100"),
+        ("photo", "1/1000"),
+    ]
+
+
+def test_identical_successive_bracket_skips_redundant_set_preamble(
+    monkeypatch,
+):
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=profile())
+    operations = (
+        {"action": "set", "parameter": "iso", "value": "100", "duration_ms": 500},
+        {"action": "set", "parameter": "capturemode", "value": "Single Shot", "duration_ms": 500},
+        {"action": "set", "parameter": "shutterspeed", "value": "1/1000", "duration_ms": 500},
+        {"action": "set", "parameter": "capturemode", "value": "Bracket 3", "duration_ms": 500},
+        {"action": "bracket_press", "shutter": "1/1000", "frames": 3, "duration_ms": 1000},
+    )
+    prepared = SimpleNamespace(token=("profile", operations), planned_count=3)
+    executed = []
+
+    def set_parameter(parameter, value):
+        key = plugin._SEMANTIC[parameter]
+        plugin._known_settings[key] = plugin._resolved_value(key, value)
+        executed.append(("set", parameter, value))
+
+    def execute_photo(operation):
+        executed.append(("photo", operation["frames"]))
+        return CaptureResult(frames=3, planned=3)
+
+    monkeypatch.setattr(plugin, "set_parameter", set_parameter)
+    monkeypatch.setattr(plugin, "execute_photo", execute_photo)
+
+    plugin.trigger_prepared(prepared)
+    plugin.trigger_prepared(prepared)
+
+    assert executed == [
+        ("set", "iso", "100"),
+        ("set", "capturemode", "Single Shot"),
+        ("set", "shutterspeed", "1/1000"),
+        ("set", "capturemode", "Bracket 3"),
+        ("photo", 3),
+        ("photo", 3),
+    ]
+
+
+def test_capture_failure_invalidates_known_profile_settings(monkeypatch):
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=profile())
+    plugin._known_settings.update({
+        "iso": plugin._resolved_value("iso", "100"),
+        "shutter": plugin._resolved_value("shutter", "1/1000"),
+        "capture_mode": plugin._resolved_value("capture_mode", "Bracket 3"),
+    })
+    operations = (
+        {"action": "set", "parameter": "iso", "value": "100", "duration_ms": 500},
+        {"action": "set", "parameter": "capturemode", "value": "Single Shot", "duration_ms": 500},
+        {"action": "set", "parameter": "shutterspeed", "value": "1/1000", "duration_ms": 500},
+        {"action": "set", "parameter": "capturemode", "value": "Bracket 3", "duration_ms": 500},
+        {"action": "bracket_press", "shutter": "1/1000", "frames": 3, "duration_ms": 1000},
+    )
+    prepared = SimpleNamespace(token=("profile", operations), planned_count=3)
+
+    monkeypatch.setattr(
+        plugin,
+        "execute_photo",
+        lambda _operation: (_ for _ in ()).throw(RuntimeError("USB failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="USB failed"):
+        plugin.trigger_prepared(prepared)
+
+    assert plugin._known_settings == {}
 
 
 def test_persistent_documents_strip_debug_history(tmp_path):
