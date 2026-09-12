@@ -20,7 +20,13 @@ import uuid
 
 from backend import audio_service
 from backend.executable_exposure_plan import expand_executable_shutters
-from backend.phase_trigger import PhaseRuntime, PhaseWindow, build_phase_schedule
+from backend.phase_trigger import (
+    PHASE_DIAMOND_C2,
+    PHASE_DIAMOND_C3,
+    PhaseRuntime,
+    PhaseWindow,
+    build_phase_schedule,
+)
 from backend.preview_materializer import apply_atmos_if_enabled, normalize_intent_plan
 from backend.rig_runtime import load_rig_configuration
 from backend.timeline import build_timeline
@@ -80,6 +86,13 @@ def today_circumstances(source: dict, today: datetime) -> dict:
     return result
 
 
+def _aware_utc(value: datetime) -> datetime:
+    """Attach the UTC contract used by camera IPC to runtime timestamps."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _speed_seconds(value: str) -> float:
     text = str(value).strip()
     if "/" in text:
@@ -121,19 +134,36 @@ class SimulationCamera:
 def _phase_alerts(schedule, timeline: dict) -> list[tuple[datetime, str]]:
     offsets = (
         (600, "10minutes.wav"), (300, "5minutes.wav"),
+        (120, "2minutes.wav"),
         (60, "60seconds.wav"), (30, "30seconds.wav"),
         (10, "10seconds.wav"), (5, "5.wav"), (4, "4.wav"),
         (3, "3.wav"), (2, "2.wav"), (1, "1.wav"),
         (0, "contact.wav"),
     )
     alerts = []
+    previous_contact = schedule.tstart
     for contact in (timeline.get(name) for name in ("C1", "C2", "C3", "C4")):
         if contact is None:
             continue
         for seconds, filename in offsets:
             instant = contact - timedelta(seconds=seconds)
-            if schedule.tstart <= instant < schedule.tend:
+            # Do not let a long countdown for the next contact leak into the
+            # preceding eclipse phase (notably C3 announcements before C2).
+            if previous_contact <= instant < schedule.tend:
                 alerts.append((instant, filename))
+        previous_contact = contact
+
+    # Filter handling follows the phase boundaries computed from the selected
+    # circumstances and Photo Setup files, including generated dry-run files.
+    alerts.append((schedule.tstart - timedelta(seconds=30), "filters_on.wav"))
+    windows = {window.name: window for window in schedule.windows}
+    diamond_c2 = windows.get(PHASE_DIAMOND_C2)
+    diamond_c3 = windows.get(PHASE_DIAMOND_C3)
+    if diamond_c2 is not None and diamond_c3 is not None:
+        alerts.extend((
+            (diamond_c2.start - timedelta(seconds=2), "filters_off.wav"),
+            (diamond_c3.end + timedelta(seconds=2), "filters_on.wav"),
+        ))
     return sorted(set(alerts), key=lambda item: item[0])
 
 
@@ -268,14 +298,18 @@ def main() -> int:
                 if atmos_added:
                     log(f"INFO phase={window.name} atmos_exposure={atmos_speed}")
             _regular, fastest, slowest, step_ev, speeds = plan
-            deadline = window.end if window.photo_phase == "totality" else None
+            deadline = (
+                _aware_utc(window.end)
+                if window.photo_phase == "totality"
+                else None
+            )
             intent = CaptureIntent(
                 shutter_min=None if speeds is not None else slowest,
                 shutter_max=None if speeds is not None else fastest,
                 step_ev=None if speeds is not None else step_ev,
                 speeds=speeds,
                 phase=window.photo_phase,
-                target_time=started,
+                target_time=_aware_utc(started),
                 deadline=deadline,
                 overflow_policy="truncate",
                 origin="atmos" if atmos_added else window.photo_phase,

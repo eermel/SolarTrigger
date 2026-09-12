@@ -1,8 +1,9 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from backend.state_store import StateStore
 from backend.trigger_service import TriggerService
+from scripts.eclipse_trigger import _aware_utc
 
 
 def _service(tmp_path):
@@ -96,3 +97,19 @@ def test_runtime_command_uses_three_sources_and_no_execution_plan(tmp_path, monk
     assert "--camera" in seen["command"]
     assert "--exposure-opt" in seen["command"]
     assert seen["env"]["SET_TRIGGER_RIG_ID"] == "1"
+
+
+def test_camera_ipc_timestamps_are_explicit_utc():
+    naive = datetime(2026, 9, 12, 20, 43, 26)
+    local = datetime(
+        2026,
+        9,
+        12,
+        22,
+        43,
+        26,
+        tzinfo=timezone(timedelta(hours=2)),
+    )
+
+    assert _aware_utc(naive).isoformat() == "2026-09-12T20:43:26+00:00"
+    assert _aware_utc(local).isoformat() == "2026-09-12T20:43:26+00:00"

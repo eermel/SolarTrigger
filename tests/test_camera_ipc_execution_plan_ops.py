@@ -64,3 +64,21 @@ def test_execute_photo_uses_rig_specific_ipc_operation():
             "deadline": None,
         }
     ]
+
+
+def test_phase_runtime_camera_calls_use_operation_sized_timeouts():
+    client = FakeIpcClient()
+
+    client.initialize(1)
+    client.apply_phase_settings(1)
+    client.prepare_capture(1, {})
+    client.trigger_prepared(1, "token")
+
+    assert [call["timeout_s"] for call in client.calls] == [
+        client.CONTROL_TIMEOUT_S,
+        client.CONTROL_TIMEOUT_S,
+        client.CONTROL_TIMEOUT_S,
+        client.CAPTURE_TIMEOUT_S,
+    ]
+    assert client.CONTROL_TIMEOUT_S > client.DEFAULT_TIMEOUT_S
+    assert client.CAPTURE_TIMEOUT_S >= client.CONTROL_TIMEOUT_S
