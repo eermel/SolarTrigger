@@ -737,6 +737,25 @@ class AuditedRigCapture:
     mechanical_vibration_delay_s: int = 2
 
 
+def _mark_contact_bracket_anchor(
+    capture: MaterializedRigCapture,
+    operations: list[dict[str, Any]],
+) -> None:
+    """Make the one native contact bracket the physical contact anchor."""
+
+    if _contact_kind(capture.target) is None:
+        return
+
+    bracket_operations = [
+        operation
+        for operation in operations
+        if operation.get("action") == "bracket_press"
+    ]
+
+    if len(bracket_operations) == 1:
+        bracket_operations[0]["contact_anchor"] = True
+
+
 def _capture_intent_from_materialized(
     capture: MaterializedRigCapture,
 ) -> CaptureIntent:
@@ -802,15 +821,7 @@ def audit_materialized_sony_capture(
         for operation in plugin.audit_prepared_capture(prepared)
     ]
 
-    if _contact_kind(capture.target) is not None:
-        bracket_operations = [
-            operation
-            for operation in operations
-            if operation.get("action") == "bracket_press"
-        ]
-
-        if len(bracket_operations) == 1:
-            bracket_operations[0]["contact_anchor"] = True
+    _mark_contact_bracket_anchor(capture, operations)
 
     mode = (
         str(prepared.token[0])
@@ -920,13 +931,20 @@ def audit_materialized_capture(
             raise ValueError(f"Missing or invalid camera profile: {capture.backend}")
         plugin = ProfilePlugin(None, profile=profile)
         prepared = plugin.prepare_capture(_capture_intent_from_materialized(capture))
+        strategy = str(profile["strategy"]).strip().lower()
+        operations = [
+            deepcopy(operation)
+            for operation in plugin.audit_prepared_capture(prepared)
+        ]
+        if strategy == "bracket":
+            _mark_contact_bracket_anchor(capture, operations)
         return AuditedRigCapture(
             rig_id=capture.rig_id, backend=capture.backend, target=capture.target,
             aperture=capture.aperture, exposure_plan=capture.final_exposure_plan,
             prepared_mode="profile", estimated_total_s=prepared.estimated_total_s,
             planned_count=prepared.planned_count,
-            operations=tuple(plugin.audit_prepared_capture(prepared)),
-            camera_strategy=str(profile["strategy"]).strip().lower(),
+            operations=tuple(operations),
+            camera_strategy=strategy,
             mechanical_vibration_enabled=(
                 capture.mechanical_vibration_enabled
             ),

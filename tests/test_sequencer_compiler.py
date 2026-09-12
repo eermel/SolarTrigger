@@ -570,6 +570,82 @@ def test_c2_places_one_atmos_single_before_priority_native_bracket(
     assert anchor_operation.target_time == anchored.target.target_time
 
 
+def test_c2_profile_bracket_marks_native_bracket_as_contact_anchor(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "backend.sequencer_compiler.apply_atmos_if_enabled",
+        _atmos_plan,
+    )
+    backend = "profile-sony_sony_ilce_7m5_pc_control_f5c04507"
+    from backend import camera_profiles
+
+    profile = camera_profiles.discover_profiles()[backend]
+    # The Pi's preserved characterized profile selects a native three-frame
+    # bracket here. Force that cost decision independently of repository
+    # characterization measurements so this routing regression is stable.
+    profile["brackets"]["3"]["total_ms"] = 1000
+    monkeypatch.setattr(
+        camera_profiles,
+        "discover_profiles",
+        lambda: {backend: profile},
+    )
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 4, 59),
+        phase="diamond_ring",
+        phase_window="phase_1b",
+        sequence_index=0,
+        deadline=None,
+    )
+    capture = materialize_capture_target_for_rig(
+        target,
+        _rig(backend=backend),
+        _three_view_diamond_photo(),
+        _exposure_opt(),
+        _eclipse_context(),
+    )
+
+    audited = audit_materialized_capture(capture)
+    triggers = [
+        operation
+        for operation in audited.operations
+        if operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    assert audited.camera_strategy == "bracket"
+    assert [operation["action"] for operation in triggers] == [
+        "trigger_capture",
+        "bracket_press",
+    ]
+    assert triggers[1]["physical_views"] == [
+        "1/2000",
+        "1/1000",
+        "1/500",
+    ]
+    assert triggers[1]["contact_anchor"] is True
+
+    timing = CameraTimingProfile(
+        backend=backend,
+        set_iso_ms=800,
+        set_capturemode_ms=900,
+        set_shutter_ms=800,
+        trigger_single_duration_ms=500,
+        bracket_press_latency_ms=0,
+        bracket_atomic_ms_by_frames={3: 2500},
+    )
+    scheduled = schedule_audited_capture(audited, timing)
+    scheduled_triggers = [
+        operation
+        for operation in scheduled
+        if operation.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    assert scheduled_triggers[0].command_time < target.target_time
+    assert scheduled_triggers[1].command_time == target.target_time
+
+
 def test_c3_omits_unsafe_atmos_single_and_keeps_native_bracket(
     monkeypatch,
 ):
