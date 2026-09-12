@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 
 from backend.camera_ipc_server import CameraIpcServer, IpcError
-from backend.trigger_service import TriggerValidationError, validate_execution_rigs
+from backend.trigger_service import (
+    TriggerValidationError,
+    validate_execution_rig,
+    validate_execution_rigs,
+)
 
 
 class DummyWorker:
@@ -49,6 +53,31 @@ def test_execution_rigs_are_rig1_plus_enabled_secondary_rigs():
     }
 
     assert validate_execution_rigs(config) == (1, 3)
+
+
+def test_independent_execution_always_accepts_primary_rig():
+    config = {
+        "rigs": [
+            rig(1, enabled=False),
+            rig(2, enabled=False),
+        ]
+    }
+
+    assert validate_execution_rig(config, 1) == 1
+
+
+def test_independent_execution_rejects_disabled_secondary_rig():
+    config = {
+        "rigs": [
+            rig(1, enabled=False),
+            rig(2, enabled=False),
+        ]
+    }
+
+    with pytest.raises(TriggerValidationError) as caught:
+        validate_execution_rig(config, 2)
+
+    assert caught.value.code == "RIG_DISABLED"
 
 
 def test_execution_rejects_rig1_without_pilotable_camera():

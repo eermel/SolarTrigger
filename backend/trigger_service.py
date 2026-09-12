@@ -151,7 +151,11 @@ def validate_execution_rigs(config):
 
 
 def validate_execution_rig(config, rig_id):
-    """Validate one RIG for an independent trigger execution."""
+    """Validate one RIG for an independent trigger execution.
+
+    RIG 1 is the mandatory primary RIG and therefore participates regardless
+    of its legacy ``enabled`` flag.  Only secondary RIGs are opt-in.
+    """
     if (
         not isinstance(rig_id, int)
         or isinstance(rig_id, bool)
@@ -191,7 +195,7 @@ def validate_execution_rig(config, rig_id):
             "RIG_NOT_FOUND",
         )
 
-    if rig.get("enabled") is not True:
+    if rig_id != 1 and rig.get("enabled") is not True:
         raise TriggerValidationError(
             f"RIG {rig_id} is not active.",
             "RIG_DISABLED",
