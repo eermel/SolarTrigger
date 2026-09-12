@@ -24,6 +24,7 @@ from backend.phase_trigger import (
     PHASE_DIAMOND_C2,
     PHASE_DIAMOND_C3,
     PhaseRuntime,
+    PhaseSchedule,
     PhaseWindow,
     build_phase_schedule,
 )
@@ -40,6 +41,9 @@ from services.camera_service import CaptureIntent, PreparedCapture
 ROOT = Path(__file__).resolve().parent.parent
 SOUNDS_DIR = ROOT / "Sounds"
 AUDIO_LOCK = "/tmp/solartrigger-global-audio.lock"
+EMERGENCY_PHOTO_CONFIG = (
+    ROOT / "configs" / "emergency" / "photo_totality.json"
+)
 
 
 def log(message: str) -> None:
@@ -56,16 +60,26 @@ def load_json(path: str, label: str) -> dict:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="SolarTrigger phase runtime")
-    parser.add_argument("--file", required=True, help="Eclipse circumstances JSON")
+    parser.add_argument("--file", help="Eclipse circumstances JSON")
     parser.add_argument("--camera", required=True, help="Photo Setup JSON")
-    parser.add_argument("--exposure-opt", required=True, help="Exposure Optimization JSON")
+    parser.add_argument("--exposure-opt", help="Exposure Optimization JSON")
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--speed", type=float, default=60.0)
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Use today's UTC date with the original circumstances times",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--totality-only",
+        action="store_true",
+        help="Emergency immediate Totality loop; no eclipse timing required",
+    )
+    args = parser.parse_args()
+    if not args.totality_only and not args.file:
+        parser.error("--file is required unless --totality-only is used")
+    if not args.totality_only and not args.exposure_opt:
+        parser.error("--exposure-opt is required unless --totality-only is used")
+    return args
 
 
 def exposure_rig(exposure_opt: dict, rig_id: int) -> dict:
@@ -206,6 +220,8 @@ def main() -> int:
     args = parse_args()
     if args.simulate and args.dry_run:
         raise ValueError("simulation and dry-run are mutually exclusive")
+    if args.totality_only and (args.simulate or args.dry_run):
+        raise ValueError("totality-only cannot be combined with simulation or dry-run")
 
     clock = RuntimeClock()
     clock.configure(args.simulate, args.speed)
@@ -217,20 +233,58 @@ def main() -> int:
     if hasattr(signal, "SIGUSR1"):
         signal.signal(signal.SIGUSR1, lambda _sig, _frame: override.set())
 
-    circumstances = load_json(args.file, "circumstances")
-    if args.dry_run:
-        circumstances = today_circumstances(circumstances, datetime.now(timezone.utc))
     photo_setup = load_json(args.camera, "Photo Setup")
-    exposure_opt = load_json(args.exposure_opt, "Exposure Optimization")
+    emergency_photo_setup = load_json(
+        str(EMERGENCY_PHOTO_CONFIG),
+        "Emergency Totality Photo Setup",
+    )
+    exposure_opt = (
+        {}
+        if args.totality_only
+        else load_json(args.exposure_opt, "Exposure Optimization")
+    )
     rig_id = int(os.environ.get("SET_TRIGGER_RIG_ID", "1"))
-    rig_exposure = exposure_rig(exposure_opt, rig_id)
+    rig_exposure = (
+        {}
+        if args.totality_only
+        else exposure_rig(exposure_opt, rig_id)
+    )
 
-    timeline = build_timeline(circumstances, fallback_date=clock.now().date())
-    schedule = build_phase_schedule(timeline, photo_setup)
-    timeline = dict(timeline)
-    timeline.update(TSTART=schedule.tstart, TMAX=schedule.tmax, TEND=schedule.tend)
-    if args.simulate:
-        clock.start_simulation(schedule.tstart - timedelta(seconds=30))
+    circumstances = {}
+    if args.totality_only:
+        now = _aware_utc(clock.now())
+        distant = datetime.max.replace(tzinfo=timezone.utc)
+        emergency_window = PhaseWindow(
+            "totality_override", "totality", now, distant, 0.0,
+        )
+        schedule = PhaseSchedule(
+            tstart=now,
+            tend=distant,
+            tmax=now,
+            windows=(emergency_window,),
+        )
+        timeline = {}
+        override.set()
+    else:
+        circumstances = load_json(args.file, "circumstances")
+        if args.dry_run:
+            circumstances = today_circumstances(
+                circumstances,
+                datetime.now(timezone.utc),
+            )
+        timeline = build_timeline(
+            circumstances,
+            fallback_date=clock.now().date(),
+        )
+        schedule = build_phase_schedule(timeline, photo_setup)
+        timeline = dict(timeline)
+        timeline.update(
+            TSTART=schedule.tstart,
+            TMAX=schedule.tmax,
+            TEND=schedule.tend,
+        )
+        if args.simulate:
+            clock.start_simulation(schedule.tstart - timedelta(seconds=30))
 
     try:
         rig_config = load_rig_configuration()
@@ -253,12 +307,14 @@ def main() -> int:
     }
 
     camera = None
-    audio_thread = threading.Thread(
-        target=_audio_scheduler,
-        args=(_phase_alerts(schedule, timeline), clock, stopped),
-        daemon=True, name="global-timing-announcer",
-    )
-    audio_thread.start()
+    audio_thread = None
+    if not args.totality_only:
+        audio_thread = threading.Thread(
+            target=_audio_scheduler,
+            args=(_phase_alerts(schedule, timeline), clock, stopped),
+            daemon=True, name="global-timing-announcer",
+        )
+        audio_thread.start()
 
     try:
         if args.simulate:
@@ -273,6 +329,8 @@ def main() -> int:
             camera = FanoutCameraAdapter(client, log_fn=log)
 
         def phase_config(window: PhaseWindow) -> dict:
+            if window.name == "totality_override":
+                return emergency_photo_setup["phases"]["totality"]
             return photo_setup["phases"][window.photo_phase]
 
         camera_initialized = False
@@ -368,7 +426,11 @@ def main() -> int:
                 stopped.wait(min(0.25, remaining / clock.speed))
 
         override_window = PhaseWindow(
-            "totality_override", "totality", datetime.min, datetime.max, 0.0,
+            "totality_override",
+            "totality",
+            datetime.min.replace(tzinfo=timezone.utc),
+            datetime.max.replace(tzinfo=timezone.utc),
+            0.0,
         )
         PhaseRuntime(
             schedule,
@@ -385,8 +447,9 @@ def main() -> int:
         return 0
     finally:
         stopped.set()
-        audio_service.shutdown()
-        audio_thread.join(timeout=2.0)
+        if audio_thread is not None:
+            audio_service.shutdown()
+            audio_thread.join(timeout=2.0)
         if camera is not None:
             camera.close()
 

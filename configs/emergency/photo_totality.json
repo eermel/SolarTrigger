@@ -1,0 +1,18 @@
+{
+    "schema_version": 1,
+    "config_type": "emergency_totality_photo_setup",
+    "name": "Emergency Totality — fixed last-resort sequence",
+    "comment": "Generic photographic intent. Independent of circumstances, GPS, selected Photo Setup, Exposure Optimization and camera model.",
+    "phases": {
+        "totality": {
+            "enabled": true,
+            "interval_s": 0,
+            "duration_s": null,
+            "iso": 100,
+            "aperture": "f/8",
+            "shutter_min": "2",
+            "shutter_max": "1/4000",
+            "step_ev": 1.0
+        }
+    }
+}

@@ -189,6 +189,33 @@ def test_real_and_dryrun_pass_the_same_three_sources_to_runtime(
     assert "--execution-plan" not in real_command + dryrun_command
 
 
+def test_emergency_totality_runtime_needs_no_circumstances_file(
+    tmp_path,
+    monkeypatch,
+):
+    service, _logs, _emits = _service(tmp_path)
+    photo = tmp_path / "configs" / "photo_cfg" / "photo.json"
+    service._active_photo_paths[1] = photo
+    commands = []
+
+    def fake_popen(command, **_kwargs):
+        commands.append(list(command))
+        return _FinishedProcess(command)
+
+    monkeypatch.setattr(
+        "backend.trigger_service.subprocess.Popen",
+        fake_popen,
+    )
+
+    service._run(rig_id=1, totality_only=True)
+
+    command = commands[0]
+    assert "--totality-only" in command
+    assert "--file" not in command
+    assert command[command.index("--camera") + 1] == str(photo)
+    assert "--exposure-opt" not in command
+
+
 def test_dryrun_does_not_insert_runtime_wait_for_mechanical_vibration():
     """The phase runtime does not carry legacy mechanical-vibration timing."""
 

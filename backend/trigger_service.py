@@ -351,6 +351,36 @@ class TriggerService:
             )
         return paths
 
+    def _resolve_totality_input(self, rig_id):
+        """Resolve the fixed product configuration for emergency Totality."""
+        path = (
+            self.product_configs_dir
+            / "emergency"
+            / "photo_totality.json"
+        )
+        if not path.is_file():
+            raise TriggerValidationError(
+                "Emergency Totality Photo Setup is missing.",
+                "EMERGENCY_PHOTO_CONFIG_MISSING",
+            )
+
+        try:
+            photo = json.loads(path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(photo, dict)
+                or photo.get("config_type") != "emergency_totality_photo_setup"
+                or not isinstance(photo.get("phases", {}).get("totality"), dict)
+            ):
+                raise ValueError("invalid emergency Totality Photo Setup")
+        except Exception as exc:
+            raise TriggerValidationError(
+                f"Invalid emergency Totality Photo Setup: {exc}",
+                "EMERGENCY_PHOTO_CONFIG_INVALID",
+            ) from exc
+
+        self._active_photo_paths[rig_id] = path
+        return path
+
     def _clear_active_inputs(self, rig_id):
         self._active_circumstances_paths.pop(rig_id, None)
         self._active_photo_paths.pop(rig_id, None)
@@ -615,35 +645,39 @@ class TriggerService:
         dry_run=False,
         ipc_session=None,
         rig_id=1,
+        totality_only=False,
     ):
         proc=None
         try:
-            circumstances_path = self._active_circumstances_paths.get(rig_id)
-            if circumstances_path is None:
-                raise TriggerValidationError(
-                    "Trigger circumstances were not resolved.",
-                    "TRIGGER_INPUTS_NOT_LOADED",
-                )
-
             cmd = [
                 sys.executable,
                 "-u",
                 str(self.trigger_script),
-                "--file",
-                str(circumstances_path),
             ]
+
+            if totality_only:
+                cmd.append("--totality-only")
+            else:
+                circumstances_path = self._active_circumstances_paths.get(rig_id)
+                if circumstances_path is None:
+                    raise TriggerValidationError(
+                        "Trigger circumstances were not resolved.",
+                        "TRIGGER_INPUTS_NOT_LOADED",
+                    )
+                cmd += ["--file", str(circumstances_path)]
 
             photo_path = self._active_photo_paths.get(rig_id)
             exposure_opt_path = self._active_exposure_opt_paths.get(rig_id)
-            if photo_path is None or exposure_opt_path is None:
+            if photo_path is None or (
+                not totality_only and exposure_opt_path is None
+            ):
                 raise TriggerValidationError(
                     "Trigger input files were not resolved.",
                     "TRIGGER_INPUTS_NOT_LOADED",
                 )
-            cmd += [
-                "--camera", str(photo_path),
-                "--exposure-opt", str(exposure_opt_path),
-            ]
+            cmd += ["--camera", str(photo_path)]
+            if not totality_only:
+                cmd += ["--exposure-opt", str(exposure_opt_path)]
 
             if simulate:
                 cmd += ["--simulate", "--speed", str(speed)]
@@ -664,7 +698,9 @@ class TriggerService:
             with self._lock:
                 self._procs[rig_id] = proc
             mode = (
-                "simulation"
+                "totality_override"
+                if totality_only
+                else "simulation"
                 if simulate
                 else "dryrun"
                 if dry_run
@@ -674,17 +710,30 @@ class TriggerService:
                 rig_id,
                 {
                     "running": True,
-                    "phase": "waiting",
+                    "phase": (
+                        "totality_override"
+                        if totality_only
+                        else "waiting"
+                    ),
                     "mode": mode,
                     "speed": speed if simulate else 1.0,
                 },
             )
             self.emit(
                 "trigger_phase",
-                {"rig_id": rig_id, "phase": "waiting"},
+                {
+                    "rig_id": rig_id,
+                    "phase": (
+                        "totality_override"
+                        if totality_only
+                        else "waiting"
+                    ),
+                },
             )
             label = (
-                "► Trigger simulation started."
+                f"🌑 RIG {rig_id} — Emergency Totality sequence started."
+                if totality_only
+                else "► Trigger simulation started."
                 if simulate
                 else "► Dry-run ×1 started."
                 if dry_run
@@ -803,6 +852,78 @@ class TriggerService:
         )
 
         return True
+
+    def start_totality_only(self, rig_id=1):
+        """Start emergency Totality now, or preempt an existing photo run."""
+        if (
+            not isinstance(rig_id, int)
+            or isinstance(rig_id, bool)
+            or not 1 <= rig_id <= 4
+        ):
+            raise TriggerValidationError(
+                f"Invalid RIG: {rig_id}",
+                "RIG_ID_INVALID",
+            )
+
+        with self._lock:
+            proc = self._procs[rig_id]
+            running = proc is not None and proc.poll() is None
+        if running:
+            if not self.override_totality(rig_id=rig_id):
+                raise TriggerValidationError(
+                    f"Could not preempt RIG {rig_id}.",
+                    "TOTALITY_OVERRIDE_FAILED",
+                )
+            return "preempted"
+
+        with self._lock:
+            if self._starting_by_rig[rig_id]:
+                return False
+            self._starting_by_rig[rig_id] = True
+            self._analysis_suppressed_by_rig[rig_id] = True
+
+        ipc_session = None
+        try:
+            self._resolve_totality_input(rig_id)
+            if self.rig_config_loader is not None:
+                config = self.rig_config_loader()
+                validate_execution_rig(config, rig_id)
+                if self.camera_runtime is not None:
+                    self.camera_runtime.reconcile(config)
+                    ipc_session = self.camera_runtime.open_ipc_session((rig_id,))
+
+            self.state.update_trigger_rig(
+                rig_id,
+                {
+                    "running": True,
+                    "phase": "totality_override",
+                    "mode": "totality_override",
+                    "speed": 1.0,
+                },
+            )
+            self.emit(
+                "trigger_phase",
+                {"rig_id": rig_id, "phase": "totality_override"},
+            )
+            threading.Thread(
+                target=self._run,
+                kwargs={
+                    "ipc_session": ipc_session,
+                    "rig_id": rig_id,
+                    "totality_only": True,
+                },
+                name=f"totality-only-process-rig-{rig_id}",
+                daemon=True,
+            ).start()
+            return "started"
+        except Exception:
+            with self._lock:
+                self._starting_by_rig[rig_id] = False
+                self._analysis_suppressed_by_rig[rig_id] = False
+                self._clear_active_inputs(rig_id)
+            if ipc_session is not None and self.camera_runtime is not None:
+                self.camera_runtime.close_ipc_session(ipc_session.session_id)
+            raise
 
     def stop(self, rig_id=1):
         if (

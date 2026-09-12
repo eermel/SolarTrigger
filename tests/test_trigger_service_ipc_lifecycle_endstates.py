@@ -33,12 +33,13 @@ class FakeWorker:
 
 
 class ImmediateThread:
-    def __init__(self, *, target, args, name, daemon):
+    def __init__(self, *, target, args=(), kwargs=None, name, daemon):
         self.target = target
         self.args = args
+        self.kwargs = kwargs or {}
 
     def start(self):
-        self.target(*self.args)
+        self.target(*self.args, **self.kwargs)
 
 
 class CompletedProcess:
@@ -184,6 +185,15 @@ def _make_service(tmp_path, runtime):
         }),
         encoding="utf-8",
     )
+    emergency_dir = configs / "emergency"
+    emergency_dir.mkdir()
+    (emergency_dir / "photo_totality.json").write_text(
+        json.dumps({
+            "config_type": "emergency_totality_photo_setup",
+            "phases": {"totality": {"interval_s": 0}},
+        }),
+        encoding="utf-8",
+    )
     exposure_dir = configs / "exposure_opt"
     exposure_dir.mkdir(parents=True)
     (exposure_dir / "exposure.json").write_text(
@@ -311,6 +321,41 @@ def test_ipc_startup_failure_prevents_child_process(tmp_path, monkeypatch):
     assert service.state.snapshot("trigger")["rigs"]["1"]["running"] is False
     assert runtime._ipc_server is None
     assert not (tmp_path / "ipc" / "camera-ipc-4321.sock").exists()
+
+
+def test_emergency_totality_opens_ipc_for_selected_rig_without_gps_or_inputs(
+    tmp_path,
+    monkeypatch,
+):
+    events = []
+    runtime, _servers = _make_runtime(tmp_path, events=events)
+    service = _make_service(tmp_path, runtime)
+    service.state.update_section("gps", {"synced": False, "sync_time": None})
+    launches = []
+
+    def popen(command, **kwargs):
+        events.append("popen")
+        launches.append((list(command), dict(kwargs["env"])))
+        return CompletedProcess()
+
+    monkeypatch.setattr(
+        "backend.trigger_service.threading.Thread",
+        ImmediateThread,
+    )
+    monkeypatch.setattr(
+        "backend.trigger_service.subprocess.Popen",
+        popen,
+    )
+
+    assert service.start_totality_only(rig_id=1) == "started"
+
+    command, env = launches[0]
+    assert events == ["server-started", "popen"]
+    assert "--totality-only" in command
+    assert "--file" not in command
+    assert "--exposure-opt" not in command
+    assert Path(command[command.index("--camera") + 1]).name == "photo_totality.json"
+    assert env["SET_TRIGGER_RIG_ID"] == "1"
 
 
 def test_popen_error_closes_session_and_removes_socket(tmp_path, monkeypatch):

@@ -3287,10 +3287,10 @@ async function stopTrigger() {
 
 async function startTotalityOnly() {
   if (!confirm(
-    '🌑 Override with Totality Sequence?\n' +
-    'The current PHOTO sequence will be replaced immediately.\n' +
-    'Audio announcements will continue.\n' +
-    'Press STOP to stop photos for this RIG. Audio continues.'
+    '🌑 START EMERGENCY TOTALITY SEQUENCE NOW?\n' +
+    'Works even when the normal trigger is not running.\n' +
+    'If active, the current PHOTO sequence is replaced immediately.\n' +
+    'Press STOP to stop this RIG.'
   )) return;
 
   try {
@@ -3304,7 +3304,9 @@ async function startTotalityOnly() {
 
     if (r.ok && d.status === 'ok') {
       flash(
-        '🌑 Totality photo override active — audio continues',
+        d.action === 'preempted'
+          ? '🌑 Totality override active — timing audio continues'
+          : '🌑 Emergency Totality sequence started immediately',
         'orange'
       );
       document.getElementById('btn-totality-only').style.opacity = '0.5';

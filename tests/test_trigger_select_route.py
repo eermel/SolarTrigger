@@ -87,6 +87,23 @@ def _configure_trigger_route(
         }),
         encoding="utf-8",
     )
+    emergency_dir = configs_dir / "emergency"
+    emergency_dir.mkdir()
+    (emergency_dir / "photo_totality.json").write_text(
+        json.dumps({
+            "config_type": "emergency_totality_photo_setup",
+            "phases": {
+                "totality": {
+                    "iso": 100,
+                    "aperture": "f/8",
+                    "shutter_min": "2",
+                    "shutter_max": "1/4000",
+                    "step_ev": 1.0,
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
     exposure_dir = configs_dir / "exposure_opt"
     exposure_dir.mkdir(parents=True)
     (exposure_dir / "exposure.json").write_text(
@@ -188,6 +205,50 @@ def test_trigger_start_rejects_missing_execution_plan_circumstances(
         "code": "TRIGGER_INPUTS_NOT_LOADED",
         "rig_id": 1,
     }
+
+
+def test_totality_only_starts_without_running_trigger_or_gps(
+    tmp_path,
+    monkeypatch,
+):
+    client = _configure_trigger_route(tmp_path, monkeypatch)
+    flask_module._trigger_service.state.update_section(
+        "gps",
+        {"synced": False, "sync_time": None},
+    )
+
+    response = client.post(
+        "/api/trigger/totality_only",
+        json={"rig_id": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "ok",
+        "mode": "totality_override",
+        "action": "started",
+        "rig_id": 1,
+        "audio_preserved": False,
+    }
+
+
+def test_totality_only_does_not_require_selected_inputs(
+    tmp_path,
+    monkeypatch,
+):
+    client = _configure_trigger_route(
+        tmp_path,
+        monkeypatch,
+        circumstances=False,
+    )
+
+    response = client.post(
+        "/api/trigger/totality_only",
+        json={"rig_id": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["action"] == "started"
 
 
 def test_trigger_start_does_not_require_legacy_global_capture(

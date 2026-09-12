@@ -4966,22 +4966,31 @@ def api_trigger_select_camera():
 
 @app.route("/api/trigger/totality_only", methods=["POST"])
 def api_trigger_totality_only():
-    """Override photo-only d'un seul RIG; audio global conservé."""
+    """Emergency Totality: preempt active photos or start immediately."""
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
 
-    if not _trigger_service.override_totality(rig_id=rig_id):
+    try:
+        action = _trigger_service.start_totality_only(rig_id=rig_id)
+    except TriggerValidationError as exc:
         return jsonify({
-            "error": f"No active trigger to preempt for RIG {rig_id}",
-            "code": "TRIGGER_NOT_RUNNING",
+            "error": str(exc),
+            "code": exc.code,
+            "rig_id": rig_id,
+        }), 400
+    if not action:
+        return jsonify({
+            "error": f"Totality sequence for RIG {rig_id} is already starting.",
+            "code": "TRIGGER_STARTING",
             "rig_id": rig_id,
         }), 409
 
     return jsonify({
         "status": "ok",
         "mode": "totality_override",
+        "action": action,
         "rig_id": rig_id,
-        "audio_preserved": True,
+        "audio_preserved": action == "preempted",
     })
 
 def _emit_trigger(event, payload):
