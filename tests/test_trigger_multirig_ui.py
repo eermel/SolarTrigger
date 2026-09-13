@@ -41,11 +41,18 @@ def test_global_start_actions_lock_when_any_active_rig_runs():
     assert "btnDebug.disabled  = triggerStartLocked" in UI
 
 
-def test_trigger_logs_are_split_per_rig():
-    for rig_id in range(1, 5):
-        assert f'id="log-container-trigger-rig-{rig_id}"' in UI
+def test_trigger_log_is_single_panel_for_selected_rig():
+    assert UI.count('id="log-container-trigger"') == 1
 
+    for rig_id in range(1, 5):
+        assert f'id="log-container-trigger-rig-{rig_id}"' not in UI
+
+    assert 'id="trigger-log-title"' in UI
+    assert "const triggerLogEntries = {" in UI
+    assert "function renderTriggerLog()" in UI
     assert "function appendTriggerRigLog(entry)" in UI
+    assert "triggerLogEntries[rigId].push(entry);" in UI
+    assert "`Trigger log — RIG ${selectedTriggerRigId}`" in UI
     assert "`[${timestamp}][RIG${rigId}][${icon}] ${entry.text || ''}`" in UI
 
 

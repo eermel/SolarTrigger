@@ -608,29 +608,16 @@ function triggerLogIcon(level) {
 }
 
 
-function renderTriggerLogPanels() {
-  const active = new Set(activeTriggerRigIds());
-
-  document.querySelectorAll('[data-trigger-log-rig]').forEach(card => {
-    const rigId = Number(card.dataset.triggerLogRig);
-    card.hidden = !active.has(rigId);
-  });
-}
+const triggerLogEntries = {
+  1: [],
+  2: [],
+  3: [],
+  4: [],
+};
 
 
-function clearTriggerRigLog(rigId) {
-  const container = document.getElementById(
-    `log-container-trigger-rig-${Number(rigId)}`
-  );
-
-  if (container) container.innerHTML = '';
-}
-
-
-function appendTriggerRigLog(entry) {
-  if (_logPaused || !entry) return;
-
-  let rigId = Number(entry.rig_id);
+function triggerLogRigId(entry) {
+  let rigId = Number(entry && entry.rig_id);
 
   // Historical entries written before multi-RIG log ownership existed
   // belong to the legacy RIG 1 stream.
@@ -638,11 +625,11 @@ function appendTriggerRigLog(entry) {
     rigId = 1;
   }
 
-  const container = document.getElementById(
-    `log-container-trigger-rig-${rigId}`
-  );
-  if (!container) return;
+  return rigId;
+}
 
+
+function triggerLogLineElement(entry, rigId) {
   const div = document.createElement('div');
   div.className = `log-line ${entry.level || 'info'}`;
 
@@ -654,13 +641,68 @@ function appendTriggerRigLog(entry) {
   div.textContent =
     `[${timestamp}][RIG${rigId}][${icon}] ${entry.text || ''}`;
 
-  container.appendChild(div);
+  return div;
+}
+
+
+function renderTriggerLog() {
+  const container = document.getElementById('log-container-trigger');
+  const title = document.getElementById('trigger-log-title');
+
+  if (title) {
+    title.textContent = `Trigger log — RIG ${selectedTriggerRigId}`;
+  }
+
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  const entries = triggerLogEntries[selectedTriggerRigId] || [];
+
+  entries.forEach(entry => {
+    container.appendChild(
+      triggerLogLineElement(entry, selectedTriggerRigId)
+    );
+  });
+
+  container.scrollTop = container.scrollHeight;
+}
+
+
+function clearTriggerRigLog(rigId = selectedTriggerRigId) {
+  const numericRigId = Number(rigId);
+
+  if (!Number.isInteger(numericRigId) || numericRigId < 1 || numericRigId > 4) {
+    return;
+  }
+
+  triggerLogEntries[numericRigId] = [];
+
+  if (numericRigId === selectedTriggerRigId) {
+    renderTriggerLog();
+  }
+}
+
+
+function appendTriggerRigLog(entry) {
+  if (_logPaused || !entry) return;
+
+  const rigId = triggerLogRigId(entry);
+
+  triggerLogEntries[rigId].push(entry);
+
+  if (rigId !== selectedTriggerRigId) return;
+
+  const container = document.getElementById('log-container-trigger');
+  if (!container) return;
+
+  container.appendChild(triggerLogLineElement(entry, rigId));
   container.scrollTop = container.scrollHeight;
 }
 
 
 function renderTriggerRigSelection() {
-  renderTriggerLogPanels();
+  renderTriggerLog();
 
   const activeRigIds = activeTriggerRigIds();
   const multiRig = activeRigIds.length > 1;
@@ -2050,16 +2092,19 @@ socket.on('log_history', lines => {
     else if (source === 'calculator') containerId = 'log-container-calculator';
     else if (source === 'trigger') {
       for (let rigId = 1; rigId <= 4; rigId += 1) {
-        const container = document.getElementById(
-          `log-container-trigger-rig-${rigId}`
-        );
-        if (container) container.innerHTML = '';
+        triggerLogEntries[rigId] = [];
       }
 
-      lines
-        .filter(d => d.source === 'trigger')
-        .forEach(appendTriggerRigLog);
+      if (!_logPaused) {
+        lines
+          .filter(d => d.source === 'trigger')
+          .forEach(d => {
+            const rigId = triggerLogRigId(d);
+            triggerLogEntries[rigId].push(d);
+          });
+      }
 
+      renderTriggerLog();
       return;
     }
 
