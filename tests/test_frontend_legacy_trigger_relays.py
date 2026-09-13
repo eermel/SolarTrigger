@@ -22,7 +22,9 @@ def test_local_audio_test_support_is_preserved():
     text = _html()
 
     assert "async function playSound(filename)" in text
-    assert "function testSound(file) { playSound(file); }" in text
+    assert "async function testSound(_file)" in text
+    assert "fetch('/api/audio/test'" in text
+    assert "socket.on('audio_play'" in text
 
 
 def test_battery_rendering_has_no_unreachable_duplicate_threshold():

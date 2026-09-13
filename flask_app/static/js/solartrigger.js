@@ -1784,6 +1784,24 @@ async function playSound(filename) {
 // ════════════════════════════════════════════════════════════════
 const socket = io({ transports: ['websocket'] });
 
+socket.on('audio_play', data => {
+  const filename = data && data.filename;
+
+  if (
+    state.soundsEnabled &&
+    typeof filename === 'string' &&
+    filename.toLowerCase().endsWith('.wav')
+  ) {
+    playSound(filename);
+  }
+});
+
+socket.on('audio_enabled', data => {
+  if (data && typeof data.enabled === 'boolean') {
+    applySoundsEnabled(data.enabled);
+  }
+});
+
 let _eclipseSavePrefix = null;
 function updateEclipseSaveFilename(eclipseData) {
   if (!eclipseData) return;
@@ -3846,11 +3864,57 @@ async function startTotalityOnly() {
   }
 }
 
-function testSound(file) { playSound(file); }
+async function testSound(_file) {
+  // One TEST action validates both outputs. The backend owns the Pi playback
+  // and broadcasts audio_play back to this and all other connected browsers.
+  try {
+    const response = await fetch('/api/audio/test', {
+      method: 'POST',
+    });
 
-function toggleSounds() {
-  state.soundsEnabled = !state.soundsEnabled;
-  document.getElementById('toggle-sounds').classList.toggle('on', state.soundsEnabled);
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      flash(data.error || 'Audio test failed', 'red');
+    } else if (data.status === 'muted') {
+      flash('Sound is OFF', 'yellow');
+    }
+  } catch (_error) {
+    flash('Audio test network error', 'red');
+  }
+}
+
+function applySoundsEnabled(enabled) {
+  state.soundsEnabled = enabled === true;
+
+  const toggle = document.getElementById('toggle-sounds');
+  if (toggle) {
+    toggle.classList.toggle('on', state.soundsEnabled);
+  }
+}
+
+
+async function toggleSounds() {
+  const requested = !state.soundsEnabled;
+
+  try {
+    const response = await fetch('/api/audio/enabled', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: requested}),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      flash(data.error || 'Unable to change audio state', 'red');
+      return;
+    }
+
+    applySoundsEnabled(data.enabled);
+  } catch (_error) {
+    flash('Audio control network error', 'red');
+  }
 }
 
 function setVolume(v) {
@@ -3863,8 +3927,21 @@ function setVolume(v) {
 document.addEventListener('DOMContentLoaded', () => {
   const sw = document.getElementById('toggle-sounds');
   if (sw) sw.classList.toggle('on', state.soundsEnabled);
+
   const sl = document.getElementById('volume-slider');
-  if (sl) { sl.value = Math.round(state.volume * 100); setVolume(sl.value); }
+  if (sl) {
+    sl.value = Math.round(state.volume * 100);
+    setVolume(sl.value);
+  }
+
+  fetch('/api/audio/enabled')
+    .then(response => response.json())
+    .then(data => {
+      if (typeof data.enabled === 'boolean') {
+        applySoundsEnabled(data.enabled);
+      }
+    })
+    .catch(() => {});
 });
 
 // ════════════════════════════════════════════════════════════════

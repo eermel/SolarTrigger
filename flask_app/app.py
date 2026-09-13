@@ -205,6 +205,7 @@ from backend.devices import CATEGORIES as DEVICE_CATEGORIES
 from backend.devices import detect_all, normalize_selection, ttl_expired
 from backend.device_identity import identity_key
 from backend import rig_trace
+from backend import audio_service
 from backend.rig_trace_log import get_default_log
 from backend.device_inventory import (
     build_display_labels,
@@ -363,6 +364,97 @@ def index():
 @app.route("/static/sounds/<path:filename>")
 def serve_sound(filename):
     return send_from_directory(str(STATIC_SOUNDS), filename)
+
+
+def _play_pi_test_sound(filename):
+    """Play one validated test WAV locally on the Raspberry Pi."""
+    audio_service.init(
+        log_fn=lambda message: log.info(message),
+        driver="alsa",
+    )
+    audio_service.set_sounds_dir(SOUNDS_DIR)
+    audio_service.play(filename)
+
+
+@app.route("/api/audio/enabled", methods=["GET", "POST"])
+def api_audio_enabled():
+    if request.method == "GET":
+        return jsonify({
+            "enabled": audio_service.is_enabled(),
+        })
+
+    payload = request.get_json(silent=True) or {}
+    enabled = payload.get("enabled")
+
+    if not isinstance(enabled, bool):
+        return jsonify({
+            "error": "enabled must be a boolean",
+        }), 400
+
+    try:
+        audio_service.set_enabled(enabled)
+    except OSError as exc:
+        log.error("Unable to update global audio state: %s", exc)
+        return jsonify({
+            "error": "Unable to update audio state",
+        }), 500
+
+    socketio.emit(
+        "audio_enabled",
+        {"enabled": enabled},
+        namespace="/",
+    )
+
+    return jsonify({
+        "status": "ok",
+        "enabled": enabled,
+    })
+
+
+@app.route("/api/audio/test", methods=["POST"])
+def api_audio_test():
+    # Deliberately fixed: this endpoint is a contact.wav hardware/browser test,
+    # not an arbitrary server-side file player.
+    filename = "contact.wav"
+
+    sound_path = SOUNDS_DIR / filename
+    if not sound_path.is_file():
+        return jsonify({
+            "error": "Sound file not found",
+            "filename": filename,
+        }), 404
+
+    if not audio_service.is_enabled():
+        return jsonify({
+            "status": "muted",
+            "filename": filename,
+            "outputs": [],
+        })
+
+    thread = threading.Thread(
+        target=_play_pi_test_sound,
+        args=(filename,),
+        daemon=True,
+        name="audio-test-contact",
+    )
+    thread.start()
+
+    # Browser playback is a secondary copy. Pi playback remains autonomous.
+    socketio.emit(
+        "audio_play",
+        {
+            "filename": filename,
+            "source": "test",
+        },
+        namespace="/",
+    )
+
+    return jsonify({
+        "status": "ok",
+        "filename": filename,
+        "outputs": ["pi", "browser"],
+    })
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPERS TEMPS
