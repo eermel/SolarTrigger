@@ -360,6 +360,15 @@ header {
 .config-file-select:focus { border-color: var(--blue); }
 .config-file-select option { background: var(--bg2); }
 
+/*
+ * Use the browser-native select chevron.
+ * This matches the Circumstances configuration selector.
+ */
+.native-select-chevron {
+  appearance: auto;
+  -webkit-appearance: menulist;
+}
+
 
 .add-camera-section,
 .devices-section {
