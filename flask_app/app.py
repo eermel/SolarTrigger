@@ -1789,8 +1789,8 @@ def _rig_focuser_worker(rig_id):
     except ValueError as exc:
         return None, (jsonify({"error": str(exc)}), 400)
     runtime = get_focuser_worker_runtime(
-        service_factory_provider=_focuser_service_factory_provider,
         log_fn=log.info,
+        state_path=STATE_FILE,
     )
     runtime.reconcile(load_rig_configuration())
     worker = runtime.get_for_rig(rig_id)
@@ -2009,8 +2009,8 @@ def _rig_mount_worker(rig_id):
         return None, (jsonify({"error": str(exc)}), 400)
 
     runtime = get_mount_worker_runtime(
-        service_factory_provider=_mount_service_factory_provider,
         log_fn=log.info,
+        state_path=STATE_FILE,
     )
     runtime.reconcile(load_rig_configuration())
     worker = runtime.get_for_rig(rig_id)

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from backend.device_identity import identity_key
+from backend.focuser_process_worker import ProcessFocuserWorker
 from backend.focuser_worker import FocuserWorker
 
 if TYPE_CHECKING:
@@ -24,6 +26,18 @@ def _freeze(value: Any) -> Any:
         return tuple(_freeze(item) for item in value)
     if isinstance(value, (set, frozenset)):
         return frozenset(_freeze(item) for item in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    """Return a process-serializable mutable copy of frozen config."""
+
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    if isinstance(value, frozenset):
+        return [_thaw(item) for item in value]
     return value
 
 
@@ -49,7 +63,7 @@ FocuserServiceFactoryProvider = Callable[[FocuserBinding], FocuserServiceFactory
 @dataclass(frozen=True)
 class _WorkerEntry:
     binding: FocuserBinding
-    worker: FocuserWorker
+    worker: Any
 
 
 class FocuserWorkerRuntime:
@@ -59,12 +73,22 @@ class FocuserWorkerRuntime:
         self,
         service_factory_provider: FocuserServiceFactoryProvider | None = None,
         log_fn=print,
+        *,
+        state_path: str | Path | None = None,
+        process_worker_factory=ProcessFocuserWorker,
     ) -> None:
         if service_factory_provider is not None and not callable(
             service_factory_provider
         ):
             raise TypeError("service_factory_provider must be callable")
+        if not callable(process_worker_factory):
+            raise TypeError("process_worker_factory must be callable")
+
         self._service_factory_provider = service_factory_provider
+        self._state_path = (
+            None if state_path is None else Path(state_path)
+        )
+        self._process_worker_factory = process_worker_factory
         self._log = log_fn
         self._registry: dict[tuple[str, tuple[str, str]], _WorkerEntry] = {}
         self._lock = threading.RLock()
@@ -83,6 +107,30 @@ class FocuserWorkerRuntime:
             if current is not None or self._registry:
                 raise RuntimeError("focuser service factory provider is already set")
             self._service_factory_provider = provider
+
+    def set_process_state_path(
+        self,
+        state_path: str | Path,
+    ) -> None:
+        """Configure process mode once before workers are created."""
+
+        resolved = Path(state_path)
+
+        with self._lock:
+            if self._service_factory_provider is not None:
+                raise RuntimeError(
+                    "focuser runtime is configured for injected thread workers"
+                )
+
+            if self._state_path == resolved:
+                return
+
+            if self._state_path is not None or self._registry:
+                raise RuntimeError(
+                    "focuser process state path is already set"
+                )
+
+            self._state_path = resolved
 
     @staticmethod
     def _desired_bindings(
@@ -133,8 +181,13 @@ class FocuserWorkerRuntime:
         desired = self._desired_bindings(config)
         with self._lock:
             provider = self._service_factory_provider
-            if desired and provider is None:
-                raise RuntimeError("focuser service factory provider is not set")
+            state_path = self._state_path
+
+            if desired and provider is None and state_path is None:
+                raise RuntimeError(
+                    "focuser service factory provider is not set and no "
+                    "process state path is configured"
+                )
 
             unchanged = {
                 key
@@ -147,15 +200,36 @@ class FocuserWorkerRuntime:
             try:
                 for key in new_keys:
                     binding = desired[key]
-                    factory = provider(binding)  # type: ignore[misc]
-                    if not callable(factory):
-                        raise TypeError("focuser service factory must be callable")
-                    worker = FocuserWorker(
-                        rig_id=binding.rig_id,
-                        service_factory=factory,
-                        log_fn=self._log,
+
+                    if provider is not None:
+                        factory = provider(binding)
+                        if not callable(factory):
+                            raise TypeError(
+                                "focuser service factory must be callable"
+                            )
+
+                        worker = FocuserWorker(
+                            rig_id=binding.rig_id,
+                            service_factory=factory,
+                            log_fn=self._log,
+                        )
+                    else:
+                        assert state_path is not None
+
+                        worker = self._process_worker_factory(
+                            rig_id=binding.rig_id,
+                            backend=binding.backend,
+                            device_config=_thaw(
+                                binding.focuser_entry
+                            ),
+                            state_path=state_path,
+                            log_fn=self._log,
+                        )
+
+                    created[key] = _WorkerEntry(
+                        binding,
+                        worker,
                     )
-                    created[key] = _WorkerEntry(binding, worker)
                     worker.start()
             except BaseException:
                 for entry in created.values():
@@ -175,7 +249,7 @@ class FocuserWorkerRuntime:
         for entry in obsolete:
             entry.worker.shutdown(timeout=2.0)
 
-    def get_for_rig(self, rig_id: int) -> FocuserWorker | None:
+    def get_for_rig(self, rig_id: int) -> Any | None:
         """Return the persistent worker bound to *rig_id*, if configured."""
 
         with self._lock:
@@ -210,6 +284,8 @@ _focuser_worker_runtime_lock = threading.Lock()
 def get_focuser_worker_runtime(
     service_factory_provider: FocuserServiceFactoryProvider | None = None,
     log_fn=print,
+    *,
+    state_path: str | Path | None = None,
 ) -> FocuserWorkerRuntime:
     """Return the process-wide focuser worker runtime singleton."""
 
@@ -220,11 +296,18 @@ def get_focuser_worker_runtime(
             _focuser_worker_runtime = FocuserWorkerRuntime(
                 service_factory_provider=service_factory_provider,
                 log_fn=log_fn,
+                state_path=state_path,
             )
-        elif service_factory_provider is not None:
-            _focuser_worker_runtime.set_service_factory_provider(
-                service_factory_provider
-            )
+        else:
+            if service_factory_provider is not None:
+                _focuser_worker_runtime.set_service_factory_provider(
+                    service_factory_provider
+                )
+            if state_path is not None:
+                _focuser_worker_runtime.set_process_state_path(
+                    state_path
+                )
+
         return _focuser_worker_runtime
 
 
