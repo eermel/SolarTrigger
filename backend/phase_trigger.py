@@ -58,6 +58,8 @@ def _number(value: Any, label: str, *, minimum: float = 0.0) -> float:
 def build_phase_schedule(
     timeline: Mapping[str, datetime],
     photo_setup: Mapping[str, Any],
+    *,
+    honor_timeline_bounds: bool = False,
 ) -> PhaseSchedule:
     """Build the five half-open phase windows from the three input files."""
 
@@ -79,8 +81,14 @@ def build_phase_schedule(
         photo_setup.get("sequence_margin_min", 60),
         "sequence_margin_min",
     )
-    tstart = c1 - timedelta(minutes=margin_min)
-    tend = c4 + timedelta(minutes=margin_min)
+    derived_tstart = c1 - timedelta(minutes=margin_min)
+    derived_tend = c4 + timedelta(minutes=margin_min)
+    if honor_timeline_bounds:
+        tstart = timeline.get("TSTART", derived_tstart)
+        tend = timeline.get("TEND", derived_tend)
+    else:
+        tstart = derived_tstart
+        tend = derived_tend
     partial_interval_s = _number(
         partial.get("interval_s"),
         "phases.partial.interval_s",

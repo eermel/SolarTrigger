@@ -47,4 +47,40 @@ def generate_dryrun_now(
     return generated
 
 
-__all__ = ["generate_dryrun_now"]
+DEBUG_TSTART_DELAY_S = 3 * 60
+DEBUG_C1_AFTER_TSTART_S = 5 * 60 + 12
+DEBUG_C2_AFTER_C1_S = 6 * 60 + 6
+DEBUG_C3_AFTER_C2_S = 3 * 60 + 24
+DEBUG_C4_AFTER_C3_S = 5 * 60 + 12
+DEBUG_TEND_AFTER_C4_S = 3 * 60 + 18
+
+
+def generate_debug_now(now_utc: datetime) -> dict[str, Any]:
+    """Build the short real-time DEBUG circumstances scenario."""
+    if now_utc.tzinfo is None:
+        raise ValueError("now_utc must be timezone-aware")
+    now_naive = now_utc.astimezone(timezone.utc).replace(tzinfo=None)
+    tstart = now_naive + timedelta(seconds=DEBUG_TSTART_DELAY_S)
+    c1 = tstart + timedelta(seconds=DEBUG_C1_AFTER_TSTART_S)
+    c2 = c1 + timedelta(seconds=DEBUG_C2_AFTER_C1_S)
+    c3 = c2 + timedelta(seconds=DEBUG_C3_AFTER_C2_S)
+    c4 = c3 + timedelta(seconds=DEBUG_C4_AFTER_C3_S)
+    tend = c4 + timedelta(seconds=DEBUG_TEND_AFTER_C4_S)
+    tmax = c2 + (c3 - c2) / 2
+    def hms(value: datetime) -> str:
+        return value.strftime("%H:%M:%S.%f")[:-3]
+    return {
+        "_date": tstart.date().isoformat(),
+        "_date_utc": tstart.date().isoformat(),
+        "_generated_utc": now_utc.astimezone(timezone.utc).isoformat(),
+        "_comment": "Temporary DEBUG circumstances",
+        "_debug_scenario": True,
+        "_type": "Total",
+        "_type_global": "Total",
+        "title": "DEBUG scenario",
+        "TSTART": hms(tstart), "C1": hms(c1), "C2": hms(c2),
+        "TMAX": hms(tmax), "C3": hms(c3), "C4": hms(c4), "TEND": hms(tend),
+    }
+
+
+__all__ = ["generate_dryrun_now", "generate_debug_now"]

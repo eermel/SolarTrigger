@@ -2593,7 +2593,7 @@ function updatePhase(phase) {
 
   const btnStart     = document.getElementById('btn-start');
   const btnDryRun    = document.getElementById('btn-dryrun');
-  const btnDryRunNow = document.getElementById('btn-dryrun-now');
+  const btnDebug     = document.getElementById('btn-debug');
   const btnStop      = document.getElementById('btn-stop');
   const btnTot       = document.getElementById('btn-totality-only');
 
@@ -2601,7 +2601,7 @@ function updatePhase(phase) {
 
   if (btnStart)     btnStart.disabled     = triggerStartLocked;
   if (btnDryRun)    btnDryRun.disabled    = triggerStartLocked;
-  if (btnDryRunNow) btnDryRunNow.disabled = triggerStartLocked;
+  if (btnDebug)     btnDebug.disabled     = triggerStartLocked;
   if (btnStop)  btnStop.disabled  = false;
   if (btnTot) {
     btnTot.style.opacity = '1';
@@ -3203,30 +3203,36 @@ async function startTrigger() {
   }
 }
 
-async function generateDryRunNow() {
-  if (!confirm(
-    '🧪 Generate DRY-RUN NOW circumstances?\n' +
-    'TSTART will be UTC now + 5 minutes. Cameras will not start.'
-  )) return;
-
-  const r = await fetch('/api/trigger/generate_dryrun_now', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(selectedTriggerInputs())
-  });
-
-  const d = await r.json();
-
-  if (d.error) {
-    flash(d.message || d.error, 'red');
-
-  } else {
-    await loadTriggerConfigList();
-    const select = document.getElementById('trigger-circumstances-select');
-    select.value = d.filename;
-    await loadTriggerCircumstances(d.filename);
-    flash('Dry-run circumstances generated — click START when ready', 'blue');
+async function startDebug() {
+  const inputs = selectedTriggerInputs();
+  if (!inputs.photo_file || !inputs.exposure_opt_file) {
+    flash('DEBUG requires a selected Photo Setup and Exposure Optimization file.', 'red');
+    return;
   }
+  if (!confirm(
+    `🧪 DEBUG MODE — RIG ${selectedTriggerRigId}\n\n` +
+    'This will generate the short DEBUG circumstances and START the sequence immediately.\n' +
+    'The currently selected Photo Setup and Exposure Optimization will be used.\n\n' +
+    'Continue?'
+  )) return;
+  const r = await fetch('/api/trigger/debug', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({rig_id: selectedTriggerRigId, photo_file: inputs.photo_file, exposure_opt_file: inputs.exposure_opt_file})
+  });
+  const d = await r.json();
+  if (!r.ok || d.error) {
+    flash(d.message || d.error || `HTTP error ${r.status}`, 'red');
+    if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE' || d.code === 'GPS_SYNC_TIME_INVALID') setTimeout(() => showTab(1), 1500);
+    return;
+  }
+  const select = document.getElementById('trigger-circumstances-select');
+  if (select) {
+    let option = Array.from(select.options).find(candidate => candidate.value === d.filename);
+    if (!option) { option = document.createElement('option'); option.value = d.filename; option.textContent = `${d.filename} — DEBUG`; select.appendChild(option); }
+    select.value = d.filename;
+  }
+  if (d.circumstances) renderContacts(d.circumstances);
+  flash(`DEBUG started on RIG ${d.rig_id}`, 'blue');
 }
 
 async function startDryRun() {

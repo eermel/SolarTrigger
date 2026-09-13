@@ -246,7 +246,7 @@ from backend.sequencer_plan_service import (
     compile_execution_plan_from_files,
     compile_rig_execution_plan_from_files,
 )
-from backend.dryrun_circumstances import generate_dryrun_now
+from backend.dryrun_circumstances import generate_debug_now
 from backend.execution_plan_runtime import (
     ExecutionPlanError,
     load_execution_plan,
@@ -5088,43 +5088,50 @@ def api_trigger_dryrun():
         }), 400
 
 
-@app.route("/api/trigger/generate_dryrun_now", methods=["POST"])
-def api_trigger_generate_dryrun_now():
-    """Create circumstances translated so effective TSTART is now + 5 min."""
+@app.route("/api/trigger/debug", methods=["POST"])
+def api_trigger_debug():
+    """Generate and immediately start the short DEBUG scenario on one RIG."""
     payload = request.get_json(silent=True) or {}
-    circumstances_name = str(payload.get("circumstances_file", "")).strip()
+    rig_id = payload.get("rig_id", 1)
     photo_name = str(payload.get("photo_file", "")).strip()
-    if Path(circumstances_name).name != circumstances_name:
-        return jsonify({"error": "Invalid circumstances filename"}), 400
-    if Path(photo_name).name != photo_name:
-        return jsonify({"error": "Invalid Photo Setup filename"}), 400
-
-    circumstances_path = _resolve_config_file(circumstances_name, "circumstances")
+    exposure_name = str(payload.get("exposure_opt_file", "")).strip()
+    if (not isinstance(rig_id, int) or isinstance(rig_id, bool) or not 1 <= rig_id <= 4):
+        return jsonify({"error": "Invalid RIG id", "code": "RIG_ID_INVALID"}), 400
+    if (not photo_name or Path(photo_name).name != photo_name or not exposure_name or Path(exposure_name).name != exposure_name):
+        return jsonify({"error": "Select valid Photo Setup and Exposure Optimization files", "code": "TRIGGER_INPUTS_NOT_LOADED"}), 400
     photo_path = CONFIGS_DIR / "photo_cfg" / photo_name
     if not photo_path.is_file() and photo_name == "photo_default.json":
         photo_path = PRODUCT_CONFIGS_DIR / "photo_cfg" / photo_name
-    if not circumstances_path.is_file() or not photo_path.is_file():
-        return jsonify({"error": "Select valid circumstances and Photo Setup files"}), 400
-
+    exposure_path = CONFIGS_DIR / "exposure_opt" / exposure_name
+    if not photo_path.is_file() or not exposure_path.is_file():
+        return jsonify({"error": "Select valid Photo Setup and Exposure Optimization files", "code": "TRIGGER_INPUTS_NOT_LOADED"}), 400
+    destination_path = None
     try:
-        circumstances = json.loads(circumstances_path.read_text(encoding="utf-8"))
-        photo = json.loads(photo_path.read_text(encoding="utf-8"))
-        generated = generate_dryrun_now(
-            circumstances,
-            photo,
-            datetime.now(timezone.utc),
-        )
-
+        now_utc = datetime.now(timezone.utc)
+        generated = generate_debug_now(now_utc)
         destination_dir = CONFIGS_DIR / "circumstances"
         destination_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"dryrun_now_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
-        (destination_dir / filename).write_text(
-            json.dumps(generated, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        return jsonify({"status": "ok", "filename": filename, "circumstances": generated})
+        filename = f"debug_rig_{rig_id}_{now_utc.strftime('%Y%m%d_%H%M%S_%f')}.json"
+        destination_path = destination_dir / filename
+        destination_path.write_text(json.dumps(generated, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        selected = {"circumstances_file": filename, "photo_file": photo_name, "exposure_opt_file": exposure_name}
+        if not _trigger_service.start(rig_id=rig_id, dry_run=True, selected=selected):
+            destination_path.unlink(missing_ok=True)
+            return jsonify({"error": f"Trigger RIG {rig_id} is already running.", "code": "TRIGGER_ALREADY_RUNNING", "rig_id": rig_id}), 409
+        with _state_lock:
+            _state["eclipse"] = generated
+        _save_state()
+        circumstances = _state_store.update_section("circumstances", {"loaded": True, "active_file": filename, "meta": {"_date": generated["_date"], "_date_utc": generated["_date_utc"], "title": generated["title"], "_type": generated["_type"], "_debug_scenario": True}}, persist=True)
+        socketio.emit("eclipse_calculated", {"status": "success", "data": generated})
+        socketio.emit("status_update", _status_update_payload({"circumstances": circumstances}))
+        _append_log(f"🧪 DEBUG started on RIG {rig_id}: {filename}", "warning", "trigger")
+        return jsonify({"status": "started", "mode": "debug", "rig_id": rig_id, "filename": filename, "circumstances": generated})
+    except TriggerValidationError as exc:
+        if destination_path is not None: destination_path.unlink(missing_ok=True)
+        return jsonify({"error": str(exc), "code": exc.code, "rig_id": rig_id}), 400
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 400
+        if destination_path is not None: destination_path.unlink(missing_ok=True)
+        return jsonify({"error": str(exc), "code": "DEBUG_START_FAILED", "rig_id": rig_id}), 500
 
 @app.route("/api/trigger/stop", methods=["POST"])
 def api_trigger_stop():

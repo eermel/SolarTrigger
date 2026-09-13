@@ -463,7 +463,11 @@ class TriggerService:
                 ecl,
                 fallback_date=datetime.now(timezone.utc).date(),
             )
-            build_phase_schedule(timeline, photo)
+            build_phase_schedule(
+                timeline,
+                photo,
+                honor_timeline_bounds=ecl.get("_debug_scenario") is True,
+            )
         except Exception as exc:
             raise TriggerValidationError(
                 f"Invalid trigger inputs: {exc}",

@@ -1317,10 +1317,10 @@
         <!-- Boutons START / STOP -->
         <div class="trigger-action-stack" style="display:flex;flex-direction:column;gap:8px;min-width:110px">
           <button class="btn trigger-action-button"
-                  id="btn-dryrun-now"
-                  onclick="generateDryRunNow()"
+                  id="btn-debug"
+                  onclick="startDebug()"
                   style="background:rgba(0,140,200,.30);border:1px solid rgba(0,180,255,.7);color:#9addff;font-size:11px"
-                  title="Create selectable circumstances with TSTART at UTC now + 5 minutes. It does not start cameras.">🧪 GENERATE DRY-RUN NOW</button>
+                  title="Generate the short DEBUG scenario and start it immediately on the selected RIG.">🧪 DEBUG</button>
           <button class="btn trigger-action-button"
                   id="btn-dryrun"
                   onclick="startDryRun()"

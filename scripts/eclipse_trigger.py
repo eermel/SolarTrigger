@@ -276,7 +276,11 @@ def main() -> int:
             circumstances,
             fallback_date=clock.now().date(),
         )
-        schedule = build_phase_schedule(timeline, photo_setup)
+        schedule = build_phase_schedule(
+            timeline,
+            photo_setup,
+            honor_timeline_bounds=circumstances.get("_debug_scenario") is True,
+        )
         timeline = dict(timeline)
         timeline.update(
             TSTART=schedule.tstart,
