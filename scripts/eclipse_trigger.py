@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 import fcntl
 import json
 import os
+from math import ceil
 from pathlib import Path
 import signal
 import threading
@@ -459,11 +460,12 @@ def main() -> int:
             return not truncated
 
         def log_next_capture(window: PhaseWindow, target: datetime) -> None:
-            level = photo_log_level(window, clock.now())
-            target_text = target.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            now = clock.now()
+            level = photo_log_level(window, now)
+            remaining_s = max(0, ceil((target - now).total_seconds()))
             log(
                 f"TRIGGER_WAIT {level} "
-                f"Estimated time of the next photo : {target_text} UTC"
+                f"Next photo in {remaining_s} s"
             )
 
         def wait_until(target: datetime) -> None:
