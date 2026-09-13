@@ -344,6 +344,23 @@ header {
   padding-right: 32px;
 }
 
+.config-file-select {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color .2s;
+}
+.config-file-select:focus { border-color: var(--blue); }
+.config-file-select option { background: var(--bg2); }
+
+
 .add-camera-section,
 .devices-section {
   display: flex;
@@ -535,8 +552,10 @@ header {
 .log-line.orange  { color: var(--orange); }
 .log-line.pink    { color: var(--pink); }
 .log-line.info    { color: var(--text-dim); }
-.log-line.audio   { color: var(--yellow); }
+.log-line.audio   { color: var(--green); }
 .log-line.phase   { color: var(--red); }
+.log-line.purple  { color: var(--purple); }
+.log-line.totality { color: #fff; font-weight: 700; }
 
 .log-line.info    { color: var(--text-dim); }
 .log-line.gps     { color: var(--blue); }

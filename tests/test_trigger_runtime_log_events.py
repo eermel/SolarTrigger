@@ -8,11 +8,11 @@ from scripts.eclipse_trigger import _phase_label
 
 def test_phase_runtime_events_have_public_labels_levels_and_states():
     expected = {
-        "partial_before": ("PHASE 1 — Partial", "partial"),
-        "diamond_ring_c2": ("PHASE 2 — Diamond ring", "diamond_ring"),
-        "totality": ("PHASE 3 — Totality", "totality"),
-        "diamond_ring_c3": ("PHASE 4 — Diamond ring", "diamond_ring"),
-        "partial_after": ("PHASE 5 — Partial", "partial"),
+        "partial_before": ("### Phase 1 — Partial", "partial"),
+        "diamond_ring_c2": ("### Phase 2 — Diamond ring", "diamond_ring"),
+        "totality": ("### Phase 3 — Totality", "totality"),
+        "diamond_ring_c3": ("### Phase 4 — Diamond ring", "diamond_ring"),
+        "partial_after": ("### Phase 5 — Partial", "partial"),
     }
 
     for internal_name, (label, public_phase) in expected.items():
@@ -53,5 +53,5 @@ def test_runtime_event_levels_have_the_required_log_colors():
     css = (root / "flask_app/static/css/solartrigger.css").read_text(
         encoding="utf-8"
     )
-    assert ".log-line.audio   { color: var(--yellow); }" in css
+    assert ".log-line.audio   { color: var(--green); }" in css
     assert ".log-line.phase   { color: var(--red); }" in css

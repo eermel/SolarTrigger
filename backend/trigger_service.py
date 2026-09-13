@@ -623,18 +623,38 @@ class TriggerService:
     @staticmethod
     def _runtime_log_event(line):
         phase_events = {
-            "partial_before": ("PHASE 1 — Partial", "partial"),
-            "diamond_ring_c2": ("PHASE 2 — Diamond ring", "diamond_ring"),
-            "totality": ("PHASE 3 — Totality", "totality"),
-            "diamond_ring_c3": ("PHASE 4 — Diamond ring", "diamond_ring"),
-            "partial_after": ("PHASE 5 — Partial", "partial"),
+            "partial_before": ("Phase 1 — Partial", "partial"),
+            "diamond_ring_c2": ("Phase 2 — Diamond ring", "diamond_ring"),
+            "totality": ("Phase 3 — Totality", "totality"),
+            "diamond_ring_c3": ("Phase 4 — Diamond ring", "diamond_ring"),
+            "partial_after": ("Phase 5 — Partial", "partial"),
         }
+        if line == "TRIGGER_PHASE_BORDER":
+            return "#" * 65, "phase", None
+
         if line.startswith("TRIGGER_PHASE "):
             phase_name = line.split(None, 1)[1]
             event = phase_events.get(phase_name)
             if event is not None:
                 label, public_phase = event
-                return label, "phase", public_phase
+                return f"### {label}", "phase", public_phase
+
+        if line.startswith("TRIGGER_CONFIG "):
+            return line.split(" ", 1)[1], "gps", None
+
+        if line.startswith("TRIGGER_PHOTO "):
+            parts = line.split(" ", 2)
+            if len(parts) == 3:
+                level = parts[1]
+                if level in {"warning", "orange", "purple", "totality"}:
+                    return parts[2], level, None
+
+        if line.startswith("TRIGGER_WAIT "):
+            parts = line.split(" ", 2)
+            if len(parts) == 3:
+                level = parts[1]
+                if level in {"warning", "orange", "purple", "totality"}:
+                    return parts[2], level, None
 
         if line.startswith("TRIGGER_AUDIO "):
             filename = line.split(None, 1)[1]

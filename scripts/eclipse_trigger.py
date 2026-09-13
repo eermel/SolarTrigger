@@ -339,31 +339,54 @@ def main() -> int:
 
         camera_initialized = False
 
+        def photo_log_level(window: PhaseWindow, instant: datetime) -> str:
+            if window.photo_phase == "diamond_ring":
+                return "purple"
+            if window.photo_phase == "totality":
+                return "totality"
+            c1 = timeline.get("C1")
+            c4 = timeline.get("C4")
+            if window.name == "partial_before":
+                return "warning" if c1 is not None and instant < c1 else "orange"
+            if window.name == "partial_after":
+                return "warning" if c4 is not None and instant >= c4 else "orange"
+            return "orange"
+
         def initialize_phase(window: PhaseWindow) -> None:
             nonlocal camera_initialized
             config = phase_config(window)
+            aperture = config.get("aperture", "f/8")
+            iso = str(config.get("iso", "100"))
+            log("TRIGGER_PHASE_BORDER")
             log(f"TRIGGER_PHASE {window.name}")
+            log("TRIGGER_PHASE_BORDER")
+            log(
+                "TRIGGER_CONFIG "
+                f"Camera phase initialization: aperture={aperture} ISO={iso}"
+            )
             if not camera_initialized:
-                camera.initialize(
-                    aperture=config.get("aperture", "f/8"),
-                    iso=str(config.get("iso", "100")),
+                log(
+                    "TRIGGER_CONFIG "
+                    f"SET camera initialize aperture={aperture} ISO={iso}"
                 )
+                camera.initialize(aperture=aperture, iso=iso)
                 camera_initialized = True
 
         def reconcile_phase(window: PhaseWindow) -> None:
             nonlocal camera_initialized
             config = phase_config(window)
+            aperture = config.get("aperture", "f/8")
+            iso = str(config.get("iso", "100"))
             if not camera_initialized:
-                camera.initialize(
-                    aperture=config.get("aperture", "f/8"),
-                    iso=str(config.get("iso", "100")),
+                log(
+                    "TRIGGER_CONFIG "
+                    f"SET camera initialize aperture={aperture} ISO={iso}"
                 )
+                camera.initialize(aperture=aperture, iso=iso)
                 camera_initialized = True
                 return
-            camera.apply_phase_settings(
-                aperture=config.get("aperture", "f/8"),
-                iso=str(config.get("iso", "100")),
-            )
+            log("TRIGGER_CONFIG " f"SET aperture={aperture} ISO={iso}")
+            camera.apply_phase_settings(aperture=aperture, iso=iso)
 
         def capture_cycle(window: PhaseWindow, started: datetime) -> bool:
             config = phase_config(window)
@@ -384,6 +407,7 @@ def main() -> int:
                         f"atmos_exposure={atmos_speed}"
                     )
             _regular, fastest, slowest, step_ev, speeds = plan
+            planned_speeds = expand_executable_shutters(rig_snapshot, plan)
             # Every phase boundary is authoritative.  The camera may finish
             # an admitted atomic PHOTO group, but must never start a group
             # whose characterized budget crosses into the next phase.
@@ -421,8 +445,26 @@ def main() -> int:
                         f'ERROR phase="{_phase_label(window)}" stage=photo '
                         f"captured={frames}/{planned}"
                     )
-            log(f'INFO phase="{_phase_label(window)}" PHOTO frames={frames}')
+            exposure_text = "".join(
+                f"[{value}]" for value in planned_speeds[:max(0, int(frames))]
+            )
+            photo_text = (
+                f'phase="{_phase_label(window)}" PHOTO frames={frames}'
+                + (f" {exposure_text}" if exposure_text else "")
+            )
+            log(
+                f"TRIGGER_PHOTO {photo_log_level(window, started)} "
+                f"{photo_text}"
+            )
             return not truncated
+
+        def log_next_capture(window: PhaseWindow, target: datetime) -> None:
+            level = photo_log_level(window, clock.now())
+            target_text = target.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            log(
+                f"TRIGGER_WAIT {level} "
+                f"Estimated time of the next photo : {target_text} UTC"
+            )
 
         def wait_until(target: datetime) -> None:
             remaining = (target - clock.now()).total_seconds()
@@ -446,6 +488,7 @@ def main() -> int:
             log_error=lambda message: log(f"ERROR {message}"),
             stopped=stopped.is_set,
             override_phase=lambda _current: override_window if override.is_set() else None,
+            next_capture_log=log_next_capture,
         ).run()
         log("INFO trigger sequence complete")
         return 0

@@ -222,6 +222,7 @@ class PhaseRuntime:
         log_error: Callable[[str], None],
         stopped: Callable[[], bool] = lambda: False,
         override_phase: Callable[[datetime], PhaseWindow | None] = lambda _now: None,
+        next_capture_log: Callable[[PhaseWindow, datetime], None] | None = None,
     ) -> None:
         self.schedule = schedule
         self.now = now
@@ -232,10 +233,12 @@ class PhaseRuntime:
         self.log_error = log_error
         self.stopped = stopped
         self.override_phase = override_phase
+        self.next_capture_log = next_capture_log
 
     def run(self) -> None:
         active: PhaseWindow | None = None
         next_capture: datetime | None = None
+        announced_next_capture: datetime | None = None
 
         while not self.stopped():
             current = self.now()
@@ -250,6 +253,7 @@ class PhaseRuntime:
             if active != window:
                 active = window
                 next_capture = self._first_capture(window, current)
+                announced_next_capture = None
                 try:
                     self.enter_phase(window)
                 except Exception as exc:  # settings failure must not stop photos
@@ -263,6 +267,13 @@ class PhaseRuntime:
                 self.wait_until(window.end)
                 continue
             if current < next_capture:
+                if (
+                    window.photo_phase == "partial"
+                    and self.next_capture_log is not None
+                    and announced_next_capture != next_capture
+                ):
+                    self.next_capture_log(window, next_capture)
+                    announced_next_capture = next_capture
                 self.wait_until(min(next_capture, window.end))
                 continue
 
@@ -289,6 +300,7 @@ class PhaseRuntime:
                     f"error={type(exc).__name__}: {exc}"
                 )
 
+            announced_next_capture = None
             if captured is False:
                 next_capture = window.end
             elif window.interval_s > 0:

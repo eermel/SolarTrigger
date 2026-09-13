@@ -101,7 +101,7 @@
         <div class="card">
           <div class="card-title">Camera Characterization</div>
           <div style="display:flex;gap:12px;align-items:center">
-            <select id="camera-characterization-select" aria-label="Uncharacterized camera" style="flex:1;min-width:0"></select>
+            <select id="camera-characterization-select" class="config-file-select" aria-label="Uncharacterized camera" style="flex:1;min-width:0"></select>
             <button class="btn btn-primary" id="camera-characterization-start" onclick="startCameraCharacterization()">Characterize</button>
             <button class="btn" id="camera-characterization-cancel" onclick="cancelCameraCharacterization()" disabled>Cancel</button>
           </div>
@@ -116,7 +116,7 @@
         <div class="card">
           <div class="card-title">Camera Validation</div>
           <div style="display:flex;gap:12px;align-items:center">
-            <select id="camera-validation-select" aria-label="Characterized camera" style="flex:1;min-width:0">
+            <select id="camera-validation-select" class="config-file-select" aria-label="Characterized camera" style="flex:1;min-width:0">
               <option value="">— Characterized camera —</option>
             </select>
             <button class="btn btn-primary" id="camera-validation-start" onclick="prepareCameraValidation()">Validate</button>
@@ -1344,11 +1344,11 @@
           <div class="card-title" style="margin-bottom:8px">Active configuration</div>
 
           <label for="trigger-circumstances-select" style="font-size:10px;color:var(--text-dim)">Eclipse circumstances</label>
-          <select id="trigger-circumstances-select" onchange="loadTriggerCircumstances(this.value)" style="width:100%;margin:3px 0 8px"></select>
+          <select id="trigger-circumstances-select" class="config-file-select" onchange="loadTriggerCircumstances(this.value)" style="width:100%;margin:3px 0 8px"></select>
           <label for="trigger-photo-select" style="font-size:10px;color:var(--text-dim)">Photo Setup</label>
-          <select id="trigger-photo-select" style="width:100%;margin:3px 0 8px"></select>
+          <select id="trigger-photo-select" class="config-file-select" style="width:100%;margin:3px 0 8px"></select>
           <label for="trigger-exposure-opt-select" style="font-size:10px;color:var(--text-dim)">Exposure Optimization</label>
-          <select id="trigger-exposure-opt-select" style="width:100%;margin:3px 0 8px"></select>
+          <select id="trigger-exposure-opt-select" class="config-file-select" style="width:100%;margin:3px 0 8px"></select>
 
           <!-- Infos config active -->
           <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">
