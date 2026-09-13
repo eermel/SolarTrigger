@@ -46,24 +46,29 @@
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M20 13v6H3V7h4l2-3h6l2 3h3M19 2v8M15 6h8"/><circle cx="10" cy="13" r="4"/></svg>
       <span>ADD CAMERA</span>
     </button>
-    <button class="tab active" data-page-index="0" id="devices-tab" onclick="showTab(0)">
+    <button class="tab active" data-workflow-step="1" data-page-index="0" id="devices-tab" onclick="showTab(0)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <i class="workflow-step-number" data-step="1" aria-hidden="true"></i>
       <span>DEVICES</span>
     </button>
-    <button class="tab" data-page-index="1" onclick="showTab(1)">
+    <button class="tab" data-workflow-step="2" data-page-index="1" onclick="showTab(1)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><circle cx="12" cy="4" r="2"/><path d="M12 6v6l4 2M4.93 4.93l1.41 1.41M17.66 6.34l1.41-1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 17.66l1.41 1.41M12 20v2"/></svg>
+      <i class="workflow-step-number" data-step="2" aria-hidden="true"></i>
       <span>SYNC GPS</span>
     </button>
-    <button class="tab" data-page-index="2" onclick="showTab(2)">
+    <button class="tab" data-workflow-step="3" data-page-index="2" onclick="showTab(2)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+      <i class="workflow-step-number" data-step="3" aria-hidden="true"></i>
       <span>ECLIPSE</span>
     </button>
-    <button class="tab" data-page-index="3" onclick="showTab(3)">
+    <button class="tab" data-workflow-step="4" data-page-index="3" onclick="showTab(3)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      <i class="workflow-step-number" data-step="4" aria-hidden="true"></i>
       <span>PHOTO SETUP</span>
     </button>
-    <button class="tab" data-page-index="4" onclick="showTab(4)">
+    <button class="tab" data-workflow-step="5" data-page-index="4" onclick="showTab(4)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M4 20h16M6 17l3-6 3 3 3-8 3 11"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="6" r="1"/></svg>
+      <i class="workflow-step-number" data-step="5" aria-hidden="true"></i>
       <span>EXPO. OPT.</span>
     </button>
     <button class="tab" data-page-index="5" id="sequencer-tab" onclick="showTab(5)" hidden>
@@ -75,16 +80,19 @@
       </svg>
       <span>SEQUENCER</span>
     </button>
-    <button class="tab" data-page-index="6" onclick="showTab(6)">
+    <button class="tab" data-workflow-step="6" data-page-index="6" onclick="showTab(6)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><circle cx="12" cy="14" r="3"/></svg>
+      <i class="workflow-step-number" data-step="6" aria-hidden="true"></i>
       <span>CAMERA</span>
     </button>
-    <button class="tab" data-page-index="7" id="controls-tab" onclick="showTab(7)">
+    <button class="tab" data-workflow-step="7" data-page-index="7" id="controls-tab" onclick="showTab(7)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      <i class="workflow-step-number" data-step="7" aria-hidden="true"></i>
       <span>CONTROLS</span>
     </button>
-    <button class="tab" data-page-index="8" onclick="showTab(8)">
+    <button class="tab" data-workflow-step="8" data-workflow-last data-page-index="8" onclick="showTab(8)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+      <i class="workflow-step-number" data-step="8" aria-hidden="true"></i>
       <span>TRIGGER</span>
     </button>
   </div>

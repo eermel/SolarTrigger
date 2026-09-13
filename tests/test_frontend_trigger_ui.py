@@ -193,3 +193,64 @@ def test_trigger_partiality_log_uses_eclipse_moon_icon():
 
     assert "orange: '🌙'" in icon_function
     assert "orange: '🌒'" not in icon_function
+
+
+
+def test_main_tabs_show_non_blocking_numbered_workflow():
+    html = (
+        Path(__file__).resolve().parents[1]
+        / "flask_app"
+        / "templates"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+
+    expected = (
+        ("1", "DEVICES"),
+        ("2", "SYNC GPS"),
+        ("3", "ECLIPSE"),
+        ("4", "PHOTO SETUP"),
+        ("5", "EXPO. OPT."),
+        ("6", "CAMERA"),
+        ("7", "CONTROLS"),
+        ("8", "TRIGGER"),
+    )
+
+    positions = []
+
+    for number, label in expected:
+        marker = (
+            f'<i class="workflow-step-number" '
+            f'data-step="{number}" aria-hidden="true"></i>'
+        )
+        assert marker in html
+        assert f"<span>{label}</span>" in html
+        positions.append(html.index(marker))
+
+    assert positions == sorted(positions)
+
+    # Auxiliary/non-workflow tabs stay unnumbered.
+    add_camera_start = html.index('id="add-camera-tab"')
+    add_camera_end = html.index("</button>", add_camera_start)
+    assert "workflow-step-number" not in html[add_camera_start:add_camera_end]
+
+    sequencer_start = html.index('id="sequencer-tab"')
+    sequencer_end = html.index("</button>", sequencer_start)
+    assert "workflow-step-number" not in html[sequencer_start:sequencer_end]
+
+
+def test_workflow_tabs_have_visual_arrows_only():
+    css = (
+        Path(__file__).resolve().parents[1]
+        / "flask_app"
+        / "static"
+        / "css"
+        / "solartrigger.css"
+    ).read_text(encoding="utf-8")
+
+    assert "#tabs .workflow-step-number" in css
+    assert "content: attr(data-step);" in css
+    assert (
+        "#tabs .tab[data-workflow-step]:not([data-workflow-last])::before"
+        in css
+    )
+    assert "content: '→';" in css
