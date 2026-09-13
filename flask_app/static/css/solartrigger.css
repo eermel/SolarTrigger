@@ -178,6 +178,56 @@ header {
   color: var(--accent);
 }
 
+/* Recommended workflow markers: informational only, never blocking. */
+#tabs .tab[data-workflow-step] {
+  margin-right: 16px;
+}
+
+#tabs .tab[data-workflow-last] {
+  margin-right: 0;
+}
+
+#tabs .workflow-step-number {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--text-dim);
+  border-radius: 50%;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 8px;
+  font-style: normal;
+  line-height: 1;
+  pointer-events: none;
+}
+
+#tabs .workflow-step-number::before {
+  content: attr(data-step);
+}
+
+#tabs .tab.active .workflow-step-number {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#tabs .tab[data-workflow-step]:not([data-workflow-last])::before {
+  content: '→';
+  position: absolute;
+  right: -13px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+}
+
 /* ── PAGES ── */
 #pages {
   flex: 1;
