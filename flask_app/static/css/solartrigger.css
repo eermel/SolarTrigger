@@ -361,12 +361,25 @@ header {
 .config-file-select option { background: var(--bg2); }
 
 /*
- * Use the browser-native select chevron.
- * This matches the Circumstances configuration selector.
+ * Uniform chevron for file/configuration selectors.
+ * Do not rely on the browser-native arrow: several existing select
+ * rules use appearance:none and native rendering differs by browser.
  */
-.native-select-chevron {
-  appearance: auto;
-  -webkit-appearance: menulist;
+.file-select-chevron {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  padding-right: 32px !important;
+
+  background:
+    linear-gradient(45deg,
+      transparent 50%,
+      var(--text-dim) 50%)
+      calc(100% - 15px) 50% / 5px 5px no-repeat,
+    linear-gradient(135deg,
+      var(--text-dim) 50%,
+      transparent 50%)
+      calc(100% - 10px) 50% / 5px 5px no-repeat,
+    var(--bg3) !important;
 }
 
 

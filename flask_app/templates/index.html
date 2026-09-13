@@ -101,7 +101,7 @@
         <div class="card">
           <div class="card-title">Camera Characterization</div>
           <div style="display:flex;gap:12px;align-items:center">
-            <select id="camera-characterization-select" class="config-file-select native-select-chevron" aria-label="Uncharacterized camera" style="flex:1;min-width:0"></select>
+            <select id="camera-characterization-select" class="config-file-select file-select-chevron" aria-label="Uncharacterized camera" style="flex:1;min-width:0"></select>
             <button class="btn btn-primary" id="camera-characterization-start" onclick="startCameraCharacterization()">Characterize</button>
             <button class="btn" id="camera-characterization-cancel" onclick="cancelCameraCharacterization()" disabled>Cancel</button>
           </div>
@@ -116,7 +116,7 @@
         <div class="card">
           <div class="card-title">Camera Validation</div>
           <div style="display:flex;gap:12px;align-items:center">
-            <select id="camera-validation-select" class="config-file-select native-select-chevron" aria-label="Characterized camera" style="flex:1;min-width:0">
+            <select id="camera-validation-select" class="config-file-select file-select-chevron" aria-label="Characterized camera" style="flex:1;min-width:0">
               <option value="">— Characterized camera —</option>
             </select>
             <button class="btn btn-primary" id="camera-validation-start" onclick="prepareCameraValidation()">Validate</button>
@@ -262,7 +262,7 @@
             <select id="eclipse-circumstances-select"
               style="flex:1;background:var(--bg3);border:1px solid var(--border);
                 border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
-              onchange="loadSavedCircumstances(this.value)">
+              onchange="loadSavedCircumstances(this.value)" class="file-select-chevron">
               <option value="">— Circumstances file —</option>
             </select>
             <button class="btn btn-primary" type="button"
@@ -300,7 +300,7 @@
           <div class="field">
             <label for="inp-eclipse">Eclipse</label>
             <select id="inp-eclipse"
-                    class="native-select-chevron"
+                    class="file-select-chevron"
                     onchange="handleEclipseSelectionChange()">
               <option value="auto">Auto (next)</option>
             </select>
@@ -360,7 +360,7 @@
         <div style="display:flex;gap:6px">
           <select id="camera-config-select" style="flex:1;background:var(--bg3);border:1px solid var(--border);
             border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px"
-            onchange="loadCameraConfig(this.value)">
+            onchange="loadCameraConfig(this.value)" class="file-select-chevron">
             <option value="">— Photo Setup file —</option>
           </select>
           <button class="btn btn-primary" style="font-size:11px;padding:7px 10px"
@@ -492,7 +492,7 @@
             style="flex:1;background:var(--bg3);border:1px solid var(--border);
             border-radius:8px;padding:8px 10px;color:var(--text);
             font-family:var(--mono);font-size:11px"
-            onchange="loadExposureOptConfig(this.value)">
+            onchange="loadExposureOptConfig(this.value)" class="file-select-chevron">
             <option value="">— Exposure Optimization file —</option>
           </select>
 
@@ -835,17 +835,17 @@
         ">
 
           <div class="stat-label">Eclipse circumstances</div>
-          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-circumstances-select" onchange="updateSequencerPlanFilenames()">
+          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-circumstances-select" onchange="updateSequencerPlanFilenames()" class="file-select-chevron">
             <option value="">— Circumstances file —</option>
           </select>
 
           <div class="stat-label">Photo Setup</div>
-          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-photo-select">
+          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-photo-select" class="file-select-chevron">
             <option value="">— Photo Setup file —</option>
           </select>
 
           <div class="stat-label">Exposure Optimization</div>
-          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-exposure-opt-select">
+          <select style="flex:1;background:var(--bg3);border:1px solid var(--border); border-radius:8px;padding:8px 10px;color:var(--text);font-family:var(--mono);font-size:11px" id="sequencer-exposure-opt-select" class="file-select-chevron">
             <option value="">— Exposure Optimization file —</option>
           </select>
 
@@ -1385,11 +1385,11 @@
           <div class="card-title" style="margin-bottom:8px">Active configuration</div>
 
           <label for="trigger-circumstances-select" style="font-size:10px;color:var(--text-dim)">Eclipse circumstances</label>
-          <select id="trigger-circumstances-select" class="config-file-select" onchange="loadTriggerCircumstances(this.value)" style="width:100%;margin:3px 0 8px"></select>
+          <select id="trigger-circumstances-select" class="config-file-select file-select-chevron" onchange="loadTriggerCircumstances(this.value)" style="width:100%;margin:3px 0 8px"></select>
           <label for="trigger-photo-select" style="font-size:10px;color:var(--text-dim)">Photo Setup</label>
-          <select id="trigger-photo-select" class="config-file-select" onchange="refreshTriggerCircumstancesForPhoto()" style="width:100%;margin:3px 0 8px"></select>
+          <select id="trigger-photo-select" class="config-file-select file-select-chevron" onchange="refreshTriggerCircumstancesForPhoto()" style="width:100%;margin:3px 0 8px"></select>
           <label for="trigger-exposure-opt-select" style="font-size:10px;color:var(--text-dim)">Exposure Optimization</label>
-          <select id="trigger-exposure-opt-select" class="config-file-select" style="width:100%;margin:3px 0 8px"></select>
+          <select id="trigger-exposure-opt-select" class="config-file-select file-select-chevron" style="width:100%;margin:3px 0 8px"></select>
 
           <!-- Infos config active -->
           <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">
