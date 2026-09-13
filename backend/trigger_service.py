@@ -826,6 +826,22 @@ class TriggerService:
                 line=raw.rstrip()
                 if not line: continue
                 level=self.line_level_fn(line); line=self.line_clean_fn(line)
+
+                # The Pi has just started this sound locally. Mirror the same
+                # WAV to every connected browser without making Pi audio
+                # dependent on Socket.IO or browser availability.
+                if line.startswith("TRIGGER_AUDIO "):
+                    filename = line.split(None, 1)[1].strip()
+                    if filename:
+                        self.emit(
+                            "audio_play",
+                            {
+                                "filename": filename,
+                                "source": "trigger",
+                                "rig_id": rig_id,
+                            },
+                        )
+
                 line, event_level, public_phase = self._runtime_log_event(line)
                 if event_level is not None:
                     level = event_level

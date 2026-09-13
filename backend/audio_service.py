@@ -7,6 +7,13 @@ import time
 
 SOUNDS_ENABLED = False
 
+# Shared between the Flask process and eclipse_trigger subprocesses.
+# /tmp is intentionally ephemeral: after reboot audio defaults to enabled.
+AUDIO_ENABLED_STATE_FILE = os.environ.get(
+    "SET_AUDIO_ENABLED_STATE_FILE",
+    "/tmp/solartrigger-audio-enabled",
+)
+
 pygame = None
 _log_fn = None
 _colors = None
@@ -79,11 +86,44 @@ def _ensure_mixer():
         return False
 
 
+def is_enabled():
+    """Return the global user audio switch shared across processes."""
+    try:
+        with open(AUDIO_ENABLED_STATE_FILE, encoding="utf-8") as handle:
+            return handle.read().strip() != "0"
+    except FileNotFoundError:
+        return True
+    except OSError:
+        # Fail-open: an unavailable state file must never silently remove
+        # eclipse timing announcements.
+        return True
+
+
+def set_enabled(enabled):
+    """Set the global user audio switch shared across processes."""
+    value = "1" if bool(enabled) else "0"
+    tmp_path = (
+        f"{AUDIO_ENABLED_STATE_FILE}."
+        f"{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            handle.write(value)
+
+        os.replace(tmp_path, AUDIO_ENABLED_STATE_FILE)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+
+
 def play(filename):
     """Play one WAV file synchronously, unless audio is disabled or stopped."""
     global _mixer_ready
 
-    if not SOUNDS_ENABLED or pygame is None:
+    if not SOUNDS_ENABLED or pygame is None or not is_enabled():
         return
     path = os.path.join(_sounds_dir, filename)
     if not os.path.isfile(path):
