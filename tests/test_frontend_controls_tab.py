@@ -315,56 +315,35 @@ def _function_source(name, *, asynchronous=False):
     return match.group("body")
 
 
-def test_controls_visibility_combines_global_and_per_rig_devices():
+def test_controls_tab_is_always_visible():
     source = _controls_visibility_source()
 
     assert "globalDevicesState = devices" in source
-    assert "const currentDevices = globalDevicesState" in source
-
     assert re.search(
-        r"currentDevices\s*&&\s*currentDevices\.focuser\s*&&\s*"
-        r"currentDevices\.focuser\.active\s*===\s*true",
+        r"controlsTab\.hidden\s*=\s*false",
         source,
     )
     assert re.search(
-        r"currentDevices\s*&&\s*currentDevices\.mount\s*&&\s*"
-        r"currentDevices\.mount\.active\s*===\s*true",
+        r"controlsPanel\.hidden\s*=\s*false",
         source,
     )
-
-    assert "rigDevicesState.rigs.some" in source
-    assert "pilotableMount" in source
-    assert "pilotableFocuser" in source
-    assert (
-        "const controlsActive = "
-        "focuserActive || mountActive || rigControlsActive"
-    ) in source
-
-    assert re.search(r"controlsTab\.hidden\s*=\s*!controlsActive", source)
-    assert re.search(r"controlsPanel\.hidden\s*=\s*!controlsActive", source)
-
-    # La section affichée dépend du RIG sélectionné, pas de l'ancien
-    # état global focuser/mount.
     assert "renderControlsRigSelection()" in source
-    assert "focuser-section').hidden = !focuserActive" not in source
 
-def test_missing_global_devices_do_not_erase_per_rig_controls_state():
+    # Controls contains global controls such as audio and must no longer
+    # depend on mount/focuser availability.
+    assert "controlsActive" not in source
+    assert "controlsWasSelected" not in source
+    assert "showTab(0)" not in source
+
+
+def test_missing_global_devices_keeps_controls_available():
     source = _controls_visibility_source()
 
     assert "if (devices && typeof devices === 'object')" in source
     assert "globalDevicesState = devices" in source
-    assert "const currentDevices = globalDevicesState" in source
-    assert "rigControlsActive" in source
-    assert (
-        "focuserActive || mountActive || rigControlsActive"
-        in source
-    )
+    assert "controlsTab.hidden = false" in source
+    assert "controlsPanel.hidden = false" in source
 
-def test_active_controls_falls_back_to_devices_when_controls_become_hidden():
-    source = _controls_visibility_source()
-
-    assert re.search(r"controlsWasSelected\s*=\s*controlsTab\.classList\.contains\(['\"]active['\"]\)", source)
-    assert re.search(r"if\s*\(controlsWasSelected\s*&&\s*!controlsActive\)\s*showTab\(0\)", source)
 
 
 def test_backend_refresh_restores_device_rendering_and_controls_visibility():
@@ -408,3 +387,16 @@ def test_socket_device_updates_recalculate_controls_visibility():
         INDEX,
         re.DOTALL,
     )
+
+
+def test_global_sound_control_has_contact_test_button():
+    html = (
+        Path(__file__).resolve().parents[1]
+        / "flask_app"
+        / "templates"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+
+    assert 'id="btn-test-sound"' in html
+    assert 'onclick="testSound(\'contact.wav\')"' in html
+    assert 'id="toggle-sounds"' in html

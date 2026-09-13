@@ -73,7 +73,17 @@ def test_controls_only_exposes_active_rigs():
     )
 
     assert (
-        "if (!rigIsOperationallyActive(rig)) {"
+        "const available = rigIsOperationallyActive(rig);"
+        in HTML
+    )
+
+    assert (
+        "button.hidden = !available;"
+        in HTML
+    )
+
+    assert (
+        "button.disabled = !available;"
         in HTML
     )
 

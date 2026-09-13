@@ -1212,6 +1212,47 @@
     </div><!-- /page-3 CAMÉRA -->
 
     <div class="page" id="controls-panel">
+      <!-- ── Global sound control ── -->
+      <div class="card" style="padding:14px 16px">
+
+        <!-- Switch son -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <span style="font-family:var(--mono);font-size:12px;color:var(--text-dim)">🔊 Son (sortie Jack)</span>
+
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn btn-secondary"
+                    type="button"
+                    id="btn-test-sound"
+                    onclick="testSound('contact.wav')"
+                    style="font-size:10px;padding:4px 9px">
+              TEST
+            </button>
+
+            <div id="toggle-sounds" onclick="toggleSounds()"
+                 style="width:44px;height:24px;border-radius:12px;
+                        border:1px solid var(--border);cursor:pointer;position:relative;
+                        transition:background .2s;flex-shrink:0"
+                 class="on">
+              <div style="position:absolute;top:3px;width:16px;height:16px;border-radius:50%;
+                          transition:left .2s,background .2s"
+                   id="toggle-sounds-knob"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Slider volume -->
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);white-space:nowrap">Vol.</span>
+          <input type="range" id="volume-slider" min="0" max="100" value="80"
+                 oninput="setVolume(this.value)"
+                 style="flex:1;accent-color:var(--accent);cursor:pointer;height:4px">
+          <span id="volume-label" style="font-family:var(--mono);font-size:11px;
+                color:var(--accent);min-width:32px;text-align:right">80%</span>
+        </div>
+
+      </div>
+
+
       <div class="controls-rig-selector" role="group" aria-label="Controlled RIG">
         <button class="btn btn-primary" id="controls-rig-1" data-controls-rig-id="1" onclick="selectControlsRig(1)" disabled hidden>RIG 1</button>
         <button class="btn btn-primary" id="controls-rig-2" data-controls-rig-id="2" onclick="selectControlsRig(2)" disabled hidden>RIG 2</button>
@@ -1346,7 +1387,7 @@
           <label for="trigger-circumstances-select" style="font-size:10px;color:var(--text-dim)">Eclipse circumstances</label>
           <select id="trigger-circumstances-select" class="config-file-select" onchange="loadTriggerCircumstances(this.value)" style="width:100%;margin:3px 0 8px"></select>
           <label for="trigger-photo-select" style="font-size:10px;color:var(--text-dim)">Photo Setup</label>
-          <select id="trigger-photo-select" class="config-file-select" style="width:100%;margin:3px 0 8px"></select>
+          <select id="trigger-photo-select" class="config-file-select" onchange="refreshTriggerCircumstancesForPhoto()" style="width:100%;margin:3px 0 8px"></select>
           <label for="trigger-exposure-opt-select" style="font-size:10px;color:var(--text-dim)">Exposure Optimization</label>
           <select id="trigger-exposure-opt-select" class="config-file-select" style="width:100%;margin:3px 0 8px"></select>
 
@@ -1363,35 +1404,6 @@
         </div>
       </div>
 
-      <!-- ── Son Jack ── -->
-      <div class="card" style="padding:14px 16px">
-
-        <!-- Switch son -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <span style="font-family:var(--mono);font-size:12px;color:var(--text-dim)">🔊 Son (sortie Jack)</span>
-          <div id="toggle-sounds" onclick="toggleSounds()"
-               style="width:44px;height:24px;border-radius:12px;
-                      border:1px solid var(--border);cursor:pointer;position:relative;
-                      transition:background .2s;flex-shrink:0"
-               class="on">
-            <div style="position:absolute;top:3px;width:16px;height:16px;border-radius:50%;
-                        transition:left .2s,background .2s"
-                 id="toggle-sounds-knob"></div>
-          </div>
-        </div>
-
-        <!-- Slider volume -->
-        <div style="display:flex;align-items:center;gap:10px">
-          <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);white-space:nowrap">Vol.</span>
-          <input type="range" id="volume-slider" min="0" max="100" value="80"
-                 oninput="setVolume(this.value)"
-                 style="flex:1;accent-color:var(--accent);cursor:pointer;height:4px">
-          <span id="volume-label" style="font-family:var(--mono);font-size:11px;
-                color:var(--accent);min-width:32px;text-align:right">80%</span>
-        </div>
-
-      </div>
-
       <!-- ── Circonstances de l'éclipse ── -->
       <div class="card">
         <div class="card-title">
@@ -1404,15 +1416,56 @@
         </div>
       </div>
 
-      <!-- Trigger log -->
-      <div class="card" style="flex-shrink:0">
-        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Trigger log</span>
-          <button class="btn btn-secondary" type="button"
-        style="font-size:10px;padding:4px 9px"
-        onclick="clearLog('trigger')">CLEAR</button>
+      <!-- Trigger logs — one panel per active RIG -->
+      <div id="trigger-log-panels">
+        <div class="card trigger-log-card"
+             data-trigger-log-rig="1"
+             style="flex-shrink:0">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>Trigger log — RIG 1</span>
+            <button class="btn btn-secondary"
+                    type="button"
+                    style="font-size:10px;padding:4px 9px"
+                    onclick="clearTriggerRigLog(1)">CLEAR</button>
+          </div>
+          <div id="log-container-trigger-rig-1" style="height:320px"></div>
         </div>
-        <div id="log-container-trigger" style="height:320px"></div>
+        <div class="card trigger-log-card"
+             data-trigger-log-rig="2"
+             style="flex-shrink:0" hidden>
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>Trigger log — RIG 2</span>
+            <button class="btn btn-secondary"
+                    type="button"
+                    style="font-size:10px;padding:4px 9px"
+                    onclick="clearTriggerRigLog(2)">CLEAR</button>
+          </div>
+          <div id="log-container-trigger-rig-2" style="height:320px"></div>
+        </div>
+        <div class="card trigger-log-card"
+             data-trigger-log-rig="3"
+             style="flex-shrink:0" hidden>
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>Trigger log — RIG 3</span>
+            <button class="btn btn-secondary"
+                    type="button"
+                    style="font-size:10px;padding:4px 9px"
+                    onclick="clearTriggerRigLog(3)">CLEAR</button>
+          </div>
+          <div id="log-container-trigger-rig-3" style="height:320px"></div>
+        </div>
+        <div class="card trigger-log-card"
+             data-trigger-log-rig="4"
+             style="flex-shrink:0" hidden>
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+            <span>Trigger log — RIG 4</span>
+            <button class="btn btn-secondary"
+                    type="button"
+                    style="font-size:10px;padding:4px 9px"
+                    onclick="clearTriggerRigLog(4)">CLEAR</button>
+          </div>
+          <div id="log-container-trigger-rig-4" style="height:320px"></div>
+        </div>
       </div>
 
     </div><!-- /page-4 TRIGGER -->

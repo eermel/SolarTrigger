@@ -245,6 +245,15 @@ def main() -> int:
         else load_json(args.exposure_opt, "Exposure Optimization")
     )
     rig_id = int(os.environ.get("SET_TRIGGER_RIG_ID", "1"))
+
+    phase_stats = {
+        "partial_before": {"photos": 0, "errors": 0},
+        "diamond_ring_c2": {"photos": 0, "errors": 0},
+        "totality": {"photos": 0, "errors": 0},
+        "diamond_ring_c3": {"photos": 0, "errors": 0},
+        "partial_after": {"photos": 0, "errors": 0},
+    }
+
     rig_exposure = (
         {}
         if args.totality_only
@@ -313,7 +322,8 @@ def main() -> int:
 
     camera = None
     audio_thread = None
-    if not args.totality_only:
+    # Audio is global: RIG 1 is the only timing announcer.
+    if not args.totality_only and rig_id == 1:
         audio_thread = threading.Thread(
             target=_audio_scheduler,
             args=(_phase_alerts(schedule, timeline), clock, stopped),
@@ -341,12 +351,27 @@ def main() -> int:
         camera_initialized = False
 
         def photo_log_level(window: PhaseWindow, instant: datetime) -> str:
-            if window.photo_phase == "diamond_ring":
-                return "purple"
+            c1 = timeline.get("C1")
+            c2 = timeline.get("C2")
+            c3 = timeline.get("C3")
+            c4 = timeline.get("C4")
+
+            if window.name == "diamond_ring_c2":
+                return (
+                    "purple"
+                    if c2 is None or instant < c2
+                    else "totality"
+                )
+
+            if window.name == "diamond_ring_c3":
+                return (
+                    "totality"
+                    if c3 is not None and instant < c3
+                    else "purple"
+                )
+
             if window.photo_phase == "totality":
                 return "totality"
-            c1 = timeline.get("C1")
-            c4 = timeline.get("C4")
             if window.name == "partial_before":
                 return "warning" if c1 is not None and instant < c1 else "orange"
             if window.name == "partial_after":
@@ -437,6 +462,15 @@ def main() -> int:
             frames = getattr(result, "frames", 0)
             planned = getattr(result, "planned", None)
             truncated = getattr(result, "detail", "") == "deadline"
+
+            stats_name = (
+                "totality"
+                if window.name == "totality_override"
+                else window.name
+            )
+            stats = phase_stats.get(stats_name)
+            if stats is not None:
+                stats["photos"] += max(0, int(frames or 0))
             if planned is not None and frames != planned:
                 if truncated:
                     log(
@@ -449,6 +483,8 @@ def main() -> int:
                         )
                     )
                 else:
+                    if stats is not None:
+                        stats["errors"] += 1
                     log(
                         f'ERROR phase="{_phase_label(window)}" stage=photo '
                         f"captured={frames}/{planned}"
@@ -487,6 +523,22 @@ def main() -> int:
             datetime.max.replace(tzinfo=timezone.utc),
             0.0,
         )
+        def runtime_error(message: str) -> None:
+            error_phase = None
+
+            if "phase=totality_override " in message:
+                error_phase = "totality"
+            else:
+                for phase_name in phase_stats:
+                    if f"phase={phase_name} " in message:
+                        error_phase = phase_name
+                        break
+
+            if error_phase is not None:
+                phase_stats[error_phase]["errors"] += 1
+
+            log(f"ERROR {message}")
+
         PhaseRuntime(
             schedule,
             now=clock.now,
@@ -494,11 +546,43 @@ def main() -> int:
             enter_phase=initialize_phase,
             reconcile_phase=reconcile_phase,
             capture=capture_cycle,
-            log_error=lambda message: log(f"ERROR {message}"),
+            log_error=runtime_error,
             stopped=stopped.is_set,
             override_phase=lambda _current: override_window if override.is_set() else None,
             next_capture_log=log_next_capture,
         ).run()
+
+        summary_labels = (
+            ("partial_before", "PARTIAL (before totality)"),
+            ("diamond_ring_c2", "DIAMOND (before totality)"),
+            ("totality", "TOTALITY"),
+            ("diamond_ring_c3", "DIAMOND (after totality)"),
+            ("partial_after", "PARTIAL (after totality)"),
+        )
+
+        scheduled_phases = {
+            (
+                "totality"
+                if window.name == "totality_override"
+                else window.name
+            )
+            for window in schedule.windows
+        }
+
+        log("TRIGGER_SUMMARY_BEGIN")
+        for phase_name, label in summary_labels:
+            if phase_name not in scheduled_phases:
+                continue
+
+            stats = phase_stats[phase_name]
+            log(
+                "TRIGGER_SUMMARY "
+                f'phase="{label}" '
+                f'photos={stats["photos"]} '
+                f'errors={stats["errors"]}'
+            )
+        log("TRIGGER_SUMMARY_END")
+
         log("INFO trigger sequence complete")
         return 0
     finally:

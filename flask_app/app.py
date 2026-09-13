@@ -348,7 +348,8 @@ def _save_state():
     try: _state_store.save()
     except Exception as e: log.warning(f"Unable to save state.json: {e}")
 def _load_log_buffer(): _event_log.reset()
-def _append_log(text, level="info", source="system"): return _event_log.append(text, level, source)
+def _append_log(text, level="info", source="system", rig_id=None):
+    return _event_log.append(text, level, source, rig_id=rig_id)
 def _trim_log_file(): _event_log.trim_forever()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3553,8 +3554,14 @@ def api_configs_load_circumstances(filename):
         if not isinstance(data, dict):
             return jsonify({"error": "Invalid circumstances configuration"}), 400
 
-        required = ("TSTART", "C1", "C2", "C3", "C4", "TEND")
+        required = ("TSTART", "C1", "C4", "TEND")
         missing = [field for field in required if not data.get(field)]
+
+        c2 = data.get("C2")
+        c3 = data.get("C3")
+
+        if (c2 is None) != (c3 is None):
+            missing.append("C2/C3 pair")
 
         if missing:
             return jsonify({

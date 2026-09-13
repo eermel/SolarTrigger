@@ -19,7 +19,10 @@ def test_add_camera_has_one_shared_log_and_clear_button():
 
 def test_sequencer_log_uses_same_visual_contract_as_trigger():
     assert 'id="log-container-sequencer"' in INDEX
-    assert 'id="log-container-trigger"' in INDEX
+
+    for rig_id in range(1, 5):
+        assert f'id="log-container-trigger-rig-{rig_id}"' in INDEX
+
     assert '#log-container-sequencer' in CSS
     assert "clearLog('sequencer')" in INDEX
 
