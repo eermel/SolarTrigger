@@ -356,6 +356,27 @@ def _audio_scheduler(alerts, clock, stopped) -> None:
             stopped.wait(0.1)
 
 
+
+def _build_totality_only_schedule(now: datetime) -> PhaseSchedule:
+    """Build emergency totality schedule using internal naive-UTC datetimes."""
+    if now.tzinfo is not None:
+        raise ValueError("totality-only schedule requires naive UTC datetime")
+
+    distant = datetime.max
+    emergency_window = PhaseWindow(
+        "totality_override",
+        "totality",
+        now,
+        distant,
+        0.0,
+    )
+    return PhaseSchedule(
+        tstart=now,
+        tend=distant,
+        tmax=now,
+        windows=(emergency_window,),
+    )
+
 def main() -> int:
     args = parse_args()
     if args.simulate and args.dry_run:
@@ -401,17 +422,8 @@ def main() -> int:
 
     circumstances = {}
     if args.totality_only:
-        now = _aware_utc(clock.now())
-        distant = datetime.max.replace(tzinfo=timezone.utc)
-        emergency_window = PhaseWindow(
-            "totality_override", "totality", now, distant, 0.0,
-        )
-        schedule = PhaseSchedule(
-            tstart=now,
-            tend=distant,
-            tmax=now,
-            windows=(emergency_window,),
-        )
+        now = clock.now()
+        schedule = _build_totality_only_schedule(now)
         timeline = {}
         override.set()
     else:

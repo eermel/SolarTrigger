@@ -48,7 +48,7 @@ def validate_eclipse(ecl):
                 try:
                     tl = build_timeline(
                         ecl,
-                        fallback_date=datetime.now().date(),
+                        fallback_date=datetime.now(timezone.utc).date(),
                     )
                     if not (
                         tl["C2"]
@@ -67,7 +67,7 @@ def validate_eclipse(ecl):
                 try:
                     tl = build_timeline(
                         ecl,
-                        fallback_date=datetime.now().date(),
+                        fallback_date=datetime.now(timezone.utc).date(),
                     )
                     if not (
                         tl["C1"]
