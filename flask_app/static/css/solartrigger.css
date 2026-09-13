@@ -965,3 +965,23 @@ header {
   min-height: calc(var(--btn-h) * 1.5);
   flex: 0 0 calc(var(--btn-h) * 1.5);
 }
+
+
+/* ── DEBUG / TEST MODE ── */
+.debug-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  margin-bottom: 10px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 209, 102, .75);
+  border-radius: 7px;
+  background: rgba(255, 209, 102, .12);
+  color: var(--yellow);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: .12em;
+  text-align: center;
+}

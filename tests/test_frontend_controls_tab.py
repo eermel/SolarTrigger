@@ -69,6 +69,7 @@ def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
         "CAMERA",
         "CONTROLS",
         "TRIGGER",
+        "DEBUG",
     ]
     assert parser.pages == [
         "add-camera-panel",
@@ -81,13 +82,17 @@ def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
         "page-3",
         "controls-panel",
         "page-4",
+        "debug-panel",
     ]
 
     controls = parser.tabs[8]
     trigger = parser.tabs[9]
+    debug = parser.tabs[10]
     assert controls["id"] == "controls-tab"
     assert controls["onclick"] == "showTab(7)"
     assert trigger["onclick"] == "showTab(8)"
+    assert debug["id"] == "debug-tab"
+    assert debug["onclick"] == "showTab(10)"
 
 
 def test_trigger_initialization_uses_trigger_tab_index():

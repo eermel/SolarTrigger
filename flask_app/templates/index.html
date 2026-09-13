@@ -95,6 +95,13 @@
       <i class="workflow-step-number" data-step="8" aria-hidden="true"></i>
       <span>TRIGGER</span>
     </button>
+    <button class="tab" id="debug-tab" data-page-index="10" onclick="showTab(10)">
+      <svg viewBox="0 0 24 24" stroke-width="1.5">
+        <path d="M8 9h8M8 15h8M9 4l1 3M15 4l-1 3M5 12H2M22 12h-3M6 7L4 5M18 7l2-2M6 17l-2 2M18 17l2 2"/>
+        <rect x="6" y="7" width="12" height="10" rx="4"/>
+      </svg>
+      <span>DEBUG</span>
+    </button>
   </div>
   <!-- PAGES -->
   <div id="pages">
@@ -1336,16 +1343,6 @@
 
         <!-- Boutons START / STOP -->
         <div class="trigger-action-stack" style="display:flex;flex-direction:column;gap:8px;min-width:110px">
-          <button class="btn trigger-action-button"
-                  id="btn-debug"
-                  onclick="startDebug()"
-                  style="background:rgba(0,140,200,.30);border:1px solid rgba(0,180,255,.7);color:#9addff;font-size:11px"
-                  title="Generate the short DEBUG scenario and start it immediately on the selected RIG.">🧪 DEBUG</button>
-          <button class="btn trigger-action-button"
-                  id="btn-dryrun"
-                  onclick="startDryRun()"
-                  style="background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
-                  title="Same three selected files as START, using today UTC date and the original UTC times">🧪 DRY-RUN ×1</button>
           <button class="btn btn-success trigger-action-button"
                   id="btn-start"
                   onclick="startTrigger()">▶ START</button>
@@ -1438,6 +1435,177 @@
 
     </div><!-- /page-4 TRIGGER -->
 
+
+    <!-- ═══════════════ DEBUG / TEST MODE ═══════════════ -->
+    <div class="page" id="debug-panel">
+
+      <div class="debug-mode-banner" role="status">
+        ⚠ DEBUG / TEST MODE
+      </div>
+
+      <!-- Debug actions + same Trigger configuration inputs -->
+      <div style="display:flex;gap:10px;align-items:stretch">
+
+        <div class="trigger-action-stack"
+             style="display:flex;flex-direction:column;gap:8px;min-width:110px">
+
+          <button class="btn trigger-action-button"
+                  id="btn-debug"
+                  onclick="startDebugFromDebugTab()"
+                  style="background:rgba(0,140,200,.30);border:1px solid rgba(0,180,255,.7);color:#9addff;font-size:11px"
+                  title="Generate the short DEBUG scenario and start it immediately on the selected RIG.">
+            🧪 DEBUG
+          </button>
+
+          <button class="btn trigger-action-button"
+                  id="btn-dryrun"
+                  onclick="startDryRunFromDebugTab()"
+                  style="background:rgba(0,140,200,.20);border:1px solid rgba(0,140,200,.5);color:#70c8ff;font-size:11px"
+                  title="Use today's UTC date with the selected circumstances original UTC times.">
+            🧪 DRY-RUN ×1
+          </button>
+
+          <button class="btn btn-success trigger-action-button"
+                  id="btn-debug-start"
+                  onclick="startTriggerFromDebugTab()">
+            ▶ START
+          </button>
+
+          <button class="btn trigger-action-button"
+                  id="btn-debug-totality-only"
+                  onclick="startTotalityOnlyFromDebugTab()"
+                  style="background:rgba(245,166,35,.2);border:1px solid rgba(245,166,35,.5);color:var(--accent);font-size:11px"
+                  title="Immediate photo override: replaces the current phase with the Photo Setup totality cycle; global timing audio continues until STOP">
+            ⚠ Override for Totality Sequence
+          </button>
+
+          <button class="btn btn-danger trigger-action-button"
+                  id="btn-debug-stop"
+                  onclick="stopTriggerFromDebugTab()">
+            ■ STOP
+          </button>
+
+          <button class="btn btn-secondary trigger-action-button"
+                  id="btn-debug-clean"
+                  onclick="cleanDebugGeneratedFiles()"
+                  title="Delete generated DEBUG circumstances files only.">
+            🧹 CLEAN
+          </button>
+
+        </div>
+
+        <div class="card" style="flex:1;margin:0;padding:12px">
+          <div class="card-title" style="margin-bottom:8px">
+            Active configuration
+          </div>
+
+          <label for="debug-circumstances-select"
+                 style="font-size:10px;color:var(--text-dim)">
+            Eclipse circumstances
+          </label>
+          <select id="debug-circumstances-select"
+                  class="config-file-select file-select-chevron"
+                  onchange="setDebugTriggerInput('circumstances', this.value)"
+                  style="width:100%;margin:3px 0 8px"></select>
+
+          <label for="debug-photo-select"
+                 style="font-size:10px;color:var(--text-dim)">
+            Photo Setup
+          </label>
+          <select id="debug-photo-select"
+                  class="config-file-select file-select-chevron"
+                  onchange="setDebugTriggerInput('photo', this.value)"
+                  style="width:100%;margin:3px 0 8px"></select>
+
+          <label for="debug-exposure-opt-select"
+                 style="font-size:10px;color:var(--text-dim)">
+            Exposure Optimization
+          </label>
+          <select id="debug-exposure-opt-select"
+                  class="config-file-select file-select-chevron"
+                  onchange="setDebugTriggerInput('exposure_opt', this.value)"
+                  style="width:100%;margin:3px 0 8px"></select>
+        </div>
+      </div>
+
+      <!-- Same eclipse circumstances presentation -->
+      <div class="card">
+        <div class="card-title"
+             style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <span>Eclipse circumstances</span>
+
+          <span style="font-size:11px;font-family:var(--mono);font-weight:normal;color:var(--text-dim)">
+            Type:
+            <span id="debug-eclipse-type" style="color:var(--text)">--</span>
+          </span>
+
+          <span style="font-size:11px;font-family:var(--mono);font-weight:normal;color:var(--text-dim)">
+            GPS position type:
+            <span id="debug-eclipse-type-gps" style="color:var(--orange)">--</span>
+          </span>
+        </div>
+
+        <div id="debug-contacts">
+          <div style="color:var(--text-dim);font-size:11px;font-family:var(--mono)">
+            Waiting for calculation…
+          </div>
+        </div>
+      </div>
+
+      <!-- Same RIG selection -->
+      <div class="controls-rig-selector"
+           role="group"
+           aria-label="Debug RIG">
+
+        <button class="btn btn-primary"
+                id="debug-rig-1"
+                data-debug-rig-id="1"
+                onclick="selectDebugTriggerRig(1)"
+                disabled hidden>RIG 1</button>
+
+        <button class="btn btn-primary"
+                id="debug-rig-2"
+                data-debug-rig-id="2"
+                onclick="selectDebugTriggerRig(2)"
+                disabled hidden>RIG 2</button>
+
+        <button class="btn btn-primary"
+                id="debug-rig-3"
+                data-debug-rig-id="3"
+                onclick="selectDebugTriggerRig(3)"
+                disabled hidden>RIG 3</button>
+
+        <button class="btn btn-primary"
+                id="debug-rig-4"
+                data-debug-rig-id="4"
+                onclick="selectDebugTriggerRig(4)"
+                disabled hidden>RIG 4</button>
+      </div>
+
+      <div class="controls-target-label"
+           id="debug-target-label"
+           aria-live="polite">
+        No RIG selected
+      </div>
+
+      <!-- Same Trigger log, mirrored -->
+      <div class="card" style="flex-shrink:0">
+        <div class="card-title"
+             style="display:flex;justify-content:space-between;align-items:center">
+          <span id="debug-log-title">Debug log — RIG 1</span>
+
+          <button class="btn btn-secondary"
+                  type="button"
+                  style="font-size:10px;padding:4px 9px"
+                  onclick="clearTriggerRigLog()">
+            CLEAR
+          </button>
+        </div>
+
+        <div id="log-container-debug"></div>
+      </div>
+
+    </div><!-- /debug-panel -->
 
 
   </div><!-- /pages -->
