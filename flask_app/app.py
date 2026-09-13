@@ -322,13 +322,58 @@ def _create_mount_service():
     )
 
 
+class _LegacyRig1ProcessServiceProxy:
+    """Compatibility facade routing legacy device APIs through RIG 1 workers.
+
+    The historical /api/mount/* and /api/focuser/* endpoints predate the
+    multi-RIG API and are semantically bound to RIG 1.  Keeping this facade
+    allows those routes and their HTTP contracts to remain unchanged while
+    ensuring that hardware calls use the same supervised process boundary as
+    the per-RIG endpoints.
+    """
+
+    def __init__(self, device_type):
+        if device_type not in {"mount", "focuser"}:
+            raise ValueError(f"unsupported legacy device type: {device_type}")
+        self._device_type = device_type
+
+    def _worker(self):
+        if self._device_type == "mount":
+            runtime = get_mount_worker_runtime(
+                log_fn=log.info,
+                state_path=STATE_FILE,
+            )
+        else:
+            runtime = get_focuser_worker_runtime(
+                log_fn=log.info,
+                state_path=STATE_FILE,
+            )
+
+        runtime.reconcile(load_rig_configuration())
+        worker = runtime.get_for_rig(1)
+
+        if worker is None:
+            raise RuntimeError(
+                f"{self._device_type} is not configured for rig 1"
+            )
+
+        return worker
+
+    def __getattr__(self, name):
+        # Resolve the worker for every operation.  Runtime reconciliation keeps
+        # the persistent process when configuration is unchanged and replaces
+        # it safely when the RIG binding changes.
+        return getattr(self._worker(), name)
+
+
 _state_store = StateStore(STATE_FILE)
 _state = _state_store.data
 _state_lock = _state_store.lock
-_focuser_service = FocuserService(
-    _state_store, log_fn=lambda message: log.info(message)
-)
-_mount_service = _create_mount_service()
+
+# Legacy routes deliberately keep using these names.  They now point at
+# process-isolated RIG 1 workers instead of owning hardware services directly.
+_focuser_service = _LegacyRig1ProcessServiceProxy("focuser")
+_mount_service = _LegacyRig1ProcessServiceProxy("mount")
 _event_log = EventLog(LOGS_BUFFER_FILE, LOG_BUFFER_SIZE,
                       emit_fn=lambda event, payload: socketio.emit(event, payload))
 _log_buffer = _event_log.buffer
