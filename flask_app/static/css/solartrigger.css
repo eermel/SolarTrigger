@@ -559,6 +559,14 @@ header {
 }
 .contact-row.active-phase .contact-time { color: var(--accent); }
 
+/* Trigger / Debug eclipse-circumstances labels. */
+.trigger-contact-label {
+  width: 100px;
+  min-width: 100px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* ── SOUND SWITCH ── */
 #toggle-sounds { background: var(--red); }
 #toggle-sounds.on { background: var(--green); }
@@ -638,6 +646,7 @@ header {
 #log-container-gps_sync,
 #log-container-calculator,
 #log-container-trigger,
+#log-container-debug,
 #camera-add-log,
 #log-container-sequencer,
 #log-container-exposure_opt {
