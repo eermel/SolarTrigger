@@ -253,6 +253,7 @@ class FanoutCameraAdapter:
     ) -> CaptureResult:
         frames = []
         planned = []
+        details = []
         for rig_id, result in results:
             if not isinstance(result, dict):
                 self._log_failure(operation, rig_id, ValueError("invalid capture result"))
@@ -261,10 +262,17 @@ class FanoutCameraAdapter:
                 frames.append(result["frames"])
             if isinstance(result.get("planned"), int):
                 planned.append(result["planned"])
+            if isinstance(result.get("detail"), str):
+                details.append(result["detail"])
+
+        # Preserve the hard-deadline decision made by the camera plugin.
+        # Losing this marker makes the Trigger interpret a safe truncation as
+        # a camera failure and immediately retry the same impossible capture.
+        detail = "deadline" if "deadline" in details else "fanout"
         return CaptureResult(
             frames=max(frames, default=0),
             planned=max(planned, default=0),
-            detail="fanout",
+            detail=detail,
         )
 
     def _log_failure(self, operation: str, rig_id: int, exc: Exception) -> None:

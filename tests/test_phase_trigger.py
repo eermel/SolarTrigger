@@ -220,3 +220,29 @@ def test_settings_and_photo_errors_do_not_stop_following_capture():
     assert len(attempts) == 2
     assert any("stage=settings" in message for message in errors)
     assert any("stage=photo" in message for message in errors)
+
+def test_continuous_immediate_failure_retries_no_faster_than_one_second():
+    schedule = build_phase_schedule(_timeline(), _photo())
+    totality = schedule.windows[2]
+    clock = _Clock(totality.start)
+    attempts = []
+
+    def capture(_window, started):
+        attempts.append(started)
+        raise RuntimeError("immediate camera failure")
+
+    PhaseRuntime(
+        schedule,
+        now=clock.now,
+        wait_until=clock.wait_until,
+        enter_phase=lambda _window: None,
+        reconcile_phase=lambda _window: None,
+        capture=capture,
+        log_error=lambda _message: None,
+        stopped=lambda: len(attempts) >= 2,
+    ).run()
+
+    assert attempts == [
+        totality.start,
+        totality.start + timedelta(seconds=1),
+    ]

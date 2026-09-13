@@ -306,12 +306,13 @@ class PhaseRuntime:
             elif window.interval_s > 0:
                 next_capture = started + timedelta(seconds=window.interval_s)
             else:
-                # Continuous means no deliberate cadence delay.  A monotonic
-                # minimum step prevents a tight loop if a mocked or failed
-                # capture consumes no observable time.
+                # Continuous means no deliberate delay after a real capture:
+                # when camera work already consumed >= 1 s, self.now() wins.
+                # An immediate failure/empty result, however, must not create
+                # a millisecond retry storm against the camera IPC service.
                 next_capture = max(
                     self.now(),
-                    started + timedelta(milliseconds=1),
+                    started + timedelta(seconds=1),
                 )
 
     def _first_capture(
