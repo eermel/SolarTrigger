@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import TimeoutError as FutureTimeoutError
 import time
 from typing import Any
 
@@ -11,6 +12,7 @@ from backend.generic_worker import (
     ExpiredJobError,
     PRIORITY_SEQUENCER,
     GenericWorker,
+    WorkerTimeoutError,
 )
 from services.camera_service import CameraService
 
@@ -26,8 +28,10 @@ class CameraWorker:
         clock=None,
         shutdown_policy: str = "drain",
         max_queue_size: int | None = None,
+        call_timeout_s: float = 30.0,
     ) -> None:
         self._clock = clock
+        self._call_timeout_s = max(0.001, float(call_timeout_s))
         self._camera_entry: dict | None = None
         self._service_factory = service_factory or (
             lambda: CameraService(
@@ -50,6 +54,10 @@ class CameraWorker:
     def running(self) -> bool:
         return self._worker.running
 
+    @property
+    def healthy(self) -> bool:
+        return self._worker.healthy
+
     def configure_camera(self, camera_entry: dict) -> None:
         """Bind this worker to one immutable camera configuration snapshot."""
         if self._service is not None:
@@ -59,8 +67,8 @@ class CameraWorker:
     def start(self) -> None:
         self._worker.start()
 
-    def stop(self, timeout: float | None = None) -> None:
-        self._worker.stop(timeout=timeout)
+    def stop(self, timeout: float | None = 2.0) -> bool:
+        return self._worker.stop(timeout=timeout)
 
     def _ensure_service(self) -> CameraService:
         if self._service is None:
@@ -70,6 +78,24 @@ class CameraWorker:
     def _close_service(self) -> None:
         if self._service is not None:
             self._service.close()
+
+    def _wait_future(self, future, operation: str, timeout_s: float | None = None):
+        timeout = (
+            self._call_timeout_s
+            if timeout_s is None
+            else max(0.001, float(timeout_s))
+        )
+        try:
+            return future.result(timeout=timeout)
+        except FutureTimeoutError as exc:
+            error = WorkerTimeoutError(
+                "camera",
+                self._worker.rig_id,
+                operation,
+                timeout,
+            )
+            self._worker.mark_unhealthy(str(error))
+            raise error from exc
 
     def _call(
         self,
@@ -122,7 +148,7 @@ class CameraWorker:
                 worker_deadline=worker_deadline,
                 reject_if_busy=reject_if_busy,
             )
-        return future.result()
+        return self._wait_future(future, method_name)
 
     def _capture_deadline(self, deadline) -> float | None:
         """Convert an absolute UTC capture deadline once, before queueing."""
@@ -264,9 +290,10 @@ class CameraWorker:
                 "battery": service.get_battery_level(),
             }
 
-        return self._worker.submit_with_priority(
+        future = self._worker.submit_with_priority(
             PRIORITY_DIAGNOSTIC, probe, reject_if_busy=True
-        ).result()
+        )
+        return self._wait_future(future, "probe_info")
 
     def test_photo(
         self,
@@ -317,6 +344,7 @@ class CameraWorker:
                 slowest_override_seconds=slowest_override_seconds,
             )
 
-        return self._worker.submit_with_priority(
+        future = self._worker.submit_with_priority(
             PRIORITY_DIAGNOSTIC, shoot, reject_if_busy=True
-        ).result()
+        )
+        return self._wait_future(future, "test_photo_diagnostic")

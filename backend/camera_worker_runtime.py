@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+import inspect
 import secrets
 import threading
 
@@ -19,6 +20,52 @@ class CameraIpcSession:
 
     socket_path: str
     session_id: str
+
+
+def _stop_ipc_server(server, timeout: float = 2.0):
+    """Stop an IPC server while preserving injected legacy/test contracts."""
+
+    stop = server.stop
+    try:
+        parameters = inspect.signature(stop).parameters.values()
+    except (TypeError, ValueError):
+        return stop(timeout=timeout)
+
+    accepts_timeout = any(
+        parameter.name == "timeout"
+        or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+    if accepts_timeout:
+        return stop(timeout=timeout)
+    return stop()
+
+
+def _stop_worker(worker, timeout: float = 2.0):
+    """Stop a worker while preserving compatibility with legacy/test doubles.
+
+    Production CameraWorker.stop() accepts ``timeout``. Some injected workers
+    used by tests or integrations still expose the historical ``stop()``
+    signature. Inspecting the signature avoids masking a TypeError raised from
+    inside the worker itself.
+    """
+
+    stop = worker.stop
+    try:
+        parameters = inspect.signature(stop).parameters.values()
+    except (TypeError, ValueError):
+        return stop(timeout=timeout)
+
+    accepts_timeout = any(
+        parameter.name == "timeout"
+        or parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+    if accepts_timeout:
+        return stop(timeout=timeout)
+    return stop()
 
 
 class CameraWorkerRuntime:
@@ -122,8 +169,8 @@ class CameraWorkerRuntime:
             self._camera_entries = deepcopy(desired_entries)
             self._config = config
 
-            for worker in obsolete:
-                worker.stop()
+        for worker in obsolete:
+            _stop_worker(worker, timeout=2.0)
 
     def get_for_rig(self, rig_id: int) -> CameraWorker | None:
         """Return the persistent worker for *rig_id*, if configured."""
@@ -274,6 +321,7 @@ class CameraWorkerRuntime:
     def close_ipc_session(self, session_id: str) -> None:
         """Revoke an IPC lease and stop the server after its final session."""
 
+        stop_server = False
         with self._lock:
             if session_id not in self._ipc_session_ids or self._ipc_server is None:
                 raise ValueError("camera IPC session is not active")
@@ -281,22 +329,25 @@ class CameraWorkerRuntime:
             server.revoke_session(session_id)
             self._ipc_session_ids.remove(session_id)
             if not self._ipc_session_ids:
-                server.stop()
                 self._ipc_server = None
+                stop_server = True
+
+        if stop_server:
+            _stop_ipc_server(server, timeout=2.0)
 
     def shutdown(self) -> None:
-        """Stop IPC, purge its sessions, and then stop every camera worker."""
+        """Stop IPC and workers without waiting under the runtime lock."""
 
         with self._lock:
             server, self._ipc_server = self._ipc_server, None
             self._ipc_session_ids.clear()
-            if server is not None:
-                server.stop()
-
             workers = tuple(self._registry.values())
             self._registry.clear()
-            for worker in workers:
-                worker.stop()
+
+        if server is not None:
+            _stop_ipc_server(server, timeout=2.0)
+        for worker in workers:
+            _stop_worker(worker, timeout=2.0)
 
 
 _camera_worker_runtime: CameraWorkerRuntime | None = None

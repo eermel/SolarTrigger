@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import TYPE_CHECKING, Any
 
 from backend.generic_worker import (
@@ -10,6 +11,7 @@ from backend.generic_worker import (
     PRIORITY_MANUAL,
     PRIORITY_STOP,
     GenericWorker,
+    WorkerTimeoutError,
 )
 
 if TYPE_CHECKING:
@@ -26,8 +28,10 @@ class FocuserWorker:
         log_fn=print,
         shutdown_policy: str = "drain",
         max_queue_size: int | None = None,
+        call_timeout_s: float = 60.0,
     ) -> None:
         self._service_factory = service_factory
+        self._call_timeout_s = max(0.001, float(call_timeout_s))
         self._service: FocuserService | None = None
         self._worker = GenericWorker(
             rig_id=rig_id,
@@ -43,14 +47,18 @@ class FocuserWorker:
         return self._worker.running
 
     @property
+    def healthy(self) -> bool:
+        return self._worker.healthy
+
+    @property
     def last_error(self) -> dict | None:
         return self._worker.last_error
 
     def start(self) -> None:
         self._worker.start()
 
-    def shutdown(self, timeout: float | None = None) -> None:
-        self._worker.stop(timeout=timeout)
+    def shutdown(self, timeout: float | None = 2.0) -> bool:
+        return self._worker.stop(timeout=timeout)
 
     def _ensure_service(self) -> FocuserService:
         if self._service is None:
@@ -74,7 +82,18 @@ class FocuserWorker:
             method = getattr(self._ensure_service(), method_name)
             return method(*args, **kwargs)
 
-        return self._worker.submit_with_priority(priority, invoke).result()
+        future = self._worker.submit_with_priority(priority, invoke)
+        try:
+            return future.result(timeout=self._call_timeout_s)
+        except FutureTimeoutError as exc:
+            error = WorkerTimeoutError(
+                "focuser",
+                self._worker.rig_id,
+                method_name,
+                self._call_timeout_s,
+            )
+            self._worker.mark_unhealthy(str(error))
+            raise error from exc
 
     def status(self):
         return self._call("status", priority=PRIORITY_DIAGNOSTIC)

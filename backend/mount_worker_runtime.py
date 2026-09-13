@@ -171,8 +171,9 @@ class MountWorkerRuntime:
                 for key in desired
             }
             obsolete = [entry for key, entry in previous.items() if key not in unchanged]
-            for entry in obsolete:
-                entry.worker.shutdown()
+
+        for entry in obsolete:
+            entry.worker.shutdown(timeout=2.0)
 
     def stop_all(self, timeout: float | None = None) -> None:
         """Clear the registry and shut down every worker."""
@@ -180,15 +181,17 @@ class MountWorkerRuntime:
         with self._lock:
             entries = list(self._registry.values())
             self._registry = {}
-            first_error: BaseException | None = None
-            for entry in entries:
-                try:
-                    entry.worker.shutdown(timeout=timeout)
-                except BaseException as exc:
-                    if first_error is None:
-                        first_error = exc
-            if first_error is not None:
-                raise first_error
+
+        effective_timeout = 2.0 if timeout is None else timeout
+        first_error: BaseException | None = None
+        for entry in entries:
+            try:
+                entry.worker.shutdown(timeout=effective_timeout)
+            except BaseException as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
     def get_for_rig(self, rig_id: int) -> MountWorker | None:
         """Return the persistent worker bound to *rig_id*, if configured."""

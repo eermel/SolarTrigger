@@ -17,7 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from backend.generic_worker import BusyDeviceError
+from backend.generic_worker import (
+    BusyDeviceError,
+    WorkerTimeoutError,
+    WorkerUnavailableError,
+)
 from backend import rig_trace
 from backend.camera_model_resolution import resolve_sensor_entry
 from backend.exposure_selection import (
@@ -337,7 +341,9 @@ class CameraIpcServer:
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout)
         if pool is not None:
-            pool.shutdown(wait=True, cancel_futures=True)
+            # A request handler may be waiting on a hardware call that never
+            # returns. Stopping the IPC endpoint itself must remain bounded.
+            pool.shutdown(wait=False, cancel_futures=True)
         self._unlink_own_socket()
         with self._state_lock:
             self._active_sessions.clear()
@@ -943,6 +949,10 @@ class CameraIpcServer:
             raise IpcError("EXPIRED", "camera worker job expired") from exc
         except BusyDeviceError as exc:
             raise IpcError("BUSY", "camera worker still owns a USB operation") from exc
+        except WorkerTimeoutError as exc:
+            raise IpcError("DEVICE_TIMEOUT", str(exc)) from exc
+        except WorkerUnavailableError as exc:
+            raise IpcError("DEVICE_UNAVAILABLE", str(exc)) from exc
 
     @staticmethod
     def _capture_response(result: Any) -> dict[str, Any]:
