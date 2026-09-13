@@ -7,6 +7,8 @@ additional keys are preserved by :func:`load` and :func:`save`.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -256,14 +258,55 @@ def load(path: str | PathLike[str]) -> Any:
 
 
 def save(path: str | PathLike[str], obj: Any) -> None:
-    """Validate *obj* and write it as indented UTF-8 JSON to *path*."""
+    """Validate *obj* and atomically persist it as indented UTF-8 JSON."""
 
     validate(obj)
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("w", encoding="utf-8") as stream:
-        json.dump(obj, stream, ensure_ascii=False, indent=2)
-        stream.write("\n")
+
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+
+            json.dump(obj, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+
+        if destination.exists():
+            os.chmod(
+                temporary_path,
+                destination.stat().st_mode & 0o777,
+            )
+        else:
+            os.chmod(temporary_path, 0o644)
+
+        os.replace(temporary_path, destination)
+        temporary_path = None
+
+        directory_fd = os.open(
+            destination.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def migrate_legacy(state_store: Any, configs_dir: str | PathLike[str]) -> dict[str, Any]:

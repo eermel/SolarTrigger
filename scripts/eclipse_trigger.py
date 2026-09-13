@@ -17,6 +17,7 @@ from math import ceil
 from pathlib import Path
 import signal
 import threading
+import time
 import uuid
 
 from backend import audio_service
@@ -34,7 +35,7 @@ from backend.rig_runtime import load_rig_configuration
 from backend.timeline import build_timeline
 from backend.trigger_runtime import RuntimeClock
 from plugins.camera.base import CaptureResult
-from scripts.camera_ipc_client import CameraIpcClient
+from scripts.camera_ipc_client import CameraIpcClient, CameraIpcError
 from scripts.fanout_camera_adapter import FanoutCameraAdapter
 from services.camera_service import CaptureIntent, PreparedCapture
 
@@ -479,7 +480,25 @@ def main() -> int:
             if not socket_path or not session:
                 raise RuntimeError("camera IPC session is required")
             client = CameraIpcClient(socket_path, session, log_fn=log)
-            client.ping()
+            ping_delays_s = (0.25, 0.50)
+            for attempt in range(1, 4):
+                try:
+                    client.ping()
+                    break
+                except CameraIpcError as exc:
+                    if attempt >= 3:
+                        log(
+                            "TRIGGER_FATAL error=CAMERA_IPC_UNREACHABLE "
+                            f"code={exc.code} operation={exc.operation} "
+                            f"message={exc.message}"
+                        )
+                        return 2
+                    log(
+                        "WARNING camera IPC ping failed "
+                        f"attempt={attempt}/3 code={exc.code} "
+                        f"operation={exc.operation}: {exc.message}"
+                    )
+                    time.sleep(ping_delays_s[attempt - 1])
             camera = FanoutCameraAdapter(client, log_fn=log)
 
         def phase_config(window: PhaseWindow) -> dict:

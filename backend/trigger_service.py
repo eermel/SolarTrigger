@@ -562,15 +562,53 @@ class TriggerService:
                         if item.get("rig_id") == rig_id and rig_id in overrides:
                             item.setdefault("photo", {}).update(overrides[rig_id])
 
-                    if self.camera_runtime is not None:
+                except TriggerValidationError:
+                    self._starting_by_rig[rig_id] = False
+                    self._clear_active_inputs(rig_id)
+                    raise
+                except (
+                    json.JSONDecodeError,
+                    OSError,
+                    ValueError,
+                    KeyError,
+                    TypeError,
+                ) as exc:
+                    self._starting_by_rig[rig_id] = False
+                    self._clear_active_inputs(rig_id)
+                    self.log(
+                        f"Trigger start configuration ERROR: {type(exc).__name__}: {exc}",
+                        "error",
+                        "trigger",
+                    )
+                    raise TriggerValidationError(
+                        "RIG/capture configuration is invalid or unreadable.",
+                        "RIG_CONFIG_INVALID",
+                    ) from exc
+                except Exception as exc:
+                    self._starting_by_rig[rig_id] = False
+                    self._clear_active_inputs(rig_id)
+                    self.log(
+                        f"Trigger start preparation ERROR: {type(exc).__name__}: {exc}",
+                        "error",
+                        "trigger",
+                    )
+                    raise
+
+                if self.camera_runtime is not None:
+                    try:
                         self.camera_runtime.reconcile(config)
                         ipc_session = self.camera_runtime.open_ipc_session(
                             (rig_id,)
                         )
-                except Exception:
-                    self._starting_by_rig[rig_id] = False
-                    self._clear_active_inputs(rig_id)
-                    raise
+                    except Exception as exc:
+                        self._starting_by_rig[rig_id] = False
+                        self._clear_active_inputs(rig_id)
+                        self.log(
+                            f"Trigger camera preparation ERROR: {type(exc).__name__}: {exc}",
+                            "error",
+                            "trigger",
+                        )
+                        raise
             gen=ecl.get("_generated_utc", ""); today=datetime.now(timezone.utc).strftime("%Y-%m-%d")
             if gen and today not in gen: self.log(f"⚠️ todayeclipse.json generated on {gen[:10]} — eclipse not today?", "warning", "trigger")
             mode = (
@@ -893,11 +931,18 @@ class TriggerService:
                 )
 
             code = proc.returncode if proc else "?"
-            self._log_rig(
-                rig_id,
-                f"■ Trigger finished (code {code}).",
-                "info",
-            )
+            if code == 0:
+                self._log_rig(
+                    rig_id,
+                    "■ Trigger finished (code 0).",
+                    "info",
+                )
+            else:
+                self._log_rig(
+                    rig_id,
+                    f"■ TRIGGER FAILED (code {code}).",
+                    "error",
+                )
 
     def override_totality(self, rig_id=1):
         """Interrupt one RIG photo scheduler; preserve global audio."""

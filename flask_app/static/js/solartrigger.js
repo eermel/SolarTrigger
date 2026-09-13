@@ -3870,8 +3870,6 @@ async function startDryRun() {
 
 async function stopTrigger() {
   const btn = document.getElementById('btn-stop');
-  // Confirmation seulement si le trigger tourne
-  const isRunning = btn.textContent.includes('STOP') && !document.getElementById('btn-start').disabled === false;
   if (!confirm('⚠️ Stop / force-stop the trigger?')) return;
   btn.textContent = '⏳ Stopping…';
   try {

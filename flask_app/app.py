@@ -5137,6 +5137,17 @@ def api_trigger_start():
             "rig_id": rig_id,
         }), 400
 
+    except Exception:
+        app.logger.exception(
+            "Trigger start failed for RIG %s",
+            rig_id,
+        )
+        return jsonify({
+            "error": "Trigger start failed.",
+            "code": "TRIGGER_START_FAILED",
+            "rig_id": rig_id,
+        }), 500
+
 @app.route("/api/trigger/simulate", methods=["POST"])
 def api_trigger_simulate():
     """Simulation explicite : le moteur reçoit --simulate et n'accède à aucun matériel caméra."""
