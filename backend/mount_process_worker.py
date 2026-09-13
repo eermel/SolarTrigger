@@ -27,6 +27,7 @@ _MOUNT_OPERATIONS = frozenset(
         "start_slew",
         "home_start",
         "stop",
+        "emergency_stop",
         "warmup",
     }
 )
@@ -154,12 +155,20 @@ class ProcessMountWorker(SupervisedDeviceProcess):
         )
 
     def start_slew(self, direction: str):
-        return self.call("start_slew", direction)
+        return self._motion_call("start_slew", direction)
 
     def home_start(self):
-        return self.call("home_start")
+        return self._motion_call("home_start")
 
     def stop(self):
+        # After a timed-out motion command the old child is gone.  A normal
+        # MountService.stop() may have no connected plugin in the fresh child,
+        # so recovery must force reconnection and send a physical STOP.
+        if self.motion_state_unknown:
+            result = self.call("emergency_stop")
+            self._clear_motion_state_unknown()
+            return result
+
         return self.call("stop")
 
     def warmup(self):

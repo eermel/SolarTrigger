@@ -21,6 +21,37 @@ KILL_GRACE_S = 0.5
 TRANSPORT_GRACE_S = 2.0
 
 
+class MotionStateUnknownError(RuntimeError):
+    """Refuse new motion after an ambiguous timed-out motion command."""
+
+    code = "MOTION_STATE_UNKNOWN"
+
+    def __init__(
+        self,
+        device_kind: str,
+        rig_id: int,
+        attempted_operation: str,
+        uncertain_operation: str | None,
+    ) -> None:
+        self.device_kind = str(device_kind)
+        self.rig_id = int(rig_id)
+        self.attempted_operation = str(attempted_operation)
+        self.uncertain_operation = (
+            None
+            if uncertain_operation is None
+            else str(uncertain_operation)
+        )
+        cause = (
+            self.uncertain_operation
+            or "a previous motion command"
+        )
+        super().__init__(
+            f"{self.device_kind} motion state is unknown after "
+            f"{cause}; refusing {self.attempted_operation} until "
+            "an explicit STOP succeeds"
+        )
+
+
 def safe_send(conn: Connection, payload: dict[str, Any]) -> None:
     try:
         conn.send(payload)
@@ -152,6 +183,8 @@ class SupervisedDeviceProcess:
         self._started = False
         self._generation = 0
         self._last_error: dict[str, Any] | None = None
+        self._motion_state_unknown = False
+        self._motion_state_unknown_operation: str | None = None
         self._lock = threading.RLock()
 
     @property
@@ -182,6 +215,52 @@ class SupervisedDeviceProcess:
                 if self._last_error is None
                 else dict(self._last_error)
             )
+
+    @property
+    def motion_state_unknown(self) -> bool:
+        with self._lock:
+            return bool(self._motion_state_unknown)
+
+    @property
+    def motion_state_unknown_operation(self) -> str | None:
+        with self._lock:
+            return self._motion_state_unknown_operation
+
+    def _mark_motion_state_unknown(self, operation: str) -> None:
+        with self._lock:
+            self._motion_state_unknown = True
+            self._motion_state_unknown_operation = str(operation)
+
+    def _clear_motion_state_unknown(self) -> None:
+        with self._lock:
+            self._motion_state_unknown = False
+            self._motion_state_unknown_operation = None
+
+    def _require_motion_state_known(self, operation: str) -> None:
+        with self._lock:
+            if not self._motion_state_unknown:
+                return
+            uncertain = self._motion_state_unknown_operation
+
+        raise MotionStateUnknownError(
+            self.device_kind,
+            self.rig_id,
+            operation,
+            uncertain,
+        )
+
+    def _motion_call(self, operation: str, *args, **kwargs):
+        """Run a motion-starting command with fail-closed timeout semantics."""
+
+        self._require_motion_state_known(operation)
+
+        try:
+            return self.call(operation, *args, **kwargs)
+        except (WorkerTimeoutError, WorkerUnavailableError):
+            # The command may already have reached the physical controller.
+            # Killing the Python child does not prove that motion stopped.
+            self._mark_motion_state_unknown(operation)
+            raise
 
     def start(self) -> None:
         with self._lock:

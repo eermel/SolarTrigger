@@ -428,6 +428,36 @@ class MountService:
             threading.Thread(target=worker, daemon=True).start()
             return self._homing_status_locked(self._plugin_id or "none")
 
+    def emergency_stop(self) -> dict:
+        """Force a hardware STOP, reconnecting first when necessary.
+
+        This is used only after process-level motion uncertainty.  Unlike the
+        ordinary low-latency stop path, it must prove that a STOP command was
+        actually sent to a connected controller before recovery is accepted.
+        """
+
+        with self._lock:
+            self._home_generation += 1
+            self._homing = False
+            self._clear_motion_locked()
+
+            active, plugin_id = self._selection()
+            if not active or plugin_id == "none":
+                raise RuntimeError(
+                    "cannot recover uncertain mount motion while mount is inactive"
+                )
+
+            plugin = self._plugin_for_operation()
+
+            if not getattr(plugin, "connected", False):
+                raise RuntimeError(
+                    "cannot recover uncertain mount motion: mount is not connected"
+                )
+
+            plugin.stop()
+            self._clear_motion_locked()
+            return self._status_locked(plugin)
+
     def stop(self) -> dict:
         """Cancel homing and stop manual motion; leave tracking unchanged."""
         with self._lock:

@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+from backend.device_process_worker import MotionStateUnknownError
 from backend.focuser_process_worker import ProcessFocuserWorker
 from backend.generic_worker import WorkerTimeoutError
 from backend.mount_process_worker import ProcessMountWorker
@@ -200,3 +201,60 @@ def test_shutdown_is_bounded_for_hung_child(factory):
     assert worker.shutdown(timeout=0.05) is True
     assert time.monotonic() - started < 2.0
     assert not worker.running
+
+
+
+def test_mount_timeout_interlocks_new_motion_until_physical_stop():
+    worker = _mount()
+
+    try:
+        with pytest.raises(WorkerTimeoutError):
+            worker.start_slew("east")
+
+        assert worker.motion_state_unknown is True
+        assert worker.motion_state_unknown_operation == "start_slew"
+
+        # Telemetry is allowed, but does not prove that the physical mount
+        # stopped.  Only an explicit recovery STOP may clear the interlock.
+        assert worker.status()["backend"] == "indi"
+        assert worker.motion_state_unknown is True
+
+        with pytest.raises(MotionStateUnknownError) as caught:
+            worker.home_start()
+
+        assert caught.value.code == "MOTION_STATE_UNKNOWN"
+
+        result = worker.stop()
+
+        assert result["operation"] == "emergency_stop"
+        assert worker.motion_state_unknown is False
+        assert worker.motion_state_unknown_operation is None
+    finally:
+        worker.shutdown()
+
+
+def test_focuser_timeout_interlocks_new_motion_until_stop():
+    worker = _focuser()
+
+    try:
+        with pytest.raises(WorkerTimeoutError):
+            worker.move_to(12345)
+
+        assert worker.motion_state_unknown is True
+        assert worker.motion_state_unknown_operation == "move_to"
+
+        assert worker.status()["backend"] == "zwo_eaf"
+        assert worker.motion_state_unknown is True
+
+        with pytest.raises(MotionStateUnknownError) as caught:
+            worker.start_jog("out")
+
+        assert caught.value.code == "MOTION_STATE_UNKNOWN"
+
+        result = worker.stop()
+
+        assert result["operation"] == "stop"
+        assert worker.motion_state_unknown is False
+        assert worker.motion_state_unknown_operation is None
+    finally:
+        worker.shutdown()

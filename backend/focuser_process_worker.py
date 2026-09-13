@@ -114,21 +114,21 @@ class ProcessFocuserWorker(SupervisedDeviceProcess):
         )
 
     def move_to(self, position, wait=False):
-        return self.call(
+        return self._motion_call(
             "move_to",
             position,
             wait=wait,
         )
 
     def move_relative(self, delta, wait=False):
-        return self.call(
+        return self._motion_call(
             "move_relative",
             delta,
             wait=wait,
         )
 
     def start_jog(self, direction, mode=None):
-        return self.call(
+        return self._motion_call(
             "start_jog",
             direction,
             mode=mode,
@@ -138,10 +138,14 @@ class ProcessFocuserWorker(SupervisedDeviceProcess):
         return self.call("stop_jog")
 
     def stop(self):
-        return self.call("stop")
+        result = self.call("stop")
+        # FocuserService.stop() reconnects when necessary and calls the
+        # plugin's physical stop(), so a successful result clears ambiguity.
+        self._clear_motion_state_unknown()
+        return result
 
     def home(self, wait=False):
-        return self.call("home", wait=wait)
+        return self._motion_call("home", wait=wait)
 
     def set_mode(self, mode: str):
         return self.call("set_mode", mode)
