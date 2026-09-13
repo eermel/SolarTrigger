@@ -101,7 +101,7 @@
         <div class="card">
           <div class="card-title">Camera Characterization</div>
           <div style="display:flex;gap:12px;align-items:center">
-            <select id="camera-characterization-select" class="config-file-select" aria-label="Uncharacterized camera" style="flex:1;min-width:0"></select>
+            <select id="camera-characterization-select" class="config-file-select native-select-chevron" aria-label="Uncharacterized camera" style="flex:1;min-width:0"></select>
             <button class="btn btn-primary" id="camera-characterization-start" onclick="startCameraCharacterization()">Characterize</button>
             <button class="btn" id="camera-characterization-cancel" onclick="cancelCameraCharacterization()" disabled>Cancel</button>
           </div>
@@ -116,7 +116,7 @@
         <div class="card">
           <div class="card-title">Camera Validation</div>
           <div style="display:flex;gap:12px;align-items:center">
-            <select id="camera-validation-select" class="config-file-select" aria-label="Characterized camera" style="flex:1;min-width:0">
+            <select id="camera-validation-select" class="config-file-select native-select-chevron" aria-label="Characterized camera" style="flex:1;min-width:0">
               <option value="">— Characterized camera —</option>
             </select>
             <button class="btn btn-primary" id="camera-validation-start" onclick="prepareCameraValidation()">Validate</button>
@@ -299,11 +299,11 @@
           </div>
           <div class="field">
             <label for="inp-eclipse">Eclipse</label>
-            <div class="select-chev">
-              <select id="inp-eclipse" onchange="handleEclipseSelectionChange()">
-                <option value="auto">Auto (next)</option>
-              </select>
-            </div>
+            <select id="inp-eclipse"
+                    class="native-select-chevron"
+                    onchange="handleEclipseSelectionChange()">
+              <option value="auto">Auto (next)</option>
+            </select>
           </div>
           <div style="display:flex;gap:8px;margin-top:4px">
             <button class="btn btn-accent btn-full" id="btn-calc" onclick="calculateEclipse()">

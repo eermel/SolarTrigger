@@ -17,8 +17,11 @@ def test_supported_eclipse_dates_have_backend_api():
 
 
 def test_eclipse_select_is_dynamic_and_has_chevron():
-    assert '<div class="select-chev">' in HTML
-    assert 'id="inp-eclipse" onchange="handleEclipseSelectionChange()"' in HTML
+    start = HTML.index('id="inp-eclipse"')
+    tag = HTML[start:HTML.index(">", start)]
+
+    assert 'class="native-select-chevron"' in tag
+    assert 'onchange="handleEclipseSelectionChange()"' in tag
     assert "fetch('/api/eclipse/supported')" in HTML
     assert "dates.forEach(date =>" in HTML
 
