@@ -105,7 +105,7 @@ def test_trigger_ui_is_simplified_and_ordered(monkeypatch):
     ):
         assert removed_handler not in html
 
-def test_trigger_log_clear_uses_standard_buttons_per_rig():
+def test_trigger_log_clear_uses_standard_single_panel_button():
     html = (
         Path(__file__).resolve().parents[1]
         / "flask_app"
@@ -113,15 +113,12 @@ def test_trigger_log_clear_uses_standard_buttons_per_rig():
         / "index.html"
     ).read_text(encoding="utf-8")
 
-    for rig_id in range(1, 5):
-        start = html.index(f"<span>Trigger log — RIG {rig_id}</span>")
-        end = html.index(
-            f'id="log-container-trigger-rig-{rig_id}"',
-            start,
-        )
-        trigger_log = html[start:end]
+    start = html.index('id="trigger-log-title"')
+    end = html.index('id="log-container-trigger"', start)
+    trigger_log = html[start:end]
 
-        assert '<button class="btn btn-secondary"' in trigger_log
-        assert f'onclick="clearTriggerRigLog({rig_id})"' in trigger_log
-        assert ">CLEAR</button>" in trigger_log
-        assert "cursor:pointer" not in trigger_log
+    assert html.count('id="log-container-trigger"') == 1
+    assert '<button class="btn btn-secondary"' in trigger_log
+    assert 'onclick="clearTriggerRigLog()"' in trigger_log
+    assert ">CLEAR</button>" in trigger_log
+    assert "cursor:pointer" not in trigger_log

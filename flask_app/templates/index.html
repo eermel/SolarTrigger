@@ -1416,56 +1416,17 @@
         </div>
       </div>
 
-      <!-- Trigger logs — one panel per active RIG -->
-      <div id="trigger-log-panels">
-        <div class="card trigger-log-card"
-             data-trigger-log-rig="1"
-             style="flex-shrink:0">
-          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-            <span>Trigger log — RIG 1</span>
-            <button class="btn btn-secondary"
-                    type="button"
-                    style="font-size:10px;padding:4px 9px"
-                    onclick="clearTriggerRigLog(1)">CLEAR</button>
-          </div>
-          <div id="log-container-trigger-rig-1" style="height:320px"></div>
+      <!-- Trigger log — selected RIG only -->
+      <div class="card" style="flex-shrink:0">
+        <div class="card-title"
+             style="display:flex;justify-content:space-between;align-items:center">
+          <span id="trigger-log-title">Trigger log — RIG 1</span>
+          <button class="btn btn-secondary"
+                  type="button"
+                  style="font-size:10px;padding:4px 9px"
+                  onclick="clearTriggerRigLog()">CLEAR</button>
         </div>
-        <div class="card trigger-log-card"
-             data-trigger-log-rig="2"
-             style="flex-shrink:0" hidden>
-          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-            <span>Trigger log — RIG 2</span>
-            <button class="btn btn-secondary"
-                    type="button"
-                    style="font-size:10px;padding:4px 9px"
-                    onclick="clearTriggerRigLog(2)">CLEAR</button>
-          </div>
-          <div id="log-container-trigger-rig-2" style="height:320px"></div>
-        </div>
-        <div class="card trigger-log-card"
-             data-trigger-log-rig="3"
-             style="flex-shrink:0" hidden>
-          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-            <span>Trigger log — RIG 3</span>
-            <button class="btn btn-secondary"
-                    type="button"
-                    style="font-size:10px;padding:4px 9px"
-                    onclick="clearTriggerRigLog(3)">CLEAR</button>
-          </div>
-          <div id="log-container-trigger-rig-3" style="height:320px"></div>
-        </div>
-        <div class="card trigger-log-card"
-             data-trigger-log-rig="4"
-             style="flex-shrink:0" hidden>
-          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-            <span>Trigger log — RIG 4</span>
-            <button class="btn btn-secondary"
-                    type="button"
-                    style="font-size:10px;padding:4px 9px"
-                    onclick="clearTriggerRigLog(4)">CLEAR</button>
-          </div>
-          <div id="log-container-trigger-rig-4" style="height:320px"></div>
-        </div>
+        <div id="log-container-trigger"></div>
       </div>
 
     </div><!-- /page-4 TRIGGER -->
