@@ -180,18 +180,17 @@ def _phase_alerts(schedule, timeline: dict) -> list[tuple[datetime, str]]:
             (10, f"{human}/totality_minus_10s.wav"),
         ),
         "C3": (
-            (300, f"{human}/end_totality_minus_5m.wav"),
             (120, f"{human}/end_totality_minus_2m.wav"),
             (60, f"{human}/end_totality_minus_1m.wav"),
             (30, f"{human}/end_totality_minus_30s.wav"),
             (10, f"{human}/end_totality_minus_10s.wav"),
         ),
         "C4": (
-            (300, f"{human}/last_contact_minus_5m.wav"),
-            (120, f"{human}/last_contact_minus_2m.wav"),
-            (60, f"{human}/last_contact_minus_1m.wav"),
-            (30, f"{human}/last_contact_minus_30s.wav"),
-            (10, f"{human}/last_contact_minus_10s.wav"),
+            (300, f"{human}/end_partiality_minus_5m.wav"),
+            (120, f"{human}/end_partiality_minus_2m.wav"),
+            (60, f"{human}/end_partiality_minus_1m.wav"),
+            (30, f"{human}/end_partiality_minus_30s.wav"),
+            (10, f"{human}/end_partiality_minus_10s.wav"),
         ),
     }
 
@@ -246,7 +245,7 @@ def _phase_alerts(schedule, timeline: dict) -> list[tuple[datetime, str]]:
 
     # Filter handling follows the actual phase boundaries.
     alerts.append((
-        schedule.tstart - timedelta(seconds=30),
+        schedule.tstart - timedelta(seconds=10),
         f"{human}/filters_on.wav",
     ))
 
@@ -257,11 +256,11 @@ def _phase_alerts(schedule, timeline: dict) -> list[tuple[datetime, str]]:
     if diamond_c2 is not None and diamond_c3 is not None:
         alerts.extend((
             (
-                diamond_c2.start - timedelta(seconds=2),
+                diamond_c2.start - timedelta(seconds=3),
                 f"{human}/filters_off.wav",
             ),
             (
-                diamond_c3.end + timedelta(seconds=2),
+                diamond_c3.end + timedelta(seconds=3),
                 f"{human}/filters_on.wav",
             ),
         ))
