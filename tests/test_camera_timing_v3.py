@@ -210,6 +210,9 @@ def test_identical_successive_bracket_skips_redundant_set_preamble(
         ("set", "shutterspeed", "1/1000"),
         ("set", "capturemode", "Bracket 3"),
         ("photo", 3),
+        ("set", "capturemode", "Single Shot"),
+        ("set", "shutterspeed", "1/1000"),
+        ("set", "capturemode", "Bracket 3"),
         ("photo", 3),
     ]
 
@@ -230,6 +233,11 @@ def test_capture_failure_invalidates_known_profile_settings(monkeypatch):
     )
     prepared = SimpleNamespace(token=("profile", operations), planned_count=3)
 
+    def set_parameter(parameter, value):
+        key = plugin._SEMANTIC[parameter]
+        plugin._known_settings[key] = plugin._resolved_value(key, value)
+
+    monkeypatch.setattr(plugin, "set_parameter", set_parameter)
     monkeypatch.setattr(
         plugin,
         "execute_photo",
@@ -278,3 +286,82 @@ def test_persistent_documents_strip_debug_history(tmp_path):
     path.write_text(json.dumps(stored_timing), encoding="utf-8")
     loaded = load_camera_timing_profile(path)
     assert loaded.backend == rich_profile["backend"]
+
+def test_apply_skips_known_persistent_iso_without_usb_probe(monkeypatch):
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=profile())
+    plugin._known_settings["iso"] = plugin._resolved_value("iso", "100")
+
+    def forbidden(_key):
+        raise AssertionError("redundant ISO must not touch the camera")
+
+    monkeypatch.setattr(plugin, "_live_writable", forbidden)
+    assert plugin._apply("iso", "100") is False
+
+
+def test_effective_group_filters_each_set_but_preserves_sony_mode_transition():
+    data = profile()
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=data)
+    plugin._known_settings.update({
+        "iso": plugin._resolved_value("iso", "100"),
+        "capture_mode": plugin._resolved_value("capture_mode", "Single Shot"),
+    })
+
+    group = (
+        {"action": "set", "parameter": "iso", "value": "100", "duration_ms": 500},
+        {"action": "set", "parameter": "capturemode", "value": "Single Shot", "duration_ms": 500},
+        {"action": "set", "parameter": "shutterspeed", "value": "1/500", "duration_ms": 500},
+        {"action": "set", "parameter": "capturemode", "value": "Continuous Bracket 1 EV 3 Img.", "duration_ms": 500},
+        {"action": "bracket_press", "shutter": "1/500", "frames": 3, "duration_ms": 1000},
+    )
+
+    effective = plugin._effective_capture_group(group)
+
+    assert [item.get("parameter") for item in effective[:-1]] == [
+        "shutterspeed",
+        "capturemode",
+    ]
+    assert effective[-1]["action"] == "bracket_press"
+
+
+def test_effective_group_keeps_bracket_to_single_to_new_bracket_transition():
+    data = profile()
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=data)
+    plugin._known_settings.update({
+        "iso": plugin._resolved_value("iso", "100"),
+        "capture_mode": "Continuous Bracket 1 EV 3 Img.",
+        "shutter": plugin._resolved_value("shutter", "1/1000"),
+    })
+
+    group = (
+        {"action": "set", "parameter": "iso", "value": "100", "duration_ms": 500},
+        {"action": "set", "parameter": "capturemode", "value": "Single Shot", "duration_ms": 500},
+        {"action": "set", "parameter": "shutterspeed", "value": "1/500", "duration_ms": 500},
+        {"action": "set", "parameter": "capturemode", "value": "Continuous Bracket 1 EV 3 Img.", "duration_ms": 500},
+        {"action": "bracket_press", "shutter": "1/500", "frames": 3, "duration_ms": 1000},
+    )
+
+    effective = plugin._effective_capture_group(group)
+
+    assert [item.get("parameter") for item in effective[:-1]] == [
+        "capturemode",
+        "shutterspeed",
+        "capturemode",
+    ]
+
+
+def test_speed_only_plan_inherits_known_camera_iso():
+    data = profile()
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=data)
+    plugin._known_settings["iso"] = plugin._resolved_value("iso", "200")
+
+    prepared = plugin.prepare_capture(
+        SimpleNamespace(
+            exposure_plan=None,
+            speeds=["1/1000", "1/500", "1/250"],
+            shutter_min=None,
+            shutter_max=None,
+            step_ev=1,
+        )
+    )
+
+    assert {str(item["iso"]) for item in prepared.materialized} == {"200"}

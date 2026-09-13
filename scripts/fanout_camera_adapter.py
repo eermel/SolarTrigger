@@ -72,7 +72,8 @@ class FanoutCameraAdapter:
             aperture=aperture,
             iso=iso,
         )
-        self._collect("apply_phase_settings", futures)
+        results = self._collect("apply_phase_settings", futures)
+        return any(bool(result) for _rig_id, result in results)
 
     def prepare_capture(self, intent: Any) -> PreparedCapture:
         rig_ids = self._active_rig_ids()

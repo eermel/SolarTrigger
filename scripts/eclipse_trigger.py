@@ -386,8 +386,15 @@ def main() -> int:
                 camera.initialize(aperture=aperture, iso=iso)
                 camera_initialized = True
                 return
-            log("TRIGGER_CONFIG " f"SET aperture={aperture} ISO={iso}")
-            camera.apply_phase_settings(aperture=aperture, iso=iso)
+            changed = camera.apply_phase_settings(
+                aperture=aperture,
+                iso=iso,
+            )
+            if changed:
+                log(
+                    "TRIGGER_CONFIG "
+                    f"SET aperture={aperture} ISO={iso}"
+                )
 
         def capture_cycle(window: PhaseWindow, started: datetime) -> bool:
             config = phase_config(window)

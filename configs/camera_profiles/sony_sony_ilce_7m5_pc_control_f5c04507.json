@@ -153,7 +153,6 @@
     "Physical shutter-start latency is unmeasured; no timing correction applied"
   ],
   "settle_idle_s": 0.0,
-  "test_pause_s": 2.0,
   "planning_timing": {
     "single_ms": 1300,
     "single_atomic_ms": 500
@@ -169,15 +168,6 @@
         "path": "/main/actions/capture",
         "value": 1,
         "release": 0
-      },
-      "measured_phases": {
-        "trigger_call_ms": 831.6119170012826,
-        "frame_wait_ms": 759.9119759979658,
-        "release_ms": 859.3830950012489,
-        "post_release_wait_ms": 0.013905999367125332,
-        "settle_ms": 0.0,
-        "test_pause_ms": 2213.905597000121,
-        "total_ms": 2491.018943997915
       }
     },
     "5": {
@@ -190,15 +180,6 @@
         "path": "/main/actions/capture",
         "value": 1,
         "release": 0
-      },
-      "measured_phases": {
-        "trigger_call_ms": 850.3132909972919,
-        "frame_wait_ms": 973.7786269979551,
-        "release_ms": 886.0507369972765,
-        "post_release_wait_ms": 0.014270997780840844,
-        "settle_ms": 0.0,
-        "test_pause_ms": 2346.4641720020154,
-        "total_ms": 2711.8409809991135
       }
     },
     "7": {
@@ -211,15 +192,6 @@
         "path": "/main/actions/capture",
         "value": 1,
         "release": 0
-      },
-      "measured_phases": {
-        "trigger_call_ms": 868.2089929970971,
-        "frame_wait_ms": 1182.278166001197,
-        "release_ms": 903.1090449971089,
-        "post_release_wait_ms": 0.014217999705579132,
-        "settle_ms": 0.0,
-        "test_pause_ms": 2474.63042399977,
-        "total_ms": 2955.762653997226
       }
     },
     "9": {
@@ -232,145 +204,7 @@
         "path": "/main/actions/bulb",
         "value": 1,
         "release": 0
-      },
-      "measured_phases": {
-        "trigger_call_ms": 913.7887799988675,
-        "frame_wait_ms": 1402.101933999802,
-        "release_ms": 940.3152230006526,
-        "post_release_wait_ms": 0.014271001418819651,
-        "settle_ms": 0.0,
-        "test_pause_ms": 2666.9028240030457,
-        "total_ms": 3237.1645140010514
       }
     }
-  },
-  "benchmark": {
-    "iso": 100,
-    "step_ev": 1,
-    "repetitions": 5,
-    "speeds": [
-      "1/8000",
-      "1/4000",
-      "1/2000",
-      "1/1000",
-      "1/500",
-      "1/250",
-      "1/125",
-      "1/60",
-      "1/30"
-    ],
-    "sequential_ms": 12650,
-    "bracket_ms": 6050
-  },
-  "raw_timings": {
-    "planning_timing": {
-      "single_ms": 1284.7976829998515,
-      "single_atomic_ms": 485.19299300096463
-    },
-    "brackets": {
-      "3": {
-        "step_ev": 1,
-        "mode": "Continuous Bracket 1.0 EV 3 Img.",
-        "total_ms": 4909.83628399772,
-        "atomic_ms": 2491.018943997915,
-        "trigger": {
-          "method": "widget",
-          "path": "/main/actions/capture",
-          "value": 1,
-          "release": 0
-        },
-        "measured_phases": {
-          "trigger_call_ms": 831.6119170012826,
-          "frame_wait_ms": 759.9119759979658,
-          "release_ms": 859.3830950012489,
-          "post_release_wait_ms": 0.013905999367125332,
-          "settle_ms": 0.0,
-          "test_pause_ms": 2213.905597000121,
-          "total_ms": 2491.018943997915
-        }
-      },
-      "5": {
-        "step_ev": 1,
-        "mode": "Continuous Bracket 1.0 EV 5 Img.",
-        "total_ms": 5254.52917399889,
-        "atomic_ms": 2711.8409809991135,
-        "trigger": {
-          "method": "widget",
-          "path": "/main/actions/capture",
-          "value": 1,
-          "release": 0
-        },
-        "measured_phases": {
-          "trigger_call_ms": 850.3132909972919,
-          "frame_wait_ms": 973.7786269979551,
-          "release_ms": 886.0507369972765,
-          "post_release_wait_ms": 0.014270997780840844,
-          "settle_ms": 0.0,
-          "test_pause_ms": 2346.4641720020154,
-          "total_ms": 2711.8409809991135
-        }
-      },
-      "7": {
-        "step_ev": 1,
-        "mode": "Continuous Bracket 1.0 EV 7 Img.",
-        "total_ms": 5550.839832994825,
-        "atomic_ms": 2955.762653997226,
-        "trigger": {
-          "method": "widget",
-          "path": "/main/actions/capture",
-          "value": 1,
-          "release": 0
-        },
-        "measured_phases": {
-          "trigger_call_ms": 868.2089929970971,
-          "frame_wait_ms": 1182.278166001197,
-          "release_ms": 903.1090449971089,
-          "post_release_wait_ms": 0.014217999705579132,
-          "settle_ms": 0.0,
-          "test_pause_ms": 2474.63042399977,
-          "total_ms": 2955.762653997226
-        }
-      },
-      "9": {
-        "step_ev": 1,
-        "mode": "Continuous Bracket 1.0 EV 9 Img.",
-        "total_ms": 5931.7004430013185,
-        "atomic_ms": 3237.1645140010514,
-        "trigger": {
-          "method": "widget",
-          "path": "/main/actions/bulb",
-          "value": 1,
-          "release": 0
-        },
-        "measured_phases": {
-          "trigger_call_ms": 913.7887799988675,
-          "frame_wait_ms": 1402.101933999802,
-          "release_ms": 940.3152230006526,
-          "post_release_wait_ms": 0.014271001418819651,
-          "settle_ms": 0.0,
-          "test_pause_ms": 2666.9028240030457,
-          "total_ms": 3237.1645140010514
-        }
-      }
-    },
-    "benchmark": {
-      "iso": 100,
-      "step_ev": 1,
-      "repetitions": 5,
-      "speeds": [
-        "1/8000",
-        "1/4000",
-        "1/2000",
-        "1/1000",
-        "1/500",
-        "1/250",
-        "1/125",
-        "1/60",
-        "1/30"
-      ],
-      "sequential_ms": 12628.734088004421,
-      "bracket_ms": 6045.387792000838
-    }
-  },
-  "timing_rounding_ms": 50
+  }
 }

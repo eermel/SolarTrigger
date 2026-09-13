@@ -117,6 +117,9 @@ class CameraPreflightError(RuntimeError):
 
 
 class ProfilePlugin(CameraPlugin):
+    # Persistent worker instances own the effective camera-state cache.
+    stateful_settings = True
+
     def __init__(self, camera, log_fn=print, profile=None):
         super().__init__(camera, log_fn)
         self.profile = validate_profile(profile)
@@ -281,8 +284,13 @@ class ProfilePlugin(CameraPlugin):
         return True
 
     def _apply(self, key, value=None):
-        """Apply one characterized SET used by the scheduled runtime."""
+        """Apply one SET only when the effective camera state must change."""
         target = self._resolved_value(key, value)
+        if (
+            key in self._known_settings
+            and str(self._known_settings[key]) == str(target)
+        ):
+            return False
         if not self._live_writable(key):
             actual = self._read(key)
             if str(actual) == str(target):
@@ -368,10 +376,12 @@ class ProfilePlugin(CameraPlugin):
         return self.preflight(required)
 
     def set_exposure_settings(self, aperture=None, iso=None):
+        changed = False
         if iso is not None:
-            self._apply("iso", iso)
+            changed = self._apply("iso", iso) or changed
         if aperture is not None and "aperture" in self.commands:
-            self._apply("aperture", aperture)
+            changed = self._apply("aperture", aperture) or changed
+        return changed
 
     def set_parameter(
         self,
@@ -677,8 +687,19 @@ class ProfilePlugin(CameraPlugin):
                         selected.append(speed)
                 speeds = selected
 
+            iso_values = self.commands["iso"]["values"]
+            known_iso = self._known_settings.get("iso")
+            logical_iso = next(
+                (
+                    str(candidate)
+                    for candidate, physical in iso_values.items()
+                    if known_iso is not None
+                    and str(physical) == str(known_iso)
+                ),
+                "100",
+            )
             plan = [
-                {"shutter": str(value), "iso": 100}
+                {"shutter": str(value), "iso": logical_iso}
                 for value in speeds
             ]
 
@@ -1276,32 +1297,57 @@ class ProfilePlugin(CameraPlugin):
         return sum(float(value) for value in durations) / 1000.0
 
     def _effective_capture_group(self, group):
-        """Drop a redundant preamble after an identical successful group.
+        """Filter redundant SETs while preserving camera mode dependencies.
 
-        Contract-v3 groups temporarily select Single Shot before changing
-        exposure controls, then restore the final bracket mode.  When ISO,
-        shutter and final capture mode are already exactly those requested,
-        none of those SETs is necessary and PHOTO can start immediately.
+        Sony bracket capture requires:
+            Bracket -> Single Shot -> SET shutter -> Bracket N -> PHOTO
+
+        Therefore a real transition back to Single Shot forces the following
+        shutter SET even when its numeric value matches the cached value.
         """
         if not group or group[-1].get("action") == "set":
             return group
 
-        desired = {}
-        for operation in group[:-1]:
+        simulated = dict(self._known_settings)
+        effective = []
+        force_shutter = False
+
+        for operation in group:
             if operation.get("action") != "set":
-                return group
+                effective.append(operation)
+                continue
+
             key = self._SEMANTIC.get(str(operation.get("parameter")))
             if key is None or key not in self.commands:
                 return group
-            desired[key] = self._resolved_value(key, operation.get("value"))
 
-        if desired and all(
-            key in self._known_settings
-            and str(self._known_settings[key]) == str(value)
-            for key, value in desired.items()
-        ):
-            return (group[-1],)
-        return group
+            target = self._resolved_value(key, operation.get("value"))
+            same = key in simulated and str(simulated[key]) == str(target)
+
+            if key == "capture_mode":
+                single = self._resolved_value(
+                    "capture_mode",
+                    self.commands["capture_mode"]["value"],
+                )
+                if not same and str(target) == str(single):
+                    effective.append(operation)
+                    simulated[key] = target
+                    force_shutter = True
+                    continue
+
+            if key == "shutter" and force_shutter:
+                effective.append(operation)
+                simulated[key] = target
+                force_shutter = False
+                continue
+
+            if same:
+                continue
+
+            effective.append(operation)
+            simulated[key] = target
+
+        return tuple(effective)
 
     def trigger_prepared(self, prepared, deadline=None):
         frames = 0
