@@ -7,6 +7,7 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 import time
 from typing import Any
 
+from backend.camera_timeout_policy import camera_operation_timeout_s
 from backend.generic_worker import (
     PRIORITY_DIAGNOSTIC,
     ExpiredJobError,
@@ -148,7 +149,17 @@ class CameraWorker:
                 worker_deadline=worker_deadline,
                 reject_if_busy=reject_if_busy,
             )
-        return self._wait_future(future, method_name)
+        timeout_s = camera_operation_timeout_s(
+            method_name,
+            args,
+            kwargs,
+            self._call_timeout_s,
+        )
+        return self._wait_future(
+            future,
+            method_name,
+            timeout_s=timeout_s,
+        )
 
     def _capture_deadline(self, deadline) -> float | None:
         """Convert an absolute UTC capture deadline once, before queueing."""

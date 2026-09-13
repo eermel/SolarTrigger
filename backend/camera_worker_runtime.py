@@ -10,6 +10,7 @@ import secrets
 import threading
 
 from backend.camera_ipc_server import CameraIpcServer
+from backend.camera_process_worker import ProcessCameraWorker
 from backend.camera_worker import CameraWorker
 from backend.trigger_runtime import RuntimeClock
 
@@ -75,7 +76,7 @@ class CameraWorkerRuntime:
         self,
         log_fn=print,
         clock=None,
-        worker_factory=CameraWorker,
+        worker_factory=ProcessCameraWorker,
         ipc_server_factory=None,
     ) -> None:
         self._log = log_fn
