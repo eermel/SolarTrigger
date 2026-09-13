@@ -53,6 +53,14 @@ def test_audio_uses_human_phase_specific_wavs():
     ) in alerts
 
     assert (
+        timeline["C4"] - timedelta(minutes=5),
+        "human_wav/end_partiality_minus_5m.wav",
+    ) in alerts
+    assert (
+        timeline["C4"] - timedelta(seconds=10),
+        "human_wav/end_partiality_minus_10s.wav",
+    ) in alerts
+    assert (
         timeline["C4"],
         "human_wav/last_contact.wav",
     ) in alerts
@@ -83,33 +91,38 @@ def test_audio_filter_announcements_follow_runtime_boundaries():
     alerts = set(_phase_alerts(schedule, timeline))
 
     assert (
-        schedule.tstart - timedelta(seconds=30),
+        schedule.tstart - timedelta(seconds=10),
         "human_wav/filters_on.wav",
     ) in alerts
 
     assert (
-        schedule.windows[1].start - timedelta(seconds=2),
+        schedule.windows[1].start - timedelta(seconds=3),
         "human_wav/filters_off.wav",
     ) in alerts
 
     assert (
-        schedule.windows[3].end + timedelta(seconds=2),
+        schedule.windows[3].end + timedelta(seconds=3),
         "human_wav/filters_on.wav",
     ) in alerts
 
 
-def test_c3_long_announcements_do_not_overlap_the_pre_c2_phase():
+def test_c3_announcements_start_at_two_minutes():
     timeline = _timeline()
     schedule = build_phase_schedule(timeline, _photo())
     alerts = set(_phase_alerts(schedule, timeline))
 
-    assert (
-        timeline["C3"] - timedelta(minutes=5),
-        "human_wav/end_totality_minus_5m.wav",
-    ) not in alerts
+    assert not any(
+        filename == "human_wav/end_totality_minus_5m.wav"
+        for _, filename in alerts
+    )
 
     assert (
-        timeline["C3"] - timedelta(seconds=60),
+        timeline["C3"] - timedelta(minutes=2),
+        "human_wav/end_totality_minus_2m.wav",
+    ) in alerts
+
+    assert (
+        timeline["C3"] - timedelta(minutes=1),
         "human_wav/end_totality_minus_1m.wav",
     ) in alerts
 

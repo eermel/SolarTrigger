@@ -82,7 +82,8 @@ def test_new_trigger_announcements_live_under_human_wav():
     assert 'f"{human}/first_contact' in source
     assert 'f"{human}/totality' in source
     assert 'f"{human}/end_totality' in source
-    assert 'f"{human}/last_contact' in source
+    assert 'f"{human}/end_partiality_minus_' in source
+    assert 'f"{human}/last_contact.wav"' in source
     assert 'f"{human}/sequence_started.wav"' in source
     assert '_play_audio_alert("human_wav/sequence_ended.wav")' in source
     assert 'f"{human}/filters_on.wav"' in source
