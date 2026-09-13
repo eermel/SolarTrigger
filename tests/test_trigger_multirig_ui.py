@@ -58,7 +58,7 @@ def test_trigger_log_is_single_panel_for_selected_rig():
 
 def test_trigger_log_icons_cover_astronomical_phases():
     assert "warning: '☀️'" in UI
-    assert "orange: '🌒'" in UI
+    assert "orange: '🌙'" in UI
     assert "purple: '💍'" in UI
     assert "totality: '🌑'" in UI
 
@@ -69,11 +69,11 @@ def test_trigger_log_icon_is_driven_by_astronomical_time():
     assert "state.triggerDiamondDurationS" in UI
 
     assert "if (event < c1) return '☀️';" in UI
-    assert "if (event < diamondBefore) return '🌒';" in UI
+    assert "if (event < diamondBefore) return '🌙';" in UI
     assert "if (event < c2) return '💍';" in UI
     assert "if (event < c3) return '🌑';" in UI
     assert "if (event < diamondAfter) return '💍';" in UI
-    assert "if (event < c4) return '🌒';" in UI
+    assert "if (event < c4) return '🌙';" in UI
 
     assert (
         "triggerAstronomicalIcon(entry.timestamp) ||"

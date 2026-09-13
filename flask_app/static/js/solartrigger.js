@@ -563,7 +563,7 @@ function triggerAstronomicalIcon(timestamp) {
   // Partial eclipse: no C2/C3.
   if (c2 === null && c3 === null) {
     if (event < c1) return '☀️';
-    if (event < c4) return '🌒';
+    if (event < c4) return '🌙';
     return '☀️';
   }
 
@@ -581,11 +581,11 @@ function triggerAstronomicalIcon(timestamp) {
   const diamondAfter = c3 + diamondDuration;
 
   if (event < c1) return '☀️';
-  if (event < diamondBefore) return '🌒';
+  if (event < diamondBefore) return '🌙';
   if (event < c2) return '💍';
   if (event < c3) return '🌑';
   if (event < diamondAfter) return '💍';
-  if (event < c4) return '🌒';
+  if (event < c4) return '🌙';
   return '☀️';
 }
 
@@ -593,7 +593,7 @@ function triggerAstronomicalIcon(timestamp) {
 function triggerLogIcon(level) {
   const icons = {
     warning: '☀️',
-    orange: '🌒',
+    orange: '🌙',
     purple: '💍',
     totality: '🌑',
     audio: '🔊',
@@ -3045,17 +3045,17 @@ function renderContacts(data) {
   // Compatibilité — champ eclipse-type (non visible mais utilisé ailleurs)
   document.getElementById('eclipse-type') && (document.getElementById('eclipse-type').textContent = typeGps);
 
-  // Badge dans Contacts & Countdowns (page-2 CFG PHOTO et page-4 TRIGGER) — type pos GPS
-  const triggerTypeEl = document.getElementById('trigger-eclipse-type');
-  if (triggerTypeEl && typeGps !== '--') {
-    triggerTypeEl.textContent = `${lsty.icon} ${_displayEclipseType(typeGps)}`;
-    triggerTypeEl.style.color = lsty.color;
-    const lbl = document.getElementById('trig-eclipse-label');
-    if (lbl) lbl.textContent = data.title || data._eclipse || '--';
-    const lbl2 = document.getElementById('trig-eclipse-type2');
-    if (lbl2) { lbl2.textContent = `${gsty.icon} ${_displayEclipseType(typeGlobal)}`; lbl2.style.color = gsty.color; }
-    const lbl3 = document.getElementById('trig-eclipse-type-gps');
-    if (lbl3) { lbl3.textContent = `${lsty.icon} ${_displayEclipseType(typeGps)}`; lbl3.style.color = lsty.color; }
+  // Trigger — display global eclipse type and GPS-position type together.
+  const lbl2 = document.getElementById('trig-eclipse-type2');
+  if (lbl2) {
+    lbl2.textContent = `${gsty.icon} ${_displayEclipseType(typeGlobal)}`;
+    lbl2.style.color = gsty.color;
+  }
+
+  const lbl3 = document.getElementById('trig-eclipse-type-gps');
+  if (lbl3) {
+    lbl3.textContent = `${lsty.icon} ${_displayEclipseType(typeGps)}`;
+    lbl3.style.color = lsty.color;
   }
 
   // TMAX toujours recalculé — le TMAX Jubier (magnitude max) ≠ milieu totalité

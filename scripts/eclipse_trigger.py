@@ -155,39 +155,155 @@ class SimulationCamera:
 
 
 def _phase_alerts(schedule, timeline: dict) -> list[tuple[datetime, str]]:
-    offsets = (
-        (600, "10minutes.wav"), (300, "5minutes.wav"),
-        (120, "2minutes.wav"),
-        (60, "60seconds.wav"), (30, "30seconds.wav"),
-        (10, "10seconds.wav"), (5, "5.wav"), (4, "4.wav"),
-        (3, "3.wav"), (2, "2.wav"), (1, "1.wav"),
-        (0, "contact.wav"),
+    """Build the global eclipse audio timeline.
+
+    Human announcements are phase/contact specific. Missing files are
+    deliberately accepted: _play_audio_alert() logs the problem and the
+    trigger continues normally.
+    """
+    human = "human_wav"
+
+    countdowns = {
+        "C1": (
+            (300, f"{human}/first_contact_minus_5m.wav"),
+            (120, f"{human}/first_contact_minus_2m.wav"),
+            (60, f"{human}/first_contact_minus_1m.wav"),
+            (30, f"{human}/first_contact_minus_30s.wav"),
+            (10, f"{human}/first_contact_minus_10s.wav"),
+        ),
+        "C2": (
+            (300, f"{human}/totality_minus_5m.wav"),
+            (120, f"{human}/totality_minus_2m.wav"),
+            (60, f"{human}/totality_minus_1m.wav"),
+            (30, f"{human}/totality_minus_30s.wav"),
+            (10, f"{human}/totality_minus_10s.wav"),
+        ),
+        "C3": (
+            (300, f"{human}/end_totality_minus_5m.wav"),
+            (120, f"{human}/end_totality_minus_2m.wav"),
+            (60, f"{human}/end_totality_minus_1m.wav"),
+            (30, f"{human}/end_totality_minus_30s.wav"),
+            (10, f"{human}/end_totality_minus_10s.wav"),
+        ),
+        "C4": (
+            (300, f"{human}/last_contact_minus_5m.wav"),
+            (120, f"{human}/last_contact_minus_2m.wav"),
+            (60, f"{human}/last_contact_minus_1m.wav"),
+            (30, f"{human}/last_contact_minus_30s.wav"),
+            (10, f"{human}/last_contact_minus_10s.wav"),
+        ),
+    }
+
+    contact_wavs = {
+        "C1": f"{human}/first_contact.wav",
+        "C2": f"{human}/totality.wav",
+        "C3": f"{human}/end_of_totality.wav",
+        "C4": f"{human}/last_contact.wav",
+    }
+
+    digit_countdown = (
+        (5, f"{human}/5.wav"),
+        (4, f"{human}/4.wav"),
+        (3, f"{human}/3.wav"),
+        (2, f"{human}/2.wav"),
+        (1, f"{human}/1.wav"),
     )
-    alerts = []
+
+    alerts = [
+        (schedule.tstart, f"{human}/sequence_started.wav"),
+    ]
+
     previous_contact = schedule.tstart
-    for contact in (timeline.get(name) for name in ("C1", "C2", "C3", "C4")):
+
+    for name in ("C1", "C2", "C3", "C4"):
+        contact = timeline.get(name)
         if contact is None:
             continue
-        for seconds, filename in offsets:
+
+        # Long announcements must belong to the phase immediately preceding
+        # the target contact. This notably prevents a C3 -5 min announcement
+        # from leaking before C2 when totality lasts less than five minutes.
+        for seconds, filename in countdowns[name]:
             instant = contact - timedelta(seconds=seconds)
-            # Do not let a long countdown for the next contact leak into the
-            # preceding eclipse phase (notably C3 announcements before C2).
             if previous_contact <= instant < schedule.tend:
                 alerts.append((instant, filename))
+
+        # Final spoken 5-4-3-2-1 countdown.
+        for seconds, filename in digit_countdown:
+            instant = contact - timedelta(seconds=seconds)
+            if previous_contact <= instant < schedule.tend:
+                alerts.append((instant, filename))
+
+        alerts.append((contact, contact_wavs[name]))
+
+        if name == "C1":
+            alerts.append((contact, f"{human}/start_of_partiality.wav"))
+        elif name == "C4":
+            alerts.append((contact, f"{human}/end_of_partiality.wav"))
+
         previous_contact = contact
 
-    # Filter handling follows the phase boundaries computed from the selected
-    # circumstances and Photo Setup files, including generated dry-run files.
-    alerts.append((schedule.tstart - timedelta(seconds=30), "filters_on.wav"))
+    # Filter handling follows the actual phase boundaries.
+    alerts.append((
+        schedule.tstart - timedelta(seconds=30),
+        f"{human}/filters_on.wav",
+    ))
+
     windows = {window.name: window for window in schedule.windows}
     diamond_c2 = windows.get(PHASE_DIAMOND_C2)
     diamond_c3 = windows.get(PHASE_DIAMOND_C3)
+
     if diamond_c2 is not None and diamond_c3 is not None:
         alerts.extend((
-            (diamond_c2.start - timedelta(seconds=2), "filters_off.wav"),
-            (diamond_c3.end + timedelta(seconds=2), "filters_on.wav"),
+            (
+                diamond_c2.start - timedelta(seconds=2),
+                f"{human}/filters_off.wav",
+            ),
+            (
+                diamond_c3.end + timedelta(seconds=2),
+                f"{human}/filters_on.wav",
+            ),
         ))
-    return sorted(set(alerts), key=lambda item: item[0])
+
+    # Deduplicate without losing insertion order. Stable ordering matters
+    # when two announcements intentionally share the same eclipse instant
+    # (for example "first contact" then "start of partiality").
+    unique_alerts = []
+    seen = set()
+
+    for item in alerts:
+        if item in seen:
+            continue
+        seen.add(item)
+        unique_alerts.append(item)
+
+    return sorted(unique_alerts, key=lambda item: item[0])
+
+
+def _play_audio_alert(filename: str) -> None:
+    """Play one scheduled WAV without ever jeopardizing the trigger runtime."""
+    path = SOUNDS_DIR / filename
+
+    if not path.is_file():
+        log(
+            "WARNING audio file missing: "
+            f"{path} — trigger continues without this announcement"
+        )
+        return
+
+    try:
+        audio_service.play(filename)
+    except Exception as exc:
+        log(
+            "WARNING audio playback failed: "
+            f"{filename}: {exc} — trigger continues"
+        )
+
+
+def _play_audio_sequence(filenames) -> None:
+    """Play simultaneous announcements serially in their declared order."""
+    for filename in filenames:
+        _play_audio_alert(filename)
 
 
 def _audio_scheduler(alerts, clock, stopped) -> None:
@@ -203,17 +319,40 @@ def _audio_scheduler(alerts, clock, stopped) -> None:
             return
         audio_service.init(log_fn=log, driver="alsa")
         audio_service.set_sounds_dir(SOUNDS_DIR)
-        pending = [item for item in alerts if item[0] > clock.now()]
+        pending = [item for item in alerts if item[0] >= clock.now()]
         log(f"INFO global_audio announcements={len(pending)}")
         while pending and not stopped.is_set():
-            for item in [candidate for candidate in pending if candidate[0] <= clock.now()]:
-                pending.remove(item)
-                thread = threading.Thread(
-                    target=audio_service.play, args=(item[1],), daemon=True,
-                    name=f"audio-{item[1]}",
-                )
-                audio_service.register_thread(thread)
-                thread.start()
+            due = [
+                candidate
+                for candidate in pending
+                if candidate[0] <= clock.now()
+            ]
+
+            if due:
+                for item in due:
+                    pending.remove(item)
+
+                # Group announcements sharing the exact same eclipse instant.
+                # One thread handles each group so pygame receives them in a
+                # deterministic sequence rather than through racing threads.
+                grouped = []
+
+                for instant, filename in due:
+                    if grouped and grouped[-1][0] == instant:
+                        grouped[-1][1].append(filename)
+                    else:
+                        grouped.append((instant, [filename]))
+
+                for _instant, filenames in grouped:
+                    thread = threading.Thread(
+                        target=_play_audio_sequence,
+                        args=(filenames,),
+                        daemon=True,
+                        name=f"audio-{filenames[0]}",
+                    )
+                    audio_service.register_thread(thread)
+                    thread.start()
+
             stopped.wait(0.1)
 
 
@@ -552,6 +691,17 @@ def main() -> int:
             next_capture_log=log_next_capture,
         ).run()
 
+        # The end announcement is intentionally synchronous and outside the
+        # photographic runtime. If it remained in the scheduler at exactly
+        # TEND, shutdown could race with the audio thread and truncate or skip
+        # sequence_ended.wav. Only RIG 1 owns global eclipse audio.
+        if (
+            not args.totality_only
+            and rig_id == 1
+            and not stopped.is_set()
+        ):
+            _play_audio_alert("human_wav/sequence_ended.wav")
+
         summary_labels = (
             ("partial_before", "PARTIAL (before totality)"),
             ("diamond_ring_c2", "DIAMOND (before totality)"),
@@ -578,8 +728,7 @@ def main() -> int:
             log(
                 "TRIGGER_SUMMARY "
                 f'phase="{label}" '
-                f'photos={stats["photos"]} '
-                f'errors={stats["errors"]}'
+                f'photos={stats["photos"]}'
             )
         log("TRIGGER_SUMMARY_END")
 
