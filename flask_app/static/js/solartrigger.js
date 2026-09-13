@@ -7086,7 +7086,7 @@ async function runAllSequencers() {
 // ════════════════════════════════════════════════════════════════
 function showTab(n) {
   document.querySelectorAll('#tabs > .tab').forEach(t => t.classList.toggle('active', Number(t.dataset.pageIndex) === n));
-  const pageIds = ['devices-panel', 'page-0', 'page-1', 'page-2', 'page-exposure-opt', 'sequencer-panel', 'page-3', 'controls-panel', 'page-4', 'add-camera-panel'];
+  const pageIds = ['devices-panel', 'page-0', 'page-1', 'page-2', 'page-exposure-opt', 'sequencer-panel', 'page-3', 'controls-panel', 'page-4', 'add-camera-panel', 'debug-panel'];
   document.querySelectorAll('#pages > .page').forEach(p => p.classList.toggle('active', p.id === pageIds[n]));
   state.currentPage = n;
   if (n === 3) {
@@ -7110,6 +7110,11 @@ function showTab(n) {
   }
   if (n === 8) {
     loadTriggerConfigList();
+    loadEclipseFileList();
+  }
+  if (n === 10) {
+    Promise.resolve(loadTriggerConfigList())
+      .then(() => syncDebugUiFromTrigger());
     loadEclipseFileList();
   }
 }
@@ -7409,3 +7414,306 @@ if (document.readyState === 'loading') {
   startCameraValidationPolling();
 }
 // END CAMERA VALIDATION
+
+
+// ════════════════════════════════════════════════════════════════
+// DEBUG TAB — UI adapter over the existing Trigger functionality
+// ════════════════════════════════════════════════════════════════
+
+function copySelectState(sourceId, targetId) {
+  const source = document.getElementById(sourceId);
+  const target = document.getElementById(targetId);
+
+  if (!source || !target) return;
+
+  const previous = target.value;
+  target.innerHTML = source.innerHTML;
+
+  if (Array.from(target.options).some(option => option.value === source.value)) {
+    target.value = source.value;
+  } else if (
+    previous
+    && Array.from(target.options).some(option => option.value === previous)
+  ) {
+    target.value = previous;
+  }
+}
+
+
+function syncDebugRigSelection() {
+  for (let rigId = 1; rigId <= 4; rigId += 1) {
+    const source = document.getElementById(`trigger-rig-${rigId}`);
+    const target = document.getElementById(`debug-rig-${rigId}`);
+
+    if (!source || !target) continue;
+
+    target.hidden = source.hidden;
+    target.disabled = source.disabled;
+    target.classList.toggle(
+      'active',
+      source.classList.contains('active')
+    );
+  }
+
+  const triggerTarget = document.getElementById('trigger-target-label');
+  const debugTarget = document.getElementById('debug-target-label');
+
+  if (triggerTarget && debugTarget) {
+    debugTarget.textContent = triggerTarget.textContent;
+  }
+}
+
+
+function syncDebugLog() {
+  const source = document.getElementById('log-container-trigger');
+  const target = document.getElementById('log-container-debug');
+
+  if (source && target) {
+    target.innerHTML = source.innerHTML;
+    target.scrollTop = target.scrollHeight;
+  }
+
+  const sourceTitle = document.getElementById('trigger-log-title');
+  const targetTitle = document.getElementById('debug-log-title');
+
+  if (sourceTitle && targetTitle) {
+    targetTitle.textContent = sourceTitle.textContent.replace(
+      /^Trigger log/,
+      'Debug log'
+    );
+  }
+}
+
+
+function syncDebugCircumstances() {
+  const contacts = document.getElementById('trigger-contacts');
+  const debugContacts = document.getElementById('debug-contacts');
+
+  if (contacts && debugContacts) {
+    debugContacts.innerHTML = contacts.innerHTML;
+  }
+
+  const mappings = [
+    ['trig-eclipse-type2', 'debug-eclipse-type'],
+    ['trig-eclipse-type-gps', 'debug-eclipse-type-gps']
+  ];
+
+  mappings.forEach(([sourceId, targetId]) => {
+    const source = document.getElementById(sourceId);
+    const target = document.getElementById(targetId);
+
+    if (!source || !target) return;
+
+    target.textContent = source.textContent;
+    target.style.color = source.style.color;
+  });
+}
+
+
+function syncDebugActionState() {
+  const mappings = [
+    ['btn-start', 'btn-debug-start'],
+    ['btn-totality-only', 'btn-debug-totality-only'],
+    ['btn-stop', 'btn-debug-stop']
+  ];
+
+  mappings.forEach(([sourceId, targetId]) => {
+    const source = document.getElementById(sourceId);
+    const target = document.getElementById(targetId);
+
+    if (!source || !target) return;
+
+    target.disabled = source.disabled;
+  });
+}
+
+
+function syncDebugUiFromTrigger() {
+  copySelectState(
+    'trigger-circumstances-select',
+    'debug-circumstances-select'
+  );
+  copySelectState(
+    'trigger-photo-select',
+    'debug-photo-select'
+  );
+  copySelectState(
+    'trigger-exposure-opt-select',
+    'debug-exposure-opt-select'
+  );
+
+  syncDebugCircumstances();
+  syncDebugRigSelection();
+  syncDebugLog();
+  syncDebugActionState();
+}
+
+
+async function setDebugTriggerInput(kind, value) {
+  const mapping = {
+    circumstances: 'trigger-circumstances-select',
+    photo: 'trigger-photo-select',
+    exposure_opt: 'trigger-exposure-opt-select'
+  };
+
+  const sourceId = mapping[kind];
+  const source = sourceId
+    ? document.getElementById(sourceId)
+    : null;
+
+  if (!source) return;
+
+  source.value = value;
+
+  if (kind === 'circumstances') {
+    await loadTriggerCircumstances(value);
+  } else if (kind === 'photo') {
+    await refreshTriggerCircumstancesForPhoto();
+  }
+
+  syncDebugUiFromTrigger();
+}
+
+
+function syncTriggerInputsFromDebug() {
+  const mappings = [
+    ['debug-circumstances-select', 'trigger-circumstances-select'],
+    ['debug-photo-select', 'trigger-photo-select'],
+    ['debug-exposure-opt-select', 'trigger-exposure-opt-select']
+  ];
+
+  mappings.forEach(([debugId, triggerId]) => {
+    const debugControl = document.getElementById(debugId);
+    const triggerControl = document.getElementById(triggerId);
+
+    if (debugControl && triggerControl) {
+      triggerControl.value = debugControl.value;
+    }
+  });
+}
+
+
+function selectDebugTriggerRig(rigId) {
+  selectTriggerRig(rigId);
+  syncDebugUiFromTrigger();
+}
+
+
+async function startDebugFromDebugTab() {
+  syncTriggerInputsFromDebug();
+  await startDebug();
+  syncDebugUiFromTrigger();
+}
+
+
+async function startDryRunFromDebugTab() {
+  syncTriggerInputsFromDebug();
+  await startDryRun();
+  syncDebugUiFromTrigger();
+}
+
+
+async function startTriggerFromDebugTab() {
+  syncTriggerInputsFromDebug();
+  await startTrigger();
+  syncDebugUiFromTrigger();
+}
+
+
+async function startTotalityOnlyFromDebugTab() {
+  syncTriggerInputsFromDebug();
+  await startTotalityOnly();
+  syncDebugUiFromTrigger();
+}
+
+
+async function stopTriggerFromDebugTab() {
+  await stopTrigger();
+  syncDebugUiFromTrigger();
+}
+
+
+async function cleanDebugGeneratedFiles() {
+  if (typeof anyActiveTriggerRunning === 'function' && anyActiveTriggerRunning()) {
+    flash('Stop the active Trigger/Debug run before CLEAN.', 'red');
+    return;
+  }
+
+  if (!confirm(
+    'Delete all generated DEBUG circumstances files?\n\n'
+    + 'Reference eclipse circumstances files are not affected.'
+  )) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/trigger/debug/clean', {
+      method: 'POST'
+    });
+
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        payload.error || `HTTP error ${response.status}`
+      );
+    }
+
+    flash(
+      `${payload.deleted || 0} generated DEBUG file(s) deleted`,
+      'yellow'
+    );
+
+    await loadTriggerConfigList();
+    syncDebugUiFromTrigger();
+
+  } catch (error) {
+    flash(`DEBUG CLEAN: ${error.message}`, 'red');
+  }
+}
+
+
+function installDebugUiMirror() {
+  const watchedIds = [
+    'trigger-contacts',
+    'log-container-trigger',
+    'trigger-log-title',
+    'trigger-target-label',
+    'trig-eclipse-type2',
+    'trig-eclipse-type-gps',
+    'btn-start',
+    'btn-totality-only',
+    'btn-stop'
+  ];
+
+  const observer = new MutationObserver(() => {
+    syncDebugCircumstances();
+    syncDebugRigSelection();
+    syncDebugLog();
+  });
+
+  watchedIds.forEach(id => {
+    const node = document.getElementById(id);
+    if (!node) return;
+
+    observer.observe(node, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true
+    });
+  });
+
+  syncDebugUiFromTrigger();
+}
+
+
+if (document.readyState === 'loading') {
+  document.addEventListener(
+    'DOMContentLoaded',
+    installDebugUiMirror,
+    {once: true}
+  );
+} else {
+  installDebugUiMirror();
+}

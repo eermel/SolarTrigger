@@ -5156,6 +5156,59 @@ def api_trigger_simulate():
             return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
 
+@app.route("/api/trigger/debug/clean", methods=["POST"])
+def api_trigger_debug_clean():
+    """Delete only generated DEBUG circumstances files.
+
+    Reference/user circumstances are never touched.
+    """
+    base_dir = CONFIGS_DIR / "circumstances"
+    deleted = 0
+    errors = []
+
+    if not base_dir.exists():
+        return jsonify({
+            "status": "ok",
+            "deleted": 0,
+            "files": [],
+        })
+
+    deleted_files = []
+
+    for path in sorted(base_dir.glob("debug_rig_*.json")):
+        try:
+            if (
+                not path.is_file()
+                or path.is_symlink()
+                or path.parent != base_dir
+            ):
+                continue
+
+            path.unlink()
+            deleted += 1
+            deleted_files.append(path.name)
+
+        except OSError as exc:
+            errors.append({
+                "filename": path.name,
+                "error": str(exc),
+            })
+
+    if errors:
+        return jsonify({
+            "error": "Unable to delete all generated DEBUG files",
+            "deleted": deleted,
+            "files": deleted_files,
+            "errors": errors,
+        }), 500
+
+    return jsonify({
+        "status": "ok",
+        "deleted": deleted,
+        "files": deleted_files,
+    })
+
+
 @app.route("/api/trigger/dryrun", methods=["POST"])
 def api_trigger_dryrun():
     """Dry-run ×1 d'un seul RIG."""
