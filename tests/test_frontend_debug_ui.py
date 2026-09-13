@@ -145,3 +145,26 @@ def test_debug_navigation_is_registered():
         r"if\s*\(\s*n\s*===\s*10\s*\)",
         INDEX,
     )
+
+
+def test_debug_log_uses_same_visual_container_as_other_logs():
+    assert re.search(
+        r"#log-container-trigger,\s*"
+        r"#log-container-debug,\s*"
+        r"#camera-add-log,",
+        CSS,
+    )
+
+
+def test_trigger_and_debug_circumstances_display_whole_seconds_only():
+    assert "const _triggerDisplayHms = value =>" in INDEX
+    assert r"(?:\.\d+)?" in INDEX
+    assert "${_triggerDisplayHms(c.utc)}" in INDEX
+    assert "${_triggerDisplayHms(c.local)}" in INDEX
+
+
+def test_diamond_ring_trigger_label_cannot_wrap():
+    assert 'class="trigger-contact-label"' in INDEX
+    block = CSS.split(".trigger-contact-label {", 1)[1].split("}", 1)[0]
+    assert "white-space: nowrap" in block
+    assert "min-width: 100px" in block

@@ -3194,6 +3194,22 @@ function renderContacts(data) {
     ].filter(Boolean);
   }
 
+  const _triggerDisplayHms = value => {
+    if (!value || value === '--') return value || '--';
+
+    const match = String(value).match(
+      /^(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?$/
+    );
+
+    if (!match) return value;
+
+    return [
+      String(match[1]).padStart(2, '0'),
+      match[2],
+      match[3]
+    ].join(':');
+  };
+
   const _buildContactsHtml = () => {
     return triggerContacts.map(c => {
       const isTmax  = c.key === 'TMILIEU';
@@ -3203,9 +3219,9 @@ function renderContacts(data) {
                        : isBound ? 'border-color:rgba(61,220,132,.2)' : '';
       return `<div class="contact-row" id="${c.key}"
           style="display:flex;justify-content:space-between;align-items:center;${rowBorder}">
-        <span style="font-family:var(--mono);font-size:11px;color:${labelColor};width:52px;flex-shrink:0">${c.label}</span>
-        <span style="font-family:var(--mono);font-size:13px;color:var(--blue);flex:1;text-align:center">${c.utc || '--'}</span>
-        <span style="font-family:var(--mono);font-size:11px;color:var(--accent);flex:1;text-align:center">${c.local || '--'}</span>
+        <span class="trigger-contact-label" style="font-family:var(--mono);font-size:11px;color:${labelColor}">${c.label}</span>
+        <span style="font-family:var(--mono);font-size:13px;color:var(--blue);flex:1;text-align:center">${_triggerDisplayHms(c.utc)}</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--accent);flex:1;text-align:center">${_triggerDisplayHms(c.local)}</span>
         <span class="contact-countdown" id="td-${c.key}" style="font-family:var(--mono);font-size:11px;min-width:72px;text-align:right">--</span>
       </div>`;
     }).join('');
