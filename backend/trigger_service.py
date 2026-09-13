@@ -706,14 +706,12 @@ class TriggerService:
                         fields[key] = value
 
                 photos = int(fields.get("photos", "0"))
-                errors = int(fields.get("errors", "0"))
             except (ValueError, TypeError):
                 return payload, "error", None
 
-            level = "success" if errors == 0 else "error"
             return (
-                f"{phase} — Photos: {photos} — Errors: {errors}",
-                level,
+                f"{phase} — Photos: {photos}",
+                "success",
                 None,
             )
 

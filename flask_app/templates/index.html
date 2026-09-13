@@ -1323,35 +1323,6 @@
     <!-- ═══════════════ PAGE 4 : TRIGGER ═══════════════ -->
     <div class="page" id="page-4">
 
-      <div class="controls-rig-selector" role="group" aria-label="Trigger RIG">
-        <button class="btn btn-primary"
-                id="trigger-rig-1"
-                data-trigger-rig-id="1"
-                onclick="selectTriggerRig(1)"
-                disabled hidden>RIG 1</button>
-        <button class="btn btn-primary"
-                id="trigger-rig-2"
-                data-trigger-rig-id="2"
-                onclick="selectTriggerRig(2)"
-                disabled hidden>RIG 2</button>
-        <button class="btn btn-primary"
-                id="trigger-rig-3"
-                data-trigger-rig-id="3"
-                onclick="selectTriggerRig(3)"
-                disabled hidden>RIG 3</button>
-        <button class="btn btn-primary"
-                id="trigger-rig-4"
-                data-trigger-rig-id="4"
-                onclick="selectTriggerRig(4)"
-                disabled hidden>RIG 4</button>
-      </div>
-
-      <div class="controls-target-label"
-           id="trigger-target-label"
-           aria-live="polite">
-        No RIG selected
-      </div>
-
       <!-- ── START / STOP + Fichiers config ── -->
       <div style="display:flex;gap:10px;align-items:stretch">
 
@@ -1391,29 +1362,57 @@
           <label for="trigger-exposure-opt-select" style="font-size:10px;color:var(--text-dim)">Exposure Optimization</label>
           <select id="trigger-exposure-opt-select" class="config-file-select file-select-chevron" style="width:100%;margin:3px 0 8px"></select>
 
-          <!-- Infos config active -->
-          <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">
-            Eclipse: <span id="trig-eclipse-label" style="color:var(--accent)">--</span>
-          </div>
-          <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:4px">
-            Type : <span id="trig-eclipse-type2" style="color:var(--text)">--</span>
-          </div>
-          <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-top:4px">
-            GPS position type: <span id="trig-eclipse-type-gps" style="color:var(--orange)">--</span>
-          </div>
         </div>
       </div>
 
       <!-- ── Circonstances de l'éclipse ── -->
       <div class="card">
-        <div class="card-title">
-          Eclipse circumstances
-          <span id="trigger-eclipse-type" style="font-size:11px;font-family:var(--mono);font-weight:normal;margin-left:8px"></span>
+        <div class="card-title"
+             style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <span>Eclipse circumstances</span>
+          <span style="font-size:11px;font-family:var(--mono);font-weight:normal;color:var(--text-dim)">
+            Type:
+            <span id="trig-eclipse-type2" style="color:var(--text)">--</span>
+          </span>
+          <span style="font-size:11px;font-family:var(--mono);font-weight:normal;color:var(--text-dim)">
+            GPS position type:
+            <span id="trig-eclipse-type-gps" style="color:var(--orange)">--</span>
+          </span>
         </div>
         <!-- Contacts C1..C4 + countdown -->
         <div id="trigger-contacts">
           <div style="color:var(--text-dim);font-size:11px;font-family:var(--mono)">Waiting for calculation…</div>
         </div>
+      </div>
+
+      <!-- Trigger RIG selection -->
+      <div class="controls-rig-selector" role="group" aria-label="Trigger RIG">
+        <button class="btn btn-primary"
+                id="trigger-rig-1"
+                data-trigger-rig-id="1"
+                onclick="selectTriggerRig(1)"
+                disabled hidden>RIG 1</button>
+        <button class="btn btn-primary"
+                id="trigger-rig-2"
+                data-trigger-rig-id="2"
+                onclick="selectTriggerRig(2)"
+                disabled hidden>RIG 2</button>
+        <button class="btn btn-primary"
+                id="trigger-rig-3"
+                data-trigger-rig-id="3"
+                onclick="selectTriggerRig(3)"
+                disabled hidden>RIG 3</button>
+        <button class="btn btn-primary"
+                id="trigger-rig-4"
+                data-trigger-rig-id="4"
+                onclick="selectTriggerRig(4)"
+                disabled hidden>RIG 4</button>
+      </div>
+
+      <div class="controls-target-label"
+           id="trigger-target-label"
+           aria-live="polite">
+        No RIG selected
       </div>
 
       <!-- Trigger log — selected RIG only -->

@@ -122,3 +122,74 @@ def test_trigger_log_clear_uses_standard_single_panel_button():
     assert 'onclick="clearTriggerRigLog()"' in trigger_log
     assert ">CLEAR</button>" in trigger_log
     assert "cursor:pointer" not in trigger_log
+
+
+
+def test_trigger_rig_selector_is_immediately_before_log_section():
+    html = (
+        Path(__file__).resolve().parents[1]
+        / "flask_app"
+        / "templates"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+
+    eclipse_index = html.index('id="trigger-contacts"')
+    rig_index = html.index(
+        'class="controls-rig-selector" role="group" aria-label="Trigger RIG"',
+        eclipse_index,
+    )
+    log_index = html.index('id="trigger-log-title"', rig_index)
+
+    assert eclipse_index < rig_index < log_index
+
+
+def test_trigger_active_configuration_has_no_redundant_eclipse_metadata():
+    html = (
+        Path(__file__).resolve().parents[1]
+        / "flask_app"
+        / "templates"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+
+    active_start = html.index("Active configuration")
+    active_end = html.index("Eclipse circumstances", active_start)
+    active = html[active_start:active_end]
+
+    assert "trig-eclipse-label" not in active
+    assert "trig-eclipse-type2" not in active
+    assert "trig-eclipse-type-gps" not in active
+
+
+def test_trigger_eclipse_circumstances_shows_type_and_gps_type_same_header():
+    html = (
+        Path(__file__).resolve().parents[1]
+        / "flask_app"
+        / "templates"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+
+    start = html.index("Eclipse circumstances", html.index('id="page-4"'))
+    end = html.index('id="trigger-contacts"', start)
+    header = html[start:end]
+
+    assert 'id="trig-eclipse-type2"' in header
+    assert 'id="trig-eclipse-type-gps"' in header
+    assert "GPS position type:" in header
+    assert 'id="trigger-eclipse-type"' not in header
+
+
+def test_trigger_partiality_log_uses_eclipse_moon_icon():
+    js = (
+        Path(__file__).resolve().parents[1]
+        / "flask_app"
+        / "static"
+        / "js"
+        / "solartrigger.js"
+    ).read_text(encoding="utf-8")
+
+    start = js.index("function triggerLogIcon(level)")
+    end = js.index("\n}", start) + 2
+    icon_function = js[start:end]
+
+    assert "orange: '🌙'" in icon_function
+    assert "orange: '🌒'" not in icon_function
