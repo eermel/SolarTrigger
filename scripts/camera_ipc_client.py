@@ -57,6 +57,8 @@ class CameraIpcClient:
 
     MAX_MESSAGE_BYTES = MAX_MESSAGE_BYTES
     DEFAULT_TIMEOUT_S = 5.0
+    CONTROL_TIMEOUT_S = 30.0
+    CAPTURE_TIMEOUT_S = 120.0
 
     def __init__(
         self,
@@ -99,7 +101,7 @@ class CameraIpcClient:
         iso: str | None = None,
         image_format: str = "RAW",
         white_balance: str = "Daylight",
-        timeout_s: float = DEFAULT_TIMEOUT_S,
+        timeout_s: float = CONTROL_TIMEOUT_S,
     ) -> Any:
         return self._call(
             "camera.initialize",
@@ -124,7 +126,7 @@ class CameraIpcClient:
         *,
         aperture: str | None = None,
         iso: str | None = None,
-        timeout_s: float = DEFAULT_TIMEOUT_S,
+        timeout_s: float = CONTROL_TIMEOUT_S,
     ) -> Any:
         return self._call(
             "apply_phase_settings",
@@ -214,7 +216,7 @@ class CameraIpcClient:
         rig_id: int,
         intent: Any,
         *,
-        timeout_s: float = DEFAULT_TIMEOUT_S,
+        timeout_s: float = CONTROL_TIMEOUT_S,
     ) -> Any:
         return self._call(
             "prepare_capture",
@@ -228,7 +230,7 @@ class CameraIpcClient:
         token_id: str,
         *,
         deadline: datetime | None = None,
-        timeout_s: float = DEFAULT_TIMEOUT_S,
+        timeout_s: float = CAPTURE_TIMEOUT_S,
     ) -> Any:
         return self._call(
             "trigger_prepared",
@@ -251,7 +253,7 @@ class CameraIpcClient:
         photo_num_start: int = 0,
         deadline: datetime | None = None,
         slowest_override_seconds: float | None = None,
-        timeout_s: float = DEFAULT_TIMEOUT_S,
+        timeout_s: float = CAPTURE_TIMEOUT_S,
     ) -> Any:
         return self._call(
             "shoot_speed_list",

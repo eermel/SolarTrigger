@@ -246,6 +246,7 @@ from backend.sequencer_plan_service import (
     compile_execution_plan_from_files,
     compile_rig_execution_plan_from_files,
 )
+from backend.dryrun_circumstances import generate_debug_now
 from backend.execution_plan_runtime import (
     ExecutionPlanError,
     load_execution_plan,
@@ -271,7 +272,7 @@ from backend.generic_worker import BusyDeviceError
 from backend.mount_worker_runtime import get_mount_worker_runtime
 from backend.trigger_service import TriggerService, TriggerValidationError
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
-from services.camera_service import CameraService, _normalized_speed_plan
+from services.camera_service import _normalized_speed_plan
 from services.focuser_service import FocuserService
 from services.mount_service import MountService
 from plugins.mount.indi_client import IndiClientError
@@ -2499,7 +2500,12 @@ def api_rig_camera_read_info(rig_id):
             "status": "error",
             "error": str(exc),
         })
-        raise
+        log.warning("Camera information unavailable for rig %s: %s", rig_id, exc)
+        return jsonify({
+            "error": str(exc),
+            "code": "CAMERA_UNAVAILABLE",
+            "rig_id": rig_id,
+        }), 503
 
     end_utc = datetime.now(timezone.utc)
     trace_payload = {
@@ -2694,9 +2700,12 @@ def api_rig_camera_sync_time(rig_id):
 
 @app.route("/api/camera/sync_time", methods=["POST"])
 def api_camera_sync_time():
-    inactive = require_device_active("camera")
-    if inactive is not None:
-        return inactive
+    """Compatibility endpoint: synchronize RIG 1 through its USB owner.
+
+    The legacy implementation instantiated a standalone CameraService while
+    the persistent RIG worker could already own the same USB device.  All
+    camera I/O must instead pass through that single serialized worker.
+    """
     trigger_state = _state_store.snapshot("trigger") or {}
     rigs = trigger_state.get("rigs") or {}
     if (rigs.get("1") or {}).get("running"):
@@ -2709,7 +2718,6 @@ def api_camera_sync_time():
     if not _camera_sync_lock.acquire(blocking=False):
         return jsonify({"error": "Camera synchronization is already in progress."}), 409
 
-    camera_service = None
     try:
         gps_state = _state_store.snapshot("gps") or {}
         utc_offset_minutes = gps_state.get("utc_offset_minutes")
@@ -2725,9 +2733,13 @@ def api_camera_sync_time():
             timezone_name=gps_state.get("timezone_name"),
             utc_offset_minutes=utc_offset_minutes,
         )
-        camera_service = CameraService(log_fn=lambda message: log.info(message))
         try:
-            result = camera_service.sync_datetime(reference)
+            runtime = get_camera_worker_runtime(log_fn=log.info)
+            runtime.reconcile(load_rig_configuration())
+            worker = runtime.get_for_rig(1)
+            if worker is None:
+                raise RuntimeError("camera worker is unavailable")
+            result = worker.sync_datetime(reference)
         except Exception as exc:
             return jsonify({"error": f"No camera connected: {exc}"}), 404
 
@@ -2741,8 +2753,6 @@ def api_camera_sync_time():
         )
         return jsonify(result)
     finally:
-        if camera_service is not None:
-            camera_service.close()
         _camera_sync_lock.release()
 
 @app.route("/api/eclipse/supported")
@@ -3211,6 +3221,14 @@ def api_configs_save_photo():
     if not isinstance(phases, dict):
         return jsonify({"error": "Invalid or missing phases"}), 400
 
+    sequence_margin = data.get("sequence_margin_min")
+    if (
+        isinstance(sequence_margin, bool)
+        or not isinstance(sequence_margin, (int, float))
+        or sequence_margin < 0
+    ):
+        return jsonify({"error": "Invalid sequence_margin_min"}), 400
+
     for phase_name in ("partial", "diamond_ring", "totality"):
         phase = phases.get(phase_name)
         if not isinstance(phase, dict):
@@ -3237,6 +3255,17 @@ def api_configs_save_photo():
             }), 400
 
         phase.setdefault("step_ev", 1.0)
+
+    diamond = phases["diamond_ring"]
+    overlap = diamond.get("totality_overlap_s")
+    if (
+        isinstance(overlap, bool)
+        or not isinstance(overlap, (int, float))
+        or overlap < 5
+    ):
+        return jsonify({
+            "error": "Diamond Ring totality_overlap_s must be at least 5 s"
+        }), 400
 
     filename = requested
     if not filename.endswith(".json"):
@@ -4937,22 +4966,31 @@ def api_trigger_select_camera():
 
 @app.route("/api/trigger/totality_only", methods=["POST"])
 def api_trigger_totality_only():
-    """Override photo-only d'un seul RIG; audio global conservé."""
+    """Emergency Totality: preempt active photos or start immediately."""
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
 
-    if not _trigger_service.override_totality(rig_id=rig_id):
+    try:
+        action = _trigger_service.start_totality_only(rig_id=rig_id)
+    except TriggerValidationError as exc:
         return jsonify({
-            "error": f"No active trigger to preempt for RIG {rig_id}",
-            "code": "TRIGGER_NOT_RUNNING",
+            "error": str(exc),
+            "code": exc.code,
+            "rig_id": rig_id,
+        }), 400
+    if not action:
+        return jsonify({
+            "error": f"Totality sequence for RIG {rig_id} is already starting.",
+            "code": "TRIGGER_STARTING",
             "rig_id": rig_id,
         }), 409
 
     return jsonify({
         "status": "ok",
         "mode": "totality_override",
+        "action": action,
         "rig_id": rig_id,
-        "audio_preserved": True,
+        "audio_preserved": action == "preempted",
     })
 
 def _emit_trigger(event, payload):
@@ -4977,7 +5015,11 @@ def api_trigger_start():
     rig_id = payload.get("rig_id", 1)
 
     try:
-        if not _trigger_service.start(rig_id=rig_id, simulate=False):
+        if not _trigger_service.start(
+            rig_id=rig_id,
+            simulate=False,
+            selected=payload,
+        ):
             return jsonify({
                 "error": f"Trigger RIG {rig_id} is already running.",
                 "rig_id": rig_id,
@@ -5002,7 +5044,12 @@ def api_trigger_simulate():
     payload = request.get_json(silent=True) or {}
     speed = payload.get("speed", 60.0)
     try:
-        if not _trigger_service.start(simulate=True, speed=speed):
+        if not _trigger_service.start(
+            rig_id=payload.get("rig_id", 1),
+            simulate=True,
+            speed=speed,
+            selected=payload,
+        ):
             return jsonify({"error": "Trigger is already running."}), 409
         return jsonify({"status": "started", "mode": "simulation", "speed": float(speed)})
     except TriggerValidationError as exc:
@@ -5010,50 +5057,16 @@ def api_trigger_simulate():
             return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
 
-@app.route("/api/trigger/dryrun_now", methods=["POST"])
-def api_trigger_dryrun_now():
-    """Dry-run réel d'un RIG avec TSTART figé à UTC now + 60 s."""
-    payload = request.get_json(silent=True) or {}
-    rig_id = payload.get("rig_id", 1)
-
-    try:
-        if not _trigger_service.start(
-            rig_id=rig_id,
-            dry_run_now=True,
-        ):
-            return jsonify({
-                "error": f"Trigger RIG {rig_id} is already running.",
-                "rig_id": rig_id,
-            }), 409
-
-        return jsonify({
-            "status": "started",
-            "mode": "dryrun_now",
-            "speed": 1.0,
-            "tstart_delay_s": 60.0,
-            "rig_id": rig_id,
-        })
-
-    except TriggerValidationError as exc:
-        return jsonify({
-            "error": str(exc),
-            "code": exc.code,
-            "rig_id": rig_id,
-        }), 400
-
-
 @app.route("/api/trigger/dryrun", methods=["POST"])
 def api_trigger_dryrun():
     """Dry-run ×1 d'un seul RIG."""
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
-    delay = payload.get("delay_s", 30.0)
-
     try:
         if not _trigger_service.start(
             rig_id=rig_id,
             dry_run=True,
-            dry_run_delay=delay,
+            selected=payload,
         ):
             return jsonify({
                 "error": f"Trigger RIG {rig_id} is already running.",
@@ -5064,7 +5077,6 @@ def api_trigger_dryrun():
             "status": "started",
             "mode": "dryrun",
             "speed": 1.0,
-            "delay_s": float(delay),
             "rig_id": rig_id,
         })
 
@@ -5074,6 +5086,52 @@ def api_trigger_dryrun():
             "code": exc.code,
             "rig_id": rig_id,
         }), 400
+
+
+@app.route("/api/trigger/debug", methods=["POST"])
+def api_trigger_debug():
+    """Generate and immediately start the short DEBUG scenario on one RIG."""
+    payload = request.get_json(silent=True) or {}
+    rig_id = payload.get("rig_id", 1)
+    photo_name = str(payload.get("photo_file", "")).strip()
+    exposure_name = str(payload.get("exposure_opt_file", "")).strip()
+    if (not isinstance(rig_id, int) or isinstance(rig_id, bool) or not 1 <= rig_id <= 4):
+        return jsonify({"error": "Invalid RIG id", "code": "RIG_ID_INVALID"}), 400
+    if (not photo_name or Path(photo_name).name != photo_name or not exposure_name or Path(exposure_name).name != exposure_name):
+        return jsonify({"error": "Select valid Photo Setup and Exposure Optimization files", "code": "TRIGGER_INPUTS_NOT_LOADED"}), 400
+    photo_path = CONFIGS_DIR / "photo_cfg" / photo_name
+    if not photo_path.is_file() and photo_name == "photo_default.json":
+        photo_path = PRODUCT_CONFIGS_DIR / "photo_cfg" / photo_name
+    exposure_path = CONFIGS_DIR / "exposure_opt" / exposure_name
+    if not photo_path.is_file() or not exposure_path.is_file():
+        return jsonify({"error": "Select valid Photo Setup and Exposure Optimization files", "code": "TRIGGER_INPUTS_NOT_LOADED"}), 400
+    destination_path = None
+    try:
+        now_utc = datetime.now(timezone.utc)
+        generated = generate_debug_now(now_utc)
+        destination_dir = CONFIGS_DIR / "circumstances"
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"debug_rig_{rig_id}_{now_utc.strftime('%Y%m%d_%H%M%S_%f')}.json"
+        destination_path = destination_dir / filename
+        destination_path.write_text(json.dumps(generated, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        selected = {"circumstances_file": filename, "photo_file": photo_name, "exposure_opt_file": exposure_name}
+        if not _trigger_service.start(rig_id=rig_id, dry_run=True, selected=selected):
+            destination_path.unlink(missing_ok=True)
+            return jsonify({"error": f"Trigger RIG {rig_id} is already running.", "code": "TRIGGER_ALREADY_RUNNING", "rig_id": rig_id}), 409
+        with _state_lock:
+            _state["eclipse"] = generated
+        _save_state()
+        circumstances = _state_store.update_section("circumstances", {"loaded": True, "active_file": filename, "meta": {"_date": generated["_date"], "_date_utc": generated["_date_utc"], "title": generated["title"], "_type": generated["_type"], "_debug_scenario": True}}, persist=True)
+        socketio.emit("eclipse_calculated", {"status": "success", "data": generated})
+        socketio.emit("status_update", _status_update_payload({"circumstances": circumstances}))
+        _append_log(f"🧪 DEBUG started on RIG {rig_id}: {filename}", "warning", "trigger")
+        return jsonify({"status": "started", "mode": "debug", "rig_id": rig_id, "filename": filename, "circumstances": generated})
+    except TriggerValidationError as exc:
+        if destination_path is not None: destination_path.unlink(missing_ok=True)
+        return jsonify({"error": str(exc), "code": exc.code, "rig_id": rig_id}), 400
+    except Exception as exc:
+        if destination_path is not None: destination_path.unlink(missing_ok=True)
+        return jsonify({"error": str(exc), "code": "DEBUG_START_FAILED", "rig_id": rig_id}), 500
 
 @app.route("/api/trigger/stop", methods=["POST"])
 def api_trigger_stop():

@@ -16,7 +16,7 @@ class _State:
         return dict(self._gps)
 
 
-class _ReachedPlanResolution(RuntimeError):
+class _ReachedInputResolution(RuntimeError):
     pass
 
 
@@ -70,15 +70,15 @@ def test_stale_sync_still_fails_with_existing_code(tmp_path):
     _assert_error(service, "GPS_SYNC_STALE")
 
 
-def test_fresh_aware_sync_reaches_plan_resolution(tmp_path):
+def test_fresh_aware_sync_reaches_input_resolution(tmp_path):
     sync_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     service = _service(tmp_path, {"synced": True, "sync_time": sync_time})
 
-    def reached(_rig_id):
-        raise _ReachedPlanResolution
+    def reached(_rig_id, _selected):
+        raise _ReachedInputResolution
 
-    service._resolve_execution_plan = reached
-    with pytest.raises(_ReachedPlanResolution):
+    service._resolve_trigger_inputs = reached
+    with pytest.raises(_ReachedInputResolution):
         service.validate_start(require_gps=True)
 
 
@@ -86,20 +86,20 @@ def test_fresh_naive_sync_keeps_legacy_utc_compatibility(tmp_path):
     sync_time = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     service = _service(tmp_path, {"synced": True, "sync_time": sync_time})
 
-    def reached(_rig_id):
-        raise _ReachedPlanResolution
+    def reached(_rig_id, _selected):
+        raise _ReachedInputResolution
 
-    service._resolve_execution_plan = reached
-    with pytest.raises(_ReachedPlanResolution):
+    service._resolve_trigger_inputs = reached
+    with pytest.raises(_ReachedInputResolution):
         service.validate_start(require_gps=True)
 
 
 def test_require_gps_false_does_not_add_a_new_gate(tmp_path):
     service = _service(tmp_path, {"synced": False})
 
-    def reached(_rig_id):
-        raise _ReachedPlanResolution
+    def reached(_rig_id, _selected):
+        raise _ReachedInputResolution
 
-    service._resolve_execution_plan = reached
-    with pytest.raises(_ReachedPlanResolution):
+    service._resolve_trigger_inputs = reached
+    with pytest.raises(_ReachedInputResolution):
         service.validate_start(require_gps=False)

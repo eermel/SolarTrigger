@@ -71,7 +71,13 @@ _REQUIRED_INTENT_KEYS = {
     "deadline",
     "overflow_policy",
 }
-_ALLOWED_INTENT_KEYS = _REQUIRED_INTENT_KEYS | {"origin", "request_id"}
+_ALLOWED_INTENT_KEYS = _REQUIRED_INTENT_KEYS | {
+    "origin",
+    "request_id",
+    "exposure_plan",
+}
+_REQUIRED_EXPOSURE_KEYS = {"shutter", "iso"}
+_ALLOWED_EXPOSURE_KEYS = _REQUIRED_EXPOSURE_KEYS | {"sequence_group"}
 _PARAM_KEYS = {
     "ping": set(),
     "list_active_camera_rigs": set(),
@@ -781,7 +787,11 @@ class CameraIpcServer:
             if augmented is not None:
                 context.update(augmented)
             with self._state_lock:
-                self._tokens[token_id] = (session, rig_id, prepared.token, context)
+                # Keep the complete PreparedCapture inside the server.  Its
+                # ``token`` member is opaque plugin state, but both
+                # CameraService and camera plugins consume the wrapper so
+                # they can also use planned_count/materialized metadata.
+                self._tokens[token_id] = (session, rig_id, prepared, context)
             response = {
                 "token_id": token_id,
                 "estimated_total_s": prepared.estimated_total_s,
@@ -847,14 +857,11 @@ class CameraIpcServer:
                 ) from exc
 
             end_utc = datetime.now(timezone.utc)
+            result = self._capture_response(result)
             payload = self._trigger_trace_payload(metadata, start_utc, end_utc)
             payload["status"] = "success"
             for field in ("frames", "planned"):
-                value = (
-                    result.get(field)
-                    if isinstance(result, dict)
-                    else getattr(result, field, None)
-                )
+                value = result.get(field)
                 if value is not None:
                     payload[field] = value
             rig_trace.trace_event("camera.trigger_prepared", payload)
@@ -917,14 +924,11 @@ class CameraIpcServer:
                 ) from exc
 
             end_utc = datetime.now(timezone.utc)
+            result = self._capture_response(result)
             payload = self._trigger_trace_payload(metadata, start_utc, end_utc)
             payload["status"] = "success"
             for field in ("frames", "planned"):
-                value = (
-                    result.get(field)
-                    if isinstance(result, dict)
-                    else getattr(result, field, None)
-                )
+                value = result.get(field)
                 if value is not None:
                     payload[field] = value
             rig_trace.trace_event("camera.shoot_speed_list", payload)
@@ -939,6 +943,28 @@ class CameraIpcServer:
             raise IpcError("EXPIRED", "camera worker job expired") from exc
         except BusyDeviceError as exc:
             raise IpcError("BUSY", "camera worker still owns a USB operation") from exc
+
+    @staticmethod
+    def _capture_response(result: Any) -> dict[str, Any]:
+        """Convert a camera capture result at the IPC boundary."""
+        if isinstance(result, dict):
+            return dict(result)
+
+        frames = getattr(result, "frames", None)
+        planned = getattr(result, "planned", None)
+        detail = getattr(result, "detail", "")
+        if (
+            isinstance(frames, bool)
+            or not isinstance(frames, int)
+            or isinstance(planned, bool)
+            or not isinstance(planned, int)
+            or not isinstance(detail, str)
+        ):
+            raise IpcError(
+                "INVALID_RESPONSE",
+                "camera operation returned an invalid capture result",
+            )
+        return {"frames": frames, "planned": planned, "detail": detail}
 
     @staticmethod
     def _trigger_trace_payload(metadata, start_utc, end_utc):
@@ -1009,6 +1035,8 @@ class CameraIpcServer:
                 "POLICY_INVALID",
                 "iso_compensation_enabled must be a boolean",
             )
+        if intent.phase == "diamond_ring":
+            iso_compensation_enabled = False
 
         with self._state_lock:
             iso_requested = self._rig_iso_targets.get(rig_id)
@@ -1074,6 +1102,8 @@ class CameraIpcServer:
                 raise ValueError(
                     "iso_compensation_enabled must be a boolean"
                 )
+            if intent.phase == "diamond_ring":
+                iso_compensation_enabled = False
 
             with self._state_lock:
                 iso_requested = self._rig_iso_targets.get(rig_id)
@@ -1286,6 +1316,44 @@ class CameraIpcServer:
             raise IpcError("INVALID_REQUEST", "speeds must be an array of strings or null")
         if not isinstance(intent["phase"], str):
             raise IpcError("INVALID_REQUEST", "phase must be a string")
+
+        exposure_plan = intent.get("exposure_plan")
+        if exposure_plan is None:
+            return
+        if not isinstance(exposure_plan, list) or not exposure_plan:
+            raise IpcError(
+                "INVALID_REQUEST",
+                "exposure_plan must be a non-empty array or null",
+            )
+        for index, exposure in enumerate(exposure_plan):
+            if not isinstance(exposure, dict):
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    f"exposure_plan[{index}] must be an object",
+                )
+            cls._validate_keys(
+                exposure,
+                _ALLOWED_EXPOSURE_KEYS,
+                _REQUIRED_EXPOSURE_KEYS,
+                f"exposure_plan[{index}]",
+            )
+            if not isinstance(exposure["shutter"], str) or not exposure["shutter"]:
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    f"exposure_plan[{index}].shutter must be a non-empty string",
+                )
+            iso = exposure["iso"]
+            if not isinstance(iso, int) or isinstance(iso, bool) or iso <= 0:
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    f"exposure_plan[{index}].iso must be a positive integer",
+                )
+            sequence_group = exposure.get("sequence_group")
+            if sequence_group is not None and not isinstance(sequence_group, str):
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    f"exposure_plan[{index}].sequence_group must be a string or null",
+                )
 
     def _validate_session(self, session: Any):
         with self._state_lock:

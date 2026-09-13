@@ -191,9 +191,17 @@ class CameraService:
         return self.camera is not None and self.plugin is not None
 
     def connect(self):
-        already_initialized = False
+        if self.connected:
+            return self.plugin
 
-        if self.camera is None:
+        # A previous failed connection attempt may have left a transport
+        # object without a usable plugin.  Never call init() again on that
+        # stale handle; release it and build a fresh connection instead.
+        if self.camera is not None:
+            self.invalidate_connection()
+
+        already_initialized = False
+        try:
             if self.camera_factory is None:
                 import gphoto2 as gp
 
@@ -211,17 +219,19 @@ class CameraService:
             else:
                 self.camera = self.camera_factory()
 
-        if not already_initialized:
-            self.camera.init()
+            if not already_initialized:
+                self.camera.init()
 
-        self.model = get_camera_model(self.camera)
-        self.plugin = self.plugin_loader(self.camera, self.log)
-        if self.plugin is None:
-            try:
-                self.camera.exit()
-            finally:
-                self.camera = None
-            raise RuntimeError(f"No compatible camera plugin for '{self.model}'")
+            self.model = get_camera_model(self.camera)
+            self.plugin = self.plugin_loader(self.camera, self.log)
+            if self.plugin is None:
+                raise RuntimeError(
+                    f"No compatible camera plugin for '{self.model}'"
+                )
+        except Exception:
+            self.invalidate_connection()
+            raise
+
         self.log(f"Camera: {self.model} — plugin {self.plugin.name}")
         return self.plugin
 
@@ -266,9 +276,20 @@ class CameraService:
                       white_balance="Daylight"):
         if not self.plugin:
             raise RuntimeError("camera is not connected")
-        return self.plugin.init_settings(aperture=aperture, iso=iso,
-                                         image_format=image_format,
-                                         white_balance=white_balance)
+        # A new trigger run or phase entry treats camera state as unknown.
+        # Only a fully successful initialization may repopulate the SET cache.
+        self._last_phase_settings.clear()
+        result = self.plugin.init_settings(
+            aperture=aperture,
+            iso=iso,
+            image_format=image_format,
+            white_balance=white_balance,
+        )
+        if aperture is not None:
+            self._last_phase_settings["aperture"] = aperture
+        if iso is not None:
+            self._last_phase_settings["iso"] = iso
+        return result
 
     def set_exposure_settings(self, aperture=None, iso=None):
         if not self.plugin:
@@ -358,7 +379,7 @@ class CameraService:
             # A materialized per-view plan may leave the physical camera
             # at its final ISO. Forget only the cached ISO so the next
             # apply_phase_settings() is forced to restore the phase ISO.
-            if prepared.materialized is not None:
+            if getattr(prepared, "materialized", None) is not None:
                 self._last_phase_settings.pop("iso", None)
 
     def preflight(self, required_state=None):

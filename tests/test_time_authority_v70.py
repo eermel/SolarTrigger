@@ -158,7 +158,7 @@ def test_gps_sync_is_blocked_while_trigger_runs():
 def test_trigger_uses_independent_date_and_contact_times():
     src = (ROOT/'scripts/eclipse_trigger.py').read_text(encoding='utf-8')
     assert 'build_timeline' in src
-    assert 'rebase_timeline' in src
+    assert 'today_circumstances' in src
     assert 'contacts_utc' not in src
 
 def test_frontend_timezone_accepts_numeric_and_string_without_ipad_locale():

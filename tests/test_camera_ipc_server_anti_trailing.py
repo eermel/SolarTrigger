@@ -79,13 +79,13 @@ def policy(*, enabled, focal_length_mm, model="Known Model"):
     }
 
 
-def capture_intent(*, speeds=None, shutter_min=None, shutter_max=None):
+def capture_intent(*, speeds=None, shutter_min=None, shutter_max=None, phase="C2"):
     return {
         "shutter_min": shutter_min,
         "shutter_max": shutter_max,
         "step_ev": 1.0,
         "speeds": speeds,
-        "phase": "C2",
+        "phase": phase,
         "target_time": "2026-08-12T18:00:00Z",
         "deadline": None,
         "overflow_policy": None,
@@ -240,6 +240,28 @@ def test_prepare_capture_preserves_per_exposure_iso_plan(rig_server):
 
     # Kept only as summary/diagnostic compatibility information.
     assert response["iso_applied"] == "800"
+
+
+def test_diamond_ring_never_uses_iso_compensation(rig_server):
+    server, workers = rig_server
+
+    response = prepare(
+        server,
+        2,
+        capture_intent(
+            speeds=["1/8", "1/2", "4"],
+            phase="diamond_ring",
+        ),
+    )
+
+    prepared = workers[2].prepared_intents[-1]
+    assert prepared.exposure_plan == [
+        {"shutter": "1/8", "iso": 200},
+        {"shutter": "1/4", "iso": 200},
+        {"shutter": "1/4", "iso": 200},
+    ]
+    assert response["iso_applied"] == "200"
+    assert "iso_compensated" not in response["corrections"]
 
 
 

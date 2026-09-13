@@ -955,7 +955,15 @@ async function readRigCameraInfo(rigId, button) {
       method: 'POST',
     });
 
-    const data = await response.json();
+    const responseText = await response.text();
+    let data = {};
+    if (responseText) {
+      try {
+        data = JSON.parse(responseText);
+      } catch (_error) {
+        throw new Error(`HTTP ${response.status}: invalid server response`);
+      }
+    }
 
     if (!response.ok) {
       throw new Error(data.error || `HTTP error ${response.status}`);
@@ -2585,7 +2593,7 @@ function updatePhase(phase) {
 
   const btnStart     = document.getElementById('btn-start');
   const btnDryRun    = document.getElementById('btn-dryrun');
-  const btnDryRunNow = document.getElementById('btn-dryrun-now');
+  const btnDebug     = document.getElementById('btn-debug');
   const btnStop      = document.getElementById('btn-stop');
   const btnTot       = document.getElementById('btn-totality-only');
 
@@ -2593,7 +2601,7 @@ function updatePhase(phase) {
 
   if (btnStart)     btnStart.disabled     = triggerStartLocked;
   if (btnDryRun)    btnDryRun.disabled    = triggerStartLocked;
-  if (btnDryRunNow) btnDryRunNow.disabled = triggerStartLocked;
+  if (btnDebug)     btnDebug.disabled     = triggerStartLocked;
   if (btnStop)  btnStop.disabled  = false;
   if (btnTot) {
     btnTot.style.opacity = '1';
@@ -3120,97 +3128,66 @@ async function syncCameraTime() {
 }
 
 async function loadTriggerConfigList() {
-  const sel = document.getElementById('trigger-config-select');
-  if (!sel) return;
-
-  const rig = selectedTriggerRig();
-  if (!rig) {
-    sel.innerHTML = '<option value="">— No active RIG —</option>';
-    sel.disabled = true;
-    return;
-  }
-
-  sel.disabled = false;
-
   try {
-    const r = await fetch('/api/configs/execution_plan/list');
-    const d = await r.json();
-
-    if (!r.ok || d.error) {
-      throw new Error(d.error || `HTTP error ${r.status}`);
-    }
-
-    sel.innerHTML = '<option value="">— Select an Execution Plan —</option>';
-
-    (d.files || []).forEach(filename => {
-      const opt = document.createElement('option');
-      opt.value = filename;
-      opt.textContent = filename;
-      sel.appendChild(opt);
+    const requests = await Promise.all([
+      fetch('/api/configs/list_eclipse'),
+      fetch('/api/configs/list_photo'),
+      fetch('/api/configs/list_exposure_opt')
+    ]);
+    const payloads = await Promise.all(requests.map(response => response.json()));
+    const specs = [
+      ['trigger-circumstances-select', payloads[0].files || [], '— Select circumstances —'],
+      ['trigger-photo-select', payloads[1].files || [], '— Select Photo Setup —'],
+      ['trigger-exposure-opt-select', payloads[2].files || [], '— Select Exposure Optimization —']
+    ];
+    specs.forEach(([id, files, label]) => {
+      const select = document.getElementById(id);
+      if (!select) return;
+      const previous = select.value;
+      select.innerHTML = `<option value="">${label}</option>`;
+      files.forEach(item => {
+        const filename = typeof item === 'string' ? item : item.name;
+        const option = document.createElement('option');
+        option.value = filename;
+        option.textContent = filename;
+        select.appendChild(option);
+      });
+      if (Array.from(select.options).some(option => option.value === previous)) {
+        select.value = previous;
+      }
     });
-
-    const active = d.active
-      ? d.active[String(selectedTriggerRigId)]
-      : '';
-
-    if (
-      active &&
-      Array.from(sel.options).some(opt => opt.value === active)
-    ) {
-      sel.value = active;
-    } else {
-      sel.value = '';
-    }
   } catch (e) {
-    flash(`Execution Plan list: ${e.message}`, 'red');
+    flash(`Trigger input list: ${e.message}`, 'red');
   }
 }
 
-async function loadTriggerPlan(filename) {
+async function loadTriggerCircumstances(filename) {
   if (!filename) return;
-
-  const rig = selectedTriggerRig();
-  if (!rig) {
-    flash('No active RIG selected', 'red');
-    return;
-  }
-
   try {
-    const r = await fetch('/api/trigger/select_execution_plan', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        rig_id: selectedTriggerRigId,
-        filename
-      })
-    });
-
+    const r = await fetch(`/api/configs/load_circumstances/${encodeURIComponent(filename)}`);
     const d = await r.json();
-
     if (!r.ok || d.error) {
-      flash(d.error || `HTTP error ${r.status}`, 'red');
-      await loadTriggerConfigList();
-      return;
+      throw new Error(d.error || `HTTP error ${r.status}`);
     }
-
-    flash(
-      `RIG ${selectedTriggerRigId} — Execution Plan loaded: ${filename}`,
-      'green'
-    );
-
-    if (d.circumstances) {
-      renderContacts(d.circumstances);
-    }
+    renderContacts(d);
   } catch (e) {
-    flash('Network error', 'red');
+    flash(`Circumstances: ${e.message}`, 'red');
   }
+}
+
+function selectedTriggerInputs() {
+  return {
+    circumstances_file: document.getElementById('trigger-circumstances-select')?.value || '',
+    photo_file: document.getElementById('trigger-photo-select')?.value || '',
+    exposure_opt_file: document.getElementById('trigger-exposure-opt-select')?.value || ''
+  };
 }
 
 async function startTrigger() {
   const r = await fetch('/api/trigger/start', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({rig_id: selectedTriggerRigId})
+    body: JSON.stringify({rig_id: selectedTriggerRigId, ...selectedTriggerInputs()})
   });
   const d = await r.json();
   if (d.error) {
@@ -3226,50 +3203,49 @@ async function startTrigger() {
   }
 }
 
-async function startDryRunNow() {
-  if (!confirm(
-    '🧪 Start DRY-RUN NOW?\n' +
-    'TSTART will be fixed to current UTC time + 1 minute.\n' +
-    'Every timeline and Execution Plan interval will remain unchanged.\n' +
-    'The source .plan file will NOT be modified. Sounds are included.'
-  )) return;
-
-  const r = await fetch('/api/trigger/dryrun_now', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({rig_id: selectedTriggerRigId})
-  });
-
-  const d = await r.json();
-
-  if (d.error) {
-    flash(d.message || d.error, 'red');
-
-    if (
-      d.code === 'GPS_NOT_SYNCED' ||
-      d.code === 'GPS_SYNC_STALE'
-    ) {
-      setTimeout(() => showTab(1), 1500);
-    }
-  } else {
-    flash(
-      'Dry-run NOW started — TSTART = UTC now + 1 minute',
-      'blue'
-    );
+async function startDebug() {
+  const inputs = selectedTriggerInputs();
+  if (!inputs.photo_file || !inputs.exposure_opt_file) {
+    flash('DEBUG requires a selected Photo Setup and Exposure Optimization file.', 'red');
+    return;
   }
+  if (!confirm(
+    `🧪 DEBUG MODE — RIG ${selectedTriggerRigId}\n\n` +
+    'This will generate the short DEBUG circumstances and START the sequence immediately.\n' +
+    'The currently selected Photo Setup and Exposure Optimization will be used.\n\n' +
+    'Continue?'
+  )) return;
+  const r = await fetch('/api/trigger/debug', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({rig_id: selectedTriggerRigId, photo_file: inputs.photo_file, exposure_opt_file: inputs.exposure_opt_file})
+  });
+  const d = await r.json();
+  if (!r.ok || d.error) {
+    flash(d.message || d.error || `HTTP error ${r.status}`, 'red');
+    if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE' || d.code === 'GPS_SYNC_TIME_INVALID') setTimeout(() => showTab(1), 1500);
+    return;
+  }
+  const select = document.getElementById('trigger-circumstances-select');
+  if (select) {
+    let option = Array.from(select.options).find(candidate => candidate.value === d.filename);
+    if (!option) { option = document.createElement('option'); option.value = d.filename; option.textContent = `${d.filename} — DEBUG`; select.appendChild(option); }
+    select.value = d.filename;
+  }
+  if (d.circumstances) renderContacts(d.circumstances);
+  flash(`DEBUG started on RIG ${d.rig_id}`, 'blue');
 }
 
 async function startDryRun() {
   if (!confirm(
     '🧪 Start a DRY-RUN ×1?\n' +
-    'The selected Execution Plan will run at its original UTC times,\n' +
+    'The selected circumstances will use their original UTC times,\n' +
     'using today\'s UTC date. Sounds are included.'
   )) return;
 
   const r = await fetch('/api/trigger/dryrun', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({rig_id: selectedTriggerRigId})
+    body: JSON.stringify({rig_id: selectedTriggerRigId, ...selectedTriggerInputs()})
   });
 
   const d = await r.json();
@@ -3285,7 +3261,7 @@ async function startDryRun() {
     }
   } else {
     flash(
-      'Dry-run ×1 started — today UTC, original plan times',
+      'Dry-run ×1 started — today UTC, original circumstances times',
       'blue'
     );
   }
@@ -3317,10 +3293,10 @@ async function stopTrigger() {
 
 async function startTotalityOnly() {
   if (!confirm(
-    '🌑 Override with Totality Sequence?\n' +
-    'The current PHOTO sequence will be replaced immediately.\n' +
-    'Audio announcements will continue.\n' +
-    'Press STOP to stop photos for this RIG. Audio continues.'
+    '🌑 START EMERGENCY TOTALITY SEQUENCE NOW?\n' +
+    'Works even when the normal trigger is not running.\n' +
+    'If active, the current PHOTO sequence is replaced immediately.\n' +
+    'Press STOP to stop this RIG.'
   )) return;
 
   try {
@@ -3334,7 +3310,9 @@ async function startTotalityOnly() {
 
     if (r.ok && d.status === 'ok') {
       flash(
-        '🌑 Totality photo override active — audio continues',
+        d.action === 'preempted'
+          ? '🌑 Totality override active — timing audio continues'
+          : '🌑 Emergency Totality sequence started immediately',
         'orange'
       );
       document.getElementById('btn-totality-only').style.opacity = '0.5';
@@ -3588,6 +3566,10 @@ function _applyCameraConfig(data) {
 
   const p = phaseData.partial;
   const dr = phaseData.diamond_ring;
+  const sequenceMargin = document.getElementById('cfg-sequence-margin');
+  if (sequenceMargin) {
+    sequenceMargin.value = data.sequence_margin_min ?? 60;
+  }
   if (p.interval_s != null || p.interval != null) {
     document.getElementById('cfg-partial-interval').value = p.interval_s ?? p.interval;
   }
@@ -3596,6 +3578,10 @@ function _applyCameraConfig(data) {
   }
   if (dr.interval_s != null || dr.interval != null) {
     document.getElementById('cfg-dr-interval').value = dr.interval_s ?? dr.interval;
+  }
+  const overlap = document.getElementById('cfg-dr-overlap');
+  if (overlap) {
+    overlap.value = dr.totality_overlap_s ?? 5;
   }
 
   const legacySingleSpeeds = {
@@ -3649,9 +3635,10 @@ function _readCameraConfig() {
     interval_s,
     duration_s
   });
-  return {
+  const config = {
     schema_version: 2,
     kind: 'capture_execution',
+    sequence_margin_min: Number(document.getElementById('cfg-sequence-margin').value),
     phases: {
       partial: phase('partial', parseInt(document.getElementById('cfg-partial-interval').value, 10), null),
       diamond_ring: phase(
@@ -3663,6 +3650,10 @@ function _readCameraConfig() {
     },
     config_type: 'photo_setup'
   };
+  config.phases.diamond_ring.totality_overlap_s = Number(
+    document.getElementById('cfg-dr-overlap').value
+  );
+  return config;
 }
 
 function buildPreviewIntents() {

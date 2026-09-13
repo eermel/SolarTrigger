@@ -13,6 +13,13 @@ from backend.state_store import StateStore
 from backend.trigger_service import TriggerService
 
 
+TRIGGER_SELECTION = {
+    "circumstances_file": "test_circumstances.json",
+    "photo_file": "photo.json",
+    "exposure_opt_file": "exposure.json",
+}
+
+
 class FakeWorker:
     def __init__(self, *, rig_id, clock, log_fn):
         self.rig_id = rig_id
@@ -26,12 +33,13 @@ class FakeWorker:
 
 
 class ImmediateThread:
-    def __init__(self, *, target, args, name, daemon):
+    def __init__(self, *, target, args=(), kwargs=None, name, daemon):
         self.target = target
         self.args = args
+        self.kwargs = kwargs or {}
 
     def start(self):
-        self.target(*self.args)
+        self.target(*self.args, **self.kwargs)
 
 
 class CompletedProcess:
@@ -159,6 +167,43 @@ def _make_service(tmp_path, runtime):
         encoding="utf-8",
     )
 
+    photo_dir = configs / "photo_cfg"
+    photo_dir.mkdir(parents=True)
+    (photo_dir / "photo.json").write_text(
+        json.dumps({
+            "config_type": "photo_setup",
+            "sequence_margin_min": 10,
+            "phases": {
+                "partial": {"interval_s": 60},
+                "diamond_ring": {
+                    "interval_s": 1,
+                    "duration_s": 30,
+                    "totality_overlap_s": 5,
+                },
+                "totality": {"interval_s": 0},
+            },
+        }),
+        encoding="utf-8",
+    )
+    emergency_dir = configs / "emergency"
+    emergency_dir.mkdir()
+    (emergency_dir / "photo_totality.json").write_text(
+        json.dumps({
+            "config_type": "emergency_totality_photo_setup",
+            "phases": {"totality": {"interval_s": 0}},
+        }),
+        encoding="utf-8",
+    )
+    exposure_dir = configs / "exposure_opt"
+    exposure_dir.mkdir(parents=True)
+    (exposure_dir / "exposure.json").write_text(
+        json.dumps({
+            "config_type": "exposure_optimization",
+            "rigs": [{"rig_id": 1, "photo": {}}],
+        }),
+        encoding="utf-8",
+    )
+
     execution_plan_dir = configs / "execution_plan"
     execution_plan_dir.mkdir(parents=True)
     execution_plan_name = "test_execution_plan.json"
@@ -229,25 +274,22 @@ def test_start_passes_session_after_server_start_and_restart_keeps_clock(
     monkeypatch.setattr("backend.trigger_service.threading.Thread", ImmediateThread)
     monkeypatch.setattr("backend.trigger_service.subprocess.Popen", popen)
 
-    assert service.start() is True
+    assert service.start(selected=TRIGGER_SELECTION) is True
     assert events == ["server-started", "popen"]
     assert launches[0][1]
     assert launches[0][2] is True
 
     cmd = launches[0][3]
-    plan_index = cmd.index("--execution-plan")
-    assert Path(cmd[plan_index + 1]) == (
-        tmp_path
-        / "configs"
-        / "execution_plan"
-        / "test_execution_plan.json"
-    )
+    assert "--execution-plan" not in cmd
+    assert Path(cmd[cmd.index("--file") + 1]).name == "test_circumstances.json"
+    assert Path(cmd[cmd.index("--camera") + 1]).name == "photo.json"
+    assert Path(cmd[cmd.index("--exposure-opt") + 1]).name == "exposure.json"
 
     assert not launches[0][0].exists()
     assert runtime._ipc_server is None
 
     events.clear()
-    assert service.start() is True
+    assert service.start(selected=TRIGGER_SELECTION) is True
     assert events == ["server-started", "popen"]
     assert len(servers) == 2
     assert servers[0]._clock is clock
@@ -272,13 +314,48 @@ def test_ipc_startup_failure_prevents_child_process(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.trigger_service.subprocess.Popen", popen)
 
     with pytest.raises(RuntimeError, match="IPC startup failed"):
-        service.start()
+        service.start(selected=TRIGGER_SELECTION)
 
     assert popen_called is False
     assert service._starting is False
     assert service.state.snapshot("trigger")["rigs"]["1"]["running"] is False
     assert runtime._ipc_server is None
     assert not (tmp_path / "ipc" / "camera-ipc-4321.sock").exists()
+
+
+def test_emergency_totality_opens_ipc_for_selected_rig_without_gps_or_inputs(
+    tmp_path,
+    monkeypatch,
+):
+    events = []
+    runtime, _servers = _make_runtime(tmp_path, events=events)
+    service = _make_service(tmp_path, runtime)
+    service.state.update_section("gps", {"synced": False, "sync_time": None})
+    launches = []
+
+    def popen(command, **kwargs):
+        events.append("popen")
+        launches.append((list(command), dict(kwargs["env"])))
+        return CompletedProcess()
+
+    monkeypatch.setattr(
+        "backend.trigger_service.threading.Thread",
+        ImmediateThread,
+    )
+    monkeypatch.setattr(
+        "backend.trigger_service.subprocess.Popen",
+        popen,
+    )
+
+    assert service.start_totality_only(rig_id=1) == "started"
+
+    command, env = launches[0]
+    assert events == ["server-started", "popen"]
+    assert "--totality-only" in command
+    assert "--file" not in command
+    assert "--exposure-opt" not in command
+    assert Path(command[command.index("--camera") + 1]).name == "photo_totality.json"
+    assert env["SET_TRIGGER_RIG_ID"] == "1"
 
 
 def test_popen_error_closes_session_and_removes_socket(tmp_path, monkeypatch):
@@ -295,7 +372,7 @@ def test_popen_error_closes_session_and_removes_socket(tmp_path, monkeypatch):
     monkeypatch.setattr("backend.trigger_service.threading.Thread", ImmediateThread)
     monkeypatch.setattr("backend.trigger_service.subprocess.Popen", popen)
 
-    assert service.start() is True
+    assert service.start(selected=TRIGGER_SELECTION) is True
     assert socket_seen is not None
     assert not socket_seen.exists()
     assert runtime._ipc_server is None
@@ -318,7 +395,7 @@ def test_clean_exit_revokes_session_stops_service_and_removes_socket(
     monkeypatch.setattr("backend.trigger_service.threading.Thread", ImmediateThread)
     monkeypatch.setattr("backend.trigger_service.subprocess.Popen", popen)
 
-    assert service.start() is True
+    assert service.start(selected=TRIGGER_SELECTION) is True
     assert len(servers) == 1
     assert servers[0]._active_session is None
     assert runtime._ipc_session_ids == set()
@@ -378,7 +455,7 @@ def test_forced_stop_terminates_then_kills_and_closes_session(tmp_path, monkeypa
 
     monkeypatch.setattr("backend.trigger_service.subprocess.Popen", popen)
 
-    assert service.start() is True
+    assert service.start(selected=TRIGGER_SELECTION) is True
     assert process_ready.wait(timeout=2)
     deadline = time.monotonic() + 2
     while service._proc is None and time.monotonic() < deadline:
@@ -441,4 +518,4 @@ def test_simulation_bypasses_rig_camera_validation_and_runtime(tmp_path, monkeyp
         NoRunThread,
     )
 
-    assert service.start(simulate=True) is True
+    assert service.start(simulate=True, selected=TRIGGER_SELECTION) is True

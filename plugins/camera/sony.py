@@ -54,6 +54,26 @@ class SonyPlugin(CameraPlugin):
     # ------------------------------------------------------------------ #
     # Reglage bas niveau
     # ------------------------------------------------------------------ #
+    def _state_cache(self):
+        cache = getattr(self, "_known_settings", None)
+        if cache is None:
+            cache = {}
+            self._known_settings = cache
+        return cache
+
+    def _set_state(self, name, value):
+        """Set persistent camera state only when its known value changes."""
+        expected = str(value)
+        cache = self._state_cache()
+        if cache.get(name) == expected:
+            return True, False, ""
+        ok, readonly, error = self._set(name, value)
+        if ok:
+            cache[name] = expected
+        else:
+            cache.pop(name, None)
+        return ok, readonly, error
+
     def _set(self, name, value):
         """Ecrit une config. Retourne (ok, is_readonly, err)."""
         if gp is None:
@@ -78,7 +98,7 @@ class SonyPlugin(CameraPlugin):
     def _set_first_available(self, name, candidates):
         """Essaie plusieurs valeurs pour une config (ex. format RAW)."""
         for val in candidates:
-            ok, _, _ = self._set(name, val)
+            ok, _, _ = self._set_state(name, val)
             if ok:
                 return True, val
         return False, None
@@ -86,11 +106,17 @@ class SonyPlugin(CameraPlugin):
     def set_speed_blocking(self, speed, deadline=None):
         """Regle shutterspeed en re-essayant tant que 'read only' (boitier
         occupe). Ne se fie PAS a la relecture. True si applique."""
+        speed = str(speed)
+        cache = self._state_cache()
+        if cache.get("shutterspeed") == speed:
+            return True
         t0 = time.monotonic()
         while True:
             ok, ro, err = self._set("shutterspeed", speed)
             if ok:
+                cache["shutterspeed"] = speed
                 return True
+            cache.pop("shutterspeed", None)
             if not ro:
                 self.log(f"   [sony] set shutter speed {speed}: error {err}")
                 return False
@@ -118,7 +144,7 @@ class SonyPlugin(CameraPlugin):
 
         errors = []
         for name in candidates:
-            ok, _readonly, error = self._set(name, value)
+            ok, _readonly, error = self._set_state(name, value)
             if ok:
                 return True
             errors.append(f"{name}: {error}")
@@ -240,43 +266,55 @@ class SonyPlugin(CameraPlugin):
     # ------------------------------------------------------------------ #
     def init_settings(self, aperture=None, iso=None, image_format="RAW",
                       white_balance="Daylight"):
+        self._state_cache().clear()
         self.log("   [sony] initializing settings")
-        self._set("expprogram", "M")            # sinon shutterspeed read-only
-        self._set("focusmode", "Manual")        # pas d'AF pendant la totalite
-        self._set("capturetarget", "card")
-        self._set("capturemode", "Single Shot")  # etat de depart propre
+        self._set_state("expprogram", "M")       # sinon shutterspeed read-only
+        self._set_state("focusmode", "Manual")   # pas d'AF pendant la totalite
+        self._set_state("capturetarget", "card")
+        self._set_state("capturemode", "Single Shot")
         if iso is not None:
-            self._set("iso", str(iso))
+            self._set_state("iso", str(iso))
         if aperture is not None:
-            self._set("f-number", aperture)
+            self._set_state("f-number", aperture)
         if white_balance:
-            self._set("whitebalance", white_balance)
+            self._set_state("whitebalance", white_balance)
         if image_format:
             self._set_first_available(
                 "imagequality", [image_format, "RAW", "NEF (Raw)", "Raw"])
 
     def set_exposure_settings(self, aperture=None, iso=None):
-        # Speed can be read-only unless the body is in a neutral single-shot state.
-        self._set("capturemode", "Single Shot")
-        if iso is not None:
-            self._set("iso", str(iso))
-        if aperture is not None:
-            self._set("f-number", aperture)
+        cache = self._state_cache()
+        pending = []
+        if iso is not None and cache.get("iso") != str(iso):
+            pending.append(("iso", str(iso)))
+        if aperture is not None and cache.get("f-number") != str(aperture):
+            pending.append(("f-number", aperture))
+        if not pending:
+            return
+        # These settings can be read-only in a native bracket mode.
+        self._set_state("capturemode", "Single Shot")
+        for name, value in pending:
+            self._set_state(name, value)
 
     # ------------------------------------------------------------------ #
     # Une rafale bracket
     # ------------------------------------------------------------------ #
     def _fire_bracket(self, brk, deadline=None):
         """Execute un Bracket planner. Retourne le nb de frames capturees."""
-        # 1) etat propre + vitesse centrale (avec retry read-only)
-        self._set("capturemode", "Single Shot")
-        if not self.set_speed_blocking(brk.centre, deadline):
-            return 0
-        # 2) basculer en mode bracket
-        ok, _, err = self._set("capturemode", brk.mode_string)
-        if not ok:
-            self.log(f"   [sony] set mode {brk.mode_string}: error {err}")
-            return 0
+        cache = self._state_cache()
+        ready = (
+            cache.get("capturemode") == str(brk.mode_string)
+            and cache.get("shutterspeed") == str(brk.centre)
+        )
+        if not ready:
+            # Sony exposes the centre shutter as writable only in Single Shot.
+            self._set_state("capturemode", "Single Shot")
+            if not self.set_speed_blocking(brk.centre, deadline):
+                return 0
+            ok, _, err = self._set_state("capturemode", brk.mode_string)
+            if not ok:
+                self.log(f"   [sony] set mode {brk.mode_string}: error {err}")
+                return 0
         # 3) maintien obturateur -> rafale interne
         longest = max(planner.parse_speed(v) for v in brk.views)
         self._set("bulb", 1)
@@ -287,7 +325,7 @@ class SonyPlugin(CameraPlugin):
 
     def _fire_single(self, speed, deadline=None):
         """Une seule vue a `speed` (cas v_max == v_min)."""
-        self._set("capturemode", "Single Shot")
+        self._set_state("capturemode", "Single Shot")
         if not self.set_speed_blocking(speed, deadline):
             return 0
         try:
@@ -334,23 +372,33 @@ class SonyPlugin(CameraPlugin):
 
         if intent.exposure_plan is not None:
             plan = tuple(
-                (str(item["shutter"]), int(item["iso"]))
+                (
+                    str(item["shutter"]),
+                    int(item["iso"]),
+                    item.get("sequence_group"),
+                )
                 for item in intent.exposure_plan
             )
             if not plan:
                 raise ValueError("capture exposure plan is empty")
 
-            # Split the final physical plan into contiguous ISO-constant
-            # segments. Each segment is independently eligible for Sony
-            # native bracket optimisation.
+            # Split the final physical plan into contiguous execution groups.
+            # Atmos singles carry an explicit group marker so adding one view
+            # never degrades the configured native bracket into exact singles.
             segments = []
             current = []
 
-            for pair in plan:
-                if current and pair[1] != current[-1][1]:
+            for item in plan:
+                if (
+                    current
+                    and (
+                        item[1] != current[-1][1]
+                        or item[2] != current[-1][2]
+                    )
+                ):
                     segments.append(tuple(current))
                     current = []
-                current.append(pair)
+                current.append(item)
 
             if current:
                 segments.append(tuple(current))
@@ -358,15 +406,23 @@ class SonyPlugin(CameraPlugin):
             executable_segments = []
 
             for segment in segments:
-                shutters = [speed for speed, _iso in segment]
+                shutters = [
+                    speed
+                    for speed, _iso, _group in segment
+                ]
                 iso = segment[0][1]
+                sequence_group = segment[0][2]
 
                 fastest, slowest, step_il, regular = (
                     _normalized_speed_plan(shutters)
                 )
 
                 sequence = None
-                description = "materialized exact singles"
+                description = (
+                    "materialized Atmos single"
+                    if sequence_group == "atmos_single"
+                    else "materialized exact singles"
+                )
 
                 if regular:
                     step, _, candidate = planner.plan(
@@ -388,7 +444,7 @@ class SonyPlugin(CameraPlugin):
                 if sequence is None:
                     sequence = tuple(
                         planner.SinglePhoto(speed)
-                        for speed, _iso in segment
+                        for speed, _iso, _group in segment
                     )
 
                 executable_segments.append(
@@ -418,20 +474,23 @@ class SonyPlugin(CameraPlugin):
                         ),
                         exposures_s=[
                             planner.parse_speed(speed)
-                            for speed, _iso in plan
+                            for speed, _iso, _group in plan
                         ],
                         planned_count=len(plan),
                         plugin_name=self.name,
                         materialized=[
                             {"shutter": speed, "iso": pair_iso}
-                            for speed, pair_iso in plan
+                            for speed, pair_iso, _group in plan
                         ],
                     )
 
                 return PreparedCapture(
                     token=(
                         "sony_exposure_singles",
-                        plan,
+                        tuple(
+                            (speed, pair_iso)
+                            for speed, pair_iso, _group in plan
+                        ),
                         intent.deadline,
                         description,
                     ),
@@ -441,19 +500,19 @@ class SonyPlugin(CameraPlugin):
                     ),
                     exposures_s=[
                         planner.parse_speed(speed)
-                        for speed, _iso in plan
+                        for speed, _iso, _group in plan
                     ],
                     planned_count=len(plan),
                     plugin_name=self.name,
                     materialized=[
                         {"shutter": speed, "iso": pair_iso}
-                        for speed, pair_iso in plan
+                        for speed, pair_iso, _group in plan
                     ],
                 )
 
-            # Hybrid Sony execution:
-            # each ISO-constant segment may be a native bracket sequence or
-            # exact singles. Segment boundaries come only from exposure_plan.
+            # Hybrid Sony execution: each contiguous execution group may be a
+            # native bracket sequence or exact singles. Boundaries come from
+            # ISO changes and explicit sequence_group markers.
             return PreparedCapture(
                 token=(
                     "sony_exposure_mixed",
@@ -468,13 +527,13 @@ class SonyPlugin(CameraPlugin):
                 ),
                 exposures_s=[
                     planner.parse_speed(speed)
-                    for speed, _iso in plan
+                    for speed, _iso, _group in plan
                 ],
                 planned_count=len(plan),
                 plugin_name=self.name,
                 materialized=[
                     {"shutter": speed, "iso": iso}
-                    for speed, iso in plan
+                    for speed, iso, _group in plan
                 ],
             )
 

@@ -77,6 +77,71 @@ def test_bracket_dp_exact_coverage_and_iso_boundaries(profile):
     assert views == list(profile["commands"]["shutter"]["values"])
 
 
+@pytest.mark.parametrize(
+    ("plan", "expected_actions"),
+    [
+        (
+            [
+                {"shutter": "1/2000", "iso": 100},
+                {"shutter": "1/1000", "iso": 100},
+                {"shutter": "1/500", "iso": 100},
+                {
+                    "shutter": "1/250",
+                    "iso": 100,
+                    "sequence_group": "atmos_single",
+                },
+            ],
+            ["bracket_press", "trigger_capture"],
+        ),
+        (
+            [
+                {
+                    "shutter": "1/250",
+                    "iso": 100,
+                    "sequence_group": "atmos_single",
+                },
+                {"shutter": "1/2000", "iso": 100},
+                {"shutter": "1/1000", "iso": 100},
+                {"shutter": "1/500", "iso": 100},
+            ],
+            ["trigger_capture", "bracket_press"],
+        ),
+    ],
+)
+def test_sequence_group_keeps_atmos_single_outside_native_bracket(
+    profile,
+    plan,
+    expected_actions,
+):
+    profile["strategy"] = "bracket"
+    prepared = ProfilePlugin(
+        None,
+        profile=profile,
+    ).prepare_capture(
+        SimpleNamespace(exposure_plan=plan)
+    )
+    photos = [
+        operation
+        for operation in prepared.token[1]
+        if operation["action"] in {"bracket_press", "trigger_capture"}
+    ]
+
+    assert [operation["action"] for operation in photos] == expected_actions
+    bracket = next(
+        operation
+        for operation in photos
+        if operation["action"] == "bracket_press"
+    )
+    single = next(
+        operation
+        for operation in photos
+        if operation["action"] == "trigger_capture"
+    )
+    assert bracket["physical_views"] == ["1/2000", "1/1000", "1/500"]
+    assert single["shutter"] == "1/250"
+    assert prepared.planned_count == 4
+
+
 def test_publication_protected_from_reset(tmp_path, profile):
     from backend.persistent_reset import reset_application_var
     timing = {"config_type": "camera_timing", "timing": {},

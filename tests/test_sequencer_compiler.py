@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -193,6 +193,7 @@ def test_invalid_sequence_margin_is_rejected(margin):
 
 
 from backend.sequencer_compiler import (
+    AuditedRigCapture,
     CaptureTarget,
     apply_exposure_optimization,
     materialize_capture_target_for_rig,
@@ -411,6 +412,536 @@ def test_non_c3_phase_accepts_configured_1_250_exposure(
         "1/500",
         "1/250",
     )
+
+
+def _atmos_plan(_rig, plan, _target_time, _context):
+    regular, fastest, slowest, step, _speeds = plan
+    assert regular is True
+    return (
+        (
+            False,
+            fastest,
+            slowest,
+            step,
+            ["1/2000", "1/1000", "1/500", "1/125"],
+        ),
+        True,
+        "1/125",
+    )
+
+
+def _three_view_diamond_photo():
+    return {
+        "phases": {
+            "diamond_ring": {
+                "enabled": True,
+                "interval_s": 3,
+                "duration_s": 30,
+                "iso": 100,
+                "aperture": "f/8",
+                "shutter_min": "1/500",
+                "shutter_max": "1/2000",
+                "step_ev": 1.0,
+            },
+        },
+    }
+
+
+def test_c2_places_one_atmos_single_before_priority_native_bracket(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "backend.sequencer_compiler.apply_atmos_if_enabled",
+        _atmos_plan,
+    )
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 4, 59),
+        phase="diamond_ring",
+        phase_window="phase_1b",
+        sequence_index=0,
+        deadline=None,
+    )
+
+    capture = materialize_capture_target_for_rig(
+        target,
+        _rig(backend="sony"),
+        _three_view_diamond_photo(),
+        _exposure_opt(),
+        _eclipse_context(),
+    )
+
+    assert capture.atmos_applied is True
+    assert capture.final_exposure_plan == (
+        {
+            "shutter": "1/125",
+            "iso": 100,
+            "sequence_group": "atmos_single",
+        },
+        {"shutter": "1/2000", "iso": 100},
+        {"shutter": "1/1000", "iso": 100},
+        {"shutter": "1/500", "iso": 100},
+    )
+
+    # Use the same generic dispatch path as the anchor-first compiler.
+    audited = audit_materialized_capture(capture)
+    assert audited.prepared_mode == "sony_exposure_mixed"
+
+    triggers = [
+        operation
+        for operation in audited.operations
+        if operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+    assert [item["action"] for item in triggers] == [
+        "trigger_capture",
+        "bracket_press",
+    ]
+    assert triggers[1]["physical_views"] == [
+        "1/2000",
+        "1/1000",
+        "1/500",
+    ]
+    assert triggers[1]["contact_anchor"] is True
+
+    scheduled = schedule_audited_capture(
+        audited,
+        _sony_test_timing(),
+    )
+    scheduled_triggers = [
+        item
+        for item in scheduled
+        if item.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+    atmos_single, priority_bracket = scheduled_triggers
+
+    assert atmos_single.command_time < priority_bracket.command_time
+    assert priority_bracket.command_time == (
+        target.target_time - timedelta(milliseconds=280)
+    )
+
+    from backend.anchor_sequencer import _contact_execution_policy
+
+    policy, _triggers = _contact_execution_policy(
+        audited,
+        scheduled,
+    )
+    assert policy == "atomic_bracket"
+
+    from dataclasses import replace
+    from backend.anchor_sequencer import _make_contact_anchor
+
+    contact_time = datetime(2027, 8, 2, 10, 5, 0)
+
+    def factory(
+        phase,
+        phase_window,
+        target_time,
+        sequence_index,
+        deadline,
+    ):
+        return replace(
+            audited,
+            target=CaptureTarget(
+                target_time=target_time,
+                phase=phase,
+                phase_window=phase_window,
+                sequence_index=sequence_index,
+                deadline=deadline,
+            ),
+        )
+
+    anchored, anchored_schedule, _start, _end = _make_contact_anchor(
+        factory,
+        _sony_test_timing(),
+        contact_time=contact_time,
+        phase_window="phase_1b",
+        c3=False,
+    )
+    anchor_operation = next(
+        item
+        for item in anchored_schedule
+        if item.operation.get("contact_anchor") is True
+    )
+
+    assert anchored.target.target_time == (
+        contact_time - timedelta(seconds=1)
+    )
+    assert anchor_operation.operation["action"] == "bracket_press"
+    assert anchor_operation.target_time == anchored.target.target_time
+
+
+def test_c2_profile_bracket_marks_native_bracket_as_contact_anchor(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "backend.sequencer_compiler.apply_atmos_if_enabled",
+        _atmos_plan,
+    )
+    backend = "profile-sony_sony_ilce_7m5_pc_control_f5c04507"
+    from backend import camera_profiles
+
+    profile = camera_profiles.discover_profiles()[backend]
+    # The Pi's preserved characterized profile selects a native three-frame
+    # bracket here. Force that cost decision independently of repository
+    # characterization measurements so this routing regression is stable.
+    profile["brackets"]["3"]["total_ms"] = 1000
+    monkeypatch.setattr(
+        camera_profiles,
+        "discover_profiles",
+        lambda: {backend: profile},
+    )
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 4, 59),
+        phase="diamond_ring",
+        phase_window="phase_1b",
+        sequence_index=0,
+        deadline=None,
+    )
+    capture = materialize_capture_target_for_rig(
+        target,
+        _rig(backend=backend),
+        _three_view_diamond_photo(),
+        _exposure_opt(),
+        _eclipse_context(),
+    )
+
+    audited = audit_materialized_capture(capture)
+    triggers = [
+        operation
+        for operation in audited.operations
+        if operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    assert audited.camera_strategy == "bracket"
+    assert [operation["action"] for operation in triggers] == [
+        "trigger_capture",
+        "bracket_press",
+    ]
+    assert triggers[1]["physical_views"] == [
+        "1/2000",
+        "1/1000",
+        "1/500",
+    ]
+    assert triggers[1]["contact_anchor"] is True
+
+    timing = CameraTimingProfile(
+        backend=backend,
+        set_iso_ms=800,
+        set_capturemode_ms=900,
+        set_shutter_ms=800,
+        trigger_single_duration_ms=500,
+        bracket_press_latency_ms=0,
+        bracket_atomic_ms_by_frames={3: 2500},
+    )
+    scheduled = schedule_audited_capture(audited, timing)
+    scheduled_triggers = [
+        operation
+        for operation in scheduled
+        if operation.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    assert scheduled_triggers[0].command_time < target.target_time
+    assert scheduled_triggers[1].command_time == target.target_time
+
+
+def test_profile_mixed_single_then_bracket_schedules_every_photo():
+    backend = "profile-test"
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 4, 30),
+        phase="diamond_ring",
+        phase_window="phase_1b",
+        sequence_index=1,
+        deadline=datetime(2027, 8, 2, 10, 4, 40),
+    )
+    audited = AuditedRigCapture(
+        rig_id=1,
+        backend=backend,
+        target=target,
+        aperture="f/8",
+        exposure_plan=(
+            {"shutter": "1/125", "iso": 100},
+            {"shutter": "1/2000", "iso": 100},
+            {"shutter": "1/1000", "iso": 100},
+            {"shutter": "1/500", "iso": 100},
+        ),
+        prepared_mode="profile",
+        estimated_total_s=4.0,
+        planned_count=4,
+        operations=(
+            {
+                "action": "trigger_capture",
+                "shutter": "1/125",
+                "expected_frames": 1,
+                "duration_ms": 500,
+            },
+            {
+                "action": "set",
+                "parameter": "capturemode",
+                "value": "Single Shot",
+            },
+            {
+                "action": "set",
+                "parameter": "shutterspeed",
+                "value": "1/1000",
+            },
+            {
+                "action": "set",
+                "parameter": "capturemode",
+                "value": "Continuous Bracket 1.0 EV 3 Img.",
+            },
+            {
+                "action": "bracket_press",
+                "centre": "1/1000",
+                "frames": 3,
+                "expected_frames": 3,
+                "physical_views": ["1/2000", "1/1000", "1/500"],
+                "duration_ms": 2500,
+            },
+        ),
+        camera_strategy="bracket",
+    )
+    timing = CameraTimingProfile(
+        backend=backend,
+        set_capturemode_ms=900,
+        set_shutter_ms=800,
+        trigger_single_duration_ms=500,
+        bracket_atomic_ms_by_frames={3: 2500},
+    )
+
+    scheduled = schedule_audited_capture(audited, timing)
+    photos = [
+        item
+        for item in scheduled
+        if item.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    assert [item.operation["action"] for item in photos] == [
+        "trigger_capture",
+        "bracket_press",
+    ]
+    assert all(item.command_time is not None for item in scheduled)
+    assert photos[0].command_time < photos[1].command_time
+
+
+def test_profile_mixed_bracket_then_single_schedules_every_photo():
+    backend = "profile-test"
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 4, 30),
+        phase="diamond_ring",
+        phase_window="phase_1b",
+        sequence_index=1,
+        deadline=datetime(2027, 8, 2, 10, 4, 40),
+    )
+    audited = AuditedRigCapture(
+        rig_id=1,
+        backend=backend,
+        target=target,
+        aperture="f/8",
+        exposure_plan=(
+            {"shutter": "1/2000", "iso": 100},
+            {"shutter": "1/1000", "iso": 100},
+            {"shutter": "1/500", "iso": 100},
+            {"shutter": "1/125", "iso": 100},
+        ),
+        prepared_mode="profile",
+        estimated_total_s=4.0,
+        planned_count=4,
+        operations=(
+            {
+                "action": "bracket_press",
+                "centre": "1/1000",
+                "frames": 3,
+                "expected_frames": 3,
+                "physical_views": ["1/2000", "1/1000", "1/500"],
+                "duration_ms": 2500,
+            },
+            {
+                "action": "set",
+                "parameter": "capturemode",
+                "value": "Single Shot",
+            },
+            {
+                "action": "set",
+                "parameter": "shutterspeed",
+                "value": "1/125",
+            },
+            {
+                "action": "trigger_capture",
+                "shutter": "1/125",
+                "expected_frames": 1,
+                "duration_ms": 500,
+            },
+        ),
+        camera_strategy="bracket",
+    )
+    timing = CameraTimingProfile(
+        backend=backend,
+        set_capturemode_ms=900,
+        set_shutter_ms=800,
+        trigger_single_duration_ms=500,
+        bracket_atomic_ms_by_frames={3: 2500},
+    )
+
+    scheduled = schedule_audited_capture(audited, timing)
+    photos = [
+        item
+        for item in scheduled
+        if item.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    assert [item.operation["action"] for item in photos] == [
+        "bracket_press",
+        "trigger_capture",
+    ]
+    assert all(item.command_time is not None for item in scheduled)
+    assert photos[0].command_time < photos[1].command_time
+
+
+def test_c3_omits_unsafe_atmos_single_and_keeps_native_bracket(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "backend.sequencer_compiler.apply_atmos_if_enabled",
+        _atmos_plan,
+    )
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 7, 0),
+        phase="diamond_ring",
+        phase_window="phase_3a",
+        sequence_index=0,
+        deadline=None,
+    )
+
+    capture = materialize_capture_target_for_rig(
+        target,
+        _rig(backend="sony"),
+        _three_view_diamond_photo(),
+        _exposure_opt(),
+        _eclipse_context(),
+    )
+
+    assert capture.atmos_applied is False
+    assert capture.final_exposure_plan == (
+        {"shutter": "1/2000", "iso": 100},
+        {"shutter": "1/1000", "iso": 100},
+        {"shutter": "1/500", "iso": 100},
+    )
+    assert capture.warnings == (
+        "atmos_exposure_omitted_c3_shutter_limit",
+    )
+
+    audited = audit_materialized_sony_capture(capture)
+    assert audited.prepared_mode == "sony_exposure_sequence"
+    assert audited.planned_count == 3
+
+
+def test_contact_omits_atmos_single_instead_of_creating_sixth_view(
+    monkeypatch,
+):
+    def six_view_atmos_plan(_rig, plan, _target_time, _context):
+        _regular, fastest, slowest, step, _speeds = plan
+        return (
+            (
+                False,
+                fastest,
+                slowest,
+                step,
+                [
+                    "1/8000",
+                    "1/4000",
+                    "1/2000",
+                    "1/1000",
+                    "1/500",
+                    "1/125",
+                ],
+            ),
+            True,
+            "1/125",
+        )
+
+    monkeypatch.setattr(
+        "backend.sequencer_compiler.apply_atmos_if_enabled",
+        six_view_atmos_plan,
+    )
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 4, 59),
+        phase="diamond_ring",
+        phase_window="phase_1b",
+        sequence_index=0,
+        deadline=None,
+    )
+    photo = _three_view_diamond_photo()
+    photo["phases"]["diamond_ring"].update({
+        "shutter_max": "1/8000",
+        "shutter_min": "1/500",
+    })
+
+    capture = materialize_capture_target_for_rig(
+        target,
+        _rig(backend="sony"),
+        photo,
+        _exposure_opt(),
+        _eclipse_context(),
+    )
+
+    assert len(capture.final_exposure_plan) == 5
+    assert capture.atmos_applied is False
+    assert capture.warnings == (
+        "atmos_exposure_omitted_contact_frame_limit",
+    )
+
+
+def test_non_contact_sony_runs_atmos_single_after_native_bracket(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "backend.sequencer_compiler.apply_atmos_if_enabled",
+        _atmos_plan,
+    )
+    target = CaptureTarget(
+        target_time=datetime(2027, 8, 2, 10, 4, 30),
+        phase="diamond_ring",
+        phase_window="phase_1b",
+        sequence_index=1,
+        deadline=datetime(2027, 8, 2, 10, 4, 40),
+    )
+
+    capture = materialize_capture_target_for_rig(
+        target,
+        _rig(backend="sony"),
+        _three_view_diamond_photo(),
+        _exposure_opt(),
+        _eclipse_context(),
+    )
+    assert capture.final_exposure_plan[-1] == {
+        "shutter": "1/125",
+        "iso": 100,
+        "sequence_group": "atmos_single",
+    }
+
+    audited = audit_materialized_sony_capture(capture)
+    scheduled = schedule_audited_capture(
+        audited,
+        _sony_test_timing(),
+    )
+    triggers = [
+        item
+        for item in scheduled
+        if item.operation.get("action")
+        in {"trigger_capture", "bracket_press"}
+    ]
+
+    assert [item.operation["action"] for item in triggers] == [
+        "bracket_press",
+        "trigger_capture",
+    ]
+    assert all(item.command_time is not None for item in triggers)
+    assert triggers[1].command_time > triggers[0].command_time
 
 
 from backend.sequencer_compiler import (

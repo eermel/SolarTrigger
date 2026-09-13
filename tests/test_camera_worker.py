@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
+
 from backend.camera_worker import CameraWorker
 from plugins.camera.base import CameraPlugin, CaptureResult
 from services.camera_service import CameraService, CaptureIntent
@@ -176,6 +178,68 @@ def test_camera_test_photo_fast_uses_atomic_execute_photo():
         }
     ]
     assert service.shoot_speed_list_calls == []
+
+
+def test_read_info_invalidates_failed_camera_connection():
+    class FailingReadService:
+        connected = True
+
+        def __init__(self):
+            self.invalidate_calls = 0
+            self.close_calls = 0
+
+        def read_info(self):
+            raise RuntimeError("Could not claim the USB device")
+
+        def invalidate_connection(self):
+            self.invalidate_calls += 1
+            self.connected = False
+
+        def close(self):
+            self.close_calls += 1
+
+    service = FailingReadService()
+    worker = CameraWorker(rig_id=205, service_factory=lambda: service)
+    worker.start()
+    try:
+        with pytest.raises(RuntimeError, match="Could not claim"):
+            worker.read_info()
+    finally:
+        worker.stop(timeout=1.0)
+
+    assert service.invalidate_calls == 1
+    assert service.close_calls == 1
+
+
+def test_sync_datetime_invalidates_failed_camera_connection():
+    class FailingSyncService:
+        connected = True
+
+        def __init__(self):
+            self.invalidate_calls = 0
+            self.close_calls = 0
+
+        def sync_datetime(self, _reference):
+            raise RuntimeError("USB synchronization failed")
+
+        def invalidate_connection(self):
+            self.invalidate_calls += 1
+            self.connected = False
+
+        def close(self):
+            self.close_calls += 1
+
+    service = FailingSyncService()
+    worker = CameraWorker(rig_id=206, service_factory=lambda: service)
+    worker.start()
+    try:
+        with pytest.raises(RuntimeError, match="USB synchronization failed"):
+            worker.sync_datetime(object())
+    finally:
+        worker.stop(timeout=1.0)
+
+    assert service.invalidate_calls == 1
+    assert service.close_calls == 1
 
 
 def test_single_camera_prepare_then_trigger_via_worker_stops_cleanly():

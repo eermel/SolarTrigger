@@ -26,6 +26,7 @@ class FakeWorker:
     def __init__(self, clock=None):
         self.clock = clock
         self.calls = []
+        self.prepared = None
 
     def connect(self):
         self.calls.append(("connect",))
@@ -40,19 +41,20 @@ class FakeWorker:
 
     def prepare_capture(self, intent):
         self.calls.append(("prepare_capture", intent))
-        return SimpleNamespace(
+        self.prepared = SimpleNamespace(
             token=object(), estimated_total_s=0.5, exposures_s=[0.5],
-            planned_count=1, plugin_name="fake-camera"
+            planned_count=1, plugin_name="fake-camera", materialized=None,
         )
+        return self.prepared
 
     def _consume_deadline(self, deadline):
         if deadline is not None and self.clock is not None:
             self.clock.remaining(deadline)
 
-    def trigger_prepared(self, token, deadline=None):
+    def trigger_prepared(self, prepared, deadline=None):
         self._consume_deadline(deadline)
-        self.calls.append(("trigger_prepared", token, deadline))
-        return {"triggered": True}
+        self.calls.append(("trigger_prepared", prepared, deadline))
+        return SimpleNamespace(frames=1, planned=1, detail="fake capture")
 
     def shoot_speed_list(self, speeds, **options):
         self._consume_deadline(options.get("deadline"))
@@ -316,6 +318,72 @@ def test_prepare_capture_accepts_optional_metadata_and_echoes_request_id(
     assert forwarded_intent.request_id == expected_request_id
 
 
+@pytest.mark.parametrize(
+    "exposure_plan",
+    (
+        None,
+        [
+            {"shutter": "1/1000", "iso": 100},
+            {
+                "shutter": "1/500",
+                "iso": 200,
+                "sequence_group": "atmos_single",
+            },
+        ],
+    ),
+)
+def test_prepare_capture_accepts_serialized_exposure_plan(
+    tmp_path, exposure_plan
+):
+    worker = FakeWorker()
+    server = make_server(tmp_path, {1: worker})
+    intent_data = {
+        "shutter_min": "1/100",
+        "shutter_max": "1/100",
+        "step_ev": 1.0,
+        "speeds": None,
+        "phase": "partial",
+        "target_time": "2026-08-12T18:00:00Z",
+        "deadline": None,
+        "overflow_policy": None,
+        "exposure_plan": exposure_plan,
+    }
+
+    request(server, "prepare_capture", {"rig_id": 1, "intent": intent_data})
+
+    forwarded_intent = worker.calls[-1][1]
+    assert forwarded_intent.exposure_plan == exposure_plan
+
+
+@pytest.mark.parametrize(
+    "exposure_plan",
+    (
+        [],
+        [{"shutter": "1/500"}],
+        [{"shutter": "1/500", "iso": True}],
+        [{"shutter": "1/500", "iso": 100, "unexpected": "value"}],
+    ),
+)
+def test_prepare_capture_rejects_invalid_exposure_plan(tmp_path, exposure_plan):
+    server = make_server(tmp_path, {1: FakeWorker()})
+    intent_data = {
+        "shutter_min": "1/100",
+        "shutter_max": "1/100",
+        "step_ev": 1.0,
+        "speeds": None,
+        "phase": "partial",
+        "target_time": "2026-08-12T18:00:00Z",
+        "deadline": None,
+        "overflow_policy": None,
+        "exposure_plan": exposure_plan,
+    }
+
+    with pytest.raises(IpcError) as caught:
+        request(server, "prepare_capture", {"rig_id": 1, "intent": intent_data})
+
+    assert caught.value.code == "INVALID_REQUEST"
+
+
 def test_session_token_lifecycle_and_single_deadline_conversion(tmp_path):
     clock = CountingRuntimeClock()
     worker = FakeWorker(clock)
@@ -336,7 +404,16 @@ def test_session_token_lifecycle_and_single_deadline_conversion(tmp_path):
         "rig_id": 1, "token_id": token_id,
         "deadline": "2026-08-12T18:00:01+00:00",
     }, session)
-    assert result == {"triggered": True}
+    assert result == {
+        "frames": 1,
+        "planned": 1,
+        "detail": "fake capture",
+    }
+    trigger_call = next(
+        call for call in worker.calls if call[0] == "trigger_prepared"
+    )
+    assert trigger_call[1] is worker.prepared
+    assert trigger_call[1].token is worker.prepared.token
     assert clock.calls == [datetime(2026, 8, 12, 18, 0, 1)]
     assert server_clock.calls == []
     with pytest.raises(IpcError) as consumed:

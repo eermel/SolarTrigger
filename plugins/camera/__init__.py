@@ -91,22 +91,52 @@ def get_camera_model(camera):
 
 
 def load_plugin(camera, log_fn=print):
-    """Detecte le boitier et retourne l'instance de plugin adaptee, ou None."""
+    """Detect the body and return the most specific runtime plugin.
+
+    A characterization profile describes capabilities, values and timing. It
+    must never replace a hardware-specific execution plugin. Specialized
+    plugins therefore get first refusal. ProfilePlugin is only the generic
+    fallback for characterized cameras without a dedicated hardware executor.
+    """
     model = get_camera_model(camera)
     from backend.camera_profiles import profile_for_model
     from .profile import ProfilePlugin
+
     profile = profile_for_model(model)
-    if profile is not None:
-        log_fn(f"Camera profile selected: {profile['backend']}")
-        return ProfilePlugin(camera, log_fn, profile)
+
     for plugin_cls in _load_plugin_classes():
         try:
-            if plugin_cls.matches(model):
-                log_fn(f"Plugin selected: {plugin_cls.name} "
-                       f"(model '{model}')")
-                return plugin_cls(camera, log_fn)
-        except Exception as e:
-            log_fn(f"Detection error for {plugin_cls.__name__} : {e}")
+            matched = plugin_cls.matches(model)
+        except Exception as exc:
+            log_fn(
+                f"Detection error for {plugin_cls.__name__}: {exc}"
+            )
+            continue
+
+        if not matched:
+            continue
+
+        log_fn(
+            f"Plugin selected: {plugin_cls.name} "
+            f"(model '{model}')"
+        )
+
+        try:
+            return plugin_cls(camera, log_fn)
+        except Exception as exc:
+            log_fn(
+                f"Plugin initialization failed for "
+                f"{plugin_cls.__name__}: {exc}"
+            )
+            raise
+
+    if profile is not None:
+        log_fn(
+            f"Generic camera profile selected: {profile['backend']} "
+            f"(model '{model}')"
+        )
+        return ProfilePlugin(camera, log_fn, profile)
+
     log_fn(f"No plugin for model '{model}'")
     return None
 

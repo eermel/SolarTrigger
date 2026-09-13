@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import re
 import time
+from types import SimpleNamespace
 
 from .base import (
     CameraPlugin,
@@ -116,11 +117,19 @@ class CameraPreflightError(RuntimeError):
 
 
 class ProfilePlugin(CameraPlugin):
+    # Persistent worker instances own the effective camera-state cache.
+    stateful_settings = True
+
     def __init__(self, camera, log_fn=print, profile=None):
         super().__init__(camera, log_fn)
         self.profile = validate_profile(profile)
         self.name = self.profile["backend"]
         self.commands = self.profile["commands"]
+        # All access to a profile camera is serialized by its rig worker.
+        # Remember only settings that this instance has read or written
+        # successfully.  A failed capture invalidates this knowledge so the
+        # next physical group replays its complete characterized preamble.
+        self._known_settings = {}
 
     @staticmethod
     def matches(model_string):
@@ -246,6 +255,7 @@ class ProfilePlugin(CameraPlugin):
         target = self._resolved_value(key, value)
         actual = self._read(key)
         if str(actual) == str(target):
+            self._known_settings[key] = target
             return False
 
         if not self._live_writable(key):
@@ -270,14 +280,21 @@ class ProfilePlugin(CameraPlugin):
             raise CameraPreflightError(
                 self._manual_instruction(key, target, actual)
             ) from exc
+        self._known_settings[key] = target
         return True
 
     def _apply(self, key, value=None):
-        """Apply one characterized SET used by the scheduled runtime."""
+        """Apply one SET only when the effective camera state must change."""
         target = self._resolved_value(key, value)
+        if (
+            key in self._known_settings
+            and str(self._known_settings[key]) == str(target)
+        ):
+            return False
         if not self._live_writable(key):
             actual = self._read(key)
             if str(actual) == str(target):
+                self._known_settings[key] = target
                 return False
             raise CameraPreflightError(
                 self._manual_instruction(key, target, actual)
@@ -289,6 +306,7 @@ class ProfilePlugin(CameraPlugin):
             else write_widget
         )
         writer(self.camera, self.commands[key]["path"], target)
+        self._known_settings[key] = target
         return True
 
     def preflight(self, required_state=None):
@@ -358,10 +376,12 @@ class ProfilePlugin(CameraPlugin):
         return self.preflight(required)
 
     def set_exposure_settings(self, aperture=None, iso=None):
+        changed = False
         if iso is not None:
-            self._apply("iso", iso)
+            changed = self._apply("iso", iso) or changed
         if aperture is not None and "aperture" in self.commands:
-            self._apply("aperture", aperture)
+            changed = self._apply("aperture", aperture) or changed
+        return changed
 
     def set_parameter(
         self,
@@ -667,8 +687,19 @@ class ProfilePlugin(CameraPlugin):
                         selected.append(speed)
                 speeds = selected
 
+            iso_values = self.commands["iso"]["values"]
+            known_iso = self._known_settings.get("iso")
+            logical_iso = next(
+                (
+                    str(candidate)
+                    for candidate, physical in iso_values.items()
+                    if known_iso is not None
+                    and str(physical) == str(known_iso)
+                ),
+                "100",
+            )
             plan = [
-                {"shutter": str(value), "iso": 100}
+                {"shutter": str(value), "iso": logical_iso}
                 for value in speeds
             ]
 
@@ -695,6 +726,59 @@ class ProfilePlugin(CameraPlugin):
             normalized_plan.append(normalized_exposure)
 
         plan = normalized_plan
+
+        # Explicit execution-group markers are physical boundaries, not
+        # merely metadata. In particular, an auxiliary Atmos exposure must
+        # remain one single PHOTO and must never be absorbed into or reshape
+        # the user's configured native bracket.
+        segments = []
+        current = []
+
+        for exposure in plan:
+            if (
+                current
+                and exposure.get("sequence_group")
+                != current[-1].get("sequence_group")
+            ):
+                segments.append(current)
+                current = []
+            current.append(exposure)
+
+        if current:
+            segments.append(current)
+
+        if len(segments) > 1:
+            prepared_segments = [
+                self.prepare_capture(
+                    SimpleNamespace(exposure_plan=segment)
+                )
+                for segment in segments
+            ]
+            return PreparedCapture(
+                token=(
+                    "profile",
+                    [
+                        operation
+                        for prepared in prepared_segments
+                        for operation in prepared.token[1]
+                    ],
+                ),
+                estimated_total_s=sum(
+                    float(prepared.estimated_total_s or 0.0)
+                    for prepared in prepared_segments
+                ),
+                exposures_s=[
+                    exposure_s
+                    for prepared in prepared_segments
+                    for exposure_s in prepared.exposures_s
+                ],
+                planned_count=sum(
+                    int(prepared.planned_count or 0)
+                    for prepared in prepared_segments
+                ),
+                plugin_name=self.name,
+                materialized=plan,
+            )
 
         contract = self.profile.get("timing_contract")
         if isinstance(contract, dict):
@@ -1187,25 +1271,120 @@ class ProfilePlugin(CameraPlugin):
     def audit_prepared_capture(self, prepared):
         return prepared.token[1]
 
+    @staticmethod
+    def _capture_groups(operations):
+        """Return indivisible SET...PHOTO groups in execution order."""
+        group = []
+        for operation in operations:
+            group.append(operation)
+            if operation.get("action") != "set":
+                yield tuple(group)
+                group = []
+        if group:
+            yield tuple(group)
+
+    @staticmethod
+    def _group_budget_seconds(group):
+        durations = [operation.get("duration_ms") for operation in group]
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+            for value in durations
+        ):
+            return None
+        return sum(float(value) for value in durations) / 1000.0
+
+    def _effective_capture_group(self, group):
+        """Filter redundant SETs while preserving camera mode dependencies.
+
+        Sony bracket capture requires:
+            Bracket -> Single Shot -> SET shutter -> Bracket N -> PHOTO
+
+        Therefore a real transition back to Single Shot forces the following
+        shutter SET even when its numeric value matches the cached value.
+        """
+        if not group or group[-1].get("action") == "set":
+            return group
+
+        simulated = dict(self._known_settings)
+        effective = []
+        force_shutter = False
+
+        for operation in group:
+            if operation.get("action") != "set":
+                effective.append(operation)
+                continue
+
+            key = self._SEMANTIC.get(str(operation.get("parameter")))
+            if key is None or key not in self.commands:
+                return group
+
+            target = self._resolved_value(key, operation.get("value"))
+            same = key in simulated and str(simulated[key]) == str(target)
+
+            if key == "capture_mode":
+                single = self._resolved_value(
+                    "capture_mode",
+                    self.commands["capture_mode"]["value"],
+                )
+                if not same and str(target) == str(single):
+                    effective.append(operation)
+                    simulated[key] = target
+                    force_shutter = True
+                    continue
+
+            if key == "shutter" and force_shutter:
+                effective.append(operation)
+                simulated[key] = target
+                force_shutter = False
+                continue
+
+            if same:
+                continue
+
+            effective.append(operation)
+            simulated[key] = target
+
+        return tuple(effective)
+
     def trigger_prepared(self, prepared, deadline=None):
         frames = 0
-        for operation in self.audit_prepared_capture(prepared):
-            if (
-                deadline is not None
-                and seconds_until_deadline(deadline) <= 0
-            ):
-                break
-            if operation["action"] == "set":
-                self.set_parameter(
-                    operation["parameter"],
-                    operation["value"],
-                )
-            else:
-                frames += self.execute_photo(operation).frames
+        truncated = False
+        groups = self._capture_groups(self.audit_prepared_capture(prepared))
+        for group in groups:
+            effective_group = self._effective_capture_group(group)
+            if deadline is not None:
+                remaining = seconds_until_deadline(deadline)
+                budget = self._group_budget_seconds(effective_group)
+                if remaining <= 0 or (
+                    budget is not None and remaining < budget
+                ):
+                    self.log(
+                        f"   [{self.name}] deadline: capture group "
+                        "truncated before SET (ok)"
+                    )
+                    truncated = True
+                    break
+
+            try:
+                for operation in effective_group:
+                    if operation["action"] == "set":
+                        self.set_parameter(
+                            operation["parameter"],
+                            operation["value"],
+                        )
+                    else:
+                        frames += self.execute_photo(operation).frames
+            except Exception:
+                self._known_settings.clear()
+                raise
 
         return CaptureResult(
             frames,
             prepared.planned_count,
+            detail="deadline" if truncated else None,
         )
 
     def shoot_speeds(

@@ -136,8 +136,9 @@ def _contact_execution_policy(
 ) -> tuple[str, list[ScheduledOperation]]:
     """Determine contact policy from the real prepared execution.
 
-    A single physical trigger producing several exposures is an atomic
-    bracket. One trigger_capture per exposure is sequential.
+    A native bracket is the atomic contact anchor. It may be accompanied by
+    one or more explicitly separated auxiliary singles. One trigger_capture
+    per exposure without a native bracket is sequential.
     """
     triggers = _contact_trigger_operations(scheduled)
     exposure_count = len(capture.exposure_plan)
@@ -176,6 +177,33 @@ def _contact_execution_policy(
         ):
             return "atomic_bracket", triggers
 
+    native_brackets = [
+        item
+        for item in triggers
+        if item.operation.get("action") == "bracket_press"
+        and item.operation.get("contact_anchor") is True
+    ]
+
+    if len(native_brackets) == 1:
+        try:
+            physical_count = sum(
+                int(
+                    item.operation.get(
+                        "frames",
+                        item.operation.get("expected_frames", 1),
+                    )
+                    or 1
+                )
+                for item in triggers
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"invalid contact frame count for RIG {capture.rig_id}"
+            ) from exc
+
+        if physical_count == exposure_count:
+            return "atomic_bracket", triggers
+
     if (
         len(triggers) == exposure_count
         and all(
@@ -207,8 +235,9 @@ def _make_contact_anchor(
     """Build a C2/C3 anchor according to physical camera strategy.
 
     Atomic bracket:
-        keep the validated policy: trigger the whole bracket one second
-        before contact and allow the atomic reservation to finish.
+        keep the validated policy: trigger the priority native bracket one
+        second before contact and allow the complete reservation to finish.
+        An auxiliary Atmos single may be scheduled before C2.
 
     Sequential:
         place the modeled physical start of the middle exposure exactly
