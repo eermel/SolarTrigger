@@ -20,7 +20,7 @@ def test_eclipse_select_is_dynamic_and_has_chevron():
     start = HTML.index('id="inp-eclipse"')
     tag = HTML[start:HTML.index(">", start)]
 
-    assert 'class="native-select-chevron"' in tag
+    assert "file-select-chevron" in tag
     assert 'onchange="handleEclipseSelectionChange()"' in tag
     assert "fetch('/api/eclipse/supported')" in HTML
     assert "dates.forEach(date =>" in HTML
