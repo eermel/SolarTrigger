@@ -259,6 +259,27 @@ class TriggerService:
             for rig_id in range(1, 5)
         }
 
+    def _log_rig(self, rig_id, text, level="info"):
+        """Log one trigger event with explicit RIG ownership.
+
+        Legacy/injected log functions used by tests may still accept only
+        (text, level, source), so retain compatibility with that contract.
+        """
+        try:
+            return self.log(
+                text,
+                level,
+                "trigger",
+                rig_id=rig_id,
+            )
+        except TypeError as exc:
+            # Compatibility only for legacy log callbacks that do not accept
+            # the new rig_id keyword. Do not hide TypeError raised internally
+            # by a real logger implementation.
+            if "rig_id" not in str(exc):
+                raise
+            return self.log(text, level, "trigger")
+
     @property
     def _proc(self):
         """Compatibility alias for legacy single-RIG tests/code."""
@@ -593,7 +614,11 @@ class TriggerService:
                     try:
                         self.camera_runtime.close_ipc_session(ipc_session.session_id)
                     except Exception as exc:
-                        self.log(f"Camera IPC session close error: {exc}","error","trigger")
+                        self._log_rig(
+                            rig_id,
+                            f"Camera IPC session close error: {exc}",
+                            "error",
+                        )
                 try:
                     self.state.update_trigger_rig(
                         rig_id,
@@ -659,6 +684,38 @@ class TriggerService:
         if line.startswith("TRIGGER_AUDIO "):
             filename = line.split(None, 1)[1]
             return f"🔊 Sound played: {filename}", "audio", None
+
+        if line == "TRIGGER_SUMMARY_BEGIN":
+            return "### Capture summary", "phase", None
+
+        if line == "TRIGGER_SUMMARY_END":
+            return "#" * 65, "phase", None
+
+        if line.startswith("TRIGGER_SUMMARY "):
+            payload = line[len("TRIGGER_SUMMARY "):]
+
+            try:
+                phase_start = payload.index('phase="') + len('phase="')
+                phase_end = payload.index('"', phase_start)
+                phase = payload[phase_start:phase_end]
+
+                fields = {}
+                for item in payload[phase_end + 1:].strip().split():
+                    if "=" in item:
+                        key, value = item.split("=", 1)
+                        fields[key] = value
+
+                photos = int(fields.get("photos", "0"))
+                errors = int(fields.get("errors", "0"))
+            except (ValueError, TypeError):
+                return payload, "error", None
+
+            level = "success" if errors == 0 else "error"
+            return (
+                f"{phase} — Photos: {photos} — Errors: {errors}",
+                level,
+                None,
+            )
 
         return line, None, None
 
@@ -763,7 +820,7 @@ class TriggerService:
                 if dry_run
                 else "► Trigger started."
             )
-            self.log(label,"success","trigger")
+            self._log_rig(rig_id, label, "success")
             for raw in iter(proc.stdout.readline, ""):
                 if not raw and proc.poll() is not None: break
                 line=raw.rstrip()
@@ -783,10 +840,14 @@ class TriggerService:
                 elif "PHASE 1b" in line or "DIAMOND RING" in line: self._set_phase(rig_id, "diamond_ring")
                 elif "PHASE 2" in line: self._set_phase(rig_id, "totality")
                 elif "PHASE 3a" in line or "PHASE 3b" in line: self._set_phase(rig_id, "partial_end")
-                self.log(line,level,"trigger")
+                self._log_rig(rig_id, line, level)
             proc.wait()
         except Exception as exc:
-            self.log(f"Trigger thread ERROR: {exc}","error","trigger")
+            self._log_rig(
+                rig_id,
+                f"Trigger thread ERROR: {exc}",
+                "error",
+            )
         finally:
             if ipc_session is not None:
                 try:
@@ -818,10 +879,10 @@ class TriggerService:
                 )
 
             code = proc.returncode if proc else "?"
-            self.log(
+            self._log_rig(
+                rig_id,
                 f"■ Trigger finished (code {code}).",
                 "info",
-                "trigger",
             )
 
     def override_totality(self, rig_id=1):

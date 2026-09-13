@@ -8,6 +8,8 @@ const state = {
   phase:         'idle',
   triggerRigs:   {},
   eclipse:       null,
+  triggerCircumstances: null,
+  triggerDiamondDurationS: null,
   gps:           {},
   audioCtx:      null,
   audioBuffers:  {},
@@ -478,7 +480,206 @@ function selectedTriggerRig() {
   ) || null;
 }
 
+function activeTriggerRigIds() {
+  return (rigDevicesState.rigs || [])
+    .filter(rigIsOperationallyActive)
+    .map(rig => Number(rig.rig_id));
+}
+
+
+function triggerClockSeconds(value) {
+  if (!value || typeof value !== 'string') return null;
+
+  const match = value.match(
+    /^(\d{1,2}):(\d{2}):(\d{2}(?:\.\d+)?)$/
+  );
+  if (!match) return null;
+
+  return (
+    Number(match[1]) * 3600 +
+    Number(match[2]) * 60 +
+    Number(match[3])
+  );
+}
+
+
+function triggerAstronomicalIcon(timestamp) {
+  const circumstances = state.triggerCircumstances;
+  if (!circumstances) return null;
+
+  const eventRaw = triggerClockSeconds(timestamp);
+  const tstartRaw = triggerClockSeconds(
+    circumstances.TSTART || circumstances.tstart
+  );
+  const tendRaw = triggerClockSeconds(
+    circumstances.TEND || circumstances.tend
+  );
+  const c1Raw = triggerClockSeconds(
+    circumstances.C1 || circumstances.c1
+  );
+  const c2Raw = triggerClockSeconds(
+    circumstances.C2 || circumstances.c2
+  );
+  const c3Raw = triggerClockSeconds(
+    circumstances.C3 || circumstances.c3
+  );
+  const c4Raw = triggerClockSeconds(
+    circumstances.C4 || circumstances.c4
+  );
+
+  if (
+    eventRaw === null ||
+    tstartRaw === null ||
+    tendRaw === null ||
+    c1Raw === null ||
+    c4Raw === null
+  ) {
+    return null;
+  }
+
+  // Normalize a possible UTC midnight crossing relative to TSTART.
+  const normalize = value => {
+    if (value === null) return null;
+    return value < tstartRaw ? value + 86400 : value;
+  };
+
+  const tstart = tstartRaw;
+  const tend = normalize(tendRaw);
+  const c1 = normalize(c1Raw);
+  const c2 = normalize(c2Raw);
+  const c3 = normalize(c3Raw);
+  const c4 = normalize(c4Raw);
+
+  let event = eventRaw;
+
+  if (tend > 86400 && event < tstart) {
+    event += 86400;
+  }
+
+  if (event < tstart || event > tend) {
+    return null;
+  }
+
+  // Partial eclipse: no C2/C3.
+  if (c2 === null && c3 === null) {
+    if (event < c1) return '☀️';
+    if (event < c4) return '🌒';
+    return '☀️';
+  }
+
+  if (c2 === null || c3 === null) {
+    return null;
+  }
+
+  const duration = Number(state.triggerDiamondDurationS);
+  const diamondDuration =
+    Number.isFinite(duration) && duration >= 0
+      ? duration
+      : 0;
+
+  const diamondBefore = c2 - diamondDuration;
+  const diamondAfter = c3 + diamondDuration;
+
+  if (event < c1) return '☀️';
+  if (event < diamondBefore) return '🌒';
+  if (event < c2) return '💍';
+  if (event < c3) return '🌑';
+  if (event < diamondAfter) return '💍';
+  if (event < c4) return '🌒';
+  return '☀️';
+}
+
+
+function triggerLogIcon(level) {
+  const icons = {
+    warning: '☀️',
+    orange: '🌒',
+    purple: '💍',
+    totality: '🌑',
+    audio: '🔊',
+    phase: '◆',
+    error: '❌',
+    success: '✅',
+    gps: '⚙️',
+    info: '•',
+  };
+
+  return icons[level] || '•';
+}
+
+
+function renderTriggerLogPanels() {
+  const active = new Set(activeTriggerRigIds());
+
+  document.querySelectorAll('[data-trigger-log-rig]').forEach(card => {
+    const rigId = Number(card.dataset.triggerLogRig);
+    card.hidden = !active.has(rigId);
+  });
+}
+
+
+function clearTriggerRigLog(rigId) {
+  const container = document.getElementById(
+    `log-container-trigger-rig-${Number(rigId)}`
+  );
+
+  if (container) container.innerHTML = '';
+}
+
+
+function appendTriggerRigLog(entry) {
+  if (_logPaused || !entry) return;
+
+  let rigId = Number(entry.rig_id);
+
+  // Historical entries written before multi-RIG log ownership existed
+  // belong to the legacy RIG 1 stream.
+  if (!Number.isInteger(rigId) || rigId < 1 || rigId > 4) {
+    rigId = 1;
+  }
+
+  const container = document.getElementById(
+    `log-container-trigger-rig-${rigId}`
+  );
+  if (!container) return;
+
+  const div = document.createElement('div');
+  div.className = `log-line ${entry.level || 'info'}`;
+
+  const timestamp = entry.timestamp || '--:--:--';
+  const icon =
+    triggerAstronomicalIcon(entry.timestamp) ||
+    triggerLogIcon(entry.level);
+
+  div.textContent =
+    `[${timestamp}][RIG${rigId}][${icon}] ${entry.text || ''}`;
+
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+
 function renderTriggerRigSelection() {
+  renderTriggerLogPanels();
+
+  const activeRigIds = activeTriggerRigIds();
+  const multiRig = activeRigIds.length > 1;
+
+  const debugButton = document.getElementById('btn-debug');
+  const dryRunButton = document.getElementById('btn-dryrun');
+
+  if (debugButton) {
+    debugButton.textContent = multiRig
+      ? '🧪 DEBUG ALL'
+      : '🧪 DEBUG';
+  }
+
+  if (dryRunButton) {
+    dryRunButton.textContent = multiRig
+      ? '🧪 DRY-RUN ALL'
+      : '🧪 DRY-RUN';
+  }
+
   let selectedRig = selectedTriggerRig();
 
   if (!selectedRig) {
@@ -1249,41 +1450,16 @@ function updateControlsVisibility(devices) {
   if (devices && typeof devices === 'object') {
     globalDevicesState = devices;
   }
-  const currentDevices = globalDevicesState;
-  const focuserActive = Boolean(currentDevices && currentDevices.focuser && currentDevices.focuser.active === true);
-  const mountActive = Boolean(currentDevices && currentDevices.mount && currentDevices.mount.active === true);
 
-  const rigControlsActive = rigDevicesState.rigs.some(rig => {
-    if (!rigIsOperationallyActive(rig)) {
-      return false;
-    }
-
-    const rigDevices = rig && rig.devices ? rig.devices : {};
-    const mount = rigDevices.mount;
-    const mountBackend = mount && mount.backend;
-    const focuser = rigDevices.focuser;
-    const focuserBackend = focuser && (focuser.backend || focuser.plugin);
-
-    const pilotableMount = Boolean(
-      mount && ![null, '', 'none', 'external'].includes(mountBackend)
-    );
-    const pilotableFocuser = Boolean(
-      focuser && ![null, '', 'none'].includes(focuserBackend)
-    );
-
-    return pilotableMount || pilotableFocuser;
-  });
-
-  const controlsActive = focuserActive || mountActive || rigControlsActive;
+  // Controls is always available because it contains global controls
+  // such as audio, independently of any selected RIG/device.
   const controlsTab = document.getElementById('controls-tab');
   const controlsPanel = document.getElementById('controls-panel');
 
-  const controlsWasSelected = controlsTab.classList.contains('active');
-  controlsTab.hidden = !controlsActive;
-  controlsPanel.hidden = !controlsActive;
-  renderControlsRigSelection();
+  if (controlsTab) controlsTab.hidden = false;
+  if (controlsPanel) controlsPanel.hidden = false;
 
-  if (controlsWasSelected && !controlsActive) showTab(0);
+  renderControlsRigSelection();
 }
 
 async function fetchDevices() {
@@ -1835,8 +2011,15 @@ socket.on('state_update', d => {
 
 // Log ligne par ligne (temps réel)
 socket.on('log_line', d => {
-  appendLog(d.text, d.level, d.source, d.timestamp);
-  if (d.source === 'calculator') appendCalcLog(d.text, d.level);
+  if (d.source === 'trigger') {
+    appendTriggerRigLog(d);
+  } else {
+    appendLog(d.text, d.level, d.source, d.timestamp);
+  }
+
+  if (d.source === 'calculator') {
+    appendCalcLog(d.text, d.level);
+  }
 });
 
 // Historique complet à la (re)connexion
@@ -1847,7 +2030,20 @@ socket.on('log_history', lines => {
     let containerId = 'log-container';
     if (source === 'gps_sync') containerId = 'log-container-gps_sync';
     else if (source === 'calculator') containerId = 'log-container-calculator';
-    else if (source === 'trigger') containerId = 'log-container-trigger';
+    else if (source === 'trigger') {
+      for (let rigId = 1; rigId <= 4; rigId += 1) {
+        const container = document.getElementById(
+          `log-container-trigger-rig-${rigId}`
+        );
+        if (container) container.innerHTML = '';
+      }
+
+      lines
+        .filter(d => d.source === 'trigger')
+        .forEach(appendTriggerRigLog);
+
+      return;
+    }
 
     const containers = document.querySelectorAll(`#${containerId}`);
     if (containers.length === 0) return;
@@ -2579,6 +2775,21 @@ function updateSelectedTriggerPhase() {
   updatePhase(rigState.phase || 'idle');
 }
 
+function anyActiveTriggerRunning() {
+  return activeTriggerRigIds().some(rigId => {
+    const rigState = state.triggerRigs[String(rigId)] || {};
+
+    return (
+      rigState.running === true ||
+      (
+        rigState.phase &&
+        rigState.phase !== 'idle'
+      )
+    );
+  });
+}
+
+
 function updatePhase(phase) {
   state.phase = phase;
   const badge = document.getElementById('phase-badge');
@@ -2597,12 +2808,27 @@ function updatePhase(phase) {
   const btnStop      = document.getElementById('btn-stop');
   const btnTot       = document.getElementById('btn-totality-only');
 
-  const triggerStartLocked = (phase !== 'idle');
+  const triggerStartLocked = anyActiveTriggerRunning();
 
-  if (btnStart)     btnStart.disabled     = triggerStartLocked;
-  if (btnDryRun)    btnDryRun.disabled    = triggerStartLocked;
-  if (btnDebug)     btnDebug.disabled     = triggerStartLocked;
-  if (btnStop)  btnStop.disabled  = false;
+  // START / DRY-RUN / DEBUG are global multi-RIG actions.
+  if (btnStart)  btnStart.disabled  = triggerStartLocked;
+  if (btnDryRun) btnDryRun.disabled = triggerStartLocked;
+  if (btnDebug)  btnDebug.disabled  = triggerStartLocked;
+
+  // STOP / Totality override remain targeted at the selected RIG only.
+  const selectedRigState =
+    state.triggerRigs[String(selectedTriggerRigId)] || {};
+  const selectedRigRunning =
+    selectedRigState.running === true ||
+    (
+      selectedRigState.phase &&
+      selectedRigState.phase !== 'idle'
+    );
+
+  if (btnStop) {
+    btnStop.disabled = !selectedRigRunning;
+  }
+
   if (btnTot) {
     btnTot.style.opacity = '1';
     btnTot.disabled = false;
@@ -2841,8 +3067,72 @@ function renderContacts(data) {
   }
   // Contacts onglet Trigger — design compact
   const tlist = document.getElementById('trigger-contacts');
+
+  const circumstancesType = (
+    data._type || data._type_global || ''
+  ).toLowerCase();
+
+  const c2Value = data.C2 || data.c2 || null;
+  const c3Value = data.C3 || data.c3 || null;
+
+  const isPartialTrigger = (
+    circumstancesType.includes('partielle')
+    || circumstancesType.includes('partial')
+    || !c2Value
+    || !c3Value
+  );
+
+  let triggerContacts;
+
+  if (isPartialTrigger) {
+    triggerContacts = [
+      contacts.find(c => c.key === 'TSTART'),
+      contacts.find(c => c.key === 'C1'),
+      {
+        key: 'TMAX',
+        utc: data.TMAX || tmilieu,
+        local: _utcToLocal(data.TMAX || tmilieu),
+        label: 'TMAX'
+      },
+      contacts.find(c => c.key === 'C4'),
+      contacts.find(c => c.key === 'TEND'),
+    ].filter(Boolean);
+  } else {
+    const diamondDuration = state.triggerDiamondDurationS;
+
+    const diamondBefore = Number.isFinite(diamondDuration)
+      ? _fromSec(_toSec(c2Value) - diamondDuration)
+      : null;
+
+    const diamondAfter = Number.isFinite(diamondDuration)
+      ? _fromSec(_toSec(c3Value) + diamondDuration)
+      : null;
+
+    triggerContacts = [
+      contacts.find(c => c.key === 'TSTART'),
+      contacts.find(c => c.key === 'C1'),
+      {
+        key: 'DR_C2',
+        utc: diamondBefore,
+        local: diamondBefore ? _utcToLocal(diamondBefore) : null,
+        label: 'DIAMOND RING'
+      },
+      contacts.find(c => c.key === 'C2'),
+      contacts.find(c => c.key === 'TMILIEU'),
+      contacts.find(c => c.key === 'C3'),
+      {
+        key: 'DR_C3',
+        utc: diamondAfter,
+        local: diamondAfter ? _utcToLocal(diamondAfter) : null,
+        label: 'DIAMOND RING'
+      },
+      contacts.find(c => c.key === 'C4'),
+      contacts.find(c => c.key === 'TEND'),
+    ].filter(Boolean);
+  }
+
   const _buildContactsHtml = () => {
-    return contacts.map(c => {
+    return triggerContacts.map(c => {
       const isTmax  = c.key === 'TMILIEU';
       const isBound = c.key === 'TSTART' || c.key === 'TEND';
       const labelColor = isTmax ? 'var(--accent)' : isBound ? 'var(--green)' : 'var(--text-dim)';
@@ -2889,10 +3179,22 @@ function updateCountdowns(data) {
     C1:      data.C1 || data.c1,
     C2:      data.C2 || data.c2,
     TMILIEU: tmilieu,
+    TMAX:    data.TMAX || tmilieu,
     C3:      data.C3 || data.c3,
     C4:      data.C4 || data.c4,
-    TEND:    data.TEND  || data.tend,
+    TEND:    data.TEND || data.tend,
   };
+
+  const diamondDuration = state.triggerDiamondDurationS;
+
+  if (
+    Number.isFinite(diamondDuration)
+    && contacts.C2
+    && contacts.C3
+  ) {
+    contacts.DR_C2 = _fromSec(_toSec(contacts.C2) - diamondDuration);
+    contacts.DR_C3 = _fromSec(_toSec(contacts.C3) + diamondDuration);
+  }
 
   // UTC courant provenant exclusivement de l'ancre Pi.
   const nowUtcMs = _nowAdjusted().getTime();
@@ -3169,9 +3471,41 @@ async function loadTriggerCircumstances(filename) {
     if (!r.ok || d.error) {
       throw new Error(d.error || `HTTP error ${r.status}`);
     }
+
+    state.triggerCircumstances = d;
+    await loadTriggerDiamondDuration();
     renderContacts(d);
   } catch (e) {
     flash(`Circumstances: ${e.message}`, 'red');
+  }
+}
+
+async function loadTriggerDiamondDuration() {
+  state.triggerDiamondDurationS = null;
+
+  const filename = document.getElementById('trigger-photo-select')?.value || '';
+  if (!filename) return;
+
+  try {
+    const r = await fetch(`/api/configs/load_photo/${encodeURIComponent(filename)}`);
+    const data = await r.json();
+
+    if (!r.ok || data.error) return;
+
+    const value = Number(data?.phases?.diamond_ring?.duration_s);
+    if (Number.isFinite(value) && value >= 0) {
+      state.triggerDiamondDurationS = value;
+    }
+  } catch (_error) {
+    state.triggerDiamondDurationS = null;
+  }
+}
+
+async function refreshTriggerCircumstancesForPhoto() {
+  await loadTriggerDiamondDuration();
+
+  if (state.triggerCircumstances) {
+    renderContacts(state.triggerCircumstances);
   }
 }
 
@@ -3184,87 +3518,275 @@ function selectedTriggerInputs() {
 }
 
 async function startTrigger() {
-  const r = await fetch('/api/trigger/start', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({rig_id: selectedTriggerRigId, ...selectedTriggerInputs()})
-  });
-  const d = await r.json();
-  if (d.error) {
-    flash(d.error, 'red');
-    // Erreurs bloquantes : rediriger vers l'onglet concerné
-    if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE') {
-      setTimeout(() => showTab(1), 1500);  // → onglet SYNC GPS
-    } else if (d.code === 'JSON_INVALID') {
-      setTimeout(() => showTab(2), 1500);  // → onglet ÉCLIPSE
-    }
-  } else {
-    flash('Trigger started ▶', 'green');
-  }
-}
-
-async function startDebug() {
+  const rigIds = activeTriggerRigIds();
   const inputs = selectedTriggerInputs();
-  if (!inputs.photo_file || !inputs.exposure_opt_file) {
-    flash('DEBUG requires a selected Photo Setup and Exposure Optimization file.', 'red');
+
+  if (!rigIds.length) {
+    flash('No active RIG.', 'red');
     return;
   }
+
+  const failures = [];
+
+  for (const rigId of rigIds) {
+    try {
+      const r = await fetch('/api/trigger/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          rig_id: rigId,
+          ...inputs
+        })
+      });
+
+      const d = await r.json();
+
+      if (!r.ok || d.error) {
+        failures.push({
+          rigId,
+          error: d.message || d.error || `HTTP error ${r.status}`,
+          code: d.code
+        });
+      }
+    } catch (error) {
+      failures.push({
+        rigId,
+        error: error.message || 'Network error'
+      });
+    }
+  }
+
+  if (failures.length) {
+    flash(
+      failures
+        .map(item => `RIG ${item.rigId}: ${item.error}`)
+        .join(' | '),
+      'red'
+    );
+
+    const codes = new Set(failures.map(item => item.code));
+
+    if (
+      codes.has('GPS_NOT_SYNCED') ||
+      codes.has('GPS_SYNC_STALE') ||
+      codes.has('GPS_SYNC_TIME_INVALID')
+    ) {
+      setTimeout(() => showTab(1), 1500);
+    } else if (codes.has('JSON_INVALID')) {
+      setTimeout(() => showTab(2), 1500);
+    }
+
+    return;
+  }
+
+  flash(
+    rigIds.length > 1
+      ? `Trigger started on ${rigIds.length} RIGs ▶`
+      : `Trigger started on RIG ${rigIds[0]} ▶`,
+    'green'
+  );
+}
+
+
+async function startDebug() {
+  const rigIds = activeTriggerRigIds();
+  const inputs = selectedTriggerInputs();
+
+  if (!rigIds.length) {
+    flash('No active RIG.', 'red');
+    return;
+  }
+
+  if (!inputs.photo_file || !inputs.exposure_opt_file) {
+    flash(
+      'DEBUG requires a selected Photo Setup and Exposure Optimization file.',
+      'red'
+    );
+    return;
+  }
+
+  const targetText = rigIds.length > 1
+    ? `${rigIds.length} active RIGs`
+    : `RIG ${rigIds[0]}`;
+
   if (!confirm(
-    `🧪 DEBUG MODE — RIG ${selectedTriggerRigId}\n\n` +
-    'This will generate the short DEBUG circumstances and START the sequence immediately.\n' +
+    `🧪 DEBUG MODE — ${targetText}\n\n` +
+    'This will generate one short DEBUG circumstances file per active RIG,\n' +
+    'load it for that RIG and START all sequences immediately.\n' +
     'The currently selected Photo Setup and Exposure Optimization will be used.\n\n' +
     'Continue?'
   )) return;
-  const r = await fetch('/api/trigger/debug', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({rig_id: selectedTriggerRigId, photo_file: inputs.photo_file, exposure_opt_file: inputs.exposure_opt_file})
-  });
-  const d = await r.json();
-  if (!r.ok || d.error) {
-    flash(d.message || d.error || `HTTP error ${r.status}`, 'red');
-    if (d.code === 'GPS_NOT_SYNCED' || d.code === 'GPS_SYNC_STALE' || d.code === 'GPS_SYNC_TIME_INVALID') setTimeout(() => showTab(1), 1500);
-    return;
+
+  const failures = [];
+  const results = [];
+
+  // Deliberately sequential: /debug updates generated circumstances state.
+  // Running these requests concurrently would introduce a race.
+  for (const rigId of rigIds) {
+    try {
+      const r = await fetch('/api/trigger/debug', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          rig_id: rigId,
+          photo_file: inputs.photo_file,
+          exposure_opt_file: inputs.exposure_opt_file
+        })
+      });
+
+      const d = await r.json();
+
+      if (!r.ok || d.error) {
+        failures.push({
+          rigId,
+          error: d.message || d.error || `HTTP error ${r.status}`,
+          code: d.code
+        });
+      } else {
+        results.push(d);
+      }
+    } catch (error) {
+      failures.push({
+        rigId,
+        error: error.message || 'Network error'
+      });
+    }
   }
-  const select = document.getElementById('trigger-circumstances-select');
-  if (select) {
-    let option = Array.from(select.options).find(candidate => candidate.value === d.filename);
-    if (!option) { option = document.createElement('option'); option.value = d.filename; option.textContent = `${d.filename} — DEBUG`; select.appendChild(option); }
-    select.value = d.filename;
+
+  // Keep the selected RIG circumstances visible in the UI if available.
+  const displayed = (
+    results.find(item => Number(item.rig_id) === selectedTriggerRigId)
+    || results[0]
+  );
+
+  if (displayed) {
+    const select = document.getElementById('trigger-circumstances-select');
+
+    if (select && displayed.filename) {
+      let option = Array.from(select.options).find(
+        candidate => candidate.value === displayed.filename
+      );
+
+      if (!option) {
+        option = document.createElement('option');
+        option.value = displayed.filename;
+        option.textContent = `${displayed.filename} — DEBUG`;
+        select.appendChild(option);
+      }
+
+      select.value = displayed.filename;
+    }
+
+    if (displayed.circumstances) {
+      state.triggerCircumstances = displayed.circumstances;
+      renderContacts(displayed.circumstances);
+    }
   }
-  if (d.circumstances) renderContacts(d.circumstances);
-  flash(`DEBUG started on RIG ${d.rig_id}`, 'blue');
-}
 
-async function startDryRun() {
-  if (!confirm(
-    '🧪 Start a DRY-RUN ×1?\n' +
-    'The selected circumstances will use their original UTC times,\n' +
-    'using today\'s UTC date. Sounds are included.'
-  )) return;
+  if (failures.length) {
+    flash(
+      failures
+        .map(item => `RIG ${item.rigId}: ${item.error}`)
+        .join(' | '),
+      'red'
+    );
 
-  const r = await fetch('/api/trigger/dryrun', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({rig_id: selectedTriggerRigId, ...selectedTriggerInputs()})
-  });
-
-  const d = await r.json();
-
-  if (d.error) {
-    flash(d.message || d.error, 'red');
-
+    const codes = new Set(failures.map(item => item.code));
     if (
-      d.code === 'GPS_NOT_SYNCED' ||
-      d.code === 'GPS_SYNC_STALE'
+      codes.has('GPS_NOT_SYNCED') ||
+      codes.has('GPS_SYNC_STALE') ||
+      codes.has('GPS_SYNC_TIME_INVALID')
     ) {
       setTimeout(() => showTab(1), 1500);
     }
-  } else {
-    flash(
-      'Dry-run ×1 started — today UTC, original circumstances times',
-      'blue'
-    );
+
+    return;
   }
+
+  flash(
+    rigIds.length > 1
+      ? `DEBUG started on ${rigIds.length} RIGs`
+      : `DEBUG started on RIG ${rigIds[0]}`,
+    'blue'
+  );
+}
+
+
+async function startDryRun() {
+  const rigIds = activeTriggerRigIds();
+
+  if (!rigIds.length) {
+    flash('No active RIG.', 'red');
+    return;
+  }
+
+  if (!confirm(
+    rigIds.length > 1
+      ? `🧪 Start a DRY-RUN on all ${rigIds.length} active RIGs?\n` +
+        'The selected circumstances will use their original UTC times,\n' +
+        'using today\'s UTC date. Sounds are included.'
+      : '🧪 Start a DRY-RUN?\n' +
+        'The selected circumstances will use their original UTC times,\n' +
+        'using today\'s UTC date. Sounds are included.'
+  )) return;
+
+  const inputs = selectedTriggerInputs();
+  const failures = [];
+
+  for (const rigId of rigIds) {
+    try {
+      const r = await fetch('/api/trigger/dryrun', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          rig_id: rigId,
+          ...inputs
+        })
+      });
+
+      const d = await r.json();
+
+      if (!r.ok || d.error) {
+        failures.push({
+          rigId,
+          error: d.message || d.error || `HTTP error ${r.status}`,
+          code: d.code
+        });
+      }
+    } catch (error) {
+      failures.push({
+        rigId,
+        error: error.message || 'Network error'
+      });
+    }
+  }
+
+  if (failures.length) {
+    flash(
+      failures
+        .map(item => `RIG ${item.rigId}: ${item.error}`)
+        .join(' | '),
+      'red'
+    );
+
+    const codes = new Set(failures.map(item => item.code));
+    if (
+      codes.has('GPS_NOT_SYNCED') ||
+      codes.has('GPS_SYNC_STALE') ||
+      codes.has('GPS_SYNC_TIME_INVALID')
+    ) {
+      setTimeout(() => showTab(1), 1500);
+    }
+
+    return;
+  }
+
+  flash(
+    rigIds.length > 1
+      ? `Dry-run started on ${rigIds.length} RIGs`
+      : `Dry-run started on RIG ${rigIds[0]}`,
+    'blue'
+  );
 }
 
 async function stopTrigger() {
