@@ -58,6 +58,7 @@ from services.camera_service import CaptureIntent
 
 MAX_MESSAGE_BYTES = 65536
 MAX_WORKERS = 8
+CONNECTION_IO_TIMEOUT_S = 5.0
 _SENSOR_DB_PATH = DEFAULT_SENSOR_DB_PATH
 _ISO_PATTERN = re.compile(r"[0-9]+")
 _CORRECTION_ORDER = ("shutter_limited", "iso_compensated", "iso_rounded")
@@ -391,6 +392,8 @@ class CameraIpcServer:
                 if self._stopping.is_set():
                     break
                 continue
+            connection.settimeout(CONNECTION_IO_TIMEOUT_S)
+
             pool = self._pool
             if pool is None:
                 connection.close()
@@ -403,6 +406,11 @@ class CameraIpcServer:
                 request = self._read_request(connection)
                 result = self.handle_request(request)
                 response = {"ok": True, "result": self._json_value(result)}
+            except socket.timeout:
+                response = self._error(
+                    "REQUEST_TIMEOUT",
+                    "camera IPC request timed out",
+                )
             except IpcError as exc:
                 response = self._error(exc.code, exc.message)
             except Exception as exc:

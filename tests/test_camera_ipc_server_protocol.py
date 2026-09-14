@@ -3,6 +3,7 @@ import os
 import socket
 import stat
 import threading
+import time
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -121,6 +122,90 @@ def read_request(payload):
     finally:
         left.close()
         right.close()
+
+
+
+def test_idle_connection_times_out_and_server_recovers(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        camera_ipc_server,
+        "CONNECTION_IO_TIMEOUT_S",
+        0.05,
+    )
+
+    server = make_server(tmp_path)
+    socket_path = server.start()
+
+    idle = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    idle.settimeout(1.0)
+
+    try:
+        idle.connect(str(socket_path))
+
+        response = bytearray()
+        while b"\n" not in response:
+            response.extend(idle.recv(4096))
+
+        decoded = json.loads(
+            bytes(response).split(b"\n", 1)[0].decode("utf-8")
+        )
+
+        assert decoded == {
+            "ok": False,
+            "error": {
+                "code": "REQUEST_TIMEOUT",
+                "message": "camera IPC request timed out",
+            },
+        }
+
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(1.0)
+
+        try:
+            client.connect(str(socket_path))
+            client.sendall(b'{"operation":"ping"}\n')
+
+            response = bytearray()
+            while b"\n" not in response:
+                response.extend(client.recv(4096))
+
+            decoded = json.loads(
+                bytes(response).split(b"\n", 1)[0].decode("utf-8")
+            )
+
+            assert decoded["ok"] is True
+        finally:
+            client.close()
+
+    finally:
+        idle.close()
+        server.stop()
+
+
+def test_stop_is_bounded_with_idle_connection(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        camera_ipc_server,
+        "CONNECTION_IO_TIMEOUT_S",
+        0.05,
+    )
+
+    server = make_server(tmp_path)
+    socket_path = server.start()
+
+    idle = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+    try:
+        idle.connect(str(socket_path))
+        time.sleep(0.02)
+
+        started = time.monotonic()
+        server.stop()
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 1.0
+
+    finally:
+        idle.close()
+        server.stop()
 
 
 def test_protocol_parses_one_json_line_and_rejects_invalid_inputs():
