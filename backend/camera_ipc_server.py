@@ -105,12 +105,18 @@ _PARAM_KEYS = {
     },
     "camera.execute_photo": {"rig_id", "params", "start_before_monotonic"},
     "prepare_capture": {"rig_id", "intent"},
-    "trigger_prepared": {"rig_id", "token_id", "deadline"},
+    "trigger_prepared": {
+        "rig_id",
+        "token_id",
+        "deadline",
+        "deadline_monotonic",
+    },
     "shoot_speed_list": {
         "rig_id",
         "speeds",
         "photo_num_start",
         "deadline",
+        "deadline_monotonic",
         "slowest_override_seconds",
     },
 }
@@ -823,6 +829,14 @@ class CameraIpcServer:
             if not isinstance(token_id, str) or not token_id:
                 raise IpcError("INVALID_REQUEST", "token_id must be a non-empty string")
             deadline = self._deadline(params.get("deadline"))
+            monotonic_deadline = (
+                self._positive_number(
+                    params["deadline_monotonic"],
+                    "deadline_monotonic",
+                )
+                if params.get("deadline_monotonic") is not None
+                else None
+            )
             rig_id, worker = self._worker(params, allowed=allowed)
             with self._state_lock:
                 token = self._tokens.get(token_id)
@@ -840,8 +854,13 @@ class CameraIpcServer:
                 metadata["deadline"] = deadline.isoformat()
             start_utc = datetime.now(timezone.utc)
             try:
+                trigger_kwargs = {"deadline": deadline}
+                if monotonic_deadline is not None:
+                    trigger_kwargs["monotonic_deadline"] = monotonic_deadline
                 result = self._call_worker(
-                    worker.trigger_prepared, prepared_token, deadline=deadline
+                    worker.trigger_prepared,
+                    prepared_token,
+                    **trigger_kwargs,
                 )
             except IpcError as exc:
                 end_utc = datetime.now(timezone.utc)
@@ -895,6 +914,14 @@ class CameraIpcServer:
                     "INVALID_REQUEST", "slowest_override_seconds must be a number"
                 )
             deadline = self._deadline(params.get("deadline"))
+            monotonic_deadline = (
+                self._positive_number(
+                    params["deadline_monotonic"],
+                    "deadline_monotonic",
+                )
+                if params.get("deadline_monotonic") is not None
+                else None
+            )
             rig_id, worker = self._worker(params, allowed=allowed)
             metadata = {
                 "rig_id": rig_id,
@@ -907,12 +934,17 @@ class CameraIpcServer:
                 metadata["deadline"] = deadline.isoformat()
             start_utc = datetime.now(timezone.utc)
             try:
+                shoot_kwargs = {
+                    "photo_num_start": photo_num_start,
+                    "deadline": deadline,
+                    "slowest_override_seconds": override,
+                }
+                if monotonic_deadline is not None:
+                    shoot_kwargs["monotonic_deadline"] = monotonic_deadline
                 result = self._call_worker(
                     worker.shoot_speed_list,
                     speeds,
-                    photo_num_start=photo_num_start,
-                    deadline=deadline,
-                    slowest_override_seconds=override,
+                    **shoot_kwargs,
                 )
             except IpcError as exc:
                 end_utc = datetime.now(timezone.utc)

@@ -65,10 +65,12 @@ class CameraIpcClient:
         socket_path: str | Path,
         session_id: str,
         log_fn: Callable[[str], None] = _log,
+        clock=None,
     ) -> None:
         self.socket_path = str(socket_path)
         self.session_id = session_id
         self._log = log_fn
+        self._clock = clock
         self._log_lock = threading.Lock()
 
     def ping(self, *, timeout_s: float = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
@@ -232,17 +234,30 @@ class CameraIpcClient:
         deadline: datetime | None = None,
         timeout_s: float = CAPTURE_TIMEOUT_S,
     ) -> Any:
+        monotonic_deadline = self._deadline_monotonic(
+            deadline,
+            "trigger_prepared",
+            rig_id=rig_id,
+        )
+        params = {
+            "rig_id": rig_id,
+            "token_id": token_id,
+            "deadline": self._deadline_value(
+                deadline, "trigger_prepared", rig_id=rig_id
+            ),
+            "deadline_monotonic": monotonic_deadline,
+        }
+        if monotonic_deadline is None:
+            return self._call(
+                "trigger_prepared",
+                params,
+                timeout_s=timeout_s,
+            )
         return self._call(
             "trigger_prepared",
-            {
-                "rig_id": rig_id,
-                "token_id": token_id,
-                "deadline": self._deadline_value(
-                    deadline, "trigger_prepared", rig_id=rig_id
-                ),
-            },
+            params,
             timeout_s=timeout_s,
-            deadline=deadline,
+            deadline_monotonic=monotonic_deadline,
         )
 
     def shoot_speed_list(
@@ -255,19 +270,32 @@ class CameraIpcClient:
         slowest_override_seconds: float | None = None,
         timeout_s: float = CAPTURE_TIMEOUT_S,
     ) -> Any:
+        monotonic_deadline = self._deadline_monotonic(
+            deadline,
+            "shoot_speed_list",
+            rig_id=rig_id,
+        )
+        params = {
+            "rig_id": rig_id,
+            "speeds": speeds,
+            "photo_num_start": photo_num_start,
+            "deadline": self._deadline_value(
+                deadline, "shoot_speed_list", rig_id=rig_id
+            ),
+            "deadline_monotonic": monotonic_deadline,
+            "slowest_override_seconds": slowest_override_seconds,
+        }
+        if monotonic_deadline is None:
+            return self._call(
+                "shoot_speed_list",
+                params,
+                timeout_s=timeout_s,
+            )
         return self._call(
             "shoot_speed_list",
-            {
-                "rig_id": rig_id,
-                "speeds": speeds,
-                "photo_num_start": photo_num_start,
-                "deadline": self._deadline_value(
-                    deadline, "shoot_speed_list", rig_id=rig_id
-                ),
-                "slowest_override_seconds": slowest_override_seconds,
-            },
+            params,
             timeout_s=timeout_s,
-            deadline=deadline,
+            deadline_monotonic=monotonic_deadline,
         )
 
     def _call(
@@ -276,13 +304,16 @@ class CameraIpcClient:
         params: dict[str, Any],
         *,
         timeout_s: float,
-        deadline: datetime | None = None,
+        deadline_monotonic: float | None = None,
     ) -> Any:
         rig_id = params.get("rig_id")
         if not isinstance(rig_id, int) or isinstance(rig_id, bool):
             rig_id = None
         try:
-            timeout = self._effective_timeout(timeout_s, deadline)
+            timeout = self._effective_timeout(
+                timeout_s,
+                deadline_monotonic=deadline_monotonic,
+            )
             request = json.dumps(
                 {
                     "operation": operation,
@@ -386,26 +417,51 @@ class CameraIpcClient:
             )
 
     @staticmethod
-    def _effective_timeout(timeout_s: float, deadline: datetime | None) -> float:
+    def _effective_timeout(
+        timeout_s: float,
+        *,
+        deadline_monotonic: float | None = None,
+    ) -> float:
         if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)):
             raise ValueError("timeout_s must be a positive number")
         timeout = float(timeout_s)
         if timeout <= 0:
             raise ValueError("timeout_s must be a positive number")
-        if deadline is not None:
+        if deadline_monotonic is not None:
             if (
-                not isinstance(deadline, datetime)
-                or deadline.tzinfo is None
-                or deadline.utcoffset() is None
+                isinstance(deadline_monotonic, bool)
+                or not isinstance(deadline_monotonic, (int, float))
             ):
-                raise ValueError("deadline must be an aware datetime")
-            remaining = (
-                deadline.astimezone(timezone.utc) - datetime.now(timezone.utc)
-            ).total_seconds()
+                raise ValueError("deadline_monotonic must be a number")
+            remaining = float(deadline_monotonic) - time.monotonic()
             if remaining <= 0:
                 raise socket.timeout("deadline has passed")
             timeout = min(timeout, remaining)
         return timeout
+
+    def _deadline_monotonic(
+        self,
+        deadline: datetime | None,
+        operation: str,
+        *,
+        rig_id: int | None = None,
+    ) -> float | None:
+        if deadline is None:
+            return None
+        self._deadline_value(deadline, operation, rig_id=rig_id)
+        if self._clock is None:
+            self._fail(
+                "INVALID_DEADLINE",
+                operation,
+                "execution clock is not configured",
+                rig_id=rig_id,
+            )
+        runtime_deadline = (
+            deadline.astimezone(timezone.utc).replace(tzinfo=None)
+        )
+        return time.monotonic() + float(
+            self._clock.remaining(runtime_deadline)
+        )
 
     def _deadline_value(
         self, deadline: datetime | None, operation: str, *, rig_id: int | None = None

@@ -621,7 +621,7 @@ def main() -> int:
             session = os.environ.get("SET_CAMERA_IPC_SESSION")
             if not socket_path or not session:
                 raise RuntimeError("camera IPC session is required")
-            client = CameraIpcClient(socket_path, session, log_fn=log)
+            client = CameraIpcClient(socket_path, session, log_fn=log, clock=clock)
             ping_delays_s = (0.25, 0.50)
             for attempt in range(1, 4):
                 try:

@@ -202,8 +202,15 @@ class CameraWorker:
             "prepare_capture", intent, priority=PRIORITY_SEQUENCER
         )
 
-    def trigger_prepared(self, prepared, deadline=None):
-        monotonic_deadline = self._capture_deadline(deadline)
+    def trigger_prepared(
+        self,
+        prepared,
+        deadline=None,
+        *,
+        monotonic_deadline=None,
+    ):
+        if monotonic_deadline is None:
+            monotonic_deadline = self._capture_deadline(deadline)
         return self._call(
             "trigger_prepared",
             prepared,
@@ -218,9 +225,11 @@ class CameraWorker:
         speeds,
         photo_num_start=0,
         deadline=None,
+        monotonic_deadline=None,
         slowest_override_seconds=None,
     ):
-        monotonic_deadline = self._capture_deadline(deadline)
+        if monotonic_deadline is None:
+            monotonic_deadline = self._capture_deadline(deadline)
         return self._call(
             "shoot_speed_list",
             speeds,
