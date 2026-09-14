@@ -2,7 +2,7 @@
 # ============================================================
 #   SolarEclipse — Script d'installation complet
 #   Raspberry Pi 3B / Raspberry Pi OS (Debian Bookworm)
-#   Version : 6.0.0
+#   Version : 6.1.0
 # ============================================================
 #
 #   Usage :
@@ -11,14 +11,14 @@
 #
 #   Ce script installe et configure :
 #     0. Mise à jour système
-#     1. Renommage machine + mDNS (accès http://solareclipse.local)
-#     2. Hotspot WiFi Pi (optionnel — désactivé si vous utilisez iPhone hotspot)
+#     1. Renommage machine + mDNS (accès HTTPS via <hostname>.local)
+#     2. Hotspot WiFi Pi (recommandé pour le mode terrain smartphone GPS offline)
 #     3. Dépendances système (Python, gphoto2, pygame, gpsd...)
 #     3b. libgphoto2 2.5.34 compilée (support Sony A7V / ILCE-7M5)
 #     3c. SDK ZWO EAF pour focuseur (optionnel, depuis vendor/eaf_sdk/)
 #     4. Scripts SolarEclipse + backend/services/plugins
-#     5. Flask + Nginx + gunicorn/gthread (portail web + WebSocket)
-#     6. GPS (gpsd + chrony + service boot + udev BU-353N5)
+#     5. Flask + Nginx + gunicorn/gthread (HTTPS local + WebSocket)
+#     6. GPS (USB gpsd/chrony + source smartphone via navigateur HTTPS)
 #     7. Scripts raccourcis ~/bin/
 # ============================================================
 
@@ -132,9 +132,10 @@ success "mDNS enabled → portal hostname: $NEW_HOSTNAME.local"
 # ════════════════════════════════════════════════════════════
 step "STEP 2 — WiFi hotspot"
 echo ""
-echo -e "  ${YELLOW}Note:${NC} If you use your iPhone hotspot,"
-echo -e "  the Pi connects to it automatically via NTP — no Pi hotspot is required."
-echo -e "  Configure the Pi hotspot only if you work WITHOUT an iPhone."
+echo -e "  ${YELLOW}Note:${NC} Two field network modes are supported:"
+echo -e "  - Pi hotspot: recommended offline mode; iPhone/iPad connects to the Pi and can provide GPS/time."
+echo -e "  - iPhone hotspot: the Pi joins the phone hotspot; a Pi hotspot is then unnecessary."
+echo -e "  For a fully offline eclipse setup using smartphone GPS, configure the Pi hotspot."
 echo ""
 read -p "Configure a WiFi hotspot on the Pi? (y/n) [default: n]: " SETUP_HOTSPOT
 WIFI_SSID="(not configured)"
@@ -617,9 +618,9 @@ if __name__ == "__main__":
 EOL
 
 # TLS local SolarTrigger — CA persistante dans var/tls.
-# L'iPhone doit installer UNE FOIS la CA publique puis activer sa confiance
-# complète. Le certificat serveur peut ensuite être régénéré sans réinstaller
-# la CA, puisqu'il reste signé par la même autorité locale.
+# iPhone/iPad peuvent accepter manuellement l’avertissement Safari sans installer
+# la CA. L’installation de la CA reste recommandée pour supprimer cet avertissement.
+# Le certificat serveur peut être régénéré sans changer la CA persistante.
 TLS_DIR="$VAR_DIR/tls"
 TLS_CA_KEY="$TLS_DIR/solartrigger-ca.key"
 TLS_CA_CERT="$TLS_DIR/solartrigger-ca.crt"
@@ -650,11 +651,15 @@ else
     info "Existing SolarTrigger local CA retained."
 fi
 
-CURRENT_IPV4="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 TLS_SAN="DNS:$NEW_HOSTNAME.local,DNS:$DOMAIN,IP:127.0.0.1,IP:192.168.50.1"
-if [[ "$CURRENT_IPV4" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    TLS_SAN="$TLS_SAN,IP:$CURRENT_IPV4"
-fi
+for CURRENT_IPV4 in $(hostname -I 2>/dev/null); do
+    if [[ "$CURRENT_IPV4" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        case ",$TLS_SAN," in
+            *",IP:$CURRENT_IPV4,"*) ;;
+            *) TLS_SAN="$TLS_SAN,IP:$CURRENT_IPV4" ;;
+        esac
+    fi
+done
 
 cat > "$TLS_SERVER_EXT" <<EOF
 basicConstraints=critical,CA:FALSE
@@ -680,6 +685,11 @@ openssl x509 -req \
     -sha256 \
     -extfile "$TLS_SERVER_EXT"
 
+if ! openssl verify -CAfile "$TLS_CA_CERT" "$TLS_SERVER_CERT" >/dev/null 2>&1; then
+    error "Generated HTTPS server certificate failed CA verification."
+fi
+success "HTTPS server certificate verified against SolarTrigger local CA."
+
 chown root:root \
     "$TLS_DIR" \
     "$TLS_CA_KEY" \
@@ -692,7 +702,15 @@ chmod 600 "$TLS_CA_KEY" "$TLS_SERVER_KEY"
 chmod 644 "$TLS_CA_CERT" "$TLS_SERVER_CERT" "$TLS_SERVER_EXT"
 rm -f "$TLS_SERVER_CSR"
 
-cat > /etc/nginx/sites-available/solareclipse <<EOL
+NGINX_SITE="/etc/nginx/sites-available/solareclipse"
+NGINX_BACKUP=""
+if [ -f "$NGINX_SITE" ]; then
+    NGINX_BACKUP="$NGINX_SITE.before-https.$(date +%Y%m%d-%H%M%S)"
+    cp -a "$NGINX_SITE" "$NGINX_BACKUP" || error "Unable to back up current Nginx configuration."
+    info "Nginx backup → $NGINX_BACKUP"
+fi
+
+cat > "$NGINX_SITE" <<EOL
 server {
     listen 80;
     server_name $DOMAIN $NEW_HOSTNAME.local _;
@@ -746,9 +764,46 @@ server {
 }
 EOL
 
+NGINX_DEFAULT_WAS_ENABLED=false
+if [ -e /etc/nginx/sites-enabled/default ]; then
+    NGINX_DEFAULT_WAS_ENABLED=true
+fi
+
 rm -f /etc/nginx/sites-enabled/default
-ln -sf /etc/nginx/sites-available/solareclipse /etc/nginx/sites-enabled/
-nginx -t && systemctl restart nginx
+ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/solareclipse
+
+restore_previous_nginx() {
+    rm -f /etc/nginx/sites-enabled/solareclipse
+
+    if [ -n "$NGINX_BACKUP" ] && [ -f "$NGINX_BACKUP" ]; then
+        cp -a "$NGINX_BACKUP" "$NGINX_SITE"
+        ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/solareclipse
+        warning "Previous SolarTrigger Nginx configuration restored."
+    else
+        rm -f "$NGINX_SITE"
+    fi
+
+    if [ "$NGINX_DEFAULT_WAS_ENABLED" = true ] && [ -f /etc/nginx/sites-available/default ]; then
+        ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+    fi
+
+    if nginx -t >/dev/null 2>&1; then
+        systemctl restart nginx >/dev/null 2>&1 || true
+    fi
+}
+
+if ! nginx -t; then
+    warning "New Nginx HTTPS configuration is invalid."
+    restore_previous_nginx
+    error "HTTPS installation aborted because nginx -t failed."
+fi
+
+if ! systemctl restart nginx; then
+    warning "Nginx configuration is valid but nginx restart failed."
+    restore_previous_nginx
+    error "HTTPS installation aborted because nginx restart failed."
+fi
+
 success "Nginx configured → HTTPS portal + HTTP CA bootstrap"
 
 # Résoudre les chemins CAMLIBS / IOLIBS réels de la libgphoto2 compilée.
@@ -991,7 +1046,10 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 echo -e "  ${CYAN}Portail web${NC}     : ${YELLOW}https://$NEW_HOSTNAME.local${NC}"
 echo -e "  ${CYAN}CA iPhone${NC}       : ${YELLOW}http://$NEW_HOSTNAME.local/solartrigger-ca.crt${NC}"
-echo -e "  ${CYAN}iPhone setup${NC}    : Safari → install CA profile, then Settings → General → About → Certificate Trust Settings → enable full trust."
+echo -e "  ${CYAN}iPhone/iPad${NC}     : open HTTPS directly and accept the Safari warning, or install the CA once to remove warnings."
+if [ "$SETUP_HOTSPOT" = "y" ]; then
+    echo -e "  ${CYAN}Offline field URL${NC}: ${YELLOW}https://192.168.50.1${NC}"
+fi
 echo -e "  ${CYAN}Hotspot WiFi${NC}    : ${YELLOW}$WIFI_SSID${NC} / ${YELLOW}$WIFI_PASS${NC}"
 echo -e "  ${CYAN}Application${NC}     : ${YELLOW}$APP_DIR${NC}"
 echo -e "  ${CYAN}Scripts runtime${NC} : ${YELLOW}$SCRIPTS_DIR${NC}"
