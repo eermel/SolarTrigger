@@ -357,25 +357,154 @@ def _audio_scheduler(alerts, clock, stopped) -> None:
 
 
 
-def _build_totality_only_schedule(now: datetime) -> PhaseSchedule:
-    """Build emergency totality schedule using internal naive-UTC datetimes."""
-    if now.tzinfo is not None:
-        raise ValueError("totality-only schedule requires naive UTC datetime")
+class EmergencyTotalityRequested(RuntimeError):
+    """Internal control-flow signal: abandon eclipse timing and capture now."""
 
-    distant = datetime.max
-    emergency_window = PhaseWindow(
-        "totality_override",
-        "totality",
-        now,
-        distant,
-        0.0,
+
+EMERGENCY_TARGET_SENTINEL_UTC = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def run_emergency_totality(
+    camera,
+    emergency_photo_setup: dict,
+    rig_snapshot: dict,
+    stopped: threading.Event,
+    *,
+    camera_already_initialized: bool = False,
+    log_fn=log,
+) -> dict[str, int]:
+    """Run the last-resort Totality sequence without wall-clock dependencies.
+
+    This path deliberately does not consume circumstances, GPS, UTC clock,
+    RuntimeClock, PhaseRuntime, C2/C3, or any mount/focuser service.  Only
+    monotonic time may be used for an optional local duration/interval.
+    ``duration_s=null`` and ``interval_s=0`` therefore mean repeated capture
+    groups as fast as the camera can complete them until STOP/SIGTERM.
+    """
+    phases = emergency_photo_setup.get("phases")
+    config = phases.get("totality") if isinstance(phases, dict) else None
+    if not isinstance(config, dict):
+        raise ValueError("Emergency Totality configuration is missing phases.totality")
+    if config.get("enabled") is False:
+        raise ValueError("Emergency Totality configuration is disabled")
+
+    interval_s = float(config.get("interval_s", 0) or 0)
+    if interval_s < 0:
+        raise ValueError("Emergency Totality interval_s must be >= 0")
+    raw_duration = config.get("duration_s")
+    duration_s = None if raw_duration is None else float(raw_duration)
+    if duration_s is not None and duration_s <= 0:
+        raise ValueError("Emergency Totality duration_s must be > 0 or null")
+
+    aperture = config.get("aperture", "f/8")
+    iso = str(config.get("iso", "100"))
+    log_fn("TRIGGER_PHASE_BORDER")
+    log_fn("TRIGGER_PHASE totality_override")
+    log_fn("TRIGGER_PHASE_BORDER")
+    log_fn(
+        "TRIGGER_CONFIG Emergency Totality: CAMERA ONLY, ASAP, "
+        "wall-clock/GPS/circumstances bypassed"
     )
-    return PhaseSchedule(
-        tstart=now,
-        tend=distant,
-        tmax=now,
-        windows=(emergency_window,),
+
+    # Camera setup is best effort in the last-resort path.  If a SET fails,
+    # still attempt PHOTO using the camera's current state.
+    try:
+        if camera_already_initialized:
+            camera.apply_phase_settings(aperture=aperture, iso=iso)
+        else:
+            camera.initialize(aperture=aperture, iso=iso)
+    except Exception as exc:
+        log_fn(
+            "WARNING Emergency Totality camera settings failed; "
+            f"capture will still be attempted: {type(exc).__name__}: {exc}"
+        )
+
+    plan = normalize_intent_plan({
+        "speeds": config.get("speeds"),
+        "shutter_min": config.get("shutter_min"),
+        "shutter_max": config.get("shutter_max"),
+        "step_ev": config.get("step_ev", 1.0),
+    })
+    _regular, fastest, slowest, step_ev, speeds = plan
+    planned_speeds = expand_executable_shutters(rig_snapshot, plan)
+
+    stats = {"photos": 0, "errors": 0}
+    started_monotonic = time.monotonic()
+    end_monotonic = (
+        None
+        if duration_s is None
+        else started_monotonic + duration_s
     )
+    next_capture_monotonic = started_monotonic
+
+    while not stopped.is_set():
+        now_monotonic = time.monotonic()
+        if end_monotonic is not None and now_monotonic >= end_monotonic:
+            break
+
+        if now_monotonic < next_capture_monotonic:
+            wait_s = next_capture_monotonic - now_monotonic
+            if end_monotonic is not None:
+                wait_s = min(wait_s, end_monotonic - now_monotonic)
+            if wait_s > 0:
+                stopped.wait(wait_s)
+            continue
+
+        cycle_started_monotonic = time.monotonic()
+        intent = CaptureIntent(
+            shutter_min=None if speeds is not None else slowest,
+            shutter_max=None if speeds is not None else fastest,
+            step_ev=None if speeds is not None else step_ev,
+            speeds=speeds,
+            phase="totality",
+            # CaptureIntent currently requires a datetime for protocol
+            # compatibility.  A fixed constant is used deliberately: it is
+            # metadata only and cannot couple emergency capture to wall time.
+            target_time=EMERGENCY_TARGET_SENTINEL_UTC,
+            deadline=None,
+            overflow_policy=None,
+            origin="emergency_totality",
+            request_id=uuid.uuid4().hex,
+        )
+
+        try:
+            prepared = camera.prepare_capture(intent)
+            result = camera.trigger_prepared(prepared, deadline=None)
+            frames = max(0, int(getattr(result, "frames", 0) or 0))
+            planned = getattr(result, "planned", None)
+            stats["photos"] += frames
+            if planned is not None and frames != planned:
+                stats["errors"] += 1
+                log_fn(
+                    'ERROR phase="Totality" stage=photo '
+                    f"captured={frames}/{planned}"
+                )
+            exposure_text = "".join(
+                f"[{value}]" for value in planned_speeds[:frames]
+            )
+            log_fn(
+                "TRIGGER_PHOTO totality "
+                f'phase="Totality" PHOTO frames={frames}'
+                + (f" {exposure_text}" if exposure_text else "")
+            )
+        except Exception as exc:
+            stats["errors"] += 1
+            log_fn(
+                "ERROR phase=totality_override stage=photo "
+                f"error={type(exc).__name__}: {exc}"
+            )
+            # Avoid an IPC failure storm, while keeping the retry independent
+            # of CLOCK_REALTIME and eclipse timing.
+            stopped.wait(0.1)
+
+        if interval_s > 0:
+            next_capture_monotonic = cycle_started_monotonic + interval_s
+        else:
+            # No deliberate delay: next bracket begins as soon as the camera
+            # and IPC return from the previous one.
+            next_capture_monotonic = time.monotonic()
+
+    return stats
 
 def main() -> int:
     args = parse_args()
@@ -384,8 +513,10 @@ def main() -> int:
     if args.totality_only and (args.simulate or args.dry_run):
         raise ValueError("totality-only cannot be combined with simulation or dry-run")
 
-    clock = RuntimeClock()
-    clock.configure(args.simulate, args.speed)
+    clock = None
+    if not args.totality_only:
+        clock = RuntimeClock()
+        clock.configure(args.simulate, args.speed)
     stopped = threading.Event()
     override = threading.Event()
 
@@ -422,10 +553,10 @@ def main() -> int:
 
     circumstances = {}
     if args.totality_only:
-        now = clock.now()
-        schedule = _build_totality_only_schedule(now)
+        # Last-resort mode has deliberately no eclipse schedule and does not
+        # read wall-clock time.  Capture begins after camera IPC is acquired.
+        schedule = None
         timeline = {}
-        override.set()
     else:
         circumstances = load_json(args.file, "circumstances")
         if args.dry_run:
@@ -685,13 +816,11 @@ def main() -> int:
             if remaining > 0:
                 stopped.wait(min(0.25, remaining / clock.speed))
 
-        override_window = PhaseWindow(
-            "totality_override",
-            "totality",
-            datetime.min.replace(tzinfo=timezone.utc),
-            datetime.max.replace(tzinfo=timezone.utc),
-            0.0,
-        )
+        def request_emergency_totality(_current: datetime):
+            if override.is_set():
+                raise EmergencyTotalityRequested()
+            return None
+
         def runtime_error(message: str) -> None:
             error_phase = None
 
@@ -708,18 +837,47 @@ def main() -> int:
 
             log(f"ERROR {message}")
 
-        PhaseRuntime(
-            schedule,
-            now=clock.now,
-            wait_until=wait_until,
-            enter_phase=initialize_phase,
-            reconcile_phase=reconcile_phase,
-            capture=capture_cycle,
-            log_error=runtime_error,
-            stopped=stopped.is_set,
-            override_phase=lambda _current: override_window if override.is_set() else None,
-            next_capture_log=log_next_capture,
-        ).run()
+        emergency_stats = None
+        if args.totality_only:
+            emergency_stats = run_emergency_totality(
+                camera,
+                emergency_photo_setup,
+                rig_snapshot,
+                stopped,
+                camera_already_initialized=camera_initialized,
+                log_fn=log,
+            )
+        else:
+            try:
+                PhaseRuntime(
+                    schedule,
+                    now=clock.now,
+                    wait_until=wait_until,
+                    enter_phase=initialize_phase,
+                    reconcile_phase=reconcile_phase,
+                    capture=capture_cycle,
+                    log_error=runtime_error,
+                    stopped=stopped.is_set,
+                    override_phase=request_emergency_totality,
+                    next_capture_log=log_next_capture,
+                ).run()
+            except EmergencyTotalityRequested:
+                log(
+                    "WARNING Emergency Totality requested: abandoning eclipse "
+                    "timing and taking exclusive camera control ASAP"
+                )
+                emergency_stats = run_emergency_totality(
+                    camera,
+                    emergency_photo_setup,
+                    rig_snapshot,
+                    stopped,
+                    camera_already_initialized=camera_initialized,
+                    log_fn=log,
+                )
+
+        if emergency_stats is not None:
+            phase_stats["totality"]["photos"] += emergency_stats["photos"]
+            phase_stats["totality"]["errors"] += emergency_stats["errors"]
 
         # The end announcement is intentionally synchronous and outside the
         # photographic runtime. If it remained in the scheduler at exactly
@@ -740,14 +898,20 @@ def main() -> int:
             ("partial_after", "PARTIAL (after totality)"),
         )
 
-        scheduled_phases = {
-            (
-                "totality"
-                if window.name == "totality_override"
-                else window.name
-            )
-            for window in schedule.windows
-        }
+        scheduled_phases = (
+            set()
+            if schedule is None
+            else {
+                (
+                    "totality"
+                    if window.name == "totality_override"
+                    else window.name
+                )
+                for window in schedule.windows
+            }
+        )
+        if args.totality_only or override.is_set():
+            scheduled_phases.add("totality")
 
         log("TRIGGER_SUMMARY_BEGIN")
         for phase_name, label in summary_labels:
