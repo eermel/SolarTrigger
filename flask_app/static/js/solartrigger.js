@@ -3739,34 +3739,18 @@ async function startDebug() {
     }
   }
 
-  // Keep the selected RIG circumstances visible in the UI if available.
+  // Display the generated DEBUG circumstances without changing any of the
+  // operator's normal Trigger selections.  DEBUG is temporary execution
+  // state; Circumstances / Photo Setup / Exposure Optimization remain the
+  // prepared inputs for the next normal START.
   const displayed = (
     results.find(item => Number(item.rig_id) === selectedTriggerRigId)
     || results[0]
   );
 
-  if (displayed) {
-    const select = document.getElementById('trigger-circumstances-select');
-
-    if (select && displayed.filename) {
-      let option = Array.from(select.options).find(
-        candidate => candidate.value === displayed.filename
-      );
-
-      if (!option) {
-        option = document.createElement('option');
-        option.value = displayed.filename;
-        option.textContent = `${displayed.filename} — DEBUG`;
-        select.appendChild(option);
-      }
-
-      select.value = displayed.filename;
-    }
-
-    if (displayed.circumstances) {
-      state.triggerCircumstances = displayed.circumstances;
-      renderContacts(displayed.circumstances);
-    }
+  if (displayed && displayed.circumstances) {
+    state.triggerCircumstances = displayed.circumstances;
+    renderContacts(displayed.circumstances);
   }
 
   if (failures.length) {
