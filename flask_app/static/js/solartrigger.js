@@ -2015,9 +2015,16 @@ socket.on('trigger_phase', d => {
   if (!Number.isInteger(rigId) || rigId < 1 || rigId > 4) return;
 
   const key = String(rigId);
+  const nextPhase = d.phase || 'idle';
+
+  // trigger_phase is authoritative for process activity.  Keeping only
+  // `phase` here leaves the previous `running=true` value cached in the
+  // browser after STOP, which keeps START/DRY-RUN/DEBUG disabled forever
+  // until another full status_update happens.
   state.triggerRigs[key] = {
     ...(state.triggerRigs[key] || {}),
-    phase: d.phase,
+    phase: nextPhase,
+    running: nextPhase !== 'idle',
   };
 
   if (rigId === selectedTriggerRigId) {
