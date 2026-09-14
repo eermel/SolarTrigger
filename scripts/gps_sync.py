@@ -28,7 +28,10 @@ import re
 import subprocess
 import sys
 import time
-import serial
+try:
+    import serial
+except ImportError:
+    serial = None
 from datetime import datetime, timezone
 
 # ─── Couleurs ANSI ────────────────────────────────────────────────────────────
@@ -149,17 +152,31 @@ def parse_gprmc(sentence):
         if status != "A":
             return None     # Pas de fix GPS
 
-        time_str = parts[1][:6]   # HHMMSS
+        time_str = parts[1]       # HHMMSS[.fraction]
         date_str = parts[9]       # DDMMYY
+
+        if len(time_str) < 6:
+            return None
 
         hour   = int(time_str[0:2])
         minute = int(time_str[2:4])
         second = int(time_str[4:6])
+        fraction = time_str[6:]
+        microsecond = 0
+        if fraction:
+            if not fraction.startswith(".") or not fraction[1:].isdigit():
+                return None
+            microsecond = int((fraction[1:] + "000000")[:6])
+
         day    = int(date_str[0:2])
         month  = int(date_str[2:4])
         year   = 2000 + int(date_str[4:6])
 
-        dt_utc = datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
+        dt_utc = datetime(
+            year, month, day, hour, minute, second,
+            microsecond=microsecond,
+            tzinfo=timezone.utc,
+        )
 
         # Latitude
         lat_raw = parts[3]
@@ -229,8 +246,24 @@ def _system_clock_command_context():
 
 
 def _update_hardware_clock(hwclock_bin, prefix):
-    subprocess.run(prefix + [hwclock_bin, "--systohc"], capture_output=True)
+    cmd = prefix + [hwclock_bin, "--systohc"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except Exception as exc:
+        logging.warning(
+            f"{Colors.YELLOW}⚠️ Hardware RTC update failed: {exc}{Colors.RESET}"
+        )
+        return False
+
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip() or f"exit code {result.returncode}"
+        logging.warning(
+            f"{Colors.YELLOW}⚠️ Hardware RTC update failed: {detail}{Colors.RESET}"
+        )
+        return False
+
     logging.info(f"{Colors.GREEN}✅ Hardware RTC updated.{Colors.RESET}")
+    return True
 
 
 def sync_system_time(dt_utc, dry_run=False):
@@ -366,6 +399,8 @@ def compute_median_time(fix_timestamps):
 
 def open_serial(port):
     """Tente d'ouvrir le port série, avec retry infini toutes les 5s."""
+    if serial is None:
+        raise RuntimeError("pyserial is required to access the GPS serial port")
     while True:
         try:
             ser = serial.Serial(port, baudrate=BAUD_RATE, timeout=READ_TIMEOUT)

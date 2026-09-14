@@ -66,11 +66,26 @@ class SerialNmeaGps(GpsPlugin):
         kind = p[0][3:] if len(p[0]) >= 6 else ""
         try:
             if kind == "RMC" and len(p) >= 10 and p[2] == "A":
-                hhmmss = p[1].split(".")[0]
+                hhmmss = p[1]
                 ddmmyy = p[9]
-                dt = datetime(2000 + int(ddmmyy[4:6]), int(ddmmyy[2:4]), int(ddmmyy[:2]),
-                              int(hhmmss[:2]), int(hhmmss[2:4]), int(hhmmss[4:6]),
-                              tzinfo=timezone.utc)
+                if len(hhmmss) < 6:
+                    return None
+                fraction = hhmmss[6:]
+                microsecond = 0
+                if fraction:
+                    if not fraction.startswith(".") or not fraction[1:].isdigit():
+                        return None
+                    microsecond = int((fraction[1:] + "000000")[:6])
+                dt = datetime(
+                    2000 + int(ddmmyy[4:6]),
+                    int(ddmmyy[2:4]),
+                    int(ddmmyy[:2]),
+                    int(hhmmss[:2]),
+                    int(hhmmss[2:4]),
+                    int(hhmmss[4:6]),
+                    microsecond=microsecond,
+                    tzinfo=timezone.utc,
+                )
                 return {
                     "type": "RMC", "timestamp": dt,
                     "latitude": cls._coord(p[3], p[4], 2),

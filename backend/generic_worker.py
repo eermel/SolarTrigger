@@ -288,7 +288,9 @@ class GenericWorker:
                     with self._lock:
                         self._executing_priority = None
                     self._queue.task_done()
-                if stop_requested and self._queue.empty():
+                with self._lock:
+                    stopping = not self._accepting
+                if (stop_requested or stopping) and self._queue.empty():
                     return
         finally:
             self._close_device_once()
