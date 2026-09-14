@@ -450,6 +450,17 @@ class TriggerService:
                     "GPS_SYNC_TIME_INVALID",
                 ) from exc
 
+            # A synchronization timestamp meaningfully ahead of the Pi clock
+            # is inconsistent: accepting a negative age would bypass the
+            # freshness guard entirely. Keep a small tolerance for scheduling
+            # and serialization races around the synchronization operation.
+            if age < -5:
+                raise TriggerValidationError(
+                    "⚠️ GPS synchronization timestamp is in the future. "
+                    "Synchronize again.",
+                    "GPS_SYNC_TIME_INVALID",
+                )
+
             if age > 7200:
                 raise TriggerValidationError(
                     f"⚠️ Last GPS synchronization was "
