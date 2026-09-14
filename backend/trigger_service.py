@@ -258,6 +258,10 @@ class TriggerService:
             rig_id: False
             for rig_id in range(1, 5)
         }
+        self._manual_stop_requested_by_rig = {
+            rig_id: False
+            for rig_id in range(1, 5)
+        }
 
     def _log_rig(self, rig_id, text, level="info"):
         """Log one trigger event with explicit RIG ownership.
@@ -533,6 +537,7 @@ class TriggerService:
 
             self._starting_by_rig[rig_id] = True
             self._analysis_suppressed_by_rig[rig_id] = False
+            self._manual_stop_requested_by_rig[rig_id] = False
 
             try:
                 ecl = self.validate_start(
@@ -909,11 +914,13 @@ class TriggerService:
 
             with self._lock:
                 owns_process = self._procs[rig_id] is proc
+                manual_stop_requested = self._manual_stop_requested_by_rig[rig_id]
                 if owns_process:
                     self._procs[rig_id] = None
                     self._starting_by_rig[rig_id] = False
                     self._clear_active_inputs(rig_id)
                     self._analysis_suppressed_by_rig[rig_id] = False
+                    self._manual_stop_requested_by_rig[rig_id] = False
 
             if owns_process:
                 self.state.update_trigger_rig(
@@ -936,6 +943,12 @@ class TriggerService:
                     rig_id,
                     "■ Trigger finished (code 0).",
                     "info",
+                )
+            elif manual_stop_requested:
+                self._log_rig(
+                    rig_id,
+                    f"■ Trigger stopped by user (code {code}).",
+                    "warning",
                 )
             else:
                 self._log_rig(
@@ -1025,6 +1038,7 @@ class TriggerService:
                 return False
             self._starting_by_rig[rig_id] = True
             self._analysis_suppressed_by_rig[rig_id] = True
+            self._manual_stop_requested_by_rig[rig_id] = False
 
         ipc_session = None
         try:
@@ -1091,6 +1105,7 @@ class TriggerService:
 
         with self._lock:
             self._analysis_suppressed_by_rig[rig_id] = True
+            self._manual_stop_requested_by_rig[rig_id] = True
 
         try:
             proc.terminate()
@@ -1099,10 +1114,20 @@ class TriggerService:
 
         forced = False
 
+        # SIGTERM only sets the trigger stop flag. An atomic camera PHOTO
+        # group already in progress must be allowed to return before the
+        # process can observe that flag and exit cleanly.
         try:
-            proc.wait(timeout=3)
+            proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
             forced = True
+        else:
+            # Defensive check: subprocess.Popen.wait() normally cannot return
+            # while the child is still running, but injected/test process
+            # implementations may do so.
+            forced = proc.poll() is None
+
+        if forced:
             try:
                 proc.kill()
                 proc.wait(timeout=2)
@@ -1110,7 +1135,7 @@ class TriggerService:
                 pass
 
             self.log(
-                f"■ RIG {rig_id} — Trigger killed (SIGKILL) after timeout.",
+                f"■ RIG {rig_id} — Trigger killed (SIGKILL) after 30 s graceful-stop timeout.",
                 "warning",
                 "trigger",
             )
