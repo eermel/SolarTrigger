@@ -204,7 +204,13 @@ def test_camera_sync_returns_404_when_worker_sync_fails_without_changing_state(
     response = client.post("/api/camera/sync_time")
 
     assert response.status_code == 404
-    assert "gphoto2 init failed" in response.get_json()["error"]
+
+    payload = response.get_json()
+    assert payload["error"] == "camera unavailable"
+    assert payload["code"] == "CAMERA_UNAVAILABLE"
+    assert payload["rig_id"] == 1
+    assert "gphoto2 init failed" not in payload["error"]
+
     assert state_store.snapshot() == before
     assert runtime.requested_rig_ids == [1]
 

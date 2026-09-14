@@ -2901,7 +2901,15 @@ def api_camera_sync_time():
                 raise RuntimeError("camera worker is unavailable")
             result = worker.sync_datetime(reference)
         except Exception as exc:
-            return jsonify({"error": f"No camera connected: {exc}"}), 404
+            log.warning(
+                "Camera time sync unavailable for rig 1: %s",
+                exc,
+            )
+            return jsonify({
+                "error": "camera unavailable",
+                "code": "CAMERA_UNAVAILABLE",
+                "rig_id": 1,
+            }), 404
 
         persisted_result = dict(result)
         persisted_result.update({
@@ -2967,51 +2975,107 @@ def api_eclipse_calculate():
 
     def _run():
         global _calc_proc
-        _append_log(f"▶ Python calculator: lat={lat} lon={lon} alt={alt} tz=+{tz_used} date={eclipse_date} (automatic timezone)", "info", "calculator")
+
+        _append_log(
+            f"▶ Python calculator: lat={lat} lon={lon} alt={alt} "
+            f"tz=+{tz_used} date={eclipse_date} (automatic timezone)",
+            "info",
+            "calculator",
+        )
+
         with _state_lock:
             _state["calc_running"] = True
 
-        # Émettre la timezone calculée au client avant le calcul
-        socketio.emit("state_update", {"timezone_override": tz_str_dst})
+        try:
+            # Émettre la timezone calculée au client avant le calcul
+            socketio.emit("state_update", {"timezone_override": tz_str_dst})
 
-        cmd = [sys.executable, str(CALC_SCRIPT),
-               "--lat", str(lat), "--lon", str(lon),
-               "--alt", str(alt), "--tz",  str(tz_used),
-               "--date", eclipse_date,
-               "--output", str(JSON_FILE)]
+            cmd = [
+                sys.executable,
+                str(CALC_SCRIPT),
+                "--lat",
+                str(lat),
+                "--lon",
+                str(lon),
+                "--alt",
+                str(alt),
+                "--tz",
+                str(tz_used),
+                "--date",
+                eclipse_date,
+                "--output",
+                str(JSON_FILE),
+            ]
 
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True,
-                                bufsize=1, cwd=str(TRIGGER_DIR))
-        _calc_proc = proc
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=str(TRIGGER_DIR),
+            )
+            _calc_proc = proc
 
-        for line in proc.stdout:
-            line = line.rstrip()
-            if not line:
-                continue
-            level = _ansi_to_level(line)
-            line  = _clean(line)
-            if line:  # peut être vide après suppression des codes ANSI seuls
-                _append_log(line, level, "calculator")
+            if proc.stdout is None:
+                raise RuntimeError("calculator stdout pipe is unavailable")
 
-        proc.wait()
-        rc = proc.returncode
+            for line in proc.stdout:
+                line = line.rstrip()
+                if not line:
+                    continue
+                level = _ansi_to_level(line)
+                line = _clean(line)
+                if line:
+                    _append_log(line, level, "calculator")
 
-        with _state_lock:
-            _state["calc_running"] = False
+            proc.wait()
+            rc = proc.returncode
 
-        if rc == 0 and JSON_FILE.exists():
-            result = _load_eclipse_json()
+            if rc == 0 and JSON_FILE.exists():
+                result = _load_eclipse_json()
+                with _state_lock:
+                    _state["eclipse"] = result
+                _save_state()
+
+                payload = {
+                    "status": "success",
+                    "data": result,
+                    "timezone_override": tz_str_dst,
+                }
+                socketio.emit("eclipse_calculated", payload)
+                _append_log(
+                    "✅ Calculation completed — todayeclipse.json generated.",
+                    "success",
+                    "calculator",
+                )
+            else:
+                socketio.emit(
+                    "eclipse_calculated",
+                    {"status": "error", "data": None},
+                )
+                _append_log(
+                    f"❌ Calculation failed (code {rc}).",
+                    "error",
+                    "calculator",
+                )
+
+        except Exception:
+            app.logger.exception("Python eclipse calculation failed")
+            socketio.emit(
+                "eclipse_calculated",
+                {"status": "error", "data": None},
+            )
+            _append_log(
+                "❌ Python calculator failed unexpectedly.",
+                "error",
+                "calculator",
+            )
+
+        finally:
             with _state_lock:
-                _state["eclipse"] = result
-            _save_state()
-            payload = {"status": "success", "data": result}
-            payload["timezone_override"] = tz_str_dst
-            socketio.emit("eclipse_calculated", payload)
-            _append_log("✅ Calculation completed — todayeclipse.json generated.", "success", "calculator")
-        else:
-            socketio.emit("eclipse_calculated", {"status": "error", "data": None})
-            _append_log(f"❌ Calculation failed (code {rc}).", "error", "calculator")
+                _state["calc_running"] = False
+            _calc_proc = None
 
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"status": "started"})
