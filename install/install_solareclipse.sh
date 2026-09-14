@@ -611,7 +611,9 @@ success "Virtual environment → $VENV_DIR"
 
 # Fichier wsgi.py
 cat > "$APP_DIR/wsgi.py" <<EOL
-from app import app, socketio
+from app import app, socketio, start_background_threads
+
+start_background_threads()
 
 if __name__ == "__main__":
     socketio.run(app)

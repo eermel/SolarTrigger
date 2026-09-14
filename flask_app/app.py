@@ -5219,10 +5219,11 @@ def api_trigger_start():
 def api_trigger_simulate():
     """Simulation explicite : le moteur reçoit --simulate et n'accède à aucun matériel caméra."""
     payload = request.get_json(silent=True) or {}
+    rig_id = payload.get("rig_id", 1)
     speed = payload.get("speed", 60.0)
     try:
         if not _trigger_service.start(
-            rig_id=payload.get("rig_id", 1),
+            rig_id=rig_id,
             simulate=True,
             speed=speed,
             selected=payload,
@@ -5233,6 +5234,13 @@ def api_trigger_simulate():
         if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
             return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), 400
+    except Exception:
+        app.logger.exception("Trigger simulation failed for RIG %s", rig_id)
+        return jsonify({
+            "error": "Trigger simulation failed.",
+            "code": "TRIGGER_SIMULATION_FAILED",
+            "rig_id": rig_id,
+        }), 500
 
 @app.route("/api/trigger/debug/clean", methods=["POST"])
 def api_trigger_debug_clean():
@@ -5317,6 +5325,14 @@ def api_trigger_dryrun():
             "rig_id": rig_id,
         }), 400
 
+    except Exception:
+        app.logger.exception("Trigger dry-run failed for RIG %s", rig_id)
+        return jsonify({
+            "error": "Trigger dry-run failed.",
+            "code": "TRIGGER_DRYRUN_FAILED",
+            "rig_id": rig_id,
+        }), 500
+
 
 @app.route("/api/trigger/debug", methods=["POST"])
 def api_trigger_debug():
@@ -5359,9 +5375,21 @@ def api_trigger_debug():
     except TriggerValidationError as exc:
         if destination_path is not None: destination_path.unlink(missing_ok=True)
         return jsonify({"error": str(exc), "code": exc.code, "rig_id": rig_id}), 400
-    except Exception as exc:
-        if destination_path is not None: destination_path.unlink(missing_ok=True)
-        return jsonify({"error": str(exc), "code": "DEBUG_START_FAILED", "rig_id": rig_id}), 500
+    except Exception:
+        if destination_path is not None:
+            try:
+                destination_path.unlink(missing_ok=True)
+            except OSError:
+                app.logger.exception(
+                    "Unable to remove failed DEBUG circumstances file for RIG %s",
+                    rig_id,
+                )
+        app.logger.exception("DEBUG start failed for RIG %s", rig_id)
+        return jsonify({
+            "error": "DEBUG start failed.",
+            "code": "DEBUG_START_FAILED",
+            "rig_id": rig_id,
+        }), 500
 
 @app.route("/api/trigger/stop", methods=["POST"])
 def api_trigger_stop():
@@ -5482,11 +5510,25 @@ def _restore_persisted_trigger_selections():
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+_background_threads_lock = threading.Lock()
+_background_threads_started = False
+
+
 def start_background_threads():
-    threading.Thread(target=_thread_status_broadcast, daemon=True).start()
-    threading.Thread(target=_thread_camera_poll,      daemon=True).start()
-    threading.Thread(target=_trim_log_file,           daemon=True).start()
+    """Start application background workers at most once per process."""
+    global _background_threads_started
+
+    with _background_threads_lock:
+        if _background_threads_started:
+            return False
+
+        threading.Thread(target=_thread_status_broadcast, daemon=True).start()
+        threading.Thread(target=_thread_camera_poll,      daemon=True).start()
+        threading.Thread(target=_trim_log_file,           daemon=True).start()
+        _background_threads_started = True
+
     log.info("Background threads started.")
+    return True
 
 # Init au démarrage
 _state = _load_state()
