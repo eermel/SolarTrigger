@@ -22,6 +22,7 @@ Dépendances :
 import argparse
 import glob
 import logging
+import math
 import os
 import re
 import subprocess
@@ -219,23 +220,29 @@ def parse_gpgga(sentence):
 # SYNCHRONISATION HEURE SYSTÈME
 # ──────────────────────────────────────────────────────────────────────────────
 
-def sync_system_time(dt_utc, dry_run=False):
-    """
-    Synchronise l'heure système Linux avec la datetime UTC fournie.
-    Requiert les droits root.
-    Retourne True si succès.
-    """
-    # Format attendu par 'date' : MMDDHHmmYYYY.SS
-    date_cmd = dt_utc.strftime("%m%d%H%M%Y.%S")
-
-    # Chemins absolus hardcodés — shutil.which() non fiable sous systemd (PATH vide)
-    _date_bin = "/usr/bin/date" if os.path.isfile("/usr/bin/date") else "/bin/date"
-    _hwclock_bin = "/sbin/hwclock" if os.path.isfile("/sbin/hwclock") else "/usr/sbin/hwclock"
-
-    # Si non-root, appeler sudo -n (non-interactif, échoue si mot de passe requis)
+def _system_clock_command_context():
+    """Return date/hwclock binaries and the non-interactive privilege prefix."""
+    date_bin = "/usr/bin/date" if os.path.isfile("/usr/bin/date") else "/bin/date"
+    hwclock_bin = "/sbin/hwclock" if os.path.isfile("/sbin/hwclock") else "/usr/sbin/hwclock"
     prefix = [] if os.geteuid() == 0 else ["/usr/bin/sudo", "-n"]
-    cmd = prefix + [_date_bin, "-u", date_cmd]
+    return date_bin, hwclock_bin, prefix
 
+
+def _update_hardware_clock(hwclock_bin, prefix):
+    subprocess.run(prefix + [hwclock_bin, "--systohc"], capture_output=True)
+    logging.info(f"{Colors.GREEN}✅ Hardware RTC updated.{Colors.RESET}")
+
+
+def sync_system_time(dt_utc, dry_run=False):
+    """Set the Linux system clock to an absolute UTC datetime, including usec."""
+    if dt_utc.tzinfo is None:
+        dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+    else:
+        dt_utc = dt_utc.astimezone(timezone.utc)
+
+    date_bin, hwclock_bin, prefix = _system_clock_command_context()
+    epoch_arg = f"@{dt_utc.timestamp():.6f}"
+    cmd = prefix + [date_bin, "-u", "--set", epoch_arg]
     logging.info(f"{Colors.CYAN}Sync command: {' '.join(cmd)}{Colors.RESET}")
 
     if dry_run:
@@ -244,21 +251,70 @@ def sync_system_time(dt_utc, dry_run=False):
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode == 0:
-            logging.info(f"{Colors.GREEN}✅ System clock synchronized: {dt_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC{Colors.RESET}")
-
-            # Synchroniser aussi le RTC hardware si présent
-            subprocess.run(prefix + [_hwclock_bin, "--systohc"], capture_output=True)
-            logging.info(f"{Colors.GREEN}✅ Hardware RTC updated.{Colors.RESET}")
-            return True
-        else:
-            logging.error(f"{Colors.RED}'date' failed (code {result.returncode}) : {result.stderr.strip()}{Colors.RESET}")
+        if result.returncode != 0:
+            logging.error(
+                f"{Colors.RED}'date' failed (code {result.returncode}) : "
+                f"{result.stderr.strip()}{Colors.RESET}"
+            )
             return False
-    except FileNotFoundError as e:
-        logging.error(f"{Colors.RED}Command not found: {e}{Colors.RESET}")
+        logging.info(
+            f"{Colors.GREEN}✅ System clock synchronized: "
+            f"{dt_utc.strftime('%Y-%m-%d %H:%M:%S.%f')} UTC{Colors.RESET}"
+        )
+        _update_hardware_clock(hwclock_bin, prefix)
+        return True
+    except FileNotFoundError as exc:
+        logging.error(f"{Colors.RED}Command not found: {exc}{Colors.RESET}")
         return False
-    except Exception as e:
-        logging.error(f"{Colors.RED}Clock synchronization error: {e}{Colors.RESET}")
+    except Exception as exc:
+        logging.error(f"{Colors.RED}Clock synchronization error: {exc}{Colors.RESET}")
+        return False
+
+
+def adjust_system_time(offset_seconds, dry_run=False):
+    """Apply a relative UTC correction to CLOCK_REALTIME, preserving sub-seconds.
+
+    GNU date evaluates the relative expression inside the privileged child
+    process, so process/sudo startup latency is not added to the requested
+    phone-minus-Pi correction.
+    """
+    try:
+        offset_seconds = float(offset_seconds)
+    except (TypeError, ValueError):
+        logging.error(f"{Colors.RED}Invalid clock offset: {offset_seconds!r}{Colors.RESET}")
+        return False
+    if not math.isfinite(offset_seconds) or abs(offset_seconds) > 315576000.0:
+        logging.error(f"{Colors.RED}Clock offset outside supported range{Colors.RESET}")
+        return False
+
+    date_bin, hwclock_bin, prefix = _system_clock_command_context()
+    relative_arg = f"{offset_seconds:+.6f} seconds"
+    cmd = prefix + [date_bin, "-u", "--set", relative_arg]
+    logging.info(f"{Colors.CYAN}Relative sync command: {' '.join(cmd)}{Colors.RESET}")
+
+    if dry_run:
+        logging.info(f"{Colors.CYAN}[DRY-RUN] Command that would be executed: {' '.join(cmd)}{Colors.RESET}")
+        return True
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logging.error(
+                f"{Colors.RED}'date' failed (code {result.returncode}) : "
+                f"{result.stderr.strip()}{Colors.RESET}"
+            )
+            return False
+        logging.info(
+            f"{Colors.GREEN}✅ System clock adjusted by "
+            f"{offset_seconds:+.6f} s{Colors.RESET}"
+        )
+        _update_hardware_clock(hwclock_bin, prefix)
+        return True
+    except FileNotFoundError as exc:
+        logging.error(f"{Colors.RED}Command not found: {exc}{Colors.RESET}")
+        return False
+    except Exception as exc:
+        logging.error(f"{Colors.RED}Clock synchronization error: {exc}{Colors.RESET}")
         return False
 
 def check_root():

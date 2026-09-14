@@ -2469,10 +2469,32 @@ def _sync_time_backend(gps_time, dry_run=False):
     from scripts.gps_sync import sync_system_time
     return sync_system_time(gps_time, dry_run=dry_run)
 
+
+def _adjust_time_backend(offset_seconds, dry_run=False):
+    from scripts.gps_sync import adjust_system_time
+    return adjust_system_time(offset_seconds, dry_run=dry_run)
+
 _gps_controller = GpsController(
     _state_store, GPS_CONFIG_FILE,
     timezone_fn=lambda lat, lon, eclipse_date=None: _backend_timezone(lat, lon, eclipse_date, log=log),
-    time_sync_fn=_sync_time_backend, log_fn=_append_log, emit_fn=_emit_backend)
+    time_sync_fn=_sync_time_backend, time_adjust_fn=_adjust_time_backend, log_fn=_append_log, emit_fn=_emit_backend)
+
+@app.route("/api/gps/smartphone/time_probe", methods=["POST"])
+def api_gps_smartphone_time_probe():
+    t2_ns = time.time_ns()
+    inactive = require_device_active("gps")
+    if inactive is not None:
+        return inactive
+    if _selected_device_plugin("gps") != "smartphone":
+        return jsonify({
+            "error": "Smartphone is not the selected GPS source.",
+            "code": "GPS_SOURCE_MISMATCH",
+        }), 409
+    t3_ns = time.time_ns()
+    return jsonify({
+        "t2_epoch_ms": t2_ns / 1_000_000.0,
+        "t3_epoch_ms": t3_ns / 1_000_000.0,
+    })
 
 @app.route("/api/gps/sync", methods=["POST"])
 @app.route("/api/gps/sync_time_location", methods=["POST"])

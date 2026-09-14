@@ -125,7 +125,7 @@ fi
 apt install -y avahi-daemon 2>/dev/null || true
 systemctl enable avahi-daemon
 systemctl start avahi-daemon
-success "mDNS enabled → portal available at http://$NEW_HOSTNAME.local"
+success "mDNS enabled → portal hostname: $NEW_HOSTNAME.local"
 
 # ════════════════════════════════════════════════════════════
 # STEP 2 — WiFi hotspot Pi (optionnel)
@@ -254,6 +254,7 @@ apt install -y \
     screen curl wget \
     gpsd gpsd-clients chrony socat \
     nginx \
+    openssl \
     usbutils \
     psmisc procps
 
@@ -615,32 +616,128 @@ if __name__ == "__main__":
     socketio.run(app)
 EOL
 
-# Configuration Nginx — proxy vers gunicorn/gthread (supporte WebSocket)
+# TLS local SolarTrigger — CA persistante dans var/tls.
+# L'iPhone doit installer UNE FOIS la CA publique puis activer sa confiance
+# complète. Le certificat serveur peut ensuite être régénéré sans réinstaller
+# la CA, puisqu'il reste signé par la même autorité locale.
+TLS_DIR="$VAR_DIR/tls"
+TLS_CA_KEY="$TLS_DIR/solartrigger-ca.key"
+TLS_CA_CERT="$TLS_DIR/solartrigger-ca.crt"
+TLS_SERVER_KEY="$TLS_DIR/solartrigger-server.key"
+TLS_SERVER_CERT="$TLS_DIR/solartrigger-server.crt"
+TLS_SERVER_CSR="$TLS_DIR/solartrigger-server.csr"
+TLS_SERVER_EXT="$TLS_DIR/solartrigger-server.ext"
+
+mkdir -p "$TLS_DIR"
+chown root:root "$TLS_DIR"
+chmod 711 "$TLS_DIR"
+
+if [ ! -s "$TLS_CA_KEY" ] || [ ! -s "$TLS_CA_CERT" ]; then
+    info "Generating persistent SolarTrigger local CA..."
+    rm -f "$TLS_CA_KEY" "$TLS_CA_CERT" "$TLS_DIR/solartrigger-ca.srl"
+    openssl req -x509 -newkey rsa:3072 -sha256 -nodes \
+        -keyout "$TLS_CA_KEY" \
+        -out "$TLS_CA_CERT" \
+        -days 3650 \
+        -subj "/CN=SolarTrigger Local CA" \
+        -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" \
+        -addext "subjectKeyIdentifier=hash"
+    chmod 600 "$TLS_CA_KEY"
+    chmod 644 "$TLS_CA_CERT"
+    success "SolarTrigger local CA created."
+else
+    info "Existing SolarTrigger local CA retained."
+fi
+
+CURRENT_IPV4="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+TLS_SAN="DNS:$NEW_HOSTNAME.local,DNS:$DOMAIN,IP:127.0.0.1,IP:192.168.50.1"
+if [[ "$CURRENT_IPV4" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    TLS_SAN="$TLS_SAN,IP:$CURRENT_IPV4"
+fi
+
+cat > "$TLS_SERVER_EXT" <<EOF
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=$TLS_SAN
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+EOF
+
+openssl req -new -newkey rsa:2048 -sha256 -nodes \
+    -keyout "$TLS_SERVER_KEY" \
+    -out "$TLS_SERVER_CSR" \
+    -subj "/CN=$NEW_HOSTNAME.local"
+
+openssl x509 -req \
+    -in "$TLS_SERVER_CSR" \
+    -CA "$TLS_CA_CERT" \
+    -CAkey "$TLS_CA_KEY" \
+    -CAcreateserial \
+    -out "$TLS_SERVER_CERT" \
+    -days 825 \
+    -sha256 \
+    -extfile "$TLS_SERVER_EXT"
+
+chown root:root \
+    "$TLS_DIR" \
+    "$TLS_CA_KEY" \
+    "$TLS_CA_CERT" \
+    "$TLS_SERVER_KEY" \
+    "$TLS_SERVER_CERT" \
+    "$TLS_SERVER_EXT"
+chmod 711 "$TLS_DIR"
+chmod 600 "$TLS_CA_KEY" "$TLS_SERVER_KEY"
+chmod 644 "$TLS_CA_CERT" "$TLS_SERVER_CERT" "$TLS_SERVER_EXT"
+rm -f "$TLS_SERVER_CSR"
+
 cat > /etc/nginx/sites-available/solareclipse <<EOL
 server {
     listen 80;
     server_name $DOMAIN $NEW_HOSTNAME.local _;
 
-    # WebSocket SocketIO
+    location = /solartrigger-ca.crt {
+        alias $TLS_CA_CERT;
+        default_type application/x-x509-ca-cert;
+        add_header Cache-Control "no-store";
+        add_header Content-Disposition "attachment; filename=solartrigger-ca.crt";
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name $DOMAIN $NEW_HOSTNAME.local _;
+
+    ssl_certificate     $TLS_SERVER_CERT;
+    ssl_certificate_key $TLS_SERVER_KEY;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
     location /socket.io/ {
         proxy_pass         http://127.0.0.1:$FLASK_PORT/socket.io/;
         proxy_http_version 1.1;
         proxy_set_header   Upgrade \$http_upgrade;
         proxy_set_header   Connection "upgrade";
         proxy_set_header   Host \$host;
+        proxy_set_header   X-Forwarded-Proto https;
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Application Flask
     location / {
         proxy_pass         http://127.0.0.1:$FLASK_PORT;
         proxy_set_header   Host \$host;
         proxy_set_header   X-Real-IP \$remote_addr;
         proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto https;
         proxy_read_timeout 120s;
     }
 
-    # Fichiers statiques (sons WAV, CSS, JS) — servis directement par Nginx
     location /static/ {
         alias $APP_DIR/static/;
         expires 1h;
@@ -652,7 +749,7 @@ EOL
 rm -f /etc/nginx/sites-enabled/default
 ln -sf /etc/nginx/sites-available/solareclipse /etc/nginx/sites-enabled/
 nginx -t && systemctl restart nginx
-success "Nginx configured → proxy Flask:$FLASK_PORT"
+success "Nginx configured → HTTPS portal + HTTP CA bootstrap"
 
 # Résoudre les chemins CAMLIBS / IOLIBS réels de la libgphoto2 compilée.
 # Le trigger étant désormais lancé par le portail, cet environnement doit
@@ -823,7 +920,7 @@ cat > "$BIN_DIR/start_portal.sh" <<EOL
 #!/bin/bash
 # Démarre le portail web SolarEclipse manuellement
 sudo systemctl start solareclipse
-echo "Portal started → http://$NEW_HOSTNAME.local"
+echo "Portal started → https://$NEW_HOSTNAME.local"
 EOL
 
 cat > "$BIN_DIR/stop_portal.sh" <<EOL
@@ -892,7 +989,9 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║   SolarEclipse installation completed successfully!      ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  ${CYAN}Portail web${NC}     : ${YELLOW}http://$NEW_HOSTNAME.local${NC}"
+echo -e "  ${CYAN}Portail web${NC}     : ${YELLOW}https://$NEW_HOSTNAME.local${NC}"
+echo -e "  ${CYAN}CA iPhone${NC}       : ${YELLOW}http://$NEW_HOSTNAME.local/solartrigger-ca.crt${NC}"
+echo -e "  ${CYAN}iPhone setup${NC}    : Safari → install CA profile, then Settings → General → About → Certificate Trust Settings → enable full trust."
 echo -e "  ${CYAN}Hotspot WiFi${NC}    : ${YELLOW}$WIFI_SSID${NC} / ${YELLOW}$WIFI_PASS${NC}"
 echo -e "  ${CYAN}Application${NC}     : ${YELLOW}$APP_DIR${NC}"
 echo -e "  ${CYAN}Scripts runtime${NC} : ${YELLOW}$SCRIPTS_DIR${NC}"
