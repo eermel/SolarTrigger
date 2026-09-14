@@ -140,6 +140,7 @@ def _make_service(tmp_path, runtime):
     eclipse.write_text(
         json.dumps(
             {
+                "_date": datetime.now(timezone.utc).date().isoformat(),
                 "TSTART": "10:00:00",
                 "C1": "10:10:00",
                 "C2": "10:20:00",

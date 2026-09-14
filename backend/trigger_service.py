@@ -411,7 +411,13 @@ class TriggerService:
         self._active_photo_paths.pop(rig_id, None)
         self._active_exposure_opt_paths.pop(rig_id, None)
 
-    def validate_start(self, rig_id=1, require_gps=True, selected=None):
+    def validate_start(
+        self,
+        rig_id=1,
+        require_gps=True,
+        selected=None,
+        strict_circumstances_date=True,
+    ):
         if require_gps:
             gps = self.state.snapshot("gps") or {}
             if not gps.get("synced"):
@@ -478,6 +484,31 @@ class TriggerService:
             )
             if not isinstance(ecl, dict):
                 raise ValueError("invalid JSON root")
+
+            if strict_circumstances_date:
+                raw_date = ecl.get("_date")
+                if not isinstance(raw_date, str) or not raw_date.strip():
+                    raise TriggerValidationError(
+                        "Circumstances file is missing required _date (YYYY-MM-DD).",
+                        "CIRCUMSTANCES_DATE_INVALID",
+                    )
+                normalized_date = raw_date.strip()
+                try:
+                    parsed_date = datetime.strptime(
+                        normalized_date,
+                        "%Y-%m-%d",
+                    ).date()
+                except ValueError as exc:
+                    raise TriggerValidationError(
+                        "Circumstances _date is invalid; expected YYYY-MM-DD.",
+                        "CIRCUMSTANCES_DATE_INVALID",
+                    ) from exc
+                if parsed_date.isoformat() != normalized_date:
+                    raise TriggerValidationError(
+                        "Circumstances _date is invalid; expected YYYY-MM-DD.",
+                        "CIRCUMSTANCES_DATE_INVALID",
+                    )
+
             validate_eclipse(ecl)
             photo = json.loads(paths["photo"].read_text(encoding="utf-8"))
             exposure_opt = json.loads(
@@ -497,7 +528,11 @@ class TriggerService:
                 raise ValueError(f"Exposure Optimization has no RIG {rig_id}")
             timeline = build_timeline(
                 ecl,
-                fallback_date=datetime.now(timezone.utc).date(),
+                fallback_date=(
+                    None
+                    if strict_circumstances_date
+                    else datetime.now(timezone.utc).date()
+                ),
             )
             build_phase_schedule(
                 timeline,
@@ -555,6 +590,7 @@ class TriggerService:
                     rig_id=rig_id,
                     require_gps=not simulate,
                     selected=selected,
+                    strict_circumstances_date=not (simulate or dry_run),
                 )
             except Exception:
                 self._starting_by_rig[rig_id] = False
