@@ -176,6 +176,7 @@ def _camera_process_main(
                 )
 
             except BaseException as exc:
+                fatal = not isinstance(exc, Exception)
                 _safe_send(
                     conn,
                     {
@@ -183,8 +184,14 @@ def _camera_process_main(
                         "class": type(exc).__name__,
                         "code": getattr(exc, "code", None),
                         "message": str(exc),
+                        "fatal": fatal,
                     },
                 )
+                # Fatal/control-flow BaseException subclasses mean the child
+                # generation is no longer trustworthy.  Do not keep serving
+                # commands after reporting the failure to the parent.
+                if fatal:
+                    break
 
     finally:
         # Never allow graceful child cleanup to become another unbounded wait.
@@ -504,6 +511,14 @@ class ProcessCameraWorker:
         code = message.get("code")
         class_name = str(message.get("class") or "")
         text = str(message.get("message") or "camera child error")
+
+        if message.get("fatal") is True:
+            self._last_failure = (
+                f"camera child fatal {class_name or 'BaseException'} "
+                f"during {operation}: {text}"
+            )
+            self._kill_current_locked()
+            raise WorkerUnavailableError(self._last_failure)
 
         if code == "WORKER_TIMEOUT":
             # The child GenericWorker timed out while its hardware thread may
