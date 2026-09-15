@@ -1154,20 +1154,26 @@ class TriggerService:
         if not hasattr(signal, "SIGUSR1"):
             return False
 
+        signal_error = None
         with self._lock:
             proc = self._procs[rig_id]
+            if proc is None or proc.poll() is not None:
+                return False
 
-        if proc is None or proc.poll() is not None:
-            return False
-
-        with self._lock:
+            previous_suppression = self._analysis_suppressed_by_rig[rig_id]
             self._analysis_suppressed_by_rig[rig_id] = True
 
-        try:
-            proc.send_signal(signal.SIGUSR1)
-        except Exception as exc:
+            try:
+                # Keep this short syscall inside the lock so STOP and another
+                # override cannot race a rollback after failed signal delivery.
+                proc.send_signal(signal.SIGUSR1)
+            except Exception as exc:
+                self._analysis_suppressed_by_rig[rig_id] = previous_suppression
+                signal_error = exc
+
+        if signal_error is not None:
             self.log(
-                f"Totality override error: {exc}",
+                f"Totality override error: {signal_error}",
                 "error",
                 "trigger",
             )
