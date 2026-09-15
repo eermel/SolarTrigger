@@ -1002,21 +1002,32 @@ class TriggerService:
                     line, event_level, public_phase = self._runtime_log_event(line)
                     if event_level is not None:
                         level = event_level
-                    if line.startswith("TRIGGER_RUN_ANALYSIS "):
-                        with self._lock:
-                            suppress_analysis = self._analysis_suppressed_by_rig[rig_id]
-                        if suppress_analysis:
-                            continue
-                    if public_phase is not None:
-                        self._set_phase(rig_id, public_phase)
-                    elif "PHASE 1a" in line:
-                        self._set_phase(rig_id, "partial")
-                    elif "PHASE 1b" in line or "DIAMOND RING" in line:
-                        self._set_phase(rig_id, "diamond_ring")
-                    elif "PHASE 2" in line:
-                        self._set_phase(rig_id, "totality")
-                    elif "PHASE 3a" in line or "PHASE 3b" in line:
-                        self._set_phase(rig_id, "partial_end")
+                    with self._lock:
+                        suppress_runtime_updates = (
+                            self._analysis_suppressed_by_rig[rig_id]
+                        )
+                    if (
+                        line.startswith("TRIGGER_RUN_ANALYSIS ")
+                        and suppress_runtime_updates
+                    ):
+                        continue
+
+                    # Emergency Totality and STOP make the parent-side phase
+                    # authoritative immediately.  Keep draining/logging the
+                    # old child stdout, but never let buffered TRIGGER_PHASE
+                    # lines overwrite totality_override (or a stopping state)
+                    # after suppression has been armed.
+                    if not suppress_runtime_updates:
+                        if public_phase is not None:
+                            self._set_phase(rig_id, public_phase)
+                        elif "PHASE 1a" in line:
+                            self._set_phase(rig_id, "partial")
+                        elif "PHASE 1b" in line or "DIAMOND RING" in line:
+                            self._set_phase(rig_id, "diamond_ring")
+                        elif "PHASE 2" in line:
+                            self._set_phase(rig_id, "totality")
+                        elif "PHASE 3a" in line or "PHASE 3b" in line:
+                            self._set_phase(rig_id, "partial_end")
                     self._log_rig(rig_id, line, level)
                 except Exception as line_exc:
                     # Observability must never terminate supervision of the
