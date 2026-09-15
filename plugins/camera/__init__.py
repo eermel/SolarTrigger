@@ -91,18 +91,34 @@ def get_camera_model(camera):
 
 
 def load_plugin(camera, log_fn=print):
-    """Detect the body and return the most specific runtime plugin.
+    """Return the runtime executor for the detected camera.
 
-    A characterization profile describes capabilities, values and timing. It
-    must never replace a hardware-specific execution plugin. Specialized
-    plugins therefore get first refusal. ProfilePlugin is only the generic
-    fallback for characterized cameras without a dedicated hardware executor.
+    A successfully characterized profile is the runtime authority.  The same
+    ProfilePlugin path used during operational qualification must therefore be
+    used on eclipse day; otherwise characterization could validate one
+    execution engine while a brand-specific legacy plugin executes another.
+
+    Hardware-specific Sony/Nikon/etc. plugins remain compatibility fallbacks
+    only for cameras which do not have a valid characterized profile.
     """
     model = get_camera_model(camera)
     from backend.camera_profiles import profile_for_model
     from .profile import ProfilePlugin
 
     profile = profile_for_model(model)
+
+    if profile is not None:
+        strategy = profile.get("strategy")
+        strategy_text = (
+            f", strategy={strategy}"
+            if isinstance(strategy, str) and strategy
+            else ""
+        )
+        log_fn(
+            f"Characterized camera profile selected: {profile['backend']} "
+            f"(model '{model}'{strategy_text})"
+        )
+        return ProfilePlugin(camera, log_fn, profile)
 
     for plugin_cls in _load_plugin_classes():
         try:
@@ -130,14 +146,10 @@ def load_plugin(camera, log_fn=print):
             )
             raise
 
-    if profile is not None:
-        log_fn(
-            f"Generic camera profile selected: {profile['backend']} "
-            f"(model '{model}')"
-        )
-        return ProfilePlugin(camera, log_fn, profile)
-
-    log_fn(f"No plugin for model '{model}'")
+    log_fn(
+        f"No characterized camera profile for model '{model}'; "
+        "using legacy plugin fallback only if one matched"
+    )
     return None
 
 

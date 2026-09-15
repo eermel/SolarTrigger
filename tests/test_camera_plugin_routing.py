@@ -33,7 +33,7 @@ class _Specialized:
 
 
 
-def test_characterized_camera_prefers_specialized_plugin(monkeypatch):
+def test_characterized_camera_prefers_profile_plugin(monkeypatch):
     profile = {
         "backend": "profile-test",
         "model": "Sony ILCE-7M5 (PC Control)",
@@ -47,10 +47,13 @@ def test_characterized_camera_prefers_specialized_plugin(monkeypatch):
     monkeypatch.setattr(
         camera_plugins,
         "_load_plugin_classes",
-        lambda: [_Specialized],
+        lambda: pytest.fail(
+            "legacy specialized plugins must not be consulted for a characterized camera"
+        ),
     )
 
     import backend.camera_profiles as camera_profiles
+    import plugins.camera.profile as profile_module
 
     monkeypatch.setattr(
         camera_profiles,
@@ -58,12 +61,20 @@ def test_characterized_camera_prefers_specialized_plugin(monkeypatch):
         lambda _model: profile,
     )
 
+    class _Profile:
+        def __init__(self, camera, log_fn, selected_profile):
+            self.camera = camera
+            self.profile = selected_profile
+
+    monkeypatch.setattr(profile_module, "ProfilePlugin", _Profile)
+
     plugin = camera_plugins.load_plugin(_FakeCamera(), log_fn=lambda _msg: None)
 
-    assert isinstance(plugin, _Specialized)
+    assert isinstance(plugin, _Profile)
+    assert plugin.profile is profile
 
 
-def test_characterized_camera_uses_profile_plugin_only_without_specialized_match(
+def test_characterized_camera_uses_profile_plugin_without_consulting_specialized_plugins(
     monkeypatch,
 ):
     profile = {
@@ -79,7 +90,9 @@ def test_characterized_camera_uses_profile_plugin_only_without_specialized_match
     monkeypatch.setattr(
         camera_plugins,
         "_load_plugin_classes",
-        lambda: [],
+        lambda: pytest.fail(
+            "legacy registry must not be consulted for a characterized camera"
+        ),
     )
 
     import backend.camera_profiles as camera_profiles

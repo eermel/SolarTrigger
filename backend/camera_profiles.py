@@ -233,21 +233,14 @@ def profile_for_model(model, directory=None):
 
 
 def is_characterized_model(manufacturer, model):
-    profile = profile_for_model(model)
-    if profile:
-        return normalized(profile["manufacturer"]) == normalized(manufacturer)
+    """Return True only for a valid published characterization profile.
 
-    # Legacy timing-only configurations remain recognized during migration.
-    for path in sorted((PROFILE_DIR.parent / "camera_timing").glob("*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if (
-                not str(data.get("backend", "")).startswith("profile-")
-                and data.get("config_type") == "camera_timing"
-                and normalized(data.get("manufacturer")) == normalized(manufacturer)
-                and normalized(data.get("model")) == normalized(model)
-            ):
-                return True
-        except (OSError, ValueError, TypeError):
-            continue
-    return False
+    Timing-only legacy files are evidence, not executable qualification.
+    Runtime characterization status follows the camera_profile JSON because it
+    contains the discovered commands, the sequential/bracket strategy and the
+    validated timing contract consumed by ProfilePlugin.
+    """
+    profile = profile_for_model(model)
+    if profile is None:
+        return False
+    return normalized(profile["manufacturer"]) == normalized(manufacturer)
