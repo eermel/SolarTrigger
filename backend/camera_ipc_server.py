@@ -179,6 +179,10 @@ class CameraIpcServer:
             tuple[str | None, int, Any]
             | tuple[str | None, int, Any, dict[str, Any]],
         ] = {}
+        # In-flight prepare_capture calls reserve capacity before releasing the
+        # state lock for hardware work.  Without this, concurrent requests can
+        # all observe the same token count and oversubscribe the per-RIG cap.
+        self._prepare_reservations: dict[tuple[str | None, int], int] = {}
         self._rig_iso_targets: dict[int, int] = {}
         self._rig_plan_cache = RigPlanCache()
 
@@ -387,6 +391,7 @@ class CameraIpcServer:
         with self._state_lock:
             self._active_sessions.clear()
             self._tokens.clear()
+            self._prepare_reservations.clear()
             self._rig_iso_targets.clear()
 
     def _remove_stale_socket(self) -> None:
@@ -768,17 +773,20 @@ class CameraIpcServer:
             except (TypeError, ValueError) as exc:
                 raise IpcError("INVALID_REQUEST", "invalid capture intent") from exc
             rig_id, worker = self._worker(params, allowed=allowed)
+            reservation_key = (session, rig_id)
             with self._state_lock:
                 outstanding = sum(
                     1
                     for value in self._tokens.values()
                     if value[0] == session and value[1] == rig_id
                 )
-            if outstanding >= MAX_PREPARED_TOKENS_PER_RIG:
-                raise IpcError(
-                    "TOO_MANY_PREPARED",
-                    "too many unconsumed prepared captures for this camera RIG",
-                )
+                reserved = self._prepare_reservations.get(reservation_key, 0)
+                if outstanding + reserved >= MAX_PREPARED_TOKENS_PER_RIG:
+                    raise IpcError(
+                        "TOO_MANY_PREPARED",
+                        "too many unconsumed prepared captures for this camera RIG",
+                    )
+                self._prepare_reservations[reservation_key] = reserved + 1
 
             policy_getter = getattr(self._runtime, "get_policy_config_for_rig", None)
             policy = policy_getter(rig_id) if policy_getter is not None else None
@@ -853,44 +861,85 @@ class CameraIpcServer:
                         "corrections": corrections,
                         "warnings": warnings,
                     }
-            prepared = self._call_worker(worker.prepare_capture, intent)
-            token_id = secrets.token_urlsafe(24)
-            context = {
-                "rig_id": rig_id,
-                "phase": intent.phase,
-                "target_time": intent.target_time.isoformat(),
-                "deadline": (
-                    intent.deadline.isoformat() if intent.deadline is not None else None
-                ),
-                "request_id": request_id,
-                "exposures_s": prepared.exposures_s,
-                "planned_count": prepared.planned_count,
-                "plugin_name": prepared.plugin_name,
-                "iso_applied": None,
-                "corrections": None,
-                "warnings": None,
-                "plan_version": version,
-            }
-            if augmented is not None:
-                context.update(augmented)
-            with self._state_lock:
-                # Keep the complete PreparedCapture inside the server.  Its
-                # ``token`` member is opaque plugin state, but both
-                # CameraService and camera plugins consume the wrapper so
-                # they can also use planned_count/materialized metadata.
-                self._tokens[token_id] = (session, rig_id, prepared, context)
-            response = {
-                "token_id": token_id,
-                "estimated_total_s": prepared.estimated_total_s,
-                "exposures_s": prepared.exposures_s,
-                "planned_count": prepared.planned_count,
-                "plugin_name": prepared.plugin_name,
-                "request_id": request_id,
-                "plan_version": version,
-            }
-            if augmented is not None:
-                response.update(augmented)
-            return response
+            prepared = None
+            published = False
+            try:
+                prepared = self._call_worker(worker.prepare_capture, intent)
+                token_id = secrets.token_urlsafe(24)
+                context = {
+                    "rig_id": rig_id,
+                    "phase": intent.phase,
+                    "target_time": intent.target_time.isoformat(),
+                    "deadline": (
+                        intent.deadline.isoformat() if intent.deadline is not None else None
+                    ),
+                    "request_id": request_id,
+                    "exposures_s": prepared.exposures_s,
+                    "planned_count": prepared.planned_count,
+                    "plugin_name": prepared.plugin_name,
+                    "iso_applied": None,
+                    "corrections": None,
+                    "warnings": None,
+                    "plan_version": version,
+                }
+                if augmented is not None:
+                    context.update(augmented)
+                with self._state_lock:
+                    # A real IPC lease may have been revoked while the camera
+                    # was preparing.  Never resurrect a token for a dead
+                    # session.  Direct in-process compatibility calls use
+                    # session=None and are intentionally exempt.
+                    if session is not None and session not in self._active_sessions:
+                        session_active = False
+                    else:
+                        session_active = True
+                        # Keep the complete PreparedCapture inside the server.
+                        # Its ``token`` member is opaque plugin state, but both
+                        # CameraService and camera plugins consume the wrapper.
+                        self._tokens[token_id] = (
+                            session,
+                            rig_id,
+                            prepared,
+                            context,
+                        )
+                        published = True
+
+                if not session_active:
+                    discard = getattr(worker, "discard_prepared", None)
+                    if callable(discard):
+                        try:
+                            discard(prepared)
+                        except Exception as exc:
+                            self._safe_log(
+                                f"camera IPC prepared-token cleanup failed for RIG {rig_id}",
+                                exc,
+                            )
+                    raise IpcError(
+                        "INVALID_SESSION",
+                        "camera IPC session is not active",
+                    )
+
+                response = {
+                    "token_id": token_id,
+                    "estimated_total_s": prepared.estimated_total_s,
+                    "exposures_s": prepared.exposures_s,
+                    "planned_count": prepared.planned_count,
+                    "plugin_name": prepared.plugin_name,
+                    "request_id": request_id,
+                    "plan_version": version,
+                }
+                if augmented is not None:
+                    response.update(augmented)
+                return response
+            finally:
+                with self._state_lock:
+                    remaining = self._prepare_reservations.get(
+                        reservation_key, 0
+                    ) - 1
+                    if remaining > 0:
+                        self._prepare_reservations[reservation_key] = remaining
+                    else:
+                        self._prepare_reservations.pop(reservation_key, None)
         if operation == "trigger_prepared":
             token_id = params.get("token_id")
             if not isinstance(token_id, str) or not token_id:
