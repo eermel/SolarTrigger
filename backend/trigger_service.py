@@ -1272,10 +1272,45 @@ class TriggerService:
             with self._lock:
                 self._starting_by_rig[rig_id] = False
                 self._analysis_suppressed_by_rig[rig_id] = False
+                self._manual_stop_requested_by_rig[rig_id] = False
+                self._cancel_start_requested_by_rig[rig_id] = False
                 self._supervisor_threads[rig_id] = None
                 self._clear_active_inputs(rig_id)
+
             if ipc_session is not None and self.camera_runtime is not None:
-                self.camera_runtime.close_ipc_session(ipc_session.session_id)
+                try:
+                    self.camera_runtime.close_ipc_session(
+                        ipc_session.session_id
+                    )
+                except Exception as close_exc:
+                    self._log_rig(
+                        rig_id,
+                        f"Camera IPC session close error: {close_exc}",
+                        "error",
+                    )
+
+            # Emergency Totality publishes running/totality_override before
+            # starting its supervisor thread.  If thread creation/start fails,
+            # roll that externally visible state back exactly like normal
+            # start() does; otherwise the UI can remain stuck on a run that
+            # never existed.
+            try:
+                self.state.update_trigger_rig(
+                    rig_id,
+                    {
+                        "running": False,
+                        "phase": "idle",
+                        "mode": None,
+                        "speed": None,
+                    },
+                )
+                self.emit(
+                    "trigger_phase",
+                    {"rig_id": rig_id, "phase": "idle"},
+                )
+            except Exception:
+                pass
+
             raise
 
     def stop(self, rig_id=1):
