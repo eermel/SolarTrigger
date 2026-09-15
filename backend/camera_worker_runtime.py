@@ -316,6 +316,26 @@ class CameraWorkerRuntime:
                         + ", ".join(str(rig_id) for rig_id in sorted(missing))
                     )
 
+            # Keep runtime-side ownership authoritative as well as the IPC
+            # server's ownership. During close_ipc_session(), revoke_session()
+            # may spend time cleaning prepared state after it has already
+            # removed the server-side session. A new overlapping lease must not
+            # enter during that cleanup window.
+            requested_scope = (
+                None
+                if rig_ids is None
+                else frozenset(allowed)
+            )
+            for active_scope in self._ipc_session_rigs.values():
+                if requested_scope is None or active_scope is None:
+                    raise RuntimeError(
+                        "another camera IPC session already owns this camera scope"
+                    )
+                if requested_scope & active_scope:
+                    raise RuntimeError(
+                        "another camera IPC session already owns one of these RIGs"
+                    )
+
             server = self._ipc_server
             if server is None:
                 server = self._ipc_server_factory(
@@ -346,9 +366,7 @@ class CameraWorkerRuntime:
                     self._leased_policy_configs[rig_id] = deepcopy(policy)
 
             self._ipc_session_ids.add(session_id)
-            self._ipc_session_rigs[session_id] = (
-                None if rig_ids is None else frozenset(allowed)
-            )
+            self._ipc_session_rigs[session_id] = requested_scope
             socket_path = str(Path(server.socket_path).absolute())
             return CameraIpcSession(
                 socket_path=socket_path,
@@ -358,21 +376,16 @@ class CameraWorkerRuntime:
     def close_ipc_session(self, session_id: str) -> None:
         """Revoke an IPC lease and stop the server after its final session."""
 
-        # Make the runtime lease registry authoritative immediately, but never
-        # hold the global runtime lock while revoke_session() performs
-        # best-effort prepared-token cleanup. That cleanup may need to wait for
-        # a busy/unresponsive camera process and must not block other RIGs.
+        # Keep the runtime lease registered until revoke_session() has finished
+        # its best-effort prepared-token cleanup. The server removes its own
+        # session before that cleanup runs, so dropping runtime ownership early
+        # would let reconcile() replace the worker while stale prepared state is
+        # still being discarded.
         with self._lock:
             if session_id not in self._ipc_session_ids or self._ipc_server is None:
                 raise ValueError("camera IPC session is not active")
             server = self._ipc_server
-            scope = self._ipc_session_rigs.pop(session_id, None)
-            self._ipc_session_ids.remove(session_id)
-            if scope is None:
-                self._leased_policy_configs.clear()
-            else:
-                for rig_id in scope:
-                    self._leased_policy_configs.pop(rig_id, None)
+            scope = self._ipc_session_rigs.get(session_id)
 
         revoke_error = None
         try:
@@ -382,9 +395,18 @@ class CameraWorkerRuntime:
 
         stop_server = False
         with self._lock:
-            # Another RIG may have opened a new lease while revocation was in
-            # progress. Stop only if this is still the same server and it has
-            # no registered sessions.
+            # Runtime ownership ends only after revocation/cleanup completed.
+            self._ipc_session_ids.discard(session_id)
+            self._ipc_session_rigs.pop(session_id, None)
+            if scope is None:
+                self._leased_policy_configs.clear()
+            else:
+                for rig_id in scope:
+                    self._leased_policy_configs.pop(rig_id, None)
+
+            # Another disjoint RIG may have opened a lease while revocation was
+            # in progress. Stop only if this is still the same server and no
+            # runtime leases remain.
             if self._ipc_server is server and not self._ipc_session_ids:
                 self._ipc_server = None
                 stop_server = True

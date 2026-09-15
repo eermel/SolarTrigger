@@ -1,6 +1,6 @@
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import ModuleType
 
 import pytest
@@ -43,7 +43,7 @@ def _configure_trigger_route(
     eclipse_file.write_text(
         json.dumps(
             {
-                "_date": (eclipse_date or datetime.now().astimezone().date()).isoformat(),
+                "_date": (eclipse_date or datetime.now(timezone.utc).date()).isoformat(),
                 "TSTART": "10:00:00",
                 "C1": "10:10:00",
                 "C2": "10:20:00",
@@ -273,7 +273,7 @@ def test_trigger_start_does_not_require_legacy_global_capture(
 def test_trigger_start_rejects_operator_selected_wrong_circumstances_date(
     tmp_path, monkeypatch
 ):
-    another_date = datetime.now().astimezone().date() + timedelta(days=30)
+    another_date = datetime.now(timezone.utc).date() + timedelta(days=30)
     client = _configure_trigger_route(
         tmp_path,
         monkeypatch,
@@ -579,7 +579,7 @@ def test_boot_does_not_restore_missing_capture_file(tmp_path, monkeypatch):
 
 
 def test_trigger_dryrun_accepts_circumstances_from_another_date(tmp_path, monkeypatch):
-    another_date = datetime.now().astimezone().date() + timedelta(days=30)
+    another_date = datetime.now(timezone.utc).date() + timedelta(days=30)
     client = _configure_trigger_route(
         tmp_path,
         monkeypatch,
@@ -603,7 +603,7 @@ def test_trigger_dryrun_accepts_circumstances_from_another_date(tmp_path, monkey
 def test_trigger_simulation_accepts_circumstances_from_another_date(
     tmp_path, monkeypatch
 ):
-    another_date = datetime.now().astimezone().date() + timedelta(days=30)
+    another_date = datetime.now(timezone.utc).date() + timedelta(days=30)
     client = _configure_trigger_route(
         tmp_path,
         monkeypatch,
