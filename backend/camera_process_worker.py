@@ -427,9 +427,28 @@ class ProcessCameraWorker:
         self._kill_current_locked()
         raise WorkerUnavailableError(self._last_failure)
 
-    def _remote_call(self, operation: str, *args, **kwargs):
+    def _remote_call(
+        self,
+        operation: str,
+        *args,
+        _expected_generation: int | None = None,
+        **kwargs,
+    ):
         with self._lock:
-            self._ensure_process_locked()
+            if _expected_generation is None:
+                self._ensure_process_locked()
+            else:
+                process = self._process
+                if (
+                    self._generation != _expected_generation
+                    or process is None
+                    or not process.is_alive()
+                    or self._conn is None
+                ):
+                    raise WorkerUnavailableError(
+                        "prepared capture belongs to a previous "
+                        "camera worker generation"
+                    )
 
             process = self._process
             conn = self._conn
@@ -620,6 +639,38 @@ class ProcessCameraWorker:
                 conn.close()
             except OSError:
                 pass
+
+    def prepare_capture(self, *args, **kwargs):
+        # Bind the opaque child token to the exact process generation which
+        # created it. Keep the lock across the RPC return and annotation so a
+        # concurrent caller cannot respawn the child and make us stamp the
+        # token with the wrong generation.
+        with self._lock:
+            prepared = self._remote_call("prepare_capture", *args, **kwargs)
+            try:
+                setattr(prepared, "_process_worker_generation", self._generation)
+            except Exception:
+                pass
+            return prepared
+
+    def trigger_prepared(self, prepared, *args, **kwargs):
+        expected_generation = getattr(
+            prepared,
+            "_process_worker_generation",
+            None,
+        )
+        if (
+            isinstance(expected_generation, int)
+            and not isinstance(expected_generation, bool)
+        ):
+            return self._remote_call(
+                "trigger_prepared",
+                prepared,
+                *args,
+                _expected_generation=expected_generation,
+                **kwargs,
+            )
+        return self._remote_call("trigger_prepared", prepared, *args, **kwargs)
 
     def __getattr__(self, name: str):
         if name not in self._REMOTE_METHODS:
