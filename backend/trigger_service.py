@@ -1074,20 +1074,32 @@ class TriggerService:
                 except Exception as exc:
                     self.log(f"Camera IPC session close error: {exc}","error","trigger")
 
+            process_still_alive = (
+                proc is not None and proc.poll() is None
+            )
+
             with self._lock:
                 owns_process = self._procs[rig_id] is proc
                 manual_stop_requested = self._manual_stop_requested_by_rig[rig_id]
-                if owns_process:
+                if owns_process and not process_still_alive:
                     self._procs[rig_id] = None
                     self._starting_by_rig[rig_id] = False
                     self._clear_active_inputs(rig_id)
                     self._analysis_suppressed_by_rig[rig_id] = False
                     self._manual_stop_requested_by_rig[rig_id] = False
                     self._cancel_start_requested_by_rig[rig_id] = False
+                elif owns_process and process_still_alive:
+                    # Supervision is ending but the child resisted every
+                    # terminate/kill attempt. Never publish a false idle state
+                    # or discard the only process reference. Camera IPC has
+                    # already been revoked above, so the orphan cannot keep
+                    # controlling hardware; STOP can still retry termination.
+                    self._analysis_suppressed_by_rig[rig_id] = True
+                    self._starting_by_rig[rig_id] = False
                 if self._supervisor_threads[rig_id] is threading.current_thread():
                     self._supervisor_threads[rig_id] = None
 
-            if owns_process:
+            if owns_process and not process_still_alive:
                 self.state.update_trigger_rig(
                     rig_id,
                     {
@@ -1100,6 +1112,13 @@ class TriggerService:
                 self.emit(
                     "trigger_phase",
                     {"rig_id": rig_id, "phase": "idle"},
+                )
+            elif owns_process and process_still_alive:
+                self._log_rig(
+                    rig_id,
+                    "TRIGGER SUPERVISION FAILED: child process is still alive; "
+                    "camera IPC revoked and process retained for STOP.",
+                    "error",
                 )
 
             code = proc.returncode if proc else "?"
