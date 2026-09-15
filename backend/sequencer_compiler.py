@@ -544,14 +544,22 @@ def materialize_capture_target_for_rig(
         original_plan,
     )
 
-    plan, atmos_applied, _atmos_last_shutter = (
-        apply_atmos_if_enabled(
-            rig,
-            original_plan,
-            target.target_time,
-            eclipse_context,
+    # Product policy: atmospheric attenuation correction is valid only
+    # during the partial phases. It must never alter Diamond Ring or
+    # totality exposures, i.e. from C2-DR through C3+DR inclusive.
+    if target.phase == "partial":
+        plan, atmos_applied, _atmos_last_shutter = (
+            apply_atmos_if_enabled(
+                rig,
+                original_plan,
+                target.target_time,
+                eclipse_context,
+            )
         )
-    )
+    else:
+        plan = original_plan
+        atmos_applied = False
+        _atmos_last_shutter = None
 
     motion_policy = resolve_policy(rig)
     motion_ceiling_s = None

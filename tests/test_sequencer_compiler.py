@@ -447,13 +447,19 @@ def _three_view_diamond_photo():
     }
 
 
-def test_c2_places_one_atmos_single_before_priority_native_bracket(
+def test_c2_never_applies_atmos_and_keeps_priority_native_bracket(
     monkeypatch,
 ):
+    def forbidden_atmos(*_args, **_kwargs):
+        raise AssertionError(
+            "Atmos must not be evaluated during pre-C2 Diamond Ring"
+        )
+
     monkeypatch.setattr(
         "backend.sequencer_compiler.apply_atmos_if_enabled",
-        _atmos_plan,
+        forbidden_atmos,
     )
+
     target = CaptureTarget(
         target_time=datetime(2027, 8, 2, 10, 4, 59),
         phase="diamond_ring",
@@ -470,127 +476,58 @@ def test_c2_places_one_atmos_single_before_priority_native_bracket(
         _eclipse_context(),
     )
 
-    assert capture.atmos_applied is True
+    assert capture.atmos_applied is False
     assert capture.final_exposure_plan == (
-        {
-            "shutter": "1/125",
-            "iso": 100,
-            "sequence_group": "atmos_single",
-        },
         {"shutter": "1/2000", "iso": 100},
         {"shutter": "1/1000", "iso": 100},
         {"shutter": "1/500", "iso": 100},
     )
 
-    # Use the same generic dispatch path as the anchor-first compiler.
     audited = audit_materialized_capture(capture)
-    assert audited.prepared_mode == "sony_exposure_mixed"
-
     triggers = [
         operation
         for operation in audited.operations
         if operation.get("action")
         in {"trigger_capture", "bracket_press"}
     ]
+
     assert [item["action"] for item in triggers] == [
-        "trigger_capture",
         "bracket_press",
     ]
-    assert triggers[1]["physical_views"] == [
+    assert triggers[0]["physical_views"] == [
         "1/2000",
         "1/1000",
         "1/500",
     ]
-    assert triggers[1]["contact_anchor"] is True
-
-    scheduled = schedule_audited_capture(
-        audited,
-        _sony_test_timing(),
-    )
-    scheduled_triggers = [
-        item
-        for item in scheduled
-        if item.operation.get("action")
-        in {"trigger_capture", "bracket_press"}
-    ]
-    atmos_single, priority_bracket = scheduled_triggers
-
-    assert atmos_single.command_time < priority_bracket.command_time
-    assert priority_bracket.command_time == (
-        target.target_time - timedelta(milliseconds=280)
-    )
-
-    from backend.anchor_sequencer import _contact_execution_policy
-
-    policy, _triggers = _contact_execution_policy(
-        audited,
-        scheduled,
-    )
-    assert policy == "atomic_bracket"
-
-    from dataclasses import replace
-    from backend.anchor_sequencer import _make_contact_anchor
-
-    contact_time = datetime(2027, 8, 2, 10, 5, 0)
-
-    def factory(
-        phase,
-        phase_window,
-        target_time,
-        sequence_index,
-        deadline,
-    ):
-        return replace(
-            audited,
-            target=CaptureTarget(
-                target_time=target_time,
-                phase=phase,
-                phase_window=phase_window,
-                sequence_index=sequence_index,
-                deadline=deadline,
-            ),
-        )
-
-    anchored, anchored_schedule, _start, _end = _make_contact_anchor(
-        factory,
-        _sony_test_timing(),
-        contact_time=contact_time,
-        phase_window="phase_1b",
-        c3=False,
-    )
-    anchor_operation = next(
-        item
-        for item in anchored_schedule
-        if item.operation.get("contact_anchor") is True
-    )
-
-    assert anchored.target.target_time == (
-        contact_time - timedelta(seconds=1)
-    )
-    assert anchor_operation.operation["action"] == "bracket_press"
-    assert anchor_operation.target_time == anchored.target.target_time
+    assert triggers[0]["contact_anchor"] is True
 
 
-def test_c2_profile_bracket_marks_native_bracket_as_contact_anchor(
+
+def test_c2_profile_bracket_has_no_atmos_and_marks_contact_anchor(
     monkeypatch,
 ):
+    def forbidden_atmos(*_args, **_kwargs):
+        raise AssertionError(
+            "Atmos must not be evaluated during pre-C2 Diamond Ring"
+        )
+
     monkeypatch.setattr(
         "backend.sequencer_compiler.apply_atmos_if_enabled",
-        _atmos_plan,
+        forbidden_atmos,
     )
+
     backend = "profile-sony_sony_ilce_7m5_pc_control_f5c04507"
     from backend import camera_profiles
 
     profile = camera_profiles.discover_profiles()[backend]
-    # The Pi's preserved characterized profile selects a native three-frame
-    # bracket here. Force that cost decision independently of repository
-    # characterization measurements so this routing regression is stable.
     profile["brackets"]["3"]["total_ms"] = 1000
+
     monkeypatch.setattr(
         camera_profiles,
         "discover_profiles",
         lambda: {backend: profile},
     )
+
     target = CaptureTarget(
         target_time=datetime(2027, 8, 2, 10, 4, 59),
         phase="diamond_ring",
@@ -598,6 +535,7 @@ def test_c2_profile_bracket_marks_native_bracket_as_contact_anchor(
         sequence_index=0,
         deadline=None,
     )
+
     capture = materialize_capture_target_for_rig(
         target,
         _rig(backend=backend),
@@ -605,6 +543,8 @@ def test_c2_profile_bracket_marks_native_bracket_as_contact_anchor(
         _exposure_opt(),
         _eclipse_context(),
     )
+
+    assert capture.atmos_applied is False
 
     audited = audit_materialized_capture(capture)
     triggers = [
@@ -616,35 +556,15 @@ def test_c2_profile_bracket_marks_native_bracket_as_contact_anchor(
 
     assert audited.camera_strategy == "bracket"
     assert [operation["action"] for operation in triggers] == [
-        "trigger_capture",
         "bracket_press",
     ]
-    assert triggers[1]["physical_views"] == [
+    assert triggers[0]["physical_views"] == [
         "1/2000",
         "1/1000",
         "1/500",
     ]
-    assert triggers[1]["contact_anchor"] is True
+    assert triggers[0]["contact_anchor"] is True
 
-    timing = CameraTimingProfile(
-        backend=backend,
-        set_iso_ms=800,
-        set_capturemode_ms=900,
-        set_shutter_ms=800,
-        trigger_single_duration_ms=500,
-        bracket_press_latency_ms=0,
-        bracket_atomic_ms_by_frames={3: 2500},
-    )
-    scheduled = schedule_audited_capture(audited, timing)
-    scheduled_triggers = [
-        operation
-        for operation in scheduled
-        if operation.operation.get("action")
-        in {"trigger_capture", "bracket_press"}
-    ]
-
-    assert scheduled_triggers[0].command_time < target.target_time
-    assert scheduled_triggers[1].command_time == target.target_time
 
 
 def test_profile_mixed_single_then_bracket_schedules_every_photo():
@@ -802,13 +722,19 @@ def test_profile_mixed_bracket_then_single_schedules_every_photo():
     assert photos[0].command_time < photos[1].command_time
 
 
-def test_c3_omits_unsafe_atmos_single_and_keeps_native_bracket(
+def test_c3_never_evaluates_atmos_and_keeps_native_bracket(
     monkeypatch,
 ):
+    def forbidden_atmos(*_args, **_kwargs):
+        raise AssertionError(
+            "Atmos must not be evaluated during post-C3 Diamond Ring"
+        )
+
     monkeypatch.setattr(
         "backend.sequencer_compiler.apply_atmos_if_enabled",
-        _atmos_plan,
+        forbidden_atmos,
     )
+
     target = CaptureTarget(
         target_time=datetime(2027, 8, 2, 10, 7, 0),
         phase="diamond_ring",
@@ -831,43 +757,27 @@ def test_c3_omits_unsafe_atmos_single_and_keeps_native_bracket(
         {"shutter": "1/1000", "iso": 100},
         {"shutter": "1/500", "iso": 100},
     )
-    assert capture.warnings == (
-        "atmos_exposure_omitted_c3_shutter_limit",
-    )
+    assert capture.warnings == ()
 
     audited = audit_materialized_sony_capture(capture)
     assert audited.prepared_mode == "sony_exposure_sequence"
     assert audited.planned_count == 3
 
 
-def test_contact_omits_atmos_single_instead_of_creating_sixth_view(
+
+def test_contact_never_evaluates_atmos_even_with_five_native_views(
     monkeypatch,
 ):
-    def six_view_atmos_plan(_rig, plan, _target_time, _context):
-        _regular, fastest, slowest, step, _speeds = plan
-        return (
-            (
-                False,
-                fastest,
-                slowest,
-                step,
-                [
-                    "1/8000",
-                    "1/4000",
-                    "1/2000",
-                    "1/1000",
-                    "1/500",
-                    "1/125",
-                ],
-            ),
-            True,
-            "1/125",
+    def forbidden_atmos(*_args, **_kwargs):
+        raise AssertionError(
+            "Atmos must not be evaluated during Diamond Ring"
         )
 
     monkeypatch.setattr(
         "backend.sequencer_compiler.apply_atmos_if_enabled",
-        six_view_atmos_plan,
+        forbidden_atmos,
     )
+
     target = CaptureTarget(
         target_time=datetime(2027, 8, 2, 10, 4, 59),
         phase="diamond_ring",
@@ -875,6 +785,7 @@ def test_contact_omits_atmos_single_instead_of_creating_sixth_view(
         sequence_index=0,
         deadline=None,
     )
+
     photo = _three_view_diamond_photo()
     photo["phases"]["diamond_ring"].update({
         "shutter_max": "1/8000",
@@ -891,18 +802,23 @@ def test_contact_omits_atmos_single_instead_of_creating_sixth_view(
 
     assert len(capture.final_exposure_plan) == 5
     assert capture.atmos_applied is False
-    assert capture.warnings == (
-        "atmos_exposure_omitted_contact_frame_limit",
-    )
+    assert capture.warnings == ()
 
 
-def test_non_contact_sony_runs_atmos_single_after_native_bracket(
+
+def test_non_contact_diamond_ring_never_applies_atmos(
     monkeypatch,
 ):
+    def forbidden_atmos(*_args, **_kwargs):
+        raise AssertionError(
+            "Atmos must not be evaluated anywhere in Diamond Ring"
+        )
+
     monkeypatch.setattr(
         "backend.sequencer_compiler.apply_atmos_if_enabled",
-        _atmos_plan,
+        forbidden_atmos,
     )
+
     target = CaptureTarget(
         target_time=datetime(2027, 8, 2, 10, 4, 30),
         phase="diamond_ring",
@@ -918,17 +834,20 @@ def test_non_contact_sony_runs_atmos_single_after_native_bracket(
         _exposure_opt(),
         _eclipse_context(),
     )
-    assert capture.final_exposure_plan[-1] == {
-        "shutter": "1/125",
-        "iso": 100,
-        "sequence_group": "atmos_single",
-    }
+
+    assert capture.atmos_applied is False
+    assert capture.final_exposure_plan == (
+        {"shutter": "1/2000", "iso": 100},
+        {"shutter": "1/1000", "iso": 100},
+        {"shutter": "1/500", "iso": 100},
+    )
 
     audited = audit_materialized_sony_capture(capture)
     scheduled = schedule_audited_capture(
         audited,
         _sony_test_timing(),
     )
+
     triggers = [
         item
         for item in scheduled
@@ -938,10 +857,8 @@ def test_non_contact_sony_runs_atmos_single_after_native_bracket(
 
     assert [item.operation["action"] for item in triggers] == [
         "bracket_press",
-        "trigger_capture",
     ]
-    assert all(item.command_time is not None for item in triggers)
-    assert triggers[1].command_time > triggers[0].command_time
+
 
 
 from backend.sequencer_compiler import (
