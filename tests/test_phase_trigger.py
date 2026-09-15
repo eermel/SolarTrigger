@@ -182,7 +182,7 @@ def test_restart_enters_current_phase_and_never_replays_past_phases():
     assert captured == [(PHASE_TOTALITY, totality.start + timedelta(seconds=1))]
 
 
-def test_settings_and_photo_errors_do_not_stop_following_capture():
+def test_settings_failure_skips_current_photo_and_following_capture_continues():
     schedule = build_phase_schedule(_timeline(), _photo())
     diamond = schedule.windows[1]
     clock = _Clock(diamond.start)
@@ -215,7 +215,10 @@ def test_settings_and_photo_errors_do_not_stop_following_capture():
         stopped=lambda: len(attempts) >= 2,
     ).run()
 
-    assert len(reconciliations) == 2
+    # First reconcile fails: that PHOTO is deliberately skipped.
+    # The following two successful reconciliations each precede a real
+    # capture attempt.
+    assert len(reconciliations) == 3
 
     assert len(attempts) == 2
     assert any("stage=settings" in message for message in errors)

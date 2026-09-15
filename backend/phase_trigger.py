@@ -282,11 +282,16 @@ class PhaseRuntime:
             if not window.contains(current):
                 continue
             started = current
+            settings_ok = True
             try:
                 self.reconcile_phase(window)
             except Exception as exc:
-                # A failed SET is unknown and therefore retried before the
-                # next photo.  The current photo is still attempted.
+                # A failed required SET leaves the physical camera state
+                # unknown.  Do not take a normal eclipse photo with potentially
+                # stale ISO/aperture values.  Skip this slot and retry settings
+                # on the next cycle.  Emergency Totality has a separate
+                # best-effort path and is intentionally unaffected.
+                settings_ok = False
                 self.log_error(
                     f"phase={window.name} stage=settings "
                     f"error={type(exc).__name__}: {exc}"
@@ -302,6 +307,16 @@ class PhaseRuntime:
             if override is None and not window.contains(current):
                 continue
             started = current
+
+            if not settings_ok:
+                announced_next_capture = None
+                if window.interval_s > 0:
+                    next_capture = started + timedelta(seconds=window.interval_s)
+                else:
+                    # Continuous phases must retry promptly, but never spin
+                    # against a failing camera SET operation.
+                    next_capture = started + timedelta(seconds=1)
+                continue
 
             captured = None
             try:
