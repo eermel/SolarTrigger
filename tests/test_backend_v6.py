@@ -99,6 +99,15 @@ def test_camera_status_preserves_existing_camera_subkeys(monkeypatch):
         def route(self, *args, **kwargs):
             return lambda function: function
 
+        def get(self, *args, **kwargs):
+            return self.route(*args, **kwargs)
+
+        def post(self, *args, **kwargs):
+            return self.route(*args, **kwargs)
+
+        def before_request(self, function):
+            return function
+
     class FakeSocketIO:
         def __init__(self, *args, **kwargs): pass
         def emit(self, *args, **kwargs): pass

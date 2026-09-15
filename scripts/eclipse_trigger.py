@@ -81,6 +81,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--file is required unless --totality-only is used")
     if not args.totality_only and not args.exposure_opt:
         parser.error("--exposure-opt is required unless --totality-only is used")
+    if args.simulate and not (1.0 <= args.speed <= 1000.0):
+        parser.error("--speed must be between 1 and 1000 in simulation mode")
     return args
 
 
@@ -874,6 +876,12 @@ def main() -> int:
                     camera_already_initialized=camera_initialized,
                     log_fn=log,
                 )
+            except Exception as exc:
+                log(
+                    "FATAL scheduler failure: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                return 2
 
         if emergency_stats is not None:
             phase_stats["totality"]["photos"] += emergency_stats["photos"]

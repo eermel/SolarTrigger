@@ -292,6 +292,13 @@ class GenericWorker:
                     stopping = not self._accepting
                 if (stop_requested or stopping) and self._queue.empty():
                     return
+        except BaseException as exc:
+            # Infrastructure failures (queue/job envelope bugs) must not leave
+            # a dead worker looking healthy or accepting new hardware work.
+            self._record_error(exc)
+            self.mark_unhealthy(
+                f"worker thread crashed: {type(exc).__name__}: {exc}"
+            )
         finally:
             self._close_device_once()
 

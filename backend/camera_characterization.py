@@ -136,6 +136,8 @@ class CharacterizationJob:
             summary["files"] = publish(profile, timing, root)
             self.log(f"Profile installed: {profile['backend']} ({profile['strategy']})")
         except Exception as exc:
+            summary["status"] = "FAILED"
+            summary["files"] = []
             summary["error"] = str(exc)
             self.log(f"FAILED: {exc}")
         finally:

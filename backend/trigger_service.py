@@ -768,14 +768,19 @@ class TriggerService:
             return "#" * 65, "phase", None
 
         if line.startswith("TRIGGER_PHASE "):
-            phase_name = line.split(None, 1)[1]
+            phase_name = line[len("TRIGGER_PHASE "):].strip()
+            if not phase_name:
+                return "Malformed trigger event: TRIGGER_PHASE", "error", None
             event = phase_events.get(phase_name)
             if event is not None:
                 label, public_phase = event
                 return f"### {label}", "phase", public_phase
 
         if line.startswith("TRIGGER_CONFIG "):
-            return line.split(" ", 1)[1], "gps", None
+            payload = line[len("TRIGGER_CONFIG "):].strip()
+            if not payload:
+                return "Malformed trigger event: TRIGGER_CONFIG", "error", None
+            return payload, "gps", None
 
         if line.startswith("TRIGGER_PHOTO "):
             parts = line.split(" ", 2)
@@ -792,7 +797,9 @@ class TriggerService:
                     return parts[2], level, None
 
         if line.startswith("TRIGGER_AUDIO "):
-            filename = line.split(None, 1)[1]
+            filename = line[len("TRIGGER_AUDIO "):].strip()
+            if not filename:
+                return "Malformed trigger event: TRIGGER_AUDIO", "error", None
             return f"🔊 Sound played: {filename}", "audio", None
 
         if line == "TRIGGER_SUMMARY_BEGIN":
@@ -930,41 +937,63 @@ class TriggerService:
             )
             self._log_rig(rig_id, label, "success")
             for raw in iter(proc.stdout.readline, ""):
-                if not raw and proc.poll() is not None: break
-                line=raw.rstrip()
-                if not line: continue
-                level=self.line_level_fn(line); line=self.line_clean_fn(line)
+                if not raw and proc.poll() is not None:
+                    break
+                raw_line = raw.rstrip()
+                if not raw_line:
+                    continue
+                try:
+                    level = self.line_level_fn(raw_line)
+                    line = self.line_clean_fn(raw_line)
 
-                # The Pi has just started this sound locally. Mirror the same
-                # WAV to every connected browser without making Pi audio
-                # dependent on Socket.IO or browser availability.
-                if line.startswith("TRIGGER_AUDIO "):
-                    filename = line.split(None, 1)[1].strip()
-                    if filename:
-                        self.emit(
-                            "audio_play",
-                            {
-                                "filename": filename,
-                                "source": "trigger",
-                                "rig_id": rig_id,
-                            },
+                    # The Pi has just started this sound locally. Mirror the same
+                    # WAV to every connected browser without making Pi audio
+                    # dependent on Socket.IO or browser availability.
+                    if line.startswith("TRIGGER_AUDIO "):
+                        filename = line[len("TRIGGER_AUDIO "):].strip()
+                        if filename:
+                            self.emit(
+                                "audio_play",
+                                {
+                                    "filename": filename,
+                                    "source": "trigger",
+                                    "rig_id": rig_id,
+                                },
+                            )
+
+                    line, event_level, public_phase = self._runtime_log_event(line)
+                    if event_level is not None:
+                        level = event_level
+                    if line.startswith("TRIGGER_RUN_ANALYSIS "):
+                        with self._lock:
+                            suppress_analysis = self._analysis_suppressed_by_rig[rig_id]
+                        if suppress_analysis:
+                            continue
+                    if public_phase is not None:
+                        self._set_phase(rig_id, public_phase)
+                    elif "PHASE 1a" in line:
+                        self._set_phase(rig_id, "partial")
+                    elif "PHASE 1b" in line or "DIAMOND RING" in line:
+                        self._set_phase(rig_id, "diamond_ring")
+                    elif "PHASE 2" in line:
+                        self._set_phase(rig_id, "totality")
+                    elif "PHASE 3a" in line or "PHASE 3b" in line:
+                        self._set_phase(rig_id, "partial_end")
+                    self._log_rig(rig_id, line, level)
+                except Exception as line_exc:
+                    # Observability must never terminate supervision of the
+                    # real-time child process. Preserve the raw line and keep
+                    # draining stdout even if parsing/UI emission fails.
+                    try:
+                        self._log_rig(
+                            rig_id,
+                            "Trigger output processing ERROR: "
+                            f"{type(line_exc).__name__}: {line_exc}; "
+                            f"raw={raw_line!r}",
+                            "error",
                         )
-
-                line, event_level, public_phase = self._runtime_log_event(line)
-                if event_level is not None:
-                    level = event_level
-                if line.startswith("TRIGGER_RUN_ANALYSIS "):
-                    with self._lock:
-                        suppress_analysis = self._analysis_suppressed_by_rig[rig_id]
-                    if suppress_analysis:
-                        continue
-                if public_phase is not None:
-                    self._set_phase(rig_id, public_phase)
-                elif "PHASE 1a" in line: self._set_phase(rig_id, "partial")
-                elif "PHASE 1b" in line or "DIAMOND RING" in line: self._set_phase(rig_id, "diamond_ring")
-                elif "PHASE 2" in line: self._set_phase(rig_id, "totality")
-                elif "PHASE 3a" in line or "PHASE 3b" in line: self._set_phase(rig_id, "partial_end")
-                self._log_rig(rig_id, line, level)
+                    except Exception:
+                        pass
             proc.wait()
         except Exception as exc:
             self._log_rig(
@@ -972,6 +1001,23 @@ class TriggerService:
                 f"Trigger thread ERROR: {exc}",
                 "error",
             )
+            # Never forget a still-running child if supervision itself fails.
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=2)
+                    except Exception:
+                        pass
+                except Exception:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=2)
+                    except Exception:
+                        pass
         finally:
             if ipc_session is not None:
                 try:
