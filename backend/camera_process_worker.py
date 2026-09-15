@@ -672,6 +672,30 @@ class ProcessCameraWorker:
             )
         return self._remote_call("trigger_prepared", prepared, *args, **kwargs)
 
+    def discard_prepared(self, prepared, *args, **kwargs):
+        # Cleanup must never resurrect a camera child just to discard opaque
+        # prepared state that belonged to an older generation.  Reusing the
+        # normal dynamic proxy here could respawn a healthy child, send it the
+        # stale token, then kill that new generation when it correctly reports
+        # WORKER_UNAVAILABLE.
+        expected_generation = getattr(
+            prepared,
+            "_process_worker_generation",
+            None,
+        )
+        if (
+            isinstance(expected_generation, int)
+            and not isinstance(expected_generation, bool)
+        ):
+            return self._remote_call(
+                "discard_prepared",
+                prepared,
+                *args,
+                _expected_generation=expected_generation,
+                **kwargs,
+            )
+        return self._remote_call("discard_prepared", prepared, *args, **kwargs)
+
     def __getattr__(self, name: str):
         if name not in self._REMOTE_METHODS:
             raise AttributeError(name)
