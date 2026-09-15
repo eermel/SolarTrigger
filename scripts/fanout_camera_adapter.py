@@ -203,8 +203,43 @@ class FanoutCameraAdapter:
             )
             for item in prepared_rigs
         }
+        try:
+            results = self._collect("trigger_prepared", futures)
+        finally:
+            # If the trigger request failed before the server consumed the
+            # prepared token, release it explicitly.  If the shutter actually
+            # fired and only the response was lost, trigger_prepared() already
+            # consumed the token and this idempotent discard returns false.
+            discard = getattr(self._ipc, "discard_prepared", None)
+            if callable(discard):
+                tokens_by_rig = {
+                    item.rig_id: item.token_id
+                    for item in prepared_rigs
+                }
+                for rig_id, future in futures.items():
+                    if not future.done():
+                        continue
+                    try:
+                        failed = future.exception() is not None
+                    except Exception:
+                        failed = True
+                    if not failed:
+                        continue
+                    token_id = tokens_by_rig.get(rig_id)
+                    if token_id is None:
+                        continue
+                    try:
+                        discard(rig_id, token_id)
+                    except Exception as exc:
+                        self._log_failure(
+                            "discard_prepared",
+                            rig_id,
+                            exc,
+                        )
+
         return self._capture_result(
-            "trigger_prepared", self._collect("trigger_prepared", futures)
+            "trigger_prepared",
+            results,
         )
 
     def shoot_speed_list(

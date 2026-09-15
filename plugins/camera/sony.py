@@ -292,9 +292,22 @@ class SonyPlugin(CameraPlugin):
         if not pending:
             return
         # These settings can be read-only in a native bracket mode.
-        self._set_state("capturemode", "Single Shot")
+        ok, _readonly, error = self._set_state(
+            "capturemode",
+            "Single Shot",
+        )
+        if not ok:
+            raise RuntimeError(
+                "Sony capture mode could not be set to Single Shot: "
+                f"{error}"
+            )
         for name, value in pending:
-            self._set_state(name, value)
+            ok, _readonly, error = self._set_state(name, value)
+            if not ok:
+                raise RuntimeError(
+                    f"Sony setting {name}={value!r} could not be applied: "
+                    f"{error}"
+                )
 
     # ------------------------------------------------------------------ #
     # Une rafale bracket
@@ -317,17 +330,43 @@ class SonyPlugin(CameraPlugin):
                 return 0
         # 3) maintien obturateur -> rafale interne
         longest = max(planner.parse_speed(v) for v in brk.views)
-        self._set("bulb", 1)
-        frames = self._drain_frames(brk.nimg, longest)
-        self._set("bulb", 0)
-        self._settle_idle()
+        press_ok, _readonly, press_error = self._set("bulb", 1)
+        if not press_ok:
+            raise RuntimeError(
+                f"Sony bracket press failed: {press_error}"
+            )
+
+        release_ok = True
+        release_error = ""
+        try:
+            frames = self._drain_frames(brk.nimg, longest)
+        finally:
+            release_ok, _readonly, release_error = self._set(
+                "bulb",
+                0,
+            )
+            self._settle_idle()
+
+        if not release_ok:
+            raise RuntimeError(
+                f"Sony bracket release failed: {release_error}"
+            )
         return frames
 
     def _fire_single(self, speed, deadline=None):
         """Une seule vue a `speed` (cas v_max == v_min)."""
-        self._set_state("capturemode", "Single Shot")
+        ok, _readonly, error = self._set_state(
+            "capturemode",
+            "Single Shot",
+        )
+        if not ok:
+            raise RuntimeError(
+                f"Sony capture mode could not be set to Single Shot: {error}"
+            )
         if not self.set_speed_blocking(speed, deadline):
-            return 0
+            raise RuntimeError(
+                f"Sony shutter speed {speed!r} could not be applied"
+            )
         try:
             self.camera.trigger_capture()
         except gp.GPhoto2Error as e:

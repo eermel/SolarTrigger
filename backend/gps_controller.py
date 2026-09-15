@@ -345,9 +345,18 @@ class GpsController:
             self.emit("gps_update", gps_snap)
         except Exception as exc:
             self.log(f"❌ GPS : {exc}", "error", "gps_sync")
+            failure_values = {
+                "connected": False,
+                "gps_sync_running": False,
+            }
+            # A failed operation which was supposed to establish time
+            # authority must never leave an older successful sync looking
+            # current.  location_only deliberately preserves time authority.
+            if mode in {"time_location", "time_only"}:
+                failure_values["synced"] = False
             gps_snap = self.state.update_section(
                 "gps",
-                {"connected": False, "gps_sync_running": False},
+                failure_values,
             )
             self.state.set("gps_sync_running", False)
             self.emit("gps_update", gps_snap)

@@ -275,8 +275,9 @@ def build_exposure_diff_lines(
 ) -> list[str]:
     """Return only visible exposure differences.
 
-    Sequence alignment is intentional: Atmos appends one centre-corrected
-    exposure and Anti-blur truncates/changes the slow tail. Camera-specific
+    Sequence alignment is intentional: Atmos may append one compensated
+    counterpart for every original exposure, while Anti-blur truncates or
+    changes the slow tail. Camera-specific
     planners are applied before this comparison.
 
     ``final_isos`` carries the ISO actually applied to each exposure when

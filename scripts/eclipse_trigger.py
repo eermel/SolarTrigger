@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import fcntl
 import json
 import os
-from math import ceil
+from math import ceil, isfinite
 from pathlib import Path
 import signal
 import threading
@@ -89,6 +89,13 @@ def parse_args() -> argparse.Namespace:
 def exposure_rig(exposure_opt: dict, rig_id: int) -> dict:
     if exposure_opt.get("config_type") != "exposure_optimization":
         raise ValueError("invalid Exposure Optimization configuration")
+    for field in (
+        "atmospheric_attenuation_enabled",
+        "atmospheric_attenuation_replace_exposures",
+    ):
+        value = exposure_opt.get(field, False)
+        if not isinstance(value, bool):
+            raise ValueError(f"{field} must be boolean")
     item = next((candidate for candidate in exposure_opt.get("rigs", ())
                  if isinstance(candidate, dict) and candidate.get("rig_id") == rig_id), None)
     if item is None:
@@ -391,12 +398,19 @@ def run_emergency_totality(
         raise ValueError("Emergency Totality configuration is disabled")
 
     interval_s = float(config.get("interval_s", 0) or 0)
-    if interval_s < 0:
-        raise ValueError("Emergency Totality interval_s must be >= 0")
+    if not isfinite(interval_s) or interval_s < 0:
+        raise ValueError(
+            "Emergency Totality interval_s must be finite and >= 0"
+        )
     raw_duration = config.get("duration_s")
     duration_s = None if raw_duration is None else float(raw_duration)
-    if duration_s is not None and duration_s <= 0:
-        raise ValueError("Emergency Totality duration_s must be > 0 or null")
+    if (
+        duration_s is not None
+        and (not isfinite(duration_s) or duration_s <= 0)
+    ):
+        raise ValueError(
+            "Emergency Totality duration_s must be finite, > 0 or null"
+        )
 
     aperture = config.get("aperture", "f/8")
     iso = str(config.get("iso", "100"))
@@ -593,15 +607,25 @@ def main() -> int:
                          if isinstance(item, dict) and item.get("rig_id") == rig_id),
                         {"rig_id": rig_id, "photo": {}})
     rig_snapshot.setdefault("photo", {}).update(rig_exposure.get("photo") or {})
-    rig_snapshot["photo"]["atmos_enabled"] = bool(
-        exposure_opt.get("atmospheric_attenuation_enabled", False)
+    atmos_enabled = exposure_opt.get(
+        "atmospheric_attenuation_enabled",
+        False,
     )
-    rig_snapshot["photo"]["atmos_replace_enabled"] = bool(
-        rig_snapshot["photo"]["atmos_enabled"]
-        and exposure_opt.get(
-            "atmospheric_attenuation_replace_exposures",
-            False,
+    atmos_replace = exposure_opt.get(
+        "atmospheric_attenuation_replace_exposures",
+        False,
+    )
+    if not isinstance(atmos_enabled, bool):
+        raise ValueError(
+            "atmospheric_attenuation_enabled must be boolean"
         )
+    if not isinstance(atmos_replace, bool):
+        raise ValueError(
+            "atmospheric_attenuation_replace_exposures must be boolean"
+        )
+    rig_snapshot["photo"]["atmos_enabled"] = atmos_enabled
+    rig_snapshot["photo"]["atmos_replace_enabled"] = (
+        atmos_enabled and atmos_replace
     )
     eclipse_context = {
         "timeline": {name: timeline[name] for name in ("C1", "C2", "TMAX", "C3", "C4")

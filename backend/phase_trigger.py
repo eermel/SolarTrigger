@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from math import ceil
+from math import ceil, isfinite
 from typing import Any, Callable, Mapping
 
 
@@ -50,6 +50,8 @@ def _number(value: Any, label: str, *, minimum: float = 0.0) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{label} must be a number")
     result = float(value)
+    if not isfinite(result):
+        raise ValueError(f"{label} must be finite")
     if result < minimum:
         raise ValueError(f"{label} must be >= {minimum:g}")
     return result

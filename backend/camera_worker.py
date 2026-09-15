@@ -185,16 +185,23 @@ class CameraWorker:
             iso=iso,
             image_format=image_format,
             white_balance=white_balance,
+            recover_connection=True,
         )
 
     def set_exposure_settings(self, aperture=None, iso=None):
         return self._call(
-            "set_exposure_settings", aperture=aperture, iso=iso
+            "set_exposure_settings",
+            aperture=aperture,
+            iso=iso,
+            recover_connection=True,
         )
 
     def apply_phase_settings(self, aperture=None, iso=None):
         return self._call(
-            "apply_phase_settings", aperture=aperture, iso=iso
+            "apply_phase_settings",
+            aperture=aperture,
+            iso=iso,
+            recover_connection=True,
         )
 
     def prepare_capture(self, intent):

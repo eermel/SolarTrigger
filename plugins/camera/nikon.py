@@ -136,10 +136,14 @@ class NikonBasePlugin(CameraPlugin):
                 break
 
     def set_exposure_settings(self, aperture=None, iso=None):
-        if iso is not None:
-            self._set("iso", str(iso))
-        if aperture is not None:
-            self._set("f-number", aperture)
+        if iso is not None and not self._set("iso", str(iso)):
+            raise RuntimeError(
+                f"{self.name} ISO {iso!r} could not be applied"
+            )
+        if aperture is not None and not self._set("f-number", aperture):
+            raise RuntimeError(
+                f"{self.name} aperture {aperture!r} could not be applied"
+            )
 
     def audit_prepared_capture(self, prepared):
         """Describe the exact Nikon exposure-plan operations without hardware."""

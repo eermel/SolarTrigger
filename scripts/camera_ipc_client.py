@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import re
 import socket
 import threading
@@ -227,6 +228,22 @@ class CameraIpcClient:
             timeout_s=timeout_s,
         )
 
+    def discard_prepared(
+        self,
+        rig_id: int,
+        token_id: str,
+        *,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+    ) -> Any:
+        return self._call(
+            "discard_prepared",
+            {
+                "rig_id": rig_id,
+                "token_id": token_id,
+            },
+            timeout_s=timeout_s,
+        )
+
     def trigger_prepared(
         self,
         rig_id: int,
@@ -426,15 +443,18 @@ class CameraIpcClient:
         if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)):
             raise ValueError("timeout_s must be a positive number")
         timeout = float(timeout_s)
-        if timeout <= 0:
-            raise ValueError("timeout_s must be a positive number")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout_s must be a positive finite number")
         if deadline_monotonic is not None:
             if (
                 isinstance(deadline_monotonic, bool)
                 or not isinstance(deadline_monotonic, (int, float))
             ):
                 raise ValueError("deadline_monotonic must be a number")
-            remaining = float(deadline_monotonic) - time.monotonic()
+            deadline_value = float(deadline_monotonic)
+            if not math.isfinite(deadline_value):
+                raise ValueError("deadline_monotonic must be finite")
+            remaining = deadline_value - time.monotonic()
             if remaining <= 0:
                 raise socket.timeout("deadline has passed")
 

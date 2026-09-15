@@ -106,6 +106,7 @@ _PARAM_KEYS = {
     },
     "camera.execute_photo": {"rig_id", "params", "start_before_monotonic"},
     "prepare_capture": {"rig_id", "intent"},
+    "discard_prepared": {"rig_id", "token_id"},
     "trigger_prepared": {
         "rig_id",
         "token_id",
@@ -130,6 +131,7 @@ _REQUIRED_PARAMS = {
     "camera.set_parameter": {"rig_id", "parameter", "value"},
     "camera.execute_photo": {"rig_id", "params"},
     "prepare_capture": {"rig_id", "intent"},
+    "discard_prepared": {"rig_id", "token_id"},
     "trigger_prepared": {"rig_id", "token_id"},
     "shoot_speed_list": {"rig_id", "speeds"},
 }
@@ -985,6 +987,48 @@ class CameraIpcServer:
                         self._prepare_reservations[reservation_key] = remaining
                     else:
                         self._prepare_reservations.pop(reservation_key, None)
+
+        if operation == "discard_prepared":
+            token_id = params.get("token_id")
+            if not isinstance(token_id, str) or not token_id:
+                raise IpcError(
+                    "INVALID_REQUEST",
+                    "token_id must be a non-empty string",
+                )
+            rig_id, worker = self._worker(params, allowed=allowed)
+
+            with self._state_lock:
+                token = self._tokens.get(token_id)
+                if (
+                    token is None
+                    or token[0] != session
+                    or token[1] != rig_id
+                ):
+                    return {
+                        "rig_id": rig_id,
+                        "discarded": False,
+                    }
+                del self._tokens[token_id]
+
+            prepared = token[2]
+            discard = getattr(worker, "discard_prepared", None)
+            if callable(discard):
+                try:
+                    discard(prepared)
+                except Exception as exc:
+                    # Server-side authority is already revoked.  A failed
+                    # child cleanup is best effort and must never resurrect
+                    # the public token.
+                    self._safe_log(
+                        f"camera IPC prepared-token cleanup failed for RIG {rig_id}",
+                        exc,
+                    )
+
+            return {
+                "rig_id": rig_id,
+                "discarded": True,
+            }
+
         if operation == "trigger_prepared":
             token_id = params.get("token_id")
             if not isinstance(token_id, str) or not token_id:

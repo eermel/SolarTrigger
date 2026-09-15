@@ -433,6 +433,12 @@ class TriggerService:
     ):
         if require_gps:
             gps = self.state.snapshot("gps") or {}
+            if gps.get("gps_sync_running") is True:
+                raise TriggerValidationError(
+                    "⚠️ GPS synchronization is still in progress. "
+                    "Wait for it to finish before starting.",
+                    "GPS_SYNC_IN_PROGRESS",
+                )
             if not gps.get("synced"):
                 raise TriggerValidationError(
                     "⚠️ GPS is not synchronized. Synchronize the clock before starting.",
@@ -542,6 +548,13 @@ class TriggerService:
                 or exposure_opt.get("config_type") != "exposure_optimization"
             ):
                 raise ValueError("invalid Exposure Optimization")
+            for field in (
+                "atmospheric_attenuation_enabled",
+                "atmospheric_attenuation_replace_exposures",
+            ):
+                value = exposure_opt.get(field, False)
+                if not isinstance(value, bool):
+                    raise ValueError(f"{field} must be boolean")
             if not any(
                 isinstance(item, dict) and item.get("rig_id") == rig_id
                 for item in exposure_opt.get("rigs", ())
@@ -1079,7 +1092,18 @@ class TriggerService:
             )
 
             with self._lock:
-                owns_process = self._procs[rig_id] is proc
+                # If STOP arrived after Popen() but before this supervisor
+                # published the process into _procs, this thread still owns
+                # the startup lifecycle. Treat that cancelled, unpublished
+                # child as ours so _starting/state/inputs are released.
+                owns_process = (
+                    self._procs[rig_id] is proc
+                    or (
+                        proc is not None
+                        and self._procs[rig_id] is None
+                        and self._cancel_start_requested_by_rig[rig_id]
+                    )
+                )
                 manual_stop_requested = self._manual_stop_requested_by_rig[rig_id]
                 if owns_process and not process_still_alive:
                     self._procs[rig_id] = None
