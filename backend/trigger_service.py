@@ -267,6 +267,14 @@ class TriggerService:
             rig_id: False
             for rig_id in range(1, 5)
         }
+        self._cancel_start_requested_by_rig = {
+            rig_id: False
+            for rig_id in range(1, 5)
+        }
+        self._supervisor_threads = {
+            rig_id: None
+            for rig_id in range(1, 5)
+        }
 
     def _log_rig(self, rig_id, text, level="info"):
         """Log one trigger event with explicit RIG ownership.
@@ -604,6 +612,7 @@ class TriggerService:
             self._starting_by_rig[rig_id] = True
             self._analysis_suppressed_by_rig[rig_id] = False
             self._manual_stop_requested_by_rig[rig_id] = False
+            self._cancel_start_requested_by_rig[rig_id] = False
 
             try:
                 ecl = self.validate_start(
@@ -716,9 +725,11 @@ class TriggerService:
                     name=f"eclipse-trigger-process-rig-{rig_id}",
                     daemon=True,
                 )
+                self._supervisor_threads[rig_id] = thread
                 thread.start()
             except Exception:
                 self._starting_by_rig[rig_id] = False
+                self._supervisor_threads[rig_id] = None
                 self._clear_active_inputs(rig_id)
                 if ipc_session is not None:
                     try:
@@ -845,6 +856,12 @@ class TriggerService:
     ):
         proc=None
         try:
+            # STOP may arrive immediately after start() released its lock but
+            # before this supervisor thread has created the subprocess.
+            with self._lock:
+                if self._cancel_start_requested_by_rig[rig_id]:
+                    return
+
             cmd = [
                 sys.executable,
                 "-u",
@@ -892,7 +909,28 @@ class TriggerService:
                 env=env,
             )
             with self._lock:
-                self._procs[rig_id] = proc
+                cancel_start = self._cancel_start_requested_by_rig[rig_id]
+                if not cancel_start:
+                    self._procs[rig_id] = proc
+            if cancel_start:
+                # The STOP raced with Popen().  Do not publish this process as
+                # active; terminate it before it can enter the capture runtime.
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=2)
+                    except Exception:
+                        pass
+                except Exception:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=2)
+                    except Exception:
+                        pass
+                return
             mode = (
                 "totality_override"
                 if totality_only
@@ -1034,6 +1072,9 @@ class TriggerService:
                     self._clear_active_inputs(rig_id)
                     self._analysis_suppressed_by_rig[rig_id] = False
                     self._manual_stop_requested_by_rig[rig_id] = False
+                    self._cancel_start_requested_by_rig[rig_id] = False
+                if self._supervisor_threads[rig_id] is threading.current_thread():
+                    self._supervisor_threads[rig_id] = None
 
             if owns_process:
                 self.state.update_trigger_rig(
@@ -1152,6 +1193,7 @@ class TriggerService:
             self._starting_by_rig[rig_id] = True
             self._analysis_suppressed_by_rig[rig_id] = True
             self._manual_stop_requested_by_rig[rig_id] = False
+            self._cancel_start_requested_by_rig[rig_id] = False
 
         ipc_session = None
         try:
@@ -1176,7 +1218,7 @@ class TriggerService:
                 "trigger_phase",
                 {"rig_id": rig_id, "phase": "totality_override"},
             )
-            threading.Thread(
+            thread = threading.Thread(
                 target=self._run,
                 kwargs={
                     "ipc_session": ipc_session,
@@ -1185,12 +1227,16 @@ class TriggerService:
                 },
                 name=f"totality-only-process-rig-{rig_id}",
                 daemon=True,
-            ).start()
+            )
+            with self._lock:
+                self._supervisor_threads[rig_id] = thread
+            thread.start()
             return "started"
         except Exception:
             with self._lock:
                 self._starting_by_rig[rig_id] = False
                 self._analysis_suppressed_by_rig[rig_id] = False
+                self._supervisor_threads[rig_id] = None
                 self._clear_active_inputs(rig_id)
             if ipc_session is not None and self.camera_runtime is not None:
                 self.camera_runtime.close_ipc_session(ipc_session.session_id)
@@ -1209,6 +1255,51 @@ class TriggerService:
 
         with self._lock:
             proc = self._procs[rig_id]
+            starting_map = getattr(self, "_starting_by_rig", None)
+            supervisor_map = getattr(self, "_supervisor_threads", None)
+            cancel_map = getattr(self, "_cancel_start_requested_by_rig", None)
+
+            starting = (
+                bool(starting_map.get(rig_id, False))
+                if isinstance(starting_map, dict)
+                else False
+            )
+            supervisor = (
+                supervisor_map.get(rig_id)
+                if isinstance(supervisor_map, dict)
+                else None
+            )
+
+            if starting:
+                # A start request can have released start() while _run() has
+                # not yet published its Popen object.  Make STOP authoritative
+                # across that gap instead of returning a false not_running.
+                if isinstance(cancel_map, dict):
+                    cancel_map[rig_id] = True
+                self._analysis_suppressed_by_rig[rig_id] = True
+                self._manual_stop_requested_by_rig[rig_id] = True
+
+        if (not proc or proc.poll() is not None) and starting:
+            if (
+                supervisor is not None
+                and supervisor is not threading.current_thread()
+            ):
+                supervisor.join(timeout=5.0)
+            with self._lock:
+                proc = self._procs[rig_id]
+                starting_map = getattr(self, "_starting_by_rig", None)
+                starting = (
+                    bool(starting_map.get(rig_id, False))
+                    if isinstance(starting_map, dict)
+                    else False
+                )
+            if not proc or proc.poll() is not None:
+                return {
+                    "status": "stopped" if not starting else "stopping",
+                    "rig_id": rig_id,
+                    "forced": False,
+                    "still_running": bool(starting),
+                }
 
         if not proc or proc.poll() is not None:
             return {
@@ -1252,6 +1343,23 @@ class TriggerService:
                 "warning",
                 "trigger",
             )
+
+        # The subprocess may be gone while its supervisor is still draining
+        # EOF and releasing the IPC session in _run()'s finally block.  Join
+        # that supervisor briefly so an immediate restart cannot collide with
+        # the previous camera lease or stale running state.
+        with self._lock:
+            supervisor_map = getattr(self, "_supervisor_threads", None)
+            supervisor = (
+                supervisor_map.get(rig_id)
+                if isinstance(supervisor_map, dict)
+                else None
+            )
+        if (
+            supervisor is not None
+            and supervisor is not threading.current_thread()
+        ):
+            supervisor.join(timeout=5.0)
 
         still = proc.poll() is None
 
