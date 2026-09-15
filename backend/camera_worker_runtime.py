@@ -85,6 +85,10 @@ class CameraWorkerRuntime:
         self._ipc_server_factory = ipc_server_factory or CameraIpcServer
         self._ipc_server = None
         self._ipc_session_ids: set[str] = set()
+        self._ipc_session_rigs: dict[
+            str, frozenset[int] | None
+        ] = {}
+        self._leased_policy_configs: dict[int, dict] = {}
         self._registry: dict[int, CameraWorker] = {}
         self._camera_entries: dict[int, dict] = {}
         self._config: dict | None = None
@@ -122,6 +126,23 @@ class CameraWorkerRuntime:
         desired = set(desired_entries)
 
         with self._lock:
+            leased_rigs: set[int] = set()
+            for scope in self._ipc_session_rigs.values():
+                if scope is None:
+                    leased_rigs.update(self._registry)
+                else:
+                    leased_rigs.update(scope)
+
+            # A Trigger IPC lease owns the camera binding for its lifetime.
+            # Reconciliation from Controls/UI must never replace or remove
+            # that worker while the real-time child still holds the lease.
+            for rig_id in leased_rigs:
+                if self._camera_entries.get(rig_id) != desired_entries.get(rig_id):
+                    raise RuntimeError(
+                        f"cannot reconfigure camera for RIG {rig_id} "
+                        "while a trigger IPC session is active"
+                    )
+
             unchanged = {
                 rig_id
                 for rig_id in desired
@@ -183,6 +204,10 @@ class CameraWorkerRuntime:
         """Return a policy-only configuration snapshot for an active rig."""
 
         with self._lock:
+            frozen = self._leased_policy_configs.get(rig_id)
+            if frozen is not None:
+                return deepcopy(frozen)
+
             if rig_id not in self._registry or self._config is None:
                 return None
 
@@ -312,7 +337,18 @@ class CameraWorkerRuntime:
                     server.stop()
                     self._ipc_server = None
                 raise
+            # Freeze the policy visible to this leased RIG before any later
+            # Controls/UI reconcile can replace the runtime-wide config.
+            leased_ids = set(available) if rig_ids is None else set(allowed)
+            for rig_id in leased_ids:
+                policy = self.get_policy_config_for_rig(rig_id)
+                if policy is not None:
+                    self._leased_policy_configs[rig_id] = deepcopy(policy)
+
             self._ipc_session_ids.add(session_id)
+            self._ipc_session_rigs[session_id] = (
+                None if rig_ids is None else frozenset(allowed)
+            )
             socket_path = str(Path(server.socket_path).absolute())
             return CameraIpcSession(
                 socket_path=socket_path,
@@ -330,7 +366,13 @@ class CameraWorkerRuntime:
             if session_id not in self._ipc_session_ids or self._ipc_server is None:
                 raise ValueError("camera IPC session is not active")
             server = self._ipc_server
+            scope = self._ipc_session_rigs.pop(session_id, None)
             self._ipc_session_ids.remove(session_id)
+            if scope is None:
+                self._leased_policy_configs.clear()
+            else:
+                for rig_id in scope:
+                    self._leased_policy_configs.pop(rig_id, None)
 
         revoke_error = None
         try:
@@ -359,6 +401,8 @@ class CameraWorkerRuntime:
         with self._lock:
             server, self._ipc_server = self._ipc_server, None
             self._ipc_session_ids.clear()
+            self._ipc_session_rigs.clear()
+            self._leased_policy_configs.clear()
             workers = tuple(self._registry.values())
             self._registry.clear()
 
