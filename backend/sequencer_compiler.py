@@ -377,6 +377,16 @@ def apply_exposure_optimization(
             )
         photo["atmos_enabled"] = atmos
 
+    atmos_replace = exposure_opt_config.get(
+        "atmospheric_attenuation_replace_exposures"
+    )
+    if atmos_replace is not None:
+        if not isinstance(atmos_replace, bool):
+            raise ValueError(
+                "atmospheric_attenuation_replace_exposures must be boolean"
+            )
+        photo["atmos_replace_enabled"] = atmos_replace
+
     rig_id = result.get("rig_id")
 
     overrides = exposure_opt_config.get("rigs", [])
@@ -534,7 +544,7 @@ def materialize_capture_target_for_rig(
         original_plan,
     )
 
-    plan, atmos_applied, atmos_shutter = (
+    plan, atmos_applied, _atmos_last_shutter = (
         apply_atmos_if_enabled(
             rig,
             original_plan,
@@ -549,44 +559,72 @@ def materialize_capture_target_for_rig(
     warnings: list[str] = []
 
     physical_shutters = list(original_shutters)
-    atmos_index: int | None = None
+    atmos_indexes: set[int] = set()
     contact = _contact_kind(target)
 
-    if atmos_applied and atmos_shutter is not None:
+    if atmos_applied:
+        final_shutters = expand_executable_shutters(
+            rig,
+            plan,
+        )
+        replace_enabled = (
+            rig.get("photo", {}).get(
+                "atmos_replace_enabled",
+                False,
+            )
+            is True
+        )
+
+        if replace_enabled:
+            compensated_shutters = list(final_shutters)
+        else:
+            compensated_shutters = list(
+                final_shutters[len(original_shutters):]
+            )
+
         omit_reason = None
 
         if (
             contact is not None
-            and len(original_shutters) >= CONTACT_MAX_FRAMES
+            and len(final_shutters) > CONTACT_MAX_FRAMES
         ):
             omit_reason = "contact_frame_limit"
         elif (
             contact == "C3"
-            and parse_speed(atmos_shutter)
-            > C3_CONTACT_MAX_EXPOSURE_S + 1e-12
+            and any(
+                parse_speed(shutter)
+                > C3_CONTACT_MAX_EXPOSURE_S + 1e-12
+                for shutter in compensated_shutters
+            )
         ):
             omit_reason = "c3_shutter_limit"
 
         if omit_reason is not None:
             plan = original_plan
             atmos_applied = False
+            physical_shutters = list(original_shutters)
             warnings.append(
                 f"atmos_exposure_omitted_{omit_reason}"
             )
+        elif replace_enabled:
+            physical_shutters = list(compensated_shutters)
+            atmos_indexes = set(range(len(physical_shutters)))
         elif contact == "C2":
-            # C2 is the priority: take the auxiliary Atmos single first,
-            # then leave the configured native bracket as the contact anchor.
+            # Keep the native bracket as the physical C2 anchor by executing
+            # every compensated counterpart before the configured bracket.
             physical_shutters = [
-                str(atmos_shutter),
+                *compensated_shutters,
                 *original_shutters,
             ]
-            atmos_index = 0
+            atmos_indexes = set(range(len(compensated_shutters)))
         else:
-            physical_shutters = [
-                *original_shutters,
-                str(atmos_shutter),
-            ]
-            atmos_index = len(original_shutters)
+            physical_shutters = list(final_shutters)
+            atmos_indexes = set(
+                range(
+                    len(original_shutters),
+                    len(physical_shutters),
+                )
+            )
 
     exposure_plan = []
 
@@ -596,7 +634,7 @@ def materialize_capture_target_for_rig(
             "iso": iso,
         }
 
-        if index == atmos_index:
+        if index in atmos_indexes:
             exposure["sequence_group"] = ATMOS_EXPOSURE_GROUP
 
         exposure_plan.append(exposure)
@@ -646,7 +684,7 @@ def materialize_capture_target_for_rig(
                     "iso": int(item["iso"]),
                 }
 
-                if index == atmos_index:
+                if index in atmos_indexes:
                     exposure["sequence_group"] = (
                         ATMOS_EXPOSURE_GROUP
                     )
