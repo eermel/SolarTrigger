@@ -3684,6 +3684,21 @@ def api_configs_save_exposure_opt():
                 "atmospheric_attenuation_enabled must be a boolean"
             )
 
+        data.setdefault(
+            "atmospheric_attenuation_replace_exposures",
+            False,
+        )
+        if not isinstance(
+            data.get(
+                "atmospheric_attenuation_replace_exposures"
+            ),
+            bool,
+        ):
+            raise ValueError(
+                "atmospheric_attenuation_replace_exposures "
+                "must be a boolean"
+            )
+
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
