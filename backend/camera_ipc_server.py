@@ -1126,9 +1126,18 @@ class CameraIpcServer:
         except BusyDeviceError as exc:
             raise IpcError("BUSY", "camera worker still owns a USB operation") from exc
         except WorkerTimeoutError as exc:
-            raise IpcError("DEVICE_TIMEOUT", str(exc)) from exc
+            # Keep worker internals on the server side.  The stable IPC code
+            # is sufficient for client logic; raw worker messages may contain
+            # operation names or prior hardware failure details.
+            raise IpcError(
+                "DEVICE_TIMEOUT",
+                "camera worker operation timed out",
+            ) from exc
         except WorkerUnavailableError as exc:
-            raise IpcError("DEVICE_UNAVAILABLE", str(exc)) from exc
+            raise IpcError(
+                "DEVICE_UNAVAILABLE",
+                "camera worker is unavailable",
+            ) from exc
 
     @staticmethod
     def _capture_response(result: Any) -> dict[str, Any]:
