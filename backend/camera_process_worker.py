@@ -154,6 +154,15 @@ def _camera_process_main(
                         **kwargs,
                     )
 
+                elif operation == "discard_prepared":
+                    if not args:
+                        raise WorkerUnavailableError(
+                            "prepared capture token is missing"
+                        )
+                    proxy_prepared = args[0]
+                    token_id = getattr(proxy_prepared, "token", None)
+                    result = prepared.pop(str(token_id), None) is not None
+
                 else:
                     method = getattr(worker, str(operation))
                     result = method(*args, **kwargs)
@@ -200,6 +209,7 @@ class ProcessCameraWorker:
             "apply_phase_settings",
             "prepare_capture",
             "trigger_prepared",
+            "discard_prepared",
             "shoot_speed_list",
             "preflight",
             "get_parameter",

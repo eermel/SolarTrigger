@@ -59,6 +59,7 @@ from services.camera_service import CaptureIntent
 MAX_MESSAGE_BYTES = 65536
 MAX_WORKERS = 8
 CONNECTION_IO_TIMEOUT_S = 5.0
+MAX_PREPARED_TOKENS_PER_RIG = 8
 _SENSOR_DB_PATH = DEFAULT_SENSOR_DB_PATH
 _ISO_PATTERN = re.compile(r"[0-9]+")
 _CORRECTION_ORDER = ("shutter_limited", "iso_compensated", "iso_rounded")
@@ -304,6 +305,11 @@ class CameraIpcServer:
             if target not in self._active_sessions:
                 raise IpcError("INVALID_SESSION", "camera IPC session is not active")
             allowed = self._active_sessions.pop(target)
+            abandoned = [
+                value
+                for value in self._tokens.values()
+                if value[0] == target
+            ]
             self._tokens = {
                 key: value for key, value in self._tokens.items() if value[0] != target
             }
@@ -312,6 +318,25 @@ class CameraIpcServer:
             else:
                 for rig_id in allowed:
                     self._rig_iso_targets.pop(rig_id, None)
+
+        # ProcessCameraWorker keeps a second, child-local prepared-token table.
+        # Releasing only the IPC-server token would otherwise retain opaque
+        # PreparedCapture/plugin state until that camera process is restarted.
+        for token in abandoned:
+            rig_id = token[1]
+            prepared = token[2]
+            try:
+                worker = self._runtime.get_for_rig(rig_id)
+                discard = getattr(worker, "discard_prepared", None)
+                if callable(discard):
+                    discard(prepared)
+            except Exception as exc:
+                # Session revocation is authoritative even when best-effort
+                # cleanup cannot contact a failed camera process.
+                self._safe_log(
+                    f"camera IPC prepared-token cleanup failed for RIG {rig_id}",
+                    exc,
+                )
 
     def start(self) -> Path:
         with self._state_lock:
@@ -743,6 +768,18 @@ class CameraIpcServer:
             except (TypeError, ValueError) as exc:
                 raise IpcError("INVALID_REQUEST", "invalid capture intent") from exc
             rig_id, worker = self._worker(params, allowed=allowed)
+            with self._state_lock:
+                outstanding = sum(
+                    1
+                    for value in self._tokens.values()
+                    if value[0] == session and value[1] == rig_id
+                )
+            if outstanding >= MAX_PREPARED_TOKENS_PER_RIG:
+                raise IpcError(
+                    "TOO_MANY_PREPARED",
+                    "too many unconsumed prepared captures for this camera RIG",
+                )
+
             policy_getter = getattr(self._runtime, "get_policy_config_for_rig", None)
             policy = policy_getter(rig_id) if policy_getter is not None else None
             version = rig_plan_version(policy if isinstance(policy, dict) else {})
