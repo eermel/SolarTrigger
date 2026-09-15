@@ -899,6 +899,15 @@ class CameraIpcServer:
                     "warnings": None,
                     "plan_version": version,
                 }
+                try:
+                    worker_generation = getattr(worker, "generation", None)
+                except Exception:
+                    worker_generation = None
+                if (
+                    isinstance(worker_generation, int)
+                    and not isinstance(worker_generation, bool)
+                ):
+                    context["worker_generation"] = worker_generation
                 if augmented is not None:
                     context.update(augmented)
                 with self._state_lock:
@@ -974,15 +983,40 @@ class CameraIpcServer:
                 else None
             )
             rig_id, worker = self._worker(params, allowed=allowed)
+            try:
+                current_generation = getattr(worker, "generation", None)
+            except Exception:
+                current_generation = None
+
             with self._state_lock:
                 token = self._tokens.get(token_id)
                 if token is None or token[0] != session or token[1] != rig_id:
                     raise IpcError(
                         "UNKNOWN_TOKEN", "prepared capture token is not valid"
                     )
+
+                metadata = dict(token[3]) if len(token) > 3 else {}
+                prepared_generation = metadata.get("worker_generation")
+                generation_changed = (
+                    isinstance(prepared_generation, int)
+                    and not isinstance(prepared_generation, bool)
+                    and isinstance(current_generation, int)
+                    and not isinstance(current_generation, bool)
+                    and prepared_generation != current_generation
+                )
+
+                # Prepared state lives inside one camera child generation.
+                # Never send a stale proxy token into a freshly respawned child:
+                # that child would correctly reject it as unavailable, and the
+                # parent would then kill an otherwise healthy new generation.
                 del self._tokens[token_id]
+                if generation_changed:
+                    raise IpcError(
+                        "UNKNOWN_TOKEN",
+                        "prepared capture token belongs to a previous camera worker generation",
+                    )
+
             prepared_token = token[2]
-            metadata = dict(token[3]) if len(token) > 3 else {}
             metadata.setdefault("rig_id", rig_id)
             if deadline is None:
                 metadata.pop("deadline", None)
