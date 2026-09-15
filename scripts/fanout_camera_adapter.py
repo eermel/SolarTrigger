@@ -143,6 +143,11 @@ class FanoutCameraAdapter:
                     )
                 )
 
+        if not prepared_rigs:
+            raise RuntimeError(
+                "prepare_capture returned no valid prepared camera token"
+            )
+
         estimates = [
             result["estimated_total_s"]
             for result in successful
@@ -223,7 +228,10 @@ class FanoutCameraAdapter:
         )
 
     def _active_rig_ids(self) -> tuple[int, ...]:
-        return tuple(self._ipc.list_active_camera_rigs()["rig_ids"])
+        rig_ids = tuple(self._ipc.list_active_camera_rigs()["rig_ids"])
+        if not rig_ids:
+            raise RuntimeError("camera IPC session has no active camera RIG")
+        return rig_ids
 
     def _submit_all(
         self,
@@ -240,12 +248,24 @@ class FanoutCameraAdapter:
     def _collect(
         self, operation: str, futures: dict[int, Future[Any]]
     ) -> list[tuple[int, Any]]:
+        if not futures:
+            raise RuntimeError(f"{operation} has no active camera RIG")
         results = []
+        failures = []
         for rig_id, future in futures.items():
             try:
                 results.append((rig_id, future.result()))
             except Exception as exc:
+                failures.append((rig_id, exc))
                 self._log_failure(operation, rig_id, exc)
+        if not results:
+            # Never convert a complete camera outage into an apparently valid
+            # empty fan-out result (for example CaptureResult 0/0).
+            rig_id, exc = failures[0]
+            raise RuntimeError(
+                f"{operation} failed on every active camera RIG "
+                f"(first failure: RIG {rig_id}: {exc})"
+            ) from exc
         return results
 
     def _capture_result(
@@ -264,6 +284,11 @@ class FanoutCameraAdapter:
                 planned.append(result["planned"])
             if isinstance(result.get("detail"), str):
                 details.append(result["detail"])
+
+        if not frames and not planned:
+            raise RuntimeError(
+                f"{operation} returned no valid camera capture result"
+            )
 
         # Preserve the hard-deadline decision made by the camera plugin.
         # Losing this marker makes the Trigger interpret a safe truncation as

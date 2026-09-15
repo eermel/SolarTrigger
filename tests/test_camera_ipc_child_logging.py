@@ -64,7 +64,11 @@ def test_fanout_logs_each_rig_operation_failure_once(already_logged):
         _FailingIpcClient(logs, already_logged=already_logged), log_fn=logs.append
     )
     try:
-        adapter.initialize()
+        with pytest.raises(
+            RuntimeError,
+            match="initialize failed on every active camera RIG",
+        ):
+            adapter.initialize()
     finally:
         adapter.close()
 

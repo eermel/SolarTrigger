@@ -169,6 +169,7 @@ class CameraIpcServer:
         self._socket: socket.socket | None = None
         self._accept_thread: threading.Thread | None = None
         self._pool: ThreadPoolExecutor | None = None
+        self._connection_slots: threading.BoundedSemaphore | None = None
         self._stopping = threading.Event()
         self._state_lock = threading.RLock()
         self._active_sessions: dict[str, frozenset[int] | None] = {}
@@ -331,6 +332,11 @@ class CameraIpcServer:
             self._pool = ThreadPoolExecutor(
                 max_workers=MAX_WORKERS, thread_name_prefix="camera-ipc"
             )
+            # ThreadPoolExecutor has an unbounded pending-work queue.  Limit
+            # accepted live connections to the number of handlers so slow or
+            # broken local clients cannot accumulate sockets/file descriptors
+            # faster than their per-connection timeout can drain them.
+            self._connection_slots = threading.BoundedSemaphore(MAX_WORKERS)
             self._accept_thread = threading.Thread(
                 target=self._accept_loop, name="camera-ipc-accept", daemon=True
             )
@@ -343,6 +349,7 @@ class CameraIpcServer:
             listener, self._socket = self._socket, None
             thread, self._accept_thread = self._accept_thread, None
             pool, self._pool = self._pool, None
+            self._connection_slots = None
         if listener is not None:
             listener.close()
         if thread is not None and thread is not threading.current_thread():
@@ -401,10 +408,33 @@ class CameraIpcServer:
             connection.settimeout(CONNECTION_IO_TIMEOUT_S)
 
             pool = self._pool
-            if pool is None:
+            slots = self._connection_slots
+            if pool is None or slots is None:
                 connection.close()
-            else:
-                pool.submit(self._serve_connection, connection)
+                continue
+            if not slots.acquire(blocking=False):
+                # Backpressure is safer than the executor's unbounded queue.
+                # A client receives EOF/reset and may retry; the real-time
+                # camera handlers already in progress remain unaffected.
+                connection.close()
+                continue
+            try:
+                pool.submit(self._serve_connection_bounded, connection, slots)
+            except RuntimeError:
+                # Pool may have been shut down between the snapshots above and
+                # submit().  Never leak either the socket or its capacity slot.
+                connection.close()
+                slots.release()
+
+    def _serve_connection_bounded(
+        self,
+        connection: socket.socket,
+        slots: threading.BoundedSemaphore,
+    ) -> None:
+        try:
+            self._serve_connection(connection)
+        finally:
+            slots.release()
 
     def _serve_connection(self, connection: socket.socket) -> None:
         with connection:

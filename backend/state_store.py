@@ -161,12 +161,19 @@ class StateStore:
             )
 
     def save(self):
+        # Serialize the complete persistence transaction.  Atomic replace alone
+        # is not sufficient when several application threads save concurrently:
+        # they would otherwise share the same .tmp path and an older snapshot
+        # could overwrite a newer one after the lock had already been released.
         with self.lock:
             snap = {k: copy.deepcopy(self._state.get(k)) for k in self.PERSISTED_KEYS
                     if k in self._state}
             if "devices" in snap:
                 snap["devices"] = self._persistable_devices(snap["devices"])
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(self.path)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+            tmp.write_text(
+                json.dumps(snap, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            tmp.replace(self.path)

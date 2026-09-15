@@ -10,11 +10,15 @@ class EventLog:
         self.buffer = deque(maxlen=size); self.lock = threading.Lock()
 
     def reset(self):
-        with self.lock: self.buffer.clear()
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text("", encoding="utf-8")
-        except Exception: pass
+        # Buffer and backing file form one logical log.  Keep the same lock
+        # across both so a concurrent append cannot be erased after it returns.
+        with self.lock:
+            self.buffer.clear()
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self.path.write_text("", encoding="utf-8")
+            except Exception:
+                pass
 
     def append(self, text, level="info", source="system", rig_id=None):
         entry = {"text": str(text), "level": level, "source": source,
@@ -38,12 +42,17 @@ class EventLog:
     def trim_forever(self, interval=300):
         while True:
             time.sleep(interval)
-            try:
-                lines = self.path.read_text(encoding="utf-8").splitlines(True)
-                if len(lines) > self.size:
-                    self.path.parent.mkdir(parents=True, exist_ok=True)
-                    self.path.write_text(
-                        "".join(lines[-self.size:]),
-                        encoding="utf-8",
-                    )
-            except Exception: pass
+            # append(), reset() and trim all mutate the same backing file.
+            # Serializing them prevents a rewrite from dropping an append that
+            # happened between trim's read and write.
+            with self.lock:
+                try:
+                    lines = self.path.read_text(encoding="utf-8").splitlines(True)
+                    if len(lines) > self.size:
+                        self.path.parent.mkdir(parents=True, exist_ok=True)
+                        self.path.write_text(
+                            "".join(lines[-self.size:]),
+                            encoding="utf-8",
+                        )
+                except Exception:
+                    pass
