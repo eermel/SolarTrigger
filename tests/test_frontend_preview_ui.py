@@ -190,7 +190,7 @@ def test_photo_config_is_loaded_with_rig_devices():
     assert "await loadRigPhotoConfig()" in body
 
 
-def test_preview_buttons_remain_available_independently_of_trigger_enabled():
+def test_preview_columns_follow_trigger_enabled_visibility():
     body = _function_body("updateRigs", r"\(rigs\)")
 
     assert (
@@ -200,7 +200,7 @@ def test_preview_buttons_remain_available_independently_of_trigger_enabled():
     )
 
     assert "cameraColumn.classList.toggle('enabled', triggerEnabled)" in body
-    assert "cameraColumn.hidden = false" in body
+    assert "cameraColumn.hidden = !triggerEnabled" in body
     assert "rig-preview-button" not in body
 
 

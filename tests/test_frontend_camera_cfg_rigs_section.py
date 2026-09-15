@@ -81,5 +81,5 @@ def test_updateRigs_still_controls_exposure_opt_rig_columns():
         "cameraColumn.classList.toggle('enabled', triggerEnabled)"
         in body
     )
-    assert "cameraColumn.hidden = false" in body
+    assert "cameraColumn.hidden = !triggerEnabled" in body
     assert "rig-preview-button" not in body

@@ -51,4 +51,4 @@ def test_update_rigs_toggles_exposure_opt_column_visibility():
         "cameraColumn.classList.toggle('enabled', triggerEnabled)"
         in body
     )
-    assert "cameraColumn.hidden = false" in body
+    assert "cameraColumn.hidden = !triggerEnabled" in body

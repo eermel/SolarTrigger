@@ -1466,7 +1466,14 @@ function updateRigs(rigs) {
     if (column) column.classList.toggle('enabled', triggerEnabled);
     if (cameraColumn) {
       cameraColumn.classList.toggle('enabled', triggerEnabled);
-      cameraColumn.hidden = false;
+
+      /*
+       * Exposure Optimization only displays participating RIGs.
+       * Apply visibility immediately here as well as in
+       * refreshExposureOptRigVisibility(), so async configuration reloads
+       * cannot briefly reveal inactive RIGs and cause layout flicker.
+       */
+      cameraColumn.hidden = !triggerEnabled;
 
       const title = cameraColumn.querySelector('.card-title');
       if (title) {

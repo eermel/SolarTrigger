@@ -24,7 +24,7 @@ def test_shared_operational_active_rule_exists():
     )
 
 
-def test_configuration_rigs_remain_visible_but_dimmed():
+def test_configuration_rigs_hide_inactive_exposure_opt_columns():
     assert (
         ".rig-column:not(.enabled) { opacity: .55; }"
         in HTML
@@ -35,9 +35,9 @@ def test_configuration_rigs_remain_visible_but_dimmed():
         in HTML
     )
 
-    # Exposure Optimization remains visible even when inactive.
+    # Exposure Optimization displays participating RIGs only.
     assert (
-        "cameraColumn.hidden = false;"
+        "cameraColumn.hidden = !triggerEnabled;"
         in HTML
     )
 
