@@ -899,15 +899,31 @@ class CameraIpcServer:
                     "warnings": None,
                     "plan_version": version,
                 }
-                try:
-                    worker_generation = getattr(worker, "generation", None)
-                except Exception:
-                    worker_generation = None
+                prepared_generation = getattr(
+                    prepared,
+                    "_process_worker_generation",
+                    None,
+                )
                 if (
-                    isinstance(worker_generation, int)
-                    and not isinstance(worker_generation, bool)
+                    isinstance(prepared_generation, int)
+                    and not isinstance(prepared_generation, bool)
                 ):
-                    context["worker_generation"] = worker_generation
+                    # Source of truth: ProcessCameraWorker stamps the exact
+                    # generation while still holding its lock around the
+                    # prepare_capture RPC return.
+                    context["worker_generation"] = prepared_generation
+                else:
+                    # Compatibility fallback for workers which expose a
+                    # generation counter but do not stamp PreparedCapture.
+                    try:
+                        worker_generation = getattr(worker, "generation", None)
+                    except Exception:
+                        worker_generation = None
+                    if (
+                        isinstance(worker_generation, int)
+                        and not isinstance(worker_generation, bool)
+                    ):
+                        context["worker_generation"] = worker_generation
                 if augmented is not None:
                     context.update(augmented)
                 with self._state_lock:
