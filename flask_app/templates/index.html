@@ -524,16 +524,18 @@
 
       <div class="card">
         <div class="card-title">Atmospheric Attenuation</div>
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <div style="display:flex;align-items:center;gap:8px">
-            <div class="focuser-mode-switch"><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation" onchange="persistGlobalAtmosFromUi()"></div>
-            <span style="font-size:11px;color:var(--text-dim)">Atmospheric correction</span>
+        <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="focuser-mode-switch"><input type="checkbox" id="cfg-atmo-switch" role="switch" aria-label="Atmospheric attenuation" onchange="persistGlobalAtmosFromUi()"></div>
+              <span style="font-size:11px;color:var(--text-dim)">Atmospheric correction</span>
+            </div>
+            <span style="font-size:11px;color:var(--text-dim);padding-left:42px">Active only if Sun &lt; 30°</span>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <div class="focuser-mode-switch"><input type="checkbox" id="cfg-atmo-replace-switch" role="switch" aria-label="Replace actual exposition by compensated expositions" onchange="persistGlobalAtmosReplaceFromUi()"></div>
             <span style="font-size:11px;color:var(--text-dim)">replace actual exposition by compensated expositions</span>
           </div>
-          <span style="font-size:11px;color:var(--text-dim)">Active only if Sun &lt; 30°</span>
         </div>
       </div>
 
