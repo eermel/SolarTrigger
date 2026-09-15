@@ -291,6 +291,18 @@ class PhaseRuntime:
                     f"phase={window.name} stage=settings "
                     f"error={type(exc).__name__}: {exc}"
                 )
+            # An emergency override may arrive while phase settings are being
+            # reconciled. Re-check it immediately before admitting a new PHOTO
+            # group. A group already in progress remains atomic, but once the
+            # override is visible no further normal capture may start.
+            current = self.now()
+            override = self.override_phase(current)
+            if override is not None and override != window:
+                continue
+            if override is None and not window.contains(current):
+                continue
+            started = current
+
             captured = None
             try:
                 captured = self.capture(window, started)
