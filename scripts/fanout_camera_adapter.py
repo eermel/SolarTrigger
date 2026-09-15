@@ -260,12 +260,22 @@ class FanoutCameraAdapter:
                 self._log_failure(operation, rig_id, exc)
         if not results:
             # Never convert a complete camera outage into an apparently valid
-            # empty fan-out result (for example CaptureResult 0/0).
+            # empty fan-out result (for example CaptureResult 0/0).  Do not
+            # embed the raw exception text or preserve it as __cause__: IPC
+            # errors may contain protocol payload fragments, token ids or
+            # newlines which are deliberately sanitized by _log_failure().
             rig_id, exc = failures[0]
+            failure_code = (
+                exc.code
+                if isinstance(exc, CameraIpcError)
+                else type(exc).__name__
+            )
             raise RuntimeError(
-                f"{operation} failed on every active camera RIG "
-                f"(first failure: RIG {rig_id}: {exc})"
-            ) from exc
+                f"{_sanitized_log_value(operation)} failed on every active "
+                f"camera RIG (first failure: RIG "
+                f"{_sanitized_log_value(rig_id)}, "
+                f"code={_sanitized_log_value(failure_code)})"
+            ) from None
         return results
 
     def _capture_result(
