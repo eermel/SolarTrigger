@@ -322,19 +322,36 @@ class CameraWorkerRuntime:
     def close_ipc_session(self, session_id: str) -> None:
         """Revoke an IPC lease and stop the server after its final session."""
 
-        stop_server = False
+        # Make the runtime lease registry authoritative immediately, but never
+        # hold the global runtime lock while revoke_session() performs
+        # best-effort prepared-token cleanup. That cleanup may need to wait for
+        # a busy/unresponsive camera process and must not block other RIGs.
         with self._lock:
             if session_id not in self._ipc_session_ids or self._ipc_server is None:
                 raise ValueError("camera IPC session is not active")
             server = self._ipc_server
-            server.revoke_session(session_id)
             self._ipc_session_ids.remove(session_id)
-            if not self._ipc_session_ids:
+
+        revoke_error = None
+        try:
+            server.revoke_session(session_id)
+        except BaseException as exc:
+            revoke_error = exc
+
+        stop_server = False
+        with self._lock:
+            # Another RIG may have opened a new lease while revocation was in
+            # progress. Stop only if this is still the same server and it has
+            # no registered sessions.
+            if self._ipc_server is server and not self._ipc_session_ids:
                 self._ipc_server = None
                 stop_server = True
 
         if stop_server:
             _stop_ipc_server(server, timeout=2.0)
+
+        if revoke_error is not None:
+            raise revoke_error
 
     def shutdown(self) -> None:
         """Stop IPC and workers without waiting under the runtime lock."""
