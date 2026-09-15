@@ -174,6 +174,10 @@ class CameraIpcServer:
         self._stopping = threading.Event()
         self._state_lock = threading.RLock()
         self._active_sessions: dict[str, frozenset[int] | None] = {}
+        # Identity token for each active lease incarnation.  A session_id may
+        # be revoked and later reused; in-flight work from the old incarnation
+        # must never publish state into the new one (ABA protection).
+        self._session_leases: dict[str, object] = {}
         self._tokens: dict[
             str,
             tuple[str | None, int, Any]
@@ -291,6 +295,7 @@ class CameraIpcServer:
                     )
 
             self._active_sessions[candidate] = allowed
+            self._session_leases[candidate] = object()
         return candidate
 
     def revoke_session(self, session_id: str | None = None) -> None:
@@ -309,6 +314,7 @@ class CameraIpcServer:
             if target not in self._active_sessions:
                 raise IpcError("INVALID_SESSION", "camera IPC session is not active")
             allowed = self._active_sessions.pop(target)
+            self._session_leases.pop(target, None)
             abandoned = [
                 value
                 for value in self._tokens.values()
@@ -390,6 +396,7 @@ class CameraIpcServer:
         self._unlink_own_socket()
         with self._state_lock:
             self._active_sessions.clear()
+            self._session_leases.clear()
             self._tokens.clear()
             self._prepare_reservations.clear()
             self._rig_iso_targets.clear()
@@ -775,6 +782,16 @@ class CameraIpcServer:
             rig_id, worker = self._worker(params, allowed=allowed)
             reservation_key = (session, rig_id)
             with self._state_lock:
+                if session is not None:
+                    session_lease = self._session_leases.get(session)
+                    if session_lease is None:
+                        raise IpcError(
+                            "INVALID_SESSION",
+                            "camera IPC session is not active",
+                        )
+                else:
+                    session_lease = None
+
                 outstanding = sum(
                     1
                     for value in self._tokens.values()
@@ -889,7 +906,10 @@ class CameraIpcServer:
                     # was preparing.  Never resurrect a token for a dead
                     # session.  Direct in-process compatibility calls use
                     # session=None and are intentionally exempt.
-                    if session is not None and session not in self._active_sessions:
+                    if (
+                        session is not None
+                        and self._session_leases.get(session) is not session_lease
+                    ):
                         session_active = False
                     else:
                         session_active = True
