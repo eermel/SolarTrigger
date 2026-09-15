@@ -278,7 +278,12 @@ class ProcessCameraWorker:
     def healthy(self) -> bool:
         with self._lock:
             if not self._started:
-                return True
+                # A stopped worker is normally quiescent/healthy, except when
+                # shutdown failed and a child process is still alive.
+                return not (
+                    self._process is not None
+                    and self._process.is_alive()
+                )
             if self._process is None:
                 # A killed generation is recoverable on the next command.
                 return True
@@ -331,10 +336,20 @@ class ProcessCameraWorker:
             process.join(effective_timeout)
 
             if process.is_alive():
-                self._terminate_process_locked(process)
+                stopped = self._terminate_process_locked(process)
+            else:
+                stopped = True
 
-            stopped = not process.is_alive()
-            self._process = None
+            if stopped:
+                self._process = None
+            else:
+                # Never lose the only reference to a camera child which
+                # survived terminate()+kill().  Close its IPC channel so it
+                # cannot receive more work and keep the worker fail-closed.
+                self._last_failure = (
+                    f"camera process for rig {self.rig_id} "
+                    "survived shutdown termination"
+                )
             self._close_connection_locked()
             return stopped
 
@@ -553,20 +568,39 @@ class ProcessCameraWorker:
         except Exception:
             pass
 
-    def _terminate_process_locked(self, process) -> None:
+    def _terminate_process_locked(self, process) -> bool:
         if process.is_alive():
-            process.terminate()
-            process.join(_KILL_GRACE_S)
+            try:
+                process.terminate()
+                process.join(_KILL_GRACE_S)
+            except Exception:
+                pass
 
         if process.is_alive():
-            process.kill()
-            process.join(_KILL_GRACE_S)
+            try:
+                process.kill()
+                process.join(_KILL_GRACE_S)
+            except Exception:
+                pass
+
+        return not process.is_alive()
 
     def _kill_current_locked(self) -> None:
         process = self._process
+        stopped = True
         if process is not None:
-            self._terminate_process_locked(process)
-        self._process = None
+            stopped = self._terminate_process_locked(process)
+
+        if stopped:
+            self._process = None
+        else:
+            # The generation is unusable but still exists. Retain the process
+            # handle so shutdown can retry; prevent automatic reuse/restart.
+            self._started = False
+            self._last_failure = (
+                f"camera process for rig {self.rig_id} "
+                "survived forced termination"
+            )
         self._close_connection_locked()
 
     def _discard_dead_process_locked(self) -> None:

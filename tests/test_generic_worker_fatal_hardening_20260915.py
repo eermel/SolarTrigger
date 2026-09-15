@@ -53,6 +53,13 @@ def test_system_exit_marks_worker_unhealthy_and_future_resolves():
         time.sleep(0.001)
 
     assert worker.healthy is False
+
+    # unhealthy is published before the worker thread has necessarily completed
+    # its finally cleanup. Wait independently for thread termination.
+    until = time.monotonic() + 1.0
+    while worker.running and time.monotonic() < until:
+        time.sleep(0.001)
+
     assert worker.running is False
     assert "worker thread crashed: SystemExit" in (worker.unhealthy_reason or "")
 
