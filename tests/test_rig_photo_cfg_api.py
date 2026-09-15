@@ -51,6 +51,7 @@ def _normalized_rig(rig, *, atmos_enabled=False):
     result.setdefault("optics", {}).setdefault("focal_length_mm", None)
     photo = result.setdefault("photo", {})
     photo.setdefault("atmos_enabled", atmos_enabled)
+    photo.setdefault("atmos_replace_enabled", False)
     photo.setdefault("anti_trailing_enabled", False)
     photo.setdefault("mechanical_vibration_enabled", False)
     photo.setdefault("mechanical_vibration_delay_s", 2)
@@ -93,6 +94,7 @@ def test_legacy_migration_initializes_photo_flags(tmp_path):
 
     assert migrated["rigs"][0]["photo"] == {
         "atmos_enabled": True,
+        "atmos_replace_enabled": False,
         "anti_trailing_enabled": False,
         "mechanical_vibration_enabled": False,
         "mechanical_vibration_delay_s": 2,

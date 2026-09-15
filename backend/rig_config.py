@@ -64,6 +64,7 @@ def canonical_rig_defaults(
         },
         "photo": {
             "atmos_enabled": bool(atmos_enabled),
+            "atmos_replace_enabled": False,
             "anti_trailing_enabled": False,
             "mechanical_vibration_enabled": False,
             "mechanical_vibration_delay_s": DEFAULT_MECHANICAL_VIBRATION_DELAY_S,
@@ -96,6 +97,7 @@ def normalize_rig_defaults(obj: Any) -> Any:
         photo = rig.get("photo")
         if isinstance(photo, dict):
             photo.setdefault("atmos_enabled", global_atmos)
+            photo.setdefault("atmos_replace_enabled", False)
             photo.setdefault("anti_trailing_enabled", False)
             photo.setdefault("mechanical_vibration_enabled", False)
             photo.setdefault(

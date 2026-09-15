@@ -66,8 +66,10 @@ def test_mechanical_vibration_controls_are_per_rig_with_zero_to_five_delay():
 
 
 def test_exposure_opt_json_and_backend_include_vibration_fields():
-    assert 'mechanical_vibration_enabled: current.photo.mechanical_vibration_enabled' in JS
-    assert 'mechanical_vibration_delay_s: current.photo.mechanical_vibration_delay_s' in JS
+    assert 'mechanical_vibration_enabled:' in JS
+    assert 'current.photo.mechanical_vibration_enabled' in JS
+    assert 'mechanical_vibration_delay_s:' in JS
+    assert 'current.photo.mechanical_vibration_delay_s' in JS
     assert '"mechanical_vibration_enabled",' in APP
     assert '"mechanical_vibration_delay_s"' in APP
     assert 'exposure_ui_capabilities(backend)' in APP

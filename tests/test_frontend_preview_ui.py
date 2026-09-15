@@ -155,7 +155,8 @@ def test_global_atmos_switch_persists_to_all_rigs():
     )
 
     assert "[1, 2, 3, 4].map" in body
-    assert "photo: {atmos_enabled: Boolean(enabled)}" in body
+    assert "atmos_enabled: Boolean(enabled)" in body
+    assert "atmos_replace_enabled: replaceEnabled" in body
     assert "fetch('/api/rigs/photo'" in body
 
 

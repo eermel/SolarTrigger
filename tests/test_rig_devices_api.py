@@ -8,6 +8,7 @@ def _with_photo_defaults(rig):
     result.setdefault("optics", {}).setdefault("focal_length_mm", None)
     photo = result.setdefault("photo", {})
     photo.setdefault("atmos_enabled", False)
+    photo.setdefault("atmos_replace_enabled", False)
     photo.setdefault("anti_trailing_enabled", False)
     photo.setdefault("mechanical_vibration_enabled", False)
     photo.setdefault("mechanical_vibration_delay_s", 2)

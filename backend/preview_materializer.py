@@ -87,11 +87,13 @@ def apply_atmos_if_enabled(
     bool,
     str | None,
 ]:
-    """Add one Atmos exposure derived from a regular bracket's EV centre.
+    """Apply atmospheric compensation to every exposure in a regular bracket.
 
-    The configured bracket is kept byte-for-byte in its executable order.
-    Atmospheric attenuation is applied to its logarithmic midpoint and the
-    nearest shutter supported by the configured camera is appended once.
+    With ``atmos_replace_enabled`` false, the original executable bracket is
+    preserved and one compensated version of every exposure is appended.
+    With it true, the executable bracket is replaced by the compensated
+    exposures only. Atmospheric correction remains inactive at Sun altitudes
+    of 30 degrees or more.
     """
 
     photo = rig_snapshot.get("photo")
@@ -152,17 +154,22 @@ def apply_atmos_if_enabled(
     if not original_shutters:
         return plan, False, None
 
-    fastest_seconds = parse_speed(original_shutters[0])
-    slowest_seconds = parse_speed(original_shutters[-1])
-    centre_seconds = math.sqrt(fastest_seconds * slowest_seconds)
-    target_seconds = centre_seconds * float(factor)
+    compensated_shutters = [
+        nearest_executable_shutter(
+            rig_snapshot,
+            parse_speed(shutter) * float(factor),
+        )
+        for shutter in original_shutters
+    ]
 
-    if target_seconds <= centre_seconds:
+    if compensated_shutters == original_shutters:
         return plan, False, None
 
-    atmos_shutter = nearest_executable_shutter(
-        rig_snapshot,
-        target_seconds,
+    replace_enabled = photo.get("atmos_replace_enabled") is True
+    final_shutters = (
+        compensated_shutters
+        if replace_enabled
+        else [*original_shutters, *compensated_shutters]
     )
 
     return (
@@ -171,10 +178,10 @@ def apply_atmos_if_enabled(
             fastest,
             slowest,
             step,
-            [*original_shutters, atmos_shutter],
+            final_shutters,
         ),
         True,
-        atmos_shutter,
+        compensated_shutters[-1] if compensated_shutters else None,
     )
 
 

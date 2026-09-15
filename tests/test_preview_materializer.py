@@ -37,7 +37,7 @@ def test_atmos_is_per_rig_and_requires_complete_context(monkeypatch):
     )
 
     assert added is True
-    assert theoretical == "1/125"
+    assert theoretical == "1/30"
     assert updated == (
         False,
         "1/1000",
@@ -48,7 +48,10 @@ def test_atmos_is_per_rig_and_requires_complete_context(monkeypatch):
             "1/500",
             "1/250",
             "1/125",
+            "1/250",
             "1/125",
+            "1/60",
+            "1/30",
         ],
     )
     with pytest.raises(materializer.PreviewMaterializationError, match="incomplete") as error:
@@ -108,7 +111,7 @@ def test_policy_mapping_and_exposure_assembly():
     assert materializer.assemble_exposures_s((False, "1/1000", "1/60", 2.0, ["1/1000", "1/500", "1/60"])) == pytest.approx([0.001, 0.002, 1 / 60])
 
 
-def test_atmos_adds_one_centre_corrected_exposure_without_iso_compensation(
+def test_atmos_adds_compensated_copy_of_every_exposure_without_iso_compensation(
     monkeypatch,
 ):
     target = datetime(2026, 8, 12, 12)
@@ -140,16 +143,23 @@ def test_atmos_adds_one_centre_corrected_exposure_without_iso_compensation(
     )
 
     assert applied is True
-    assert theoretical == "1/125"
+    assert theoretical == "1/60"
 
-    # The configured 3-view bracket stays intact. Atmos is calculated from
-    # its EV centre (1/1000 x 8 = 1/125) and adds one physical exposure.
+    # Append mode preserves the configured bracket and appends one
+    # atmospheric-compensated exposure for every original exposure.
     assert updated == (
         False,
         "1/2000",
         "1/500",
         1.0,
-        ["1/2000", "1/1000", "1/500", "1/125"],
+        [
+            "1/2000",
+            "1/1000",
+            "1/500",
+            "1/250",
+            "1/125",
+            "1/60",
+        ],
     )
 
     exposures = materializer.assemble_exposures_s(updated)
@@ -158,7 +168,9 @@ def test_atmos_adds_one_centre_corrected_exposure_without_iso_compensation(
         1 / 2000,
         1 / 1000,
         1 / 500,
+        1 / 250,
         1 / 125,
+        1 / 60,
     ])
 
 
@@ -414,7 +426,14 @@ def test_preview_atmos_accepts_partial_eclipse_context(monkeypatch):
         "1/2000",
         "1/500",
         1.0,
-        ["1/2000", "1/1000", "1/500", "1/250"],
+        [
+            "1/2000",
+            "1/1000",
+            "1/500",
+            "1/500",
+            "1/250",
+            "1/125",
+        ],
     )
 
 

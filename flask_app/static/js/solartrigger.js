@@ -145,9 +145,17 @@ function renderRigPhotoConfig(payload) {
 
   const firstRig = rigs.find(rig => Number(rig.rig_id) === 1);
   const atmo = document.getElementById('cfg-atmo-switch');
+  const atmoReplace = document.getElementById('cfg-atmo-replace-switch');
   if (atmo && firstRig) {
     atmo.checked = Boolean(firstRig.photo && firstRig.photo.atmos_enabled === true);
   }
+  if (atmoReplace && firstRig) {
+    atmoReplace.checked = Boolean(
+      firstRig.photo && firstRig.photo.atmos_replace_enabled === true
+    );
+  }
+  syncAtmosReplaceControl();
+  refreshExposureOptRigVisibility();
 }
 
 async function loadRigPhotoConfig() {
@@ -180,6 +188,7 @@ function readRigPhotoConfig(rigId) {
     : {};
   const isoMax = document.getElementById(`rig-${rigId}-iso-max`);
   const atmo = document.getElementById('cfg-atmo-switch');
+  const atmoReplace = document.getElementById('cfg-atmo-replace-switch');
 
   const toleranceValue = Number(tolerance && tolerance.value);
   const delayValue = Number(mechanicalDelay && mechanicalDelay.value);
@@ -215,6 +224,9 @@ function readRigPhotoConfig(rigId) {
       iso_compensation_enabled: Boolean(isoComp && isoComp.checked),
       iso_max: isoMaxValue,
       atmos_enabled: Boolean(atmo && atmo.checked),
+      atmos_replace_enabled: Boolean(
+        atmo && atmo.checked && atmoReplace && atmoReplace.checked
+      ),
     },
   };
 }
@@ -238,11 +250,35 @@ async function persistRigPhoto(rigId) {
   }
 }
 
+function syncAtmosReplaceControl() {
+  const atmo = document.getElementById('cfg-atmo-switch');
+  const replace = document.getElementById('cfg-atmo-replace-switch');
+  if (!replace) return;
+
+  const enabled = Boolean(atmo && atmo.checked);
+  replace.disabled = !enabled;
+  if (!enabled) replace.checked = false;
+}
+
+function refreshExposureOptRigVisibility() {
+  for (let rigId = 1; rigId <= 4; rigId += 1) {
+    const column = document.getElementById(`camcfg-rig-column-${rigId}`);
+    if (column) column.hidden = !_exposureOptRigIsActive(rigId);
+  }
+}
+
 async function persistGlobalAtmos(enabled, showFeedback = true) {
+  syncAtmosReplaceControl();
+  const replace = document.getElementById('cfg-atmo-replace-switch');
+  const replaceEnabled = Boolean(enabled && replace && replace.checked);
+
   try {
     const patches = [1, 2, 3, 4].map(rigId => ({
       rig_id: rigId,
-      photo: {atmos_enabled: Boolean(enabled)},
+      photo: {
+        atmos_enabled: Boolean(enabled),
+        atmos_replace_enabled: replaceEnabled,
+      },
     }));
 
     const response = await fetch('/api/rigs/photo', {
@@ -270,7 +306,19 @@ async function persistGlobalAtmos(enabled, showFeedback = true) {
 
 async function persistGlobalAtmosFromUi() {
   const control = document.getElementById('cfg-atmo-switch');
+  syncAtmosReplaceControl();
   await persistGlobalAtmos(Boolean(control && control.checked));
+}
+
+async function persistGlobalAtmosReplaceFromUi() {
+  const atmo = document.getElementById('cfg-atmo-switch');
+  const replace = document.getElementById('cfg-atmo-replace-switch');
+  if (!atmo || !atmo.checked) {
+    if (replace) replace.checked = false;
+    syncAtmosReplaceControl();
+    return;
+  }
+  await persistGlobalAtmos(true);
 }
 
 async function loadExposureOptConfigList() {
@@ -296,18 +344,28 @@ async function loadExposureOptConfigList() {
 
 function readExposureOptConfig() {
   const atmo = document.getElementById('cfg-atmo-switch');
+  const atmoReplace = document.getElementById('cfg-atmo-replace-switch');
+  const atmosEnabled = Boolean(atmo && atmo.checked);
+  const atmosReplaceEnabled = Boolean(
+    atmosEnabled && atmoReplace && atmoReplace.checked
+  );
 
   const rigs = [1, 2, 3, 4].map(rigId => {
     const current = readRigPhotoConfig(rigId);
+    const active = _exposureOptRigIsActive(rigId);
 
     return {
       rig_id: rigId,
       photo: {
-        anti_trailing_enabled: current.photo.anti_trailing_enabled,
+        anti_trailing_enabled:
+          active ? current.photo.anti_trailing_enabled : false,
         motion_tolerance_px: current.photo.motion_tolerance_px,
-        mechanical_vibration_enabled: current.photo.mechanical_vibration_enabled,
-        mechanical_vibration_delay_s: current.photo.mechanical_vibration_delay_s,
-        iso_compensation_enabled: current.photo.iso_compensation_enabled,
+        mechanical_vibration_enabled:
+          active ? current.photo.mechanical_vibration_enabled : false,
+        mechanical_vibration_delay_s:
+          current.photo.mechanical_vibration_delay_s,
+        iso_compensation_enabled:
+          active ? current.photo.iso_compensation_enabled : false,
         iso_max: current.photo.iso_max
       }
     };
@@ -316,7 +374,8 @@ function readExposureOptConfig() {
   return {
     schema_version: 1,
     config_type: 'exposure_optimization',
-    atmospheric_attenuation_enabled: Boolean(atmo && atmo.checked),
+    atmospheric_attenuation_enabled: atmosEnabled,
+    atmospheric_attenuation_replace_exposures: atmosReplaceEnabled,
     rigs
   };
 }
@@ -389,12 +448,16 @@ async function loadExposureOptConfig(filename) {
     }
 
     const atmos = Boolean(data.atmospheric_attenuation_enabled);
+    const atmosReplace = Boolean(
+      atmos && data.atmospheric_attenuation_replace_exposures
+    );
 
     const patches = (data.rigs || []).map(rig => ({
       rig_id: Number(rig.rig_id),
       photo: {
         ...(rig.photo || {}),
-        atmos_enabled: atmos
+        atmos_enabled: atmos,
+        atmos_replace_enabled: atmosReplace
       }
     }));
 
@@ -4813,8 +4876,13 @@ function renderExposureOptPreviewLog(
         {indent:2, dim:true}
       );
     } else {
+      const replaceAtmos = Boolean(
+        document.getElementById('cfg-atmo-replace-switch')?.checked
+      );
       _exposureOptAddLine(
-        'Added to exposure list:',
+        replaceAtmos
+          ? 'Replaced by compensated exposures:'
+          : 'Added compensated exposures:',
         {indent:2, success:true}
       );
 

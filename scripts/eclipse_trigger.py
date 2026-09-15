@@ -596,6 +596,13 @@ def main() -> int:
     rig_snapshot["photo"]["atmos_enabled"] = bool(
         exposure_opt.get("atmospheric_attenuation_enabled", False)
     )
+    rig_snapshot["photo"]["atmos_replace_enabled"] = bool(
+        rig_snapshot["photo"]["atmos_enabled"]
+        and exposure_opt.get(
+            "atmospheric_attenuation_replace_exposures",
+            False,
+        )
+    )
     eclipse_context = {
         "timeline": {name: timeline[name] for name in ("C1", "C2", "TMAX", "C3", "C4")
                      if timeline.get(name) is not None},

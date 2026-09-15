@@ -15,7 +15,7 @@ def test_altitude_interpolation_uses_absolute_capture_time():
     assert interpolate_altitude(base + timedelta(minutes=30), timeline, altitudes) == 15
 
 
-def test_one_center_derived_atmos_exposure_is_appended():
+def test_compensated_atmos_exposures_are_appended_for_every_original():
     base = datetime(2026, 8, 12, 18, 0)
     plan = (True, "1/2000", "1/500", 1.0, None)
     result, applied, shutter = apply_atmos_if_enabled(
@@ -29,5 +29,6 @@ def test_one_center_derived_atmos_exposure_is_appended():
         },
     )
     assert applied is True
-    assert result[4][:-1] == ["1/2000", "1/1000", "1/500"]
+    assert result[4][:3] == ["1/2000", "1/1000", "1/500"]
+    assert len(result[4]) == 6
     assert result[4][-1] == shutter
