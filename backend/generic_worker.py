@@ -284,6 +284,16 @@ class GenericWorker:
                                 except BaseException as exc:
                                     future.set_exception(exc)
                                     self._record_error(exc)
+                                    # Ordinary operation failures belong to
+                                    # the submitted Future and the worker may
+                                    # continue. Control-flow/fatal
+                                    # BaseException subclasses (SystemExit,
+                                    # KeyboardInterrupt, GeneratorExit, ...)
+                                    # must instead terminate this hardware
+                                    # worker and let the outer guard mark it
+                                    # unhealthy/fail-closed.
+                                    if not isinstance(exc, Exception):
+                                        raise
                 finally:
                     with self._lock:
                         self._executing_priority = None
