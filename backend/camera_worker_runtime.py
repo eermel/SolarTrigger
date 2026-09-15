@@ -88,6 +88,12 @@ class CameraWorkerRuntime:
         self._ipc_session_rigs: dict[
             str, frozenset[int] | None
         ] = {}
+        # A session being revoked must remain runtime-owned until the first
+        # closer has finished server-side prepared-token cleanup.  Without a
+        # separate closing marker, a concurrent duplicate close can observe
+        # the still-active runtime lease, fail server-side after the first
+        # revoke removed the session, then prematurely drop runtime ownership.
+        self._ipc_closing_session_ids: set[str] = set()
         self._leased_policy_configs: dict[int, dict] = {}
         self._registry: dict[int, CameraWorker] = {}
         self._camera_entries: dict[int, dict] = {}
@@ -384,6 +390,11 @@ class CameraWorkerRuntime:
         with self._lock:
             if session_id not in self._ipc_session_ids or self._ipc_server is None:
                 raise ValueError("camera IPC session is not active")
+            if session_id in self._ipc_closing_session_ids:
+                raise RuntimeError(
+                    "camera IPC session close is already in progress"
+                )
+            self._ipc_closing_session_ids.add(session_id)
             server = self._ipc_server
             scope = self._ipc_session_rigs.get(session_id)
 
@@ -398,6 +409,7 @@ class CameraWorkerRuntime:
             # Runtime ownership ends only after revocation/cleanup completed.
             self._ipc_session_ids.discard(session_id)
             self._ipc_session_rigs.pop(session_id, None)
+            self._ipc_closing_session_ids.discard(session_id)
             if scope is None:
                 self._leased_policy_configs.clear()
             else:
@@ -424,6 +436,7 @@ class CameraWorkerRuntime:
             server, self._ipc_server = self._ipc_server, None
             self._ipc_session_ids.clear()
             self._ipc_session_rigs.clear()
+            self._ipc_closing_session_ids.clear()
             self._leased_policy_configs.clear()
             workers = tuple(self._registry.values())
             self._registry.clear()
