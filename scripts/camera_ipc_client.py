@@ -59,6 +59,7 @@ class CameraIpcClient:
     DEFAULT_TIMEOUT_S = 5.0
     CONTROL_TIMEOUT_S = 30.0
     CAPTURE_TIMEOUT_S = 120.0
+    DEADLINE_RESPONSE_GRACE_S = 2.0
 
     def __init__(
         self,
@@ -436,7 +437,17 @@ class CameraIpcClient:
             remaining = float(deadline_monotonic) - time.monotonic()
             if remaining <= 0:
                 raise socket.timeout("deadline has passed")
-            timeout = min(timeout, remaining)
+
+            # The hard deadline constrains camera execution on the server.
+            # Do not make the client socket expire at that exact instant:
+            # a capture may have completed safely just before the deadline
+            # while its JSON response is still crossing the local IPC socket.
+            # Waiting a short response-only grace avoids turning a successful
+            # photo into an ambiguous TIMEOUT that the scheduler may retry.
+            timeout = min(
+                timeout,
+                remaining + CameraIpcClient.DEADLINE_RESPONSE_GRACE_S,
+            )
         return timeout
 
     def _deadline_monotonic(

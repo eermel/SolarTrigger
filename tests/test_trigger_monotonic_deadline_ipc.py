@@ -63,7 +63,9 @@ def test_effective_timeout_uses_only_monotonic_deadline(monkeypatch):
     assert CameraIpcClient._effective_timeout(
         120.0,
         deadline_monotonic=212.5,
-    ) == pytest.approx(12.5)
+    ) == pytest.approx(
+        12.5 + CameraIpcClient.DEADLINE_RESPONSE_GRACE_S
+    )
 
 
 def test_effective_timeout_rejects_expired_monotonic_deadline(monkeypatch):
