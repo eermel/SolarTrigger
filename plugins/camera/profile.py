@@ -145,6 +145,8 @@ class ProfilePlugin(CameraPlugin):
         "manual_mode": "manual_mode",
         "capture_target": "capture_target",
         "raw": "raw",
+        "image_format": "raw",
+        "white_balance": "white_balance",
     }
 
     def _resolved_value(self, key, value=None):
@@ -373,6 +375,10 @@ class ProfilePlugin(CameraPlugin):
             required["capturemode"] = self.commands["capture_mode"]["value"]
         if aperture is not None and "aperture" in self.commands:
             required["f-number"] = aperture
+        if image_format is not None and "raw" in self.commands:
+            required["image_format"] = image_format
+        if white_balance is not None and "white_balance" in self.commands:
+            required["white_balance"] = white_balance
         return self.preflight(required)
 
     def set_exposure_settings(self, aperture=None, iso=None):

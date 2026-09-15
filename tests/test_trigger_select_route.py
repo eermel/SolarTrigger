@@ -270,7 +270,7 @@ def test_trigger_start_does_not_require_legacy_global_capture(
     }
 
 
-def test_trigger_start_accepts_operator_selected_circumstances_date(
+def test_trigger_start_rejects_operator_selected_wrong_circumstances_date(
     tmp_path, monkeypatch
 ):
     another_date = datetime.now().astimezone().date() + timedelta(days=30)
@@ -282,12 +282,7 @@ def test_trigger_start_accepts_operator_selected_circumstances_date(
 
     response = client.post("/api/trigger/start", json=TRIGGER_SELECTION)
 
-    assert response.status_code == 200
-    assert response.get_json() == {
-        "status": "started",
-        "mode": "real",
-        "rig_id": 1,
-    }
+    assert response.status_code == 400
 
 
 def test_trigger_start_succeeds_when_preconditions_are_met(tmp_path, monkeypatch):

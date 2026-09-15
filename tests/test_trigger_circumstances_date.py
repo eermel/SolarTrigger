@@ -1,8 +1,10 @@
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
 
+import backend.trigger_service as trigger_service_module
 from backend.trigger_service import TriggerService, TriggerValidationError
 
 
@@ -91,9 +93,7 @@ def test_real_start_rejects_missing_explicit_date(tmp_path):
             strict_circumstances_date=True,
         )
 
-    assert exc_info.value.code == "TRIGGER_INPUTS_INVALID"
-    assert isinstance(exc_info.value.__cause__, TriggerValidationError)
-    assert exc_info.value.__cause__.code == "CIRCUMSTANCES_DATE_INVALID"
+    assert exc_info.value.code == "CIRCUMSTANCES_DATE_MISSING"
 
 
 @pytest.mark.parametrize(
@@ -119,15 +119,18 @@ def test_real_start_rejects_invalid_explicit_date(tmp_path, bad_date):
             strict_circumstances_date=True,
         )
 
-    assert exc_info.value.code == "TRIGGER_INPUTS_INVALID"
-    assert isinstance(exc_info.value.__cause__, TriggerValidationError)
-    assert exc_info.value.__cause__.code == "CIRCUMSTANCES_DATE_INVALID"
+    assert exc_info.value.code == "CIRCUMSTANCES_DATE_INVALID"
 
 
-def test_real_start_accepts_valid_explicit_date(tmp_path):
+def test_real_start_accepts_valid_explicit_date(monkeypatch, tmp_path):
     cfg = _base_circumstances()
     cfg["_date"] = "2027-08-02"
     service = _service(tmp_path, cfg)
+    monkeypatch.setattr(
+        trigger_service_module,
+        "_utc_today",
+        lambda: date(2027, 8, 2),
+    )
 
     result = service.validate_start(
         rig_id=1,

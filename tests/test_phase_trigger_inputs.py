@@ -53,7 +53,11 @@ def _service(tmp_path):
     return service
 
 
-def test_three_selected_files_replace_execution_plan(tmp_path):
+def test_three_selected_files_replace_execution_plan(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "backend.trigger_service._utc_today",
+        lambda: datetime(2027, 8, 2, tzinfo=timezone.utc).date(),
+    )
     service = _service(tmp_path)
     selected = {
         "circumstances_file": "eclipse.json",
@@ -69,6 +73,10 @@ def test_three_selected_files_replace_execution_plan(tmp_path):
 
 
 def test_runtime_command_uses_three_sources_and_no_execution_plan(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "backend.trigger_service._utc_today",
+        lambda: datetime(2027, 8, 2, tzinfo=timezone.utc).date(),
+    )
     service = _service(tmp_path)
     selected = {
         "circumstances_file": "eclipse.json",

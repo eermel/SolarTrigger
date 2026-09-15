@@ -9,6 +9,11 @@ class TriggerValidationError(RuntimeError):
     def __init__(self, message, code="TRIGGER_INVALID"):
         super().__init__(message); self.code = code
 
+
+def _utc_today():
+    return datetime.now(timezone.utc).date()
+
+
 def validate_eclipse(ecl):
     ts, c1, c2, c3, c4, te = sequence_seconds(ecl)
     errors = []
@@ -490,7 +495,7 @@ class TriggerService:
                 if not isinstance(raw_date, str) or not raw_date.strip():
                     raise TriggerValidationError(
                         "Circumstances file is missing required _date (YYYY-MM-DD).",
-                        "CIRCUMSTANCES_DATE_INVALID",
+                        "CIRCUMSTANCES_DATE_MISSING",
                     )
                 normalized_date = raw_date.strip()
                 try:
@@ -507,6 +512,14 @@ class TriggerService:
                     raise TriggerValidationError(
                         "Circumstances _date is invalid; expected YYYY-MM-DD.",
                         "CIRCUMSTANCES_DATE_INVALID",
+                    )
+                today_utc = _utc_today()
+                if parsed_date != today_utc:
+                    raise TriggerValidationError(
+                        "Circumstances date "
+                        f"{parsed_date.isoformat()} does not match current UTC date "
+                        f"{today_utc.isoformat()}.",
+                        "CIRCUMSTANCES_DATE_MISMATCH",
                     )
 
             validate_eclipse(ecl)
@@ -539,6 +552,13 @@ class TriggerService:
                 photo,
                 honor_timeline_bounds=ecl.get("_debug_scenario") is True,
             )
+        except TriggerValidationError as exc:
+            if exc.code.startswith("CIRCUMSTANCES_DATE_"):
+                raise
+            raise TriggerValidationError(
+                f"Invalid trigger inputs: {exc}",
+                "TRIGGER_INPUTS_INVALID",
+            ) from exc
         except Exception as exc:
             raise TriggerValidationError(
                 f"Invalid trigger inputs: {exc}",
