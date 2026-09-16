@@ -7806,8 +7806,19 @@ async function refreshRecharacterizationCandidates(){let e=document.getElementBy
 async function startCameraRecharacterization(){let e=document.getElementById('camera-recharacterization-select'),locator=e&&e.value;if(!locator||!confirm('Re-characterize this camera?'))return;let r=await fetch('/api/camera-characterization/recharacterize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({locator})}),d=await r.json();flash(r.ok?'Camera re-characterization started':(d.error||'Error'),r.ok?'green':'red')}
 async function maintenancePost(u,b){let r=await fetch(u,{method:'POST',headers:b?{'Content-Type':'application/json'}:{},body:b?JSON.stringify(b):undefined}),d=await r.json();if(!r.ok)throw Error(d.error||`HTTP ${r.status}`);return d}
 async function loadMaintenanceStatus(){let e=document.getElementById('system-update-network');if(!e)return;try{let r=await fetch('/api/system/maintenance/status'),d=await r.json();e.textContent=`Ethernet: ${d.ethernet&&d.ethernet.connected?'CONNECTED':'DISCONNECTED'} · Internet: ${d.internet?'AVAILABLE':'UNAVAILABLE'} · ${d.status}`;let t=(d.logs||[]).join('\n'),x=document.getElementById(d.kind&&d.kind.startsWith('apt-')?'system-update-log':'solartrigger-update-log');if(x)x.textContent=t}catch(_){}}
-async function checkSystemUpdates(){try{await maintenancePost('/api/system/maintenance/check-updates')}catch(e){flash(e.message,'red')}}
-async function updateSystem(){if(!confirm('Run apt-get update + apt-get upgrade -y?'))return;try{await maintenancePost('/api/system/maintenance/update-system')}catch(e){flash(e.message,'red')}}
+async function checkAndUpdateSystem(){
+  if(!confirm(
+    'Check for system updates and install them now?\n\n'
+    + 'This runs apt-get update + apt-get upgrade -y.'
+  )) return;
+
+  try {
+    await maintenancePost('/api/system/maintenance/update-system');
+    flash('System update started','green');
+  } catch(e) {
+    flash(e.message,'red');
+  }
+}
 async function uploadSolarTriggerRelease(){let i=document.getElementById('solartrigger-update-file'),f=i&&i.files[0];if(!f)return;let q=new FormData();q.append('file',f);let r=await fetch('/api/system/maintenance/upload-release',{method:'POST',body:q}),d=await r.json();if(!r.ok)return flash(d.error||'Invalid package','red');solarTriggerUploadToken=d.upload_token;document.getElementById('solartrigger-install-release').disabled=false;document.getElementById('solartrigger-update-status').textContent=`Validated release: ${d.version}`}
 async function installSolarTriggerRelease(){if(!solarTriggerUploadToken||!confirm('Install release and restart service?'))return;try{await maintenancePost('/api/system/maintenance/install-release',{upload_token:solarTriggerUploadToken})}catch(e){flash(e.message,'red')}}
 async function rollbackSolarTriggerRelease(){if(!confirm('Rollback to previous release?'))return;try{await maintenancePost('/api/system/maintenance/rollback-release')}catch(e){flash(e.message,'red')}}

@@ -53,7 +53,7 @@ def test_tabs_have_one_parent_click_handler_and_no_child_click_handler():
     parser.feed(INDEX)
 
     assert [" ".join(tab["label"]).strip() for tab in parser.tabs] == [
-        "ADD CAMERA",
+        "SYSTEM",
         "DEVICES",
         "SYNC GPS",
         "ECLIPSE",

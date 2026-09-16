@@ -44,7 +44,7 @@
   <div id="tabs">
     <button class="tab" id="add-camera-tab" data-page-index="9" onclick="showTab(9)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M20 13v6H3V7h4l2-3h6l2 3h3M19 2v8M15 6h8"/><circle cx="10" cy="13" r="4"/></svg>
-      <span>ADD CAMERA</span>
+      <span>SYSTEM</span>
     </button>
     <button class="tab active" data-workflow-step="1" data-page-index="0" id="devices-tab" onclick="showTab(0)">
       <svg viewBox="0 0 24 24" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
@@ -107,7 +107,7 @@
   <div id="pages">
 
     <div class="page" id="add-camera-panel">
-      <section class="add-camera-section" aria-label="Add Camera">
+      <section class="add-camera-section" aria-label="System">
         <div class="card">
           <div class="card-title">Device discovery</div>
           <button class="btn btn-primary btn-full" id="add-camera-rescan" onclick="refreshRigDevices()">↻ Refresh devices</button>
@@ -162,6 +162,77 @@
           </button>
         </div>
 
+
+        <div class="card devices-reset-card">
+          <div class="card-title">Persistent data</div>
+          <button
+            class="btn btn-danger btn-full"
+            id="erase-persistent-data-reboot"
+            type="button"
+            onclick="erasePersistentDataAndReboot()">
+            ⚠ ERASE ALL PERSISTENT DATA &amp; REBOOT ⚠
+          </button>
+        </div>
+
+        <div class="card system-maintenance-card system-maintenance-card--orange">
+          <div class="card-title">Update System</div>
+          <div id="system-update-network">Ethernet: checking…</div>
+
+          <button
+            class="btn btn-accent btn-full"
+            id="system-check-update"
+            type="button"
+            onclick="checkAndUpdateSystem()">
+            CHECK AND UPDATE
+          </button>
+
+          <p style="font-size:12px">
+            apt-get update + apt-get upgrade -y. Physical Ethernet required.
+          </p>
+
+          <pre id="system-update-log"></pre>
+        </div>
+
+        <div class="card system-maintenance-card system-maintenance-card--blue">
+          <div class="card-title">Update Solar Eclipse Trigger</div>
+
+          <div id="solartrigger-update-status">
+            Select an offline release ZIP.
+          </div>
+
+          <input
+            type="file"
+            id="solartrigger-update-file"
+            accept=".zip">
+
+          <div class="system-release-actions">
+            <button
+              class="btn btn-primary"
+              type="button"
+              onclick="uploadSolarTriggerRelease()">
+              Validate package
+            </button>
+
+            <button
+              class="btn btn-primary"
+              id="solartrigger-install-release"
+              type="button"
+              onclick="installSolarTriggerRelease()"
+              disabled>
+              Install update
+            </button>
+
+            <button
+              class="btn"
+              type="button"
+              onclick="rollbackSolarTriggerRelease()">
+              Rollback
+            </button>
+          </div>
+
+          <pre id="solartrigger-update-log"></pre>
+        </div>
+
         <div class="card" style="flex-shrink:0">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
             <span>Camera log</span>
@@ -196,18 +267,6 @@
           <div class="card rig-column" id="rig-column-4" data-rig-id="4"><div class="rig-header"><div class="card-title">RIG 4</div><div class="focuser-mode-switch rig-mode-switch"><input class="rig-switch" id="rig-switch-4" type="checkbox" role="switch" aria-label="RIG 4 ON/OFF"></div></div><div class="rig-body" id="rig-body-4"></div></div>
         </div>
 
-        <div class="card devices-reset-card">
-          <div class="card-title">Persistent data</div>
-          <button
-            class="btn btn-danger btn-full"
-            id="erase-persistent-data-reboot"
-            type="button"
-            onclick="erasePersistentDataAndReboot()">
-            ⚠ ERASE ALL PERSISTENT DATA &amp; REBOOT ⚠
-          </button>
-        </div>
-<div class="card"><div class="card-title">Update System</div><div id="system-update-network">Ethernet: checking…</div><button class="btn btn-primary" onclick="checkSystemUpdates()">Check updates</button> <button class="btn btn-primary" onclick="updateSystem()">Update system</button><p style="font-size:12px">apt-get update + apt-get upgrade -y. Physical Ethernet required.</p><pre id="system-update-log"></pre></div>
-<div class="card"><div class="card-title">Update Solar Eclipse Trigger</div><div id="solartrigger-update-status">Select an offline release ZIP.</div><input type="file" id="solartrigger-update-file" accept=".zip"><button class="btn btn-primary" onclick="uploadSolarTriggerRelease()">Validate package</button> <button class="btn btn-primary" id="solartrigger-install-release" onclick="installSolarTriggerRelease()" disabled>Install update</button> <button class="btn" onclick="rollbackSolarTriggerRelease()">Rollback</button><pre id="solartrigger-update-log"></pre></div>
       </section>
     </div>
 

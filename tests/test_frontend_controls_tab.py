@@ -59,7 +59,7 @@ def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
 
     labels = [" ".join(tab["text"]).strip() for tab in parser.tabs]
     assert labels == [
-        "ADD CAMERA",
+        "SYSTEM",
         "DEVICES",
         "SYNC GPS",
         "ECLIPSE",
@@ -122,8 +122,8 @@ def test_add_camera_sections_are_separate_and_devices_is_default():
     assert 'onclick="clearCameraAddLog()"' in add_camera
     assert 'id="add-camera-rescan"' in add_camera
     assert 'id="devices-rescan"' in devices
-    assert 'id="erase-persistent-data-reboot"' in devices
-    assert 'id="erase-persistent-data-reboot"' not in add_camera
+    assert 'id="erase-persistent-data-reboot"' in add_camera
+    assert 'id="erase-persistent-data-reboot"' not in devices
     assert re.search(r'<button[^>]*class="tab active"[^>]*id="devices-tab"', INDEX)
 
 

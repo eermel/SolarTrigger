@@ -802,7 +802,14 @@ def api_rig_devices_get():
         rigs.append({
             "rig_id": rig_id,
             "name": rig.name if rig is not None else f"RIG {rig_id}",
-            "enabled": rig.enabled if rig is not None else False,
+            # RIG 1 is mandatory and always operationally active.
+            # Keep the API aligned with the frontend/runtime rule instead
+            # of exposing a stale persisted enabled=false value.
+            "enabled": (
+                True
+                if rig_id == 1
+                else (rig.enabled if rig is not None else False)
+            ),
             "devices": devices,
             "optics": deepcopy(configured_rig.get("optics", {})),
         })
@@ -1332,9 +1339,24 @@ def api_rig_devices_post():
             patched_ids.add(rig_id)
 
             target = rigs_by_id[rig_id]
-            for field in ("enabled", "name"):
-                if field in patch:
-                    target[field] = patch[field]
+
+            if "enabled" in patch:
+                if not isinstance(patch["enabled"], bool):
+                    raise ValueError(
+                        f"rigs[{index}].enabled must be a boolean"
+                    )
+                # RIG 1 is mandatory. Its persisted state must agree with
+                # the operational rule used by the trigger and frontend.
+                target["enabled"] = (
+                    True if rig_id == 1 else patch["enabled"]
+                )
+
+            if "name" in patch:
+                if not isinstance(patch["name"], str):
+                    raise ValueError(
+                        f"rigs[{index}].name must be a string"
+                    )
+                target["name"] = patch["name"]
 
             if "optics" in patch:
                 optics_patch = patch["optics"]
@@ -1387,6 +1409,10 @@ def api_rig_devices_post():
                                 f"rigs[{index}].devices.{category} device is not pilotable"
                             )
                     target.setdefault("devices", {})[category] = deepcopy(binding)
+
+        # RIG 1 is mandatory. Repair legacy configurations that may still
+        # contain enabled=false before validating and persisting the file.
+        rigs_by_id[1]["enabled"] = True
 
         config["rigs"] = [rigs_by_id[rig_id] for rig_id in range(1, 5)]
         validate_rig_config(config)

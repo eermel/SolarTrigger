@@ -286,6 +286,88 @@ header {
   #tabs .tab span { font-size: 8px; letter-spacing: 0; }
 }
 
+
+/* ── SYSTEM MAINTENANCE ── */
+
+.system-maintenance-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.system-maintenance-card--orange {
+  border-color: rgba(255,127,0,.70);
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255,127,0,.12),
+      rgba(13,20,32,.96) 45%
+    );
+}
+
+.system-maintenance-card--orange::before {
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      rgba(255,127,0,.85),
+      transparent
+    );
+}
+
+.system-maintenance-card--orange .card-title {
+  color: var(--orange);
+}
+
+.system-maintenance-card--blue {
+  border-color: rgba(74,158,255,.70);
+  background:
+    linear-gradient(
+      135deg,
+      rgba(74,158,255,.12),
+      rgba(13,20,32,.96) 45%
+    );
+}
+
+.system-maintenance-card--blue::before {
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      rgba(74,158,255,.85),
+      transparent
+    );
+}
+
+.system-maintenance-card--blue .card-title {
+  color: var(--blue);
+}
+
+.system-release-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.system-release-actions .btn {
+  width: 100%;
+  min-width: 0;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+#solartrigger-update-file {
+  width: 100%;
+}
+
+#system-update-log,
+#solartrigger-update-log {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+
 /* ── STAT BLOCK ── */
 .stat { display: flex; flex-direction: column; gap: 2px; }
 .stat-label { font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim); }

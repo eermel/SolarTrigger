@@ -194,7 +194,7 @@ def test_rig_devices_get_enriches_persisted_bindings_from_cached_inventory(
         (rig["rig_id"], rig["name"], rig["enabled"])
         for rig in payload["rigs"]
     ] == [
-        (1, "Wide field", False),
+        (1, "Wide field", True),
         (2, "Telephoto", False),
         (3, "Tracked", True),
         (4, "Manual focus", False),
