@@ -1,4 +1,4 @@
-"""Regression tests for camera plugin routing."""
+"""Regression tests for profile-only production camera routing."""
 
 import plugins.camera as camera_plugins
 
@@ -19,21 +19,8 @@ class _Specialized:
     def matches(model_string):
         return model_string == "Sony ILCE-7M5 (PC Control)"
 
-    def init_settings(
-        self,
-        aperture=None,
-        iso=None,
-        image_format="RAW",
-        white_balance="Daylight",
-    ):
-        return None
 
-    def set_exposure_settings(self, aperture=None, iso=None):
-        return None
-
-
-
-def test_characterized_camera_prefers_profile_plugin(monkeypatch):
+def test_characterized_camera_uses_profile_plugin_even_if_reference_exists(monkeypatch):
     profile = {
         "backend": "profile-test",
         "model": "Sony ILCE-7M5 (PC Control)",
@@ -44,22 +31,11 @@ def test_characterized_camera_prefers_profile_plugin(monkeypatch):
         "get_camera_model",
         lambda _camera: "Sony ILCE-7M5 (PC Control)",
     )
-    monkeypatch.setattr(
-        camera_plugins,
-        "_load_plugin_classes",
-        lambda: pytest.fail(
-            "legacy specialized plugins must not be consulted for a characterized camera"
-        ),
-    )
 
     import backend.camera_profiles as camera_profiles
     import plugins.camera.profile as profile_module
 
-    monkeypatch.setattr(
-        camera_profiles,
-        "profile_for_model",
-        lambda _model: profile,
-    )
+    monkeypatch.setattr(camera_profiles, "profile_for_model", lambda _model: profile)
 
     class _Profile:
         def __init__(self, camera, log_fn, selected_profile):
@@ -67,6 +43,11 @@ def test_characterized_camera_prefers_profile_plugin(monkeypatch):
             self.profile = selected_profile
 
     monkeypatch.setattr(profile_module, "ProfilePlugin", _Profile)
+    monkeypatch.setattr(
+        camera_plugins,
+        "_load_reference_plugin_classes",
+        lambda: (_ for _ in ()).throw(AssertionError("production must not inspect reference plugins")),
+    )
 
     plugin = camera_plugins.load_plugin(_FakeCamera(), log_fn=lambda _msg: None)
 
@@ -74,45 +55,43 @@ def test_characterized_camera_prefers_profile_plugin(monkeypatch):
     assert plugin.profile is profile
 
 
-def test_characterized_camera_uses_profile_plugin_without_consulting_specialized_plugins(
-    monkeypatch,
-):
-    profile = {
-        "backend": "profile-fallback",
-        "model": "Generic Test Camera",
-    }
-
+def test_uncharacterized_camera_fails_closed_without_reference_fallback(monkeypatch):
+    messages = []
     monkeypatch.setattr(
         camera_plugins,
         "get_camera_model",
-        lambda _camera: "Generic Test Camera",
-    )
-    monkeypatch.setattr(
-        camera_plugins,
-        "_load_plugin_classes",
-        lambda: pytest.fail(
-            "legacy registry must not be consulted for a characterized camera"
-        ),
+        lambda _camera: "Sony ILCE-7M5 (PC Control)",
     )
 
     import backend.camera_profiles as camera_profiles
-    import plugins.camera.profile as profile_module
 
+    monkeypatch.setattr(camera_profiles, "profile_for_model", lambda _model: None)
     monkeypatch.setattr(
-        camera_profiles,
-        "profile_for_model",
-        lambda _model: profile,
+        camera_plugins,
+        "_load_reference_plugin_classes",
+        lambda: (_ for _ in ()).throw(AssertionError("production must not fall back to reference plugins")),
     )
 
-    class _Fallback:
-        def __init__(self, camera, log_fn, selected_profile):
-            self.camera = camera
-            self.profile = selected_profile
+    plugin = camera_plugins.load_plugin(_FakeCamera(), log_fn=messages.append)
 
-    monkeypatch.setattr(profile_module, "ProfilePlugin", _Fallback)
-
-    plugin = camera_plugins.load_plugin(_FakeCamera(), log_fn=lambda _msg: None)
-
-    assert isinstance(plugin, _Fallback)
+    assert plugin is None
+    assert any("production runtime disabled" in message for message in messages)
 
 
+def test_reference_plugin_requires_explicit_reference_loader(monkeypatch):
+    monkeypatch.setattr(
+        camera_plugins,
+        "get_camera_model",
+        lambda _camera: "Sony ILCE-7M5 (PC Control)",
+    )
+    monkeypatch.setattr(
+        camera_plugins,
+        "_load_reference_plugin_classes",
+        lambda: [_Specialized],
+    )
+
+    plugin = camera_plugins.load_reference_plugin(
+        _FakeCamera(), log_fn=lambda _msg: None
+    )
+
+    assert isinstance(plugin, _Specialized)
