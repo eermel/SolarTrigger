@@ -44,52 +44,58 @@ def test_normalize_selection_preserves_mapping_keys_and_overrides_active():
     }
 
 
-def _camera_plugin(plugin_id, outcome):
-    class Plugin:
-        @staticmethod
-        def matches(_model):
-            if isinstance(outcome, Exception):
-                raise outcome
-            return outcome
+def test_camera_plugin_for_model_returns_characterized_profile(monkeypatch):
+    import backend.camera_profiles as camera_profiles
 
-    Plugin.plugin_id = plugin_id
-    return Plugin
+    monkeypatch.setattr(
+        camera_profiles,
+        "profile_for_model",
+        lambda model: {"backend": "profile-test"} if model == "Test model" else None,
+    )
 
-
-@pytest.mark.parametrize(
-    ("plugins", "expected"),
-    [
-        ([_camera_plugin("sony", True), _camera_plugin("nikon", False)], "sony"),
-        ([_camera_plugin("sony", True), _camera_plugin("nikon", True)], None),
-        ([_camera_plugin("sony", False)], None),
-        ([_camera_plugin("broken", RuntimeError("probe")),
-          _camera_plugin("sony", True)], "sony"),
-    ],
-)
-def test_camera_plugin_for_model_requires_one_match(monkeypatch, plugins, expected):
-    monkeypatch.setattr(devices.camera, "_load_plugin_classes", lambda: plugins)
-
-    assert devices.camera_plugin_for_model("Test model") == expected
+    assert devices.camera_plugin_for_model("Test model") == "profile-test"
 
 
-@pytest.mark.parametrize(
-    ("matches", "suggested"),
-    [
-        ([True, False], "camera-0"),
-        ([True, True], None),
-    ],
-)
-def test_detect_camera_suggests_only_a_unique_match(monkeypatch, matches, suggested):
-    plugins = [
-        _camera_plugin(f"camera-{index}", outcome)
-        for index, outcome in enumerate(matches)
-    ]
-    monkeypatch.setattr(devices.camera, "_load_plugin_classes", lambda: plugins)
+def test_camera_plugin_for_model_has_no_reference_plugin_fallback(monkeypatch):
+    import backend.camera_profiles as camera_profiles
+
+    monkeypatch.setattr(camera_profiles, "profile_for_model", lambda _model: None)
+    monkeypatch.setattr(
+        devices.camera,
+        "_load_reference_plugin_classes",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("production detection must not inspect reference plugins")
+        ),
+    )
+
+    assert devices.camera_plugin_for_model("Sony ILCE-7M5 (PC Control)") is None
+
+
+def test_detect_camera_reports_uncharacterized_model_without_suggestion(monkeypatch):
+    import backend.camera_profiles as camera_profiles
+
+    monkeypatch.setattr(camera_profiles, "profile_for_model", lambda _model: None)
 
     result = devices.detect_camera("Test model")
 
     assert result["detected"] is True
-    assert result["suggested_plugin"] == suggested
+    assert result["detected_model"] == "Test model"
+    assert result["suggested_plugin"] is None
+
+
+def test_detect_camera_reports_characterized_profile(monkeypatch):
+    import backend.camera_profiles as camera_profiles
+
+    monkeypatch.setattr(
+        camera_profiles,
+        "profile_for_model",
+        lambda model: {"backend": "profile-camera"} if model == "Test model" else None,
+    )
+
+    result = devices.detect_camera("Test model")
+
+    assert result["detected"] is True
+    assert result["suggested_plugin"] == "profile-camera"
 
 
 def test_detect_camera_autodetects_model_when_missing(monkeypatch):
@@ -101,14 +107,14 @@ def test_detect_camera_autodetects_model_when_missing(monkeypatch):
     monkeypatch.setattr(
         devices,
         "camera_plugin_for_model",
-        lambda model: "camera-auto" if model == "Detected model" else None,
+        lambda model: "profile-camera" if model == "Detected model" else None,
     )
 
     result = devices.detect_camera()
 
     assert result["detected"] is True
     assert result["detected_model"] == "Detected model"
-    assert result["suggested_plugin"] == "camera-auto"
+    assert result["suggested_plugin"] == "profile-camera"
 
 
 class _Probe:
@@ -259,7 +265,11 @@ def test_detection_only_probes_without_persisting_or_acting(monkeypatch):
     monkeypatch.setattr(
         StateStore, "save", lambda _self: pytest.fail("detection must not persist state")
     )
-    monkeypatch.setattr(devices.camera, "_load_plugin_classes", lambda: [])
+    monkeypatch.setattr(
+        devices,
+        "camera_plugin_for_model",
+        lambda _model: None,
+    )
     monkeypatch.setattr(
         devices.gps,
         "available_plugins",
