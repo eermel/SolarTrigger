@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+BASE=/home/airone/solartrigger; RELEASES=$BASE/releases; CURRENT=$BASE/current; PREVIOUS=$BASE/previous; SERVICE=solareclipse.service
+alink(){ t=$1;l=$2;x=${l}.new.$$;ln -s "$t" "$x";mv -Tf "$x" "$l"; }
+case "${1:-}" in
+ install)
+  Z=${2:?}; V=$(/usr/bin/python3 - "$Z" <<'PY2'
+import json,sys,zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:print(json.loads(z.read('manifest.json'))['version'])
+PY2
+); D=$RELEASES/$V; mkdir -p "$RELEASES"; test ! -e "$D"; mkdir "$D"
+  /usr/bin/python3 - "$Z" "$D" <<'PY2'
+import sys,zipfile
+from pathlib import Path
+z=zipfile.ZipFile(sys.argv[1]);d=Path(sys.argv[2])
+for i in z.infolist():
+ if not i.filename.startswith('payload/') or i.is_dir():continue
+ r=Path(i.filename).relative_to('payload');o=d/r;o.parent.mkdir(parents=True,exist_ok=True);o.write_bytes(z.read(i));m=(i.external_attr>>16)&0o777
+ if m:o.chmod(m)
+PY2
+  test -f "$D/flask_app/app.py" || { rm -rf "$D";exit 66; }
+  if test -L "$CURRENT";then O=$(readlink -f "$CURRENT");alink "$O" "$PREVIOUS";fi
+  alink "$D" "$CURRENT";systemctl restart "$SERVICE";sleep 3
+  if ! systemctl is-active --quiet "$SERVICE";then test -L "$PREVIOUS" && alink "$(readlink -f "$PREVIOUS")" "$CURRENT";systemctl restart "$SERVICE";exit 70;fi
+  rm -f "$Z";;
+ rollback) test -L "$PREVIOUS";O=$(readlink -f "$CURRENT");P=$(readlink -f "$PREVIOUS");alink "$P" "$CURRENT";alink "$O" "$PREVIOUS";systemctl restart "$SERVICE";;
+ *) exit 64;;
+esac

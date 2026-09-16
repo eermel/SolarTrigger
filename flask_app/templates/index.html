@@ -128,6 +128,8 @@
           </div>
         </div>
 
+        <div class="card"><div class="card-title">Re-characterize Camera</div><div style="display:flex;gap:12px"><select id="camera-recharacterization-select" class="config-file-select" style="flex:1"><option value="">— Characterized camera —</option></select><button class="btn btn-primary" onclick="startCameraRecharacterization()">Re-characterize</button></div><p style="font-size:12px">Use after firmware changes. Existing profile remains active until success.</p></div>
+
         <div class="card">
           <div class="card-title">Camera Validation</div>
           <div style="display:flex;gap:12px;align-items:center">
@@ -204,6 +206,8 @@
             ⚠ ERASE ALL PERSISTENT DATA &amp; REBOOT ⚠
           </button>
         </div>
+<div class="card"><div class="card-title">Update System</div><div id="system-update-network">Ethernet: checking…</div><button class="btn btn-primary" onclick="checkSystemUpdates()">Check updates</button> <button class="btn btn-primary" onclick="updateSystem()">Update system</button><p style="font-size:12px">apt-get update + apt-get upgrade -y. Physical Ethernet required.</p><pre id="system-update-log"></pre></div>
+<div class="card"><div class="card-title">Update Solar Eclipse Trigger</div><div id="solartrigger-update-status">Select an offline release ZIP.</div><input type="file" id="solartrigger-update-file" accept=".zip"><button class="btn btn-primary" onclick="uploadSolarTriggerRelease()">Validate package</button> <button class="btn btn-primary" id="solartrigger-install-release" onclick="installSolarTriggerRelease()" disabled>Install update</button> <button class="btn" onclick="rollbackSolarTriggerRelease()">Rollback</button><pre id="solartrigger-update-log"></pre></div>
       </section>
     </div>
 

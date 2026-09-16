@@ -24,8 +24,9 @@ def register_characterization_routes(app, trigger_snapshot):
     @app.get("/api/camera-characterization")
     def characterization_status():
         snapshot = JOB.snapshot()
-        snapshot["candidates"] = [e for e in get_cached_inventory()["camera"]
-                                  if e.get("present") and not e.get("pilotable")]
+        cameras = get_cached_inventory()["camera"]
+        snapshot["candidates"] = [e for e in cameras if e.get("present") and not e.get("pilotable")]
+        snapshot["recharacterization_candidates"] = [e for e in cameras if e.get("present") and e.get("pilotable")]
         return jsonify(snapshot)
 
     @app.post("/api/camera-characterization/start")
@@ -48,6 +49,23 @@ def register_characterization_routes(app, trigger_snapshot):
                 return jsonify(error="Unknown or already characterized camera; refresh Devices"), 400
             JOB.start(matches[0])
         return jsonify(status="started"), 202
+
+    @app.post("/api/camera-characterization/recharacterize")
+    def characterization_recharacterize():
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict) or not isinstance(payload.get("locator"), str):
+            return jsonify(error="Camera locator is required"), 400
+        with JOB.lock:
+            if JOB.running:
+                return jsonify(error="Characterization already running"), 409
+            state = trigger_snapshot() or {}
+            if state.get("running") or any((r or {}).get("running") for r in (state.get("rigs") or {}).values()):
+                return jsonify(error="Trigger is running"), 409
+            matches = [e for e in refresh_inventory()["camera"] if e.get("transport_locator") == payload["locator"] and e.get("present") and e.get("pilotable")]
+            if len(matches) != 1:
+                return jsonify(error="Unknown or uncharacterized camera; refresh Devices"), 400
+            JOB.start(matches[0])
+        return jsonify(status="started", mode="recharacterize"), 202
 
     @app.post("/api/camera-characterization/answer")
     def characterization_answer():

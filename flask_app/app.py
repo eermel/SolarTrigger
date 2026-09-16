@@ -5481,6 +5481,9 @@ def api_trigger_status():
     return jsonify(_state_store.snapshot("trigger"))
 
 # ══════════════════════════════════════════════════════════════════════════════
+from backend.system_maintenance_routes import register_system_maintenance_routes
+register_system_maintenance_routes(app, lambda: _state_store.snapshot('trigger'))
+
 # SOCKETIO — CONNEXION CLIENT
 # ══════════════════════════════════════════════════════════════════════════════
 

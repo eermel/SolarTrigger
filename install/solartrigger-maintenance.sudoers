@@ -1,0 +1,2 @@
+airone ALL=(root) NOPASSWD: /usr/local/sbin/solartrigger-system-update
+airone ALL=(root) NOPASSWD: /usr/local/sbin/solartrigger-release-update *
