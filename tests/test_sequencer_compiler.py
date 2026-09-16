@@ -483,7 +483,11 @@ def test_c2_never_applies_atmos_and_keeps_priority_native_bracket(
         {"shutter": "1/500", "iso": 100},
     )
 
-    audited = audit_materialized_capture(capture)
+    # Historical Sony oracle: production dispatch is profile-only.
+    from backend.sequencer_compiler import audit_materialized_sony_capture
+
+    audited = audit_materialized_sony_capture(capture)
+
     triggers = [
         operation
         for operation in audited.operations
@@ -976,13 +980,14 @@ def test_sony_audit_contains_native_bracket_commands():
     }
 
 
-def test_generic_audit_dispatches_to_sony():
+def test_generic_audit_rejects_legacy_sony_backend():
     capture = _sony_materialized_capture()
 
-    audited = audit_materialized_capture(capture)
-
-    assert audited.backend == "sony"
-    assert audited.prepared_mode == "sony_exposure_sequence"
+    with pytest.raises(
+        ValueError,
+        match="Sequencer audit backend not implemented: sony",
+    ):
+        audit_materialized_capture(capture)
 
 
 def test_unsupported_backend_is_explicitly_rejected():

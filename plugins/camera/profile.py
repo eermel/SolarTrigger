@@ -146,6 +146,7 @@ class ProfilePlugin(CameraPlugin):
         "capture_target": "capture_target",
         "raw": "raw",
         "image_format": "raw",
+        "whitebalance": "white_balance",
         "white_balance": "white_balance",
     }
 
@@ -368,17 +369,25 @@ class ProfilePlugin(CameraPlugin):
         image_format="RAW",
         white_balance=None,
     ):
-        required = {
-            "iso": 100 if iso is None else iso,
-        }
+        if str(image_format or "RAW").strip().casefold() not in {
+            "raw", "nef", "arw", "cr2", "cr3", "orf", "raf", "rw2"
+        }:
+            raise CameraPreflightError(
+                "Only the characterized RAW acquisition path is supported"
+            )
+        required = {"iso": 100 if iso is None else iso}
         if "capture_mode" in self.commands:
             required["capturemode"] = self.commands["capture_mode"]["value"]
         if aperture is not None and "aperture" in self.commands:
             required["f-number"] = aperture
         if image_format is not None and "raw" in self.commands:
             required["image_format"] = image_format
-        if white_balance is not None and "white_balance" in self.commands:
-            required["white_balance"] = white_balance
+        if white_balance is not None:
+            if "white_balance" not in self.commands:
+                raise CameraPreflightError(
+                    "White balance was requested but is not characterized"
+                )
+            required["whitebalance"] = white_balance
         return self.preflight(required)
 
     def set_exposure_settings(self, aperture=None, iso=None):

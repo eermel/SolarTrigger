@@ -337,8 +337,14 @@ def choose_common_bracket_command(candidates, excluded, sizes):
                 if key not in excluded and required and set(trials) == required}
     if not eligible:
         return None
-    return min(eligible, key=lambda key: (
-        sum(item["spec"]["peak_capture_ms"] for item in eligible[key].values()), key))
+    return min(
+        eligible,
+        key=lambda key: (
+            max(item["spec"]["peak_capture_ms"] for item in eligible[key].values()),
+            sum(item["spec"]["peak_capture_ms"] for item in eligible[key].values()),
+            key,
+        ),
+    )
 
 
 def characterize(camera, entry, job):
@@ -541,6 +547,20 @@ def characterize(camera, entry, job):
             )
         ),
     )
+
+    if any(
+        item["name"] in ("whitebalance", "whitebalance2", "wb")
+        for item in enumerate_widgets(camera)
+    ):
+        find_setting(
+            "white_balance",
+            ("whitebalance", "whitebalance2", "wb"),
+            lambda value: value.casefold() in (
+                "daylight", "direct sunlight", "sunlight", "5200k", "5000k"
+            ),
+            False,
+            require_set=True,
+        )
 
     for key, names in (
         ("self_timer", ("selftimer", "selftimerdelay")),
@@ -1312,7 +1332,13 @@ def characterize(camera, entry, job):
 
         return phases
 
+    from backend.camera_candidate_optimizer import (
+        CandidateEvidence,
+        compact_selection,
+        select_best,
+    )
     valid_single = []
+    single_evidence = []
 
     for spec in trigger_candidates:
         if (
@@ -1354,16 +1380,15 @@ def characterize(camera, entry, job):
                 samples,
             )
 
-            valid_single.append(
-                (
-                    max(
-                        sample[1]
-                        for sample in samples
-                    ),
-                    deepcopy(spec),
-                    samples,
-                )
+            evidence = CandidateEvidence(
+                candidate_id=json.dumps(spec, sort_keys=True),
+                recipe=deepcopy(spec),
+                expected_trials=5,
+                durations_ms=[sample[1] for sample in samples],
+                functional_ok=True,
             )
+            single_evidence.append(evidence)
+            valid_single.append((evidence, deepcopy(spec), samples))
 
         except (
             Cancelled,
@@ -1372,6 +1397,14 @@ def characterize(camera, entry, job):
             raise
 
         except Exception as exc:
+            rejected = CandidateEvidence(
+                candidate_id=json.dumps(spec, sort_keys=True),
+                recipe=deepcopy(spec),
+                expected_trials=5,
+                functional_ok=False,
+            )
+            rejected.failures.append(str(exc))
+            single_evidence.append(rejected)
             timing_trials.append(
                 {
                     "trigger": deepcopy(spec),
@@ -1380,20 +1413,27 @@ def characterize(camera, entry, job):
                     "reason": str(exc),
                 }
             )
-            job.log(
-                f"TRIGGER rejected: {exc}"
-            )
+            job.log(f"TRIGGER rejected: {exc}")
 
     if not valid_single:
         raise RuntimeError(
             "No validated single trigger"
         )
 
-    _single_peak, trigger_single, single_samples = min(
-        valid_single,
-        key=lambda item: item[0],
+    selected_single = select_best(single_evidence)
+    _ev, trigger_single, single_samples = next(
+        item for item in valid_single
+        if item[0].candidate_id == selected_single.candidate_id
     )
     commands["trigger_single"] = trigger_single
+    selection_evidence["trigger_single"] = compact_selection(
+        "trigger_single", single_evidence, selected_single
+    )
+    job.log(
+        f"SELECT trigger_single: {selected_single.candidate_id}; "
+        f"peak={selected_single.peak_ms:.1f} ms; "
+        f"median={selected_single.median_ms:.1f} ms"
+    )
 
     reference_single_s = _parse_speed("1/500")
     single_overhead_samples = [
@@ -1620,14 +1660,29 @@ def characterize(camera, entry, job):
             "COMMON BRACKET COMMAND: "
             f"{profile['bracket_command']}"
         )
+        selection_evidence["native_bracket"] = {
+            "action": "native_bracket",
+            "policy": "correctness_then_reliability_then_peak_then_aggregate",
+            "required_sizes": sorted(int(value) for value in ordered_modes),
+            "selected_candidate_id": selected,
+        }
+    else:
+        selection_evidence["native_bracket"] = {
+            "action": "native_bracket",
+            "policy": "correctness_then_reliability_then_peak_then_aggregate",
+            "required_sizes": sorted(int(value) for value in ordered_modes),
+            "selected_candidate_id": None,
+        }
+
+    profile["selection"] = deepcopy(selection_evidence)
 
     profile["bracket_selection"] = {
         "excluded": deepcopy(
             excluded_bracket_commands
         ),
         "criterion": (
-            "lowest sum of peak PHOTO durations; "
-            "SET preparation excluded"
+            "reliable for every required size; lowest worst-case peak PHOTO "
+            "duration, then lowest aggregate peak; SET preparation excluded"
         ),
         "required_sizes": sorted(
             ordered_modes

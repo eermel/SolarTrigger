@@ -24,3 +24,19 @@ def test_production_loader_does_not_autoselect_reference_plugins():
     assert "_load_reference_plugin_classes" not in source
     assert "profile_for_model" in source
     assert "ProfilePlugin" in source
+
+
+def test_sequencer_production_dispatch_has_no_native_camera_backend():
+    """Production sequencer must never auto-dispatch historical camera plugins."""
+    import inspect
+
+    from backend.sequencer_compiler import audit_materialized_capture
+
+    source = inspect.getsource(audit_materialized_capture)
+
+    assert 'capture.backend == "sony"' not in source
+    assert '"nikon-dslr"' not in source
+    assert '"nikon-z"' not in source
+    assert "audit_materialized_sony_capture(capture)" not in source
+    assert "audit_materialized_nikon_capture(capture)" not in source
+    assert 'capture.backend.startswith("profile-")' in source

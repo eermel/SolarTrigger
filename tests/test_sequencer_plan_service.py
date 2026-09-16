@@ -9,6 +9,27 @@ from backend.sequencer_plan_service import (
     compile_execution_plan_from_files,
 )
 
+@pytest.fixture(autouse=True)
+def _legacy_camera_audit_oracle(monkeypatch):
+    """Legacy fixtures use explicit IVVQ oracles, never production dispatch."""
+    import backend.anchor_sequencer as anchor_sequencer
+    from backend.sequencer_compiler import (
+        audit_materialized_nikon_capture,
+        audit_materialized_sony_capture,
+    )
+
+    production_audit = anchor_sequencer.audit_materialized_capture
+
+    def audit(capture):
+        if capture.backend == "sony":
+            return audit_materialized_sony_capture(capture)
+        if capture.backend in {"nikon", "nikon-dslr", "nikon-z"}:
+            return audit_materialized_nikon_capture(capture)
+        return production_audit(capture)
+
+    monkeypatch.setattr(anchor_sequencer, "audit_materialized_capture", audit)
+
+
 
 def _write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)

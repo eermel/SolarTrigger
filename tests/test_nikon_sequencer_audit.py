@@ -291,7 +291,8 @@ def test_multirig_sony_and_d850_use_independent_measured_timings():
         CameraTimingProfile,
         CaptureTarget,
         MaterializedRigCapture,
-        audit_materialized_capture,
+        audit_materialized_nikon_capture,
+        audit_materialized_sony_capture,
         compile_and_merge_scheduled_rigs,
         derive_initial_state_required,
     )
@@ -366,11 +367,11 @@ def test_multirig_sony_and_d850_use_independent_measured_timings():
         final_exposure_plan=nikon_plan,
     )
 
-    sony = audit_materialized_capture(
+    sony = audit_materialized_sony_capture(
         sony_materialized
     )
 
-    nikon = audit_materialized_capture(
+    nikon = audit_materialized_nikon_capture(
         nikon_materialized
     )
 
@@ -543,7 +544,8 @@ def test_camera_backends_are_not_tied_to_rig_numbers():
         CameraTimingProfile,
         CaptureTarget,
         MaterializedRigCapture,
-        audit_materialized_capture,
+        audit_materialized_nikon_capture,
+        audit_materialized_sony_capture,
         compile_and_merge_scheduled_rigs,
         derive_initial_state_required,
     )
@@ -572,7 +574,7 @@ def test_camera_backends_are_not_tied_to_rig_numbers():
         {"shutter": "1/60", "iso": 100},
     )
 
-    nikon = audit_materialized_capture(
+    nikon = audit_materialized_nikon_capture(
         MaterializedRigCapture(
             rig_id=1,
             backend="nikon-dslr",
@@ -591,7 +593,7 @@ def test_camera_backends_are_not_tied_to_rig_numbers():
         )
     )
 
-    sony = audit_materialized_capture(
+    sony = audit_materialized_sony_capture(
         MaterializedRigCapture(
             rig_id=4,
             backend="sony",
