@@ -363,8 +363,20 @@ header {
 
 #system-update-log,
 #solartrigger-update-log {
+  height: 320px;
+  min-height: 320px;
+  overflow-y: auto;
+  overflow-x: hidden;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 
@@ -1075,4 +1087,31 @@ header {
   font-weight: bold;
   letter-spacing: .12em;
   text-align: center;
+}
+
+/* System / Camera group */
+.system-camera-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.system-camera-group-title {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 12px;
+}
+
+.system-camera-group-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.system-camera-group-content > .card {
+  margin: 0;
 }

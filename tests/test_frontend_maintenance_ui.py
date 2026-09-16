@@ -50,3 +50,94 @@ def test_add_camera_contains_recharacterization():
     assert "Re-characterize Camera" in source
     assert "startCameraRecharacterization" in source
     assert "/api/camera-characterization/recharacterize" in source
+
+
+
+def test_system_page_uses_one_shared_log():
+    source = frontend_source()
+
+    assert "<span>Camera log</span>" not in source
+    assert "<span>Log</span>" in source
+
+    assert 'id="camera-add-log"' in source
+    assert 'id="system-update-log"' not in source
+    assert 'id="solartrigger-update-log"' not in source
+
+
+def test_maintenance_uses_shared_system_log():
+    source = frontend_source()
+
+    assert "updateCameraAddLog('systemUpdate', lines)" in source
+    assert "updateCameraAddLog('solarTriggerUpdate', lines)" in source
+
+    assert "=== UPDATE SYSTEM ===" in source
+    assert "=== UPDATE SOLAR ECLIPSE TRIGGER ===" in source
+
+    assert "getElementById('system-update-log')" not in source
+    assert "getElementById('solartrigger-update-log')" not in source
+
+
+def test_clear_system_log_includes_maintenance():
+    source = frontend_source()
+
+    assert "cameraAddLogState.systemUpdateOffset =" in source
+    assert "cameraAddLogState.solarTriggerUpdateOffset =" in source
+
+
+
+def test_system_update_button_tracks_ethernet_link():
+    source = frontend_source()
+
+    assert "CHECK AND UPDATE SYSTEM" in source
+    assert "Eth need to be connected" in source
+    assert "button.disabled = !ethernetConnected" in source
+    assert "data.ethernet && data.ethernet.connected" in source
+
+
+def test_system_update_has_no_network_status_line():
+    source = frontend_source()
+
+    assert 'id="system-update-network"' not in source
+    assert "Ethernet: checking" not in source
+
+
+def test_system_update_has_no_apt_explanatory_text():
+    source = frontend_source()
+
+    assert "Physical Ethernet required." not in source
+
+
+
+def test_system_camera_group_contains_camera_workflow():
+    source = frontend_source()
+
+    assert 'class="system-camera-group"' in source
+    assert 'class="system-camera-group-title">Camera</div>' in source
+
+    group_start = source.index('class="system-camera-group"')
+    persistent_start = source.index(
+        '<div class="card-title">Persistent data</div>'
+    )
+
+    camera_group = source[group_start:persistent_start]
+
+    expected = [
+        '<div class="card-title">Device discovery</div>',
+        '<div class="card-title">Camera Characterization</div>',
+        '<div class="card-title">Re-characterize Camera</div>',
+        '<div class="card-title">Camera Validation</div>',
+    ]
+
+    positions = [camera_group.index(item) for item in expected]
+
+    assert positions == sorted(positions)
+
+
+def test_recharacterization_select_has_chevron():
+    source = frontend_source()
+
+    marker = 'id="camera-recharacterization-select"'
+    start = source.index(marker)
+    select = source[start:source.index(">", start)]
+
+    assert "file-select-chevron" in select

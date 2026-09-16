@@ -22,7 +22,7 @@
   <header>
 <div class="header-logo">
   SOLAR<br><span>ECLIPSE</span>
-</div>    
+</div>
 <div id="header-time">
   <div style="display:flex;align-items:center;gap:8px;justify-content:center">
     <div style="display:flex;align-items:center;gap:3px">
@@ -108,6 +108,9 @@
 
     <div class="page" id="add-camera-panel">
       <section class="add-camera-section" aria-label="System">
+        <div class="system-camera-group">
+          <div class="system-camera-group-title">Camera</div>
+          <div class="system-camera-group-content">
         <div class="card">
           <div class="card-title">Device discovery</div>
           <button class="btn btn-primary btn-full" id="add-camera-rescan" onclick="refreshRigDevices()">↻ Refresh devices</button>
@@ -128,7 +131,7 @@
           </div>
         </div>
 
-        <div class="card"><div class="card-title">Re-characterize Camera</div><div style="display:flex;gap:12px"><select id="camera-recharacterization-select" class="config-file-select" style="flex:1"><option value="">— Characterized camera —</option></select><button class="btn btn-primary" onclick="startCameraRecharacterization()">Re-characterize</button></div><p style="font-size:12px">Use after firmware changes. Existing profile remains active until success.</p></div>
+        <div class="card"><div class="card-title">Re-characterize Camera</div><div style="display:flex;gap:12px"><select id="camera-recharacterization-select" class="config-file-select file-select-chevron" style="flex:1"><option value="">— Characterized camera —</option></select><button class="btn btn-primary" onclick="startCameraRecharacterization()">Re-characterize</button></div><p style="font-size:12px">Use after firmware changes. Existing profile remains active until success.</p></div>
 
         <div class="card">
           <div class="card-title">Camera Validation</div>
@@ -161,7 +164,8 @@
             Delete generated camera profile/timing after FAIL
           </button>
         </div>
-
+          </div>
+        </div>
 
         <div class="card devices-reset-card">
           <div class="card-title">Persistent data</div>
@@ -176,21 +180,18 @@
 
         <div class="card system-maintenance-card system-maintenance-card--orange">
           <div class="card-title">Update System</div>
-          <div id="system-update-network">Ethernet: checking…</div>
+
 
           <button
             class="btn btn-accent btn-full"
             id="system-check-update"
             type="button"
             onclick="checkAndUpdateSystem()">
-            CHECK AND UPDATE
-          </button>
+            CHECK AND UPDATE SYSTEM
+</button>
 
-          <p style="font-size:12px">
-            apt-get update + apt-get upgrade -y. Physical Ethernet required.
-          </p>
 
-          <pre id="system-update-log"></pre>
+
         </div>
 
         <div class="card system-maintenance-card system-maintenance-card--blue">
@@ -230,12 +231,11 @@
             </button>
           </div>
 
-          <pre id="solartrigger-update-log"></pre>
         </div>
 
         <div class="card" style="flex-shrink:0">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-            <span>Camera log</span>
+            <span>Log</span>
             <button class="btn btn-secondary" type="button"
               style="font-size:10px;padding:4px 9px"
               onclick="clearCameraAddLog()">CLEAR</button>
@@ -295,7 +295,7 @@
             ⏱ Time not synchronized (browser)
           </div>
       </div>
-      </div>  
+      </div>
 
       <!-- GPS -->
       <div class="card" data-device-section="gps">

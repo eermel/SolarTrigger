@@ -1652,8 +1652,12 @@ async function refreshRigDevices(silent = false) {
 const cameraAddLogState = {
   characterization: [],
   validation: [],
+  systemUpdate: [],
+  solarTriggerUpdate: [],
   characterizationOffset: 0,
   validationOffset: 0,
+  systemUpdateOffset: 0,
+  solarTriggerUpdateOffset: 0,
   characterizationResult: '',
   clearedCharacterizationResult: '',
 };
@@ -1692,6 +1696,29 @@ function renderCameraAddLog() {
     );
   }
 
+  const systemUpdate = cameraAddLogState.systemUpdate.slice(
+    cameraAddLogState.systemUpdateOffset
+  );
+
+  if (systemUpdate.length) {
+    sections.push(
+      ['=== UPDATE SYSTEM ===', ...systemUpdate].join('\n')
+    );
+  }
+
+  const solarTriggerUpdate = cameraAddLogState.solarTriggerUpdate.slice(
+    cameraAddLogState.solarTriggerUpdateOffset
+  );
+
+  if (solarTriggerUpdate.length) {
+    sections.push(
+      [
+        '=== UPDATE SOLAR ECLIPSE TRIGGER ===',
+        ...solarTriggerUpdate
+      ].join('\n')
+    );
+  }
+
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
   log.textContent = sections.join('\n\n');
   if (atBottom) log.scrollTop = log.scrollHeight;
@@ -1721,6 +1748,10 @@ function clearCameraAddLog() {
     cameraAddLogState.characterization.length;
   cameraAddLogState.validationOffset =
     cameraAddLogState.validation.length;
+  cameraAddLogState.systemUpdateOffset =
+    cameraAddLogState.systemUpdate.length;
+  cameraAddLogState.solarTriggerUpdateOffset =
+    cameraAddLogState.solarTriggerUpdate.length;
   cameraAddLogState.clearedCharacterizationResult =
     cameraAddLogState.characterizationResult;
   renderCameraAddLog();
@@ -7805,17 +7836,67 @@ let solarTriggerUploadToken=null;
 async function refreshRecharacterizationCandidates(){let e=document.getElementById('camera-recharacterization-select');if(!e)return;try{let r=await fetch('/api/camera-characterization'),d=await r.json(),v=e.value;e.innerHTML='<option value="">— Characterized camera —</option>';(d.recharacterization_candidates||[]).forEach(c=>{let o=document.createElement('option');o.value=c.transport_locator||'';o.textContent=c.display_label||c.model||o.value;o.selected=o.value===v;e.appendChild(o)})}catch(_){}}
 async function startCameraRecharacterization(){let e=document.getElementById('camera-recharacterization-select'),locator=e&&e.value;if(!locator||!confirm('Re-characterize this camera?'))return;let r=await fetch('/api/camera-characterization/recharacterize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({locator})}),d=await r.json();flash(r.ok?'Camera re-characterization started':(d.error||'Error'),r.ok?'green':'red')}
 async function maintenancePost(u,b){let r=await fetch(u,{method:'POST',headers:b?{'Content-Type':'application/json'}:{},body:b?JSON.stringify(b):undefined}),d=await r.json();if(!r.ok)throw Error(d.error||`HTTP ${r.status}`);return d}
-async function loadMaintenanceStatus(){let e=document.getElementById('system-update-network');if(!e)return;try{let r=await fetch('/api/system/maintenance/status'),d=await r.json();e.textContent=`Ethernet: ${d.ethernet&&d.ethernet.connected?'CONNECTED':'DISCONNECTED'} · Internet: ${d.internet?'AVAILABLE':'UNAVAILABLE'} · ${d.status}`;let t=(d.logs||[]).join('\n'),x=document.getElementById(d.kind&&d.kind.startsWith('apt-')?'system-update-log':'solartrigger-update-log');if(x)x.textContent=t}catch(_){}}
+async function loadMaintenanceStatus(){
+  const button = document.getElementById('system-check-update');
+  if (!button) return;
+
+  try {
+    const response = await fetch('/api/system/maintenance/status');
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || `HTTP ${response.status}`
+      );
+    }
+
+    const ethernetConnected = Boolean(
+      data.ethernet && data.ethernet.connected
+    );
+
+    button.disabled = !ethernetConnected;
+    button.textContent = ethernetConnected
+      ? 'CHECK AND UPDATE SYSTEM'
+      : 'CHECK AND UPDATE SYSTEM — Eth need to be connected';
+
+    const lines = Array.isArray(data.logs)
+      ? data.logs.map(String)
+      : [];
+
+    if (data.kind && data.kind.startsWith('apt-')) {
+      updateCameraAddLog('systemUpdate', lines);
+    } else if (data.kind) {
+      updateCameraAddLog('solarTriggerUpdate', lines);
+    }
+  } catch (error) {
+    console.warn(
+      'Unable to load maintenance status:',
+      error
+    );
+  }
+}
 async function checkAndUpdateSystem(){
   if(!confirm(
     'Check for system updates and install them now?\n\n'
     + 'This runs apt-get update + apt-get upgrade -y.'
   )) return;
 
+  cameraAddLogState.systemUpdate = [
+    'Starting system update...'
+  ];
+  cameraAddLogState.systemUpdateOffset = 0;
+  renderCameraAddLog();
+
   try {
-    await maintenancePost('/api/system/maintenance/update-system');
+    await maintenancePost(
+      '/api/system/maintenance/update-system'
+    );
     flash('System update started','green');
   } catch(e) {
+    cameraAddLogState.systemUpdate.push(
+      `ERROR: ${e.message}`
+    );
+    renderCameraAddLog();
     flash(e.message,'red');
   }
 }
