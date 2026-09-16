@@ -361,23 +361,6 @@ header {
   width: 100%;
 }
 
-#system-update-log,
-#solartrigger-update-log {
-  height: 320px;
-  min-height: 320px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  padding: 10px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.45;
-}
 
 
 /* ── STAT BLOCK ── */
