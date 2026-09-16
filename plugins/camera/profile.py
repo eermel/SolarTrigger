@@ -382,12 +382,8 @@ class ProfilePlugin(CameraPlugin):
             required["f-number"] = aperture
         if image_format is not None and "raw" in self.commands:
             required["image_format"] = image_format
-        if white_balance is not None:
-            if "white_balance" not in self.commands:
-                raise CameraPreflightError(
-                    "White balance was requested but is not characterized"
-                )
-            required["whitebalance"] = white_balance
+        if white_balance is not None and "white_balance" in self.commands:
+            required["white_balance"] = white_balance
         return self.preflight(required)
 
     def set_exposure_settings(self, aperture=None, iso=None):

@@ -52,8 +52,10 @@ def test_characterized_profile_has_priority_over_matching_legacy_plugin(monkeypa
     )
     monkeypatch.setattr(
         camera_plugins,
-        "_load_plugin_classes",
-        lambda: [LegacySony],
+        "_load_reference_plugin_classes",
+        lambda: pytest.fail(
+            "reference registry must not be consulted by production runtime"
+        ),
     )
 
     selected = camera_plugins.load_plugin(object(), log_fn=lambda *_: None)
@@ -84,8 +86,10 @@ def test_profile_strategy_is_runtime_authority_for_bracket(monkeypatch):
     monkeypatch.setattr(camera_profiles, "profile_for_model", lambda model: profile)
     monkeypatch.setattr(
         camera_plugins,
-        "_load_plugin_classes",
-        lambda: pytest.fail("legacy registry must not be consulted for characterized camera"),
+        "_load_reference_plugin_classes",
+        lambda: pytest.fail(
+            "reference registry must not be consulted by production runtime"
+        ),
     )
 
     selected = camera_plugins.load_plugin(object(), log_fn=lambda *_: None)
@@ -95,28 +99,38 @@ def test_profile_strategy_is_runtime_authority_for_bracket(monkeypatch):
     assert "3" in selected.profile["brackets"]
 
 
-def test_uncharacterized_camera_can_still_use_legacy_fallback(monkeypatch):
-    events = []
+def test_uncharacterized_camera_fails_closed_without_reference_fallback(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        camera_plugins,
+        "get_camera_model",
+        lambda camera: "Old Camera",
+    )
+    monkeypatch.setattr(
+        camera_profiles,
+        "profile_for_model",
+        lambda model: None,
+    )
+    monkeypatch.setattr(
+        camera_plugins,
+        "_load_reference_plugin_classes",
+        lambda: pytest.fail(
+            "reference registry must not be consulted by production runtime"
+        ),
+    )
 
-    class Legacy:
-        name = "legacy"
-        specificity = 10
+    logs = []
+    selected = camera_plugins.load_plugin(
+        object(),
+        log_fn=logs.append,
+    )
 
-        @staticmethod
-        def matches(model):
-            return model == "Old Camera"
-
-        def __init__(self, camera, log_fn):
-            events.append("legacy")
-
-    monkeypatch.setattr(camera_plugins, "get_camera_model", lambda camera: "Old Camera")
-    monkeypatch.setattr(camera_profiles, "profile_for_model", lambda model: None)
-    monkeypatch.setattr(camera_plugins, "_load_plugin_classes", lambda: [Legacy])
-
-    selected = camera_plugins.load_plugin(object(), log_fn=lambda *_: None)
-
-    assert isinstance(selected, Legacy)
-    assert events == ["legacy"]
+    assert selected is None
+    assert any(
+        "production runtime disabled" in message
+        for message in logs
+    )
 
 
 def test_timing_only_file_no_longer_marks_camera_characterized(tmp_path, monkeypatch):
