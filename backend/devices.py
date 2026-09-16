@@ -1,7 +1,8 @@
 """Device registry helpers and bounded, read-only auto-detection.
 
-Detection only suggests a plugin when exactly one registered plugin reports a
-match.  In particular, registry order is never used as an implicit priority.
+Camera detection is profile-only: a camera model is suggested for production
+only when a characterized profile exists for that exact model. Historical
+manufacturer-specific Python plugins are never considered by this module.
 """
 
 from __future__ import annotations
@@ -23,24 +24,16 @@ mount = import_module("plugins.mount")
 
 
 def camera_plugin_for_model(model: str | None) -> str | None:
-    """Return the sole camera plugin matching *model*, otherwise ``None``."""
+    """Return the characterized profile backend for *model*, else ``None``.
+
+    Production camera discovery deliberately has no fallback to historical
+    Sony/Nikon Python plugins. An uncharacterized camera may be detected as
+    hardware, but it cannot be suggested as a runnable production backend.
+    """
     from backend.camera_profiles import profile_for_model
+
     profile = profile_for_model(model)
-    if profile:
-        return profile["backend"]
-    matches = []
-    try:
-        registered = camera._load_plugin_classes()
-    except Exception:
-        return None
-    for plugin in registered:
-        try:
-            if plugin.matches(model or ""):
-                matches.append(_plugin_id(plugin))
-        except Exception:
-            continue
-    matches = [plugin_id for plugin_id in matches if plugin_id]
-    return matches[0] if len(set(matches)) == 1 else None
+    return profile["backend"] if profile else None
 
 
 # Public wording used by callers that treat detection as a suggestion.
@@ -82,11 +75,10 @@ def normalize_selection(payload: Mapping[str, Any] | str | None) -> dict[str, An
 
 
 def detect_camera(model: str | None = None) -> dict[str, Any]:
-    """Detect the connected camera and suggest the matching plugin.
+    """Detect camera identity and suggest only a characterized profile.
 
-    When no model is supplied, ask the camera registry for the most specific
-    model reported by libgphoto2 autodetect.  Detection remains generic:
-    backend code never knows Sony/Nikon model names.
+    Detection itself remains read-only. A known model without a characterized
+    profile is still reported as detected, with ``suggested_plugin=None``.
     """
     if not model:
         try:
