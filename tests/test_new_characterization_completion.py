@@ -36,20 +36,17 @@ def test_characterization_selection_evidence():
     assert '"white_balance"' in src
 
 
-def test_capture_target_characterization_is_session_safe():
-    """Regression: Sony PC Control capturetarget may not be reversible."""
+
+def test_setting_characterization_qualifies_requested_value_idempotently():
+    """Regression: advertised alternate values need not be writable."""
+    import inspect
     import backend.camera_characterization as cc
 
     src = inspect.getsource(cc.characterize)
 
-    # capture_target must not be qualified by bouncing through other storage
-    # destinations: some Sony bodies cannot reverse that transition during
-    # the same PTP/PC-Control session.
-    assert 'idempotent_probe = key == "capture_target"' in src
-    assert "if not idempotent_probe:" in src
+    # Qualification must exercise the exact operation required at runtime.
+    assert "write_and_confirm(path, target)" in src
 
-    # A failed best-effort restore rejects/logs the candidate instead of
-    # aborting the whole characterization.
-    assert 'ev.failures.append(' in src
-    assert '"restore failed: {restore_exc}"' in src
-    assert 'raise RuntimeError(\\n                                    f"Cannot restore' not in src
+    # It must not require an unrelated alternate value before every SET.
+    assert "write_and_confirm(path, alternate)" not in src
+    assert 'idempotent_probe = key == "capture_target"' not in src

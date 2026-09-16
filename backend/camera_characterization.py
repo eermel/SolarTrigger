@@ -449,53 +449,23 @@ def characterize(camera, entry, job):
                         ev.durations_ms.append(0.0)
                         job.log(f"CANDIDATE {key}: {cid} qualified GET-only")
                         continue
-                    alternates = [v for v in values if str(v) != str(target)]
-
-                    # capturetarget is session-sensitive on some cameras (notably
-                    # Sony PC Control).  Changing away from a working destination
-                    # merely to prove reversibility can make the reverse
-                    # transition unavailable until the USB/PTP session is reset.
+                    # Qualify exactly the runtime operation we need:
+                    # repeated SET(target) followed by readback(target).
                     #
-                    # For this setting we therefore qualify the desired value
-                    # idempotently: repeated SET + readback proves that the
-                    # runtime command is accepted without exercising unrelated
-                    # storage destinations.
-                    idempotent_probe = key == "capture_target"
-
-                    if not alternates and not idempotent_probe:
-                        ev.failures.append("no alternate value to prove SET")
-                        continue
-
+                    # Do not bounce through unrelated alternate values merely
+                    # to prove reversibility.  A camera may legitimately reject
+                    # some advertised choices in its current mode/session
+                    # (Sony PC Control is one example).  Such a rejection says
+                    # nothing about the reliability of the requested runtime
+                    # value and must not invalidate it.
                     for trial in range(5):
                         try:
-                            if not idempotent_probe:
-                                alternate = alternates[trial % len(alternates)]
-                                write_and_confirm(path, alternate)
-
                             ev.durations_ms.append(
                                 write_and_confirm(path, target)
                             )
                         except Exception as exc:
                             ev.failures.append(f"trial {trial+1}: {exc}")
                             errors.append(f"SET {cid} trial {trial+1}: {exc}")
-
-                            # Best effort only.  A candidate that cannot be
-                            # restored is rejected, but characterization must
-                            # remain free to evaluate another safe candidate.
-                            try:
-                                if str(read_value(path)) != str(target):
-                                    write_and_confirm(path, target)
-                            except Exception as restore_exc:
-                                ev.failures.append(
-                                    f"restore failed: {restore_exc}"
-                                )
-                                errors.append(
-                                    f"RESTORE {cid}: {restore_exc}"
-                                )
-                                job.log(
-                                    f"CANDIDATE {key}: {cid} restore failed: "
-                                    f"{restore_exc}"
-                                )
                             break
                     ev.functional_ok = (len(ev.durations_ms) == 5
                                         and str(read_value(path)) == str(target))
