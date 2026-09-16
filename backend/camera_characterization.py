@@ -1446,11 +1446,6 @@ def characterize(camera, entry, job):
         single_overhead_samples
     )
 
-    warnings.append(
-        "Physical shutter-start latency is unmeasured; "
-        "no timing correction applied"
-    )
-
     model_key = (
         f"{entry['manufacturer']} "
         f"{entry['model']}"

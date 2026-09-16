@@ -50,3 +50,13 @@ def test_setting_characterization_qualifies_requested_value_idempotently():
     # It must not require an unrelated alternate value before every SET.
     assert "write_and_confirm(path, alternate)" not in src
     assert 'idempotent_probe = key == "capture_target"' not in src
+
+def test_characterization_does_not_require_physical_shutter_start_latency():
+    """Physical shutter-start latency is outside the runtime timing contract."""
+    import inspect
+    import backend.camera_characterization as cc
+
+    src = inspect.getsource(cc.characterize)
+
+    assert "Physical shutter-start latency" not in src
+    assert "no timing correction applied" not in src
