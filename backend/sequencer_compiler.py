@@ -1536,6 +1536,27 @@ _STATEFUL_SET_PARAMETERS = {
 }
 
 
+_PROFILE_STATEFUL_SET_PARAMETERS = frozenset({
+    "iso",
+    "capturemode",
+    "shutterspeed",
+    "shutterspeed2",
+    "f-number",
+})
+
+
+def _stateful_set_parameters(backend: str) -> frozenset[str]:
+    """Return SET parameters whose state may safely persist between captures."""
+
+    if backend.startswith("profile-"):
+        return _PROFILE_STATEFUL_SET_PARAMETERS
+
+    return _STATEFUL_SET_PARAMETERS.get(
+        backend,
+        frozenset(),
+    )
+
+
 def _normalize_camera_state(
     state: dict[str, Any] | None,
 ) -> dict[str, str]:
@@ -1570,22 +1591,7 @@ def reduce_audited_capture_operations(
 
     state = _normalize_camera_state(camera_state)
 
-    if capture.backend.startswith("profile-"):
-        # Characterized profiles expose explicit stateful SET operations too.
-        # Deduplicate them exactly as native backends so stable ISO/mode values
-        # are not resent for every capture.
-        stateful = frozenset({
-            "iso",
-            "capturemode",
-            "shutterspeed",
-            "shutterspeed2",
-            "f-number",
-        })
-    else:
-        stateful = _STATEFUL_SET_PARAMETERS.get(
-            capture.backend,
-            frozenset(),
-        )
+    stateful = _stateful_set_parameters(capture.backend)
 
     reduced: list[dict[str, Any]] = []
 
@@ -3150,10 +3156,7 @@ def derive_initial_state_required(
 
         first = captures[0]
 
-        stateful = _STATEFUL_SET_PARAMETERS.get(
-            first.backend,
-            frozenset(),
-        )
+        stateful = _stateful_set_parameters(first.backend)
 
         state: dict[str, str] = {}
 
