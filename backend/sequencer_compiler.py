@@ -999,32 +999,6 @@ def audit_materialized_capture(
             ),
         )
 
-    from plugins.camera import _load_plugin_classes
-    candidates = [cls for cls in _load_plugin_classes()
-                  if cls.name == capture.backend or
-                  (capture.backend == "nikon" and cls.name == "nikon-dslr")]
-    if len(candidates) == 1:
-        plugin = candidates[0](None, lambda *_args: None)
-        prepared = plugin.prepare_capture(_capture_intent_from_materialized(capture))
-        return AuditedRigCapture(
-            rig_id=capture.rig_id, backend=capture.backend, target=capture.target,
-            aperture=capture.aperture, exposure_plan=capture.final_exposure_plan,
-            prepared_mode=str(prepared.token[0]), estimated_total_s=prepared.estimated_total_s,
-            planned_count=prepared.planned_count,
-            operations=tuple(plugin.audit_prepared_capture(prepared)),
-            camera_strategy=(
-                "bracket"
-                if capture.backend == "sony"
-                else "sequential"
-            ),
-            mechanical_vibration_enabled=(
-                capture.mechanical_vibration_enabled
-            ),
-            mechanical_vibration_delay_s=(
-                capture.mechanical_vibration_delay_s
-            ),
-        )
-
     raise ValueError(
         f"Sequencer audit backend not implemented: "
         f"{capture.backend or 'none'}"

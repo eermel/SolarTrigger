@@ -207,6 +207,7 @@ def _persistent_profile_document(profile):
         "warnings",
         "capture_timeout_s",
         "timing_contract",
+        "selection",
     ):
         if key in profile:
             result[key] = deepcopy(profile[key])
@@ -383,197 +384,128 @@ def characterize(camera, entry, job):
             f"choices={item['choices']}"
         )
 
-    def find_setting(
-        key,
-        names,
-        accept,
-        critical=True,
-        operator_instruction=None,
-        require_set=False,
-    ):
-        """Discover independent GET/SET capability for one setting.
+    selection_evidence = {}
 
-        GET is proven by reading the widget. SET is only marked true after a
-        real value transition and readback. Writing the value that is already
-        active is deliberately *not* considered proof: this is essential for
-        bodies such as the Sony A6600, where exposure mode is readable but the
-        physical mode dial cannot be changed over USB.
-        """
-        errors = []
+    def find_setting(key, names, accept, critical=True,
+                     operator_instruction=None, require_set=False):
+        """Qualify every safe candidate; select reliability first, speed second."""
+        from backend.camera_candidate_optimizer import (
+            CandidateEvidence, compact_selection, select_best,
+        )
+        errors, evidence, candidate_by_id = [], [], {}
 
         def read_value(path):
             _, node = widget(camera, path)
             return node.get_value()
 
         def write_and_confirm(path, value):
+            started = time.monotonic()
             write_widget(camera, path, value)
             deadline = time.monotonic() + 5.0
             for attempt in range(20):
                 job.check()
                 actual = read_value(path)
                 if str(actual) == str(value):
-                    return actual
+                    return (time.monotonic() - started) * 1000.0
                 if time.monotonic() >= deadline or attempt == 19:
                     raise RuntimeError(
-                        "readback mismatch: "
-                        f"requested={value!r}, actual={actual!r}"
+                        f"readback mismatch: requested={value!r}, actual={actual!r}"
                     )
                 time.sleep(0.25)
             raise AssertionError("unreachable")
 
         for operator_pass in range(2):
-            candidates = [
-                item
-                for item in enumerate_widgets(camera)
-                if item["name"] in names
-            ]
-
+            candidates = [item for item in enumerate_widgets(camera)
+                          if item["name"] in names]
             for candidate in candidates:
                 path = candidate["path"]
                 try:
-                    current = read_value(path)
+                    original = read_value(path)
                 except Exception as exc:
                     errors.append(f"GET {path}: {exc}")
                     continue
-
-                values = list(candidate["choices"] or [current])
+                values = list(candidate["choices"] or [original])
                 if key == "capture_target":
-                    values.sort(
-                        key=lambda value: (
-                            str(value).casefold() != "card+sdram"
-                        )
-                    )
-                targets = [value for value in values if accept(str(value))]
-                if not targets:
-                    continue
-
-                if candidate["readonly"]:
-                    if not require_set:
-                        # GET capability is independent from the value
-                        # currently selected on the physical camera.
-                        #
-                        # The target is a characterized invariant.  Runtime
-                        # preflight will compare the live value against it and,
-                        # because SET is unavailable, ask the operator to
-                        # change the physical control when necessary.
-                        target = targets[0]
-                        commands[key] = {
-                            "path": path,
-                            "value": target,
-                            "get": True,
-                            "set": False,
-                        }
-                        job.log(
-                            f"VALID {key}: {path} target={target} "
-                            f"current={current} "
-                            "(GET=yes SET=no, readonly)"
-                        )
-                        return candidate
-
-                    errors.append(
-                        f"SET {path}: widget is readonly"
-                    )
-                    continue
-
-                for target in targets:
-                    job.check()
-                    try:
-                        current = read_value(path)
-                        if str(current) != str(target):
-                            write_and_confirm(path, target)
-                            set_proved = True
-                        else:
-                            # Same-value writes prove nothing. Exercise a real
-                            # transition and then restore the required value.
-                            set_proved = False
-                            alternates = [
-                                value for value in values
-                                if str(value) != str(target)
-                            ]
-                            for alternate in alternates:
-                                try:
-                                    write_and_confirm(path, alternate)
-                                    write_and_confirm(path, target)
-                                except Exception as exc:
-                                    errors.append(
-                                        f"SET transition {path} "
-                                        f"{target!r}->{alternate!r}->{target!r}: {exc}"
-                                    )
-                                    try:
-                                        if str(read_value(path)) != str(target):
-                                            write_and_confirm(path, target)
-                                    except Exception as restore_exc:
-                                        errors.append(
-                                            f"restore {path}={target!r}: {restore_exc}"
-                                        )
-                                    continue
-                                set_proved = True
-                                break
-
-                        if set_proved:
-                            commands[key] = {
-                                "path": path,
-                                "value": target,
-                                "get": True,
-                                "set": True,
-                            }
-                            job.log(
-                                f"VALID {key}: {path}={target} "
-                                "(GET=yes SET=yes, transition proven)"
-                            )
-                            return candidate
-
-                        if not require_set:
+                    values.sort(key=lambda v: str(v).casefold() != "card+sdram")
+                for target in [v for v in values if accept(str(v))]:
+                    cid = f"{path}={target!r}"
+                    if cid in candidate_by_id:
+                        continue
+                    ev = CandidateEvidence(cid, {"path": path, "value": target}, 5)
+                    evidence.append(ev)
+                    candidate_by_id[cid] = (candidate, target, ev)
+                    if candidate["readonly"]:
+                        if require_set:
+                            ev.failures.append("widget is readonly")
+                            continue
+                        ev.functional_ok = True
+                        ev.expected_trials = 1
+                        ev.durations_ms.append(0.0)
+                        job.log(f"CANDIDATE {key}: {cid} qualified GET-only")
+                        continue
+                    alternates = [v for v in values if str(v) != str(target)]
+                    if not alternates:
+                        ev.failures.append("no alternate value to prove SET")
+                        continue
+                    for trial in range(5):
+                        alternate = alternates[trial % len(alternates)]
+                        try:
+                            write_and_confirm(path, alternate)
+                            ev.durations_ms.append(write_and_confirm(path, target))
+                        except Exception as exc:
+                            ev.failures.append(f"trial {trial+1}: {exc}")
+                            errors.append(f"SET {cid} trial {trial+1}: {exc}")
                             try:
-                                actual = read_value(path)
-                            except Exception as exc:
-                                errors.append(
-                                    f"GET after SET proof failure "
-                                    f"{path}: {exc}"
-                                )
-                                continue
-
-                            commands[key] = {
-                                "path": path,
-                                "value": target,
-                                "get": True,
-                                "set": False,
-                            }
-                            job.log(
-                                f"VALID {key}: {path} target={target} "
-                                f"current={actual} "
-                                "(GET=yes SET=no, transition not proven)"
-                            )
-                            return candidate
-
-                        errors.append(
-                            f"SET {path}: no real transition proven"
-                        )
-
-                    except Exception as exc:
-                        errors.append(str(exc))
-                        job.log(f"RETRY {key}: {exc}")
-
-            if (
-                operator_pass == 0
-                and candidates
-                and critical
-                and operator_instruction
-            ):
+                                if str(read_value(path)) != str(target):
+                                    write_and_confirm(path, target)
+                            except Exception as restore_exc:
+                                raise RuntimeError(
+                                    f"Cannot restore {path}={target!r}: {restore_exc}"
+                                ) from restore_exc
+                            break
+                    ev.functional_ok = (len(ev.durations_ms) == 5
+                                        and str(read_value(path)) == str(target))
+                    job.log(f"CANDIDATE {key}: {cid} reliable={ev.reliable} "
+                            f"trials={len(ev.durations_ms)}/5 "
+                            f"peak_ms={ev.peak_ms if ev.durations_ms else None}")
+            writable = []
+            for ev in evidence:
+                candidate = candidate_by_id[ev.candidate_id][0]
+                if ev.reliable and not candidate["readonly"]:
+                    writable.append(ev)
+            selectable = writable or ([ev for ev in evidence if ev.reliable]
+                                      if not require_set else [])
+            if selectable:
+                selected = select_best(selectable)
+                candidate, target, _ = candidate_by_id[selected.candidate_id]
+                commands[key] = {"path": candidate["path"], "value": target,
+                                 "get": True, "set": not candidate["readonly"]}
+                selection_evidence[key] = compact_selection(key, evidence, selected)
+                job.log(f"SELECT {key}: {selected.candidate_id}")
+                return candidate
+            if (operator_pass == 0 and candidates and critical
+                    and operator_instruction):
                 if not job.ask(operator_instruction):
                     raise RuntimeError(
                         f"Operator refused required physical setting: {key}"
                     )
+                evidence.clear()
+                candidate_by_id.clear()
                 continue
             break
-
         if critical:
-            detail = "; ".join(errors) or "no usable GET/SET path"
             raise RuntimeError(
-                f"Critical function unavailable: {key}; {detail}"
+                f"Critical function unavailable: {key}; "
+                + ("; ".join(errors) or "no qualified candidate")
             )
-
         warnings.append(f"{key}: unavailable")
+        selection_evidence[key] = {
+            "action": key,
+            "policy": "correctness_then_reliability_then_peak_then_median",
+            "candidate_count": len(evidence),
+            "qualified_count": sum(1 for ev in evidence if ev.reliable),
+            "selected": None,
+        }
         return None
 
     model_for_operator = str(entry.get("model") or "appareil photo")
@@ -612,7 +544,6 @@ def characterize(camera, entry, job):
 
     for key, names in (
         ("self_timer", ("selftimer", "selftimerdelay")),
-        ("time_lapse", ("intervalshooting", "timelapse")),
     ):
         if any(
             item["name"] in names
@@ -1514,6 +1445,7 @@ def characterize(camera, entry, job):
         "settle_idle_s": 0.0,
         "test_pause_s": 2.0,
         "brackets": {},
+        "selection": deepcopy(selection_evidence),
     }
 
     bracket_candidates = {}
