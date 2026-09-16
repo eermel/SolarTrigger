@@ -13,10 +13,52 @@ def ethernet_status(root=SYS):
   except OSError: carrier=False
   out.append({'name':p.name,'carrier':carrier})
  return {'connected':any(x['carrier'] for x in out),'interfaces':out}
-def internet_available(timeout=1.5):
+def _route_interface(address):
  try:
-  with socket.create_connection(('1.1.1.1',53),timeout=timeout): return True
- except OSError:return False
+  result=subprocess.run(
+   ['ip','route','get',address],
+   capture_output=True,
+   text=True,
+   timeout=2,
+   check=False,
+  )
+ except (OSError,subprocess.SubprocessError):
+  return None
+ if result.returncode != 0:return None
+ parts=result.stdout.split()
+ try:return parts[parts.index('dev')+1]
+ except (ValueError,IndexError):return None
+
+def internet_available(timeout=2.0,root=SYS):
+ ethernet={
+  item['name']
+  for item in ethernet_status(root)['interfaces']
+  if item['carrier']
+ }
+ if not ethernet:return False
+
+ endpoints=(
+  ('deb.debian.org',80),
+  ('security.debian.org',80),
+  ('deb.debian.org',443),
+ )
+
+ for host,port in endpoints:
+  try:
+   infos=socket.getaddrinfo(host,port,type=socket.SOCK_STREAM)
+  except OSError:
+   continue
+
+  for _family,_socktype,_proto,_canonname,sockaddr in infos:
+   if _route_interface(sockaddr[0]) not in ethernet:
+    continue
+   try:
+    with socket.create_connection(sockaddr,timeout=timeout):
+     return True
+   except OSError:
+    continue
+
+ return False
 def validate_release_zip(path):
  p=Path(path)
  if not p.is_file() or p.stat().st_size>MAX: raise ValueError('Invalid or oversized update package')
