@@ -42,14 +42,16 @@ def _assert_no_hardware_services(rig):
     assert rig.focuser_service is None
 
 
-def test_all_disabled_rigs_construct_without_hardware_services():
+def test_persisted_disabled_rigs_keep_rig1_mandatory_active():
     manager = RigManager.from_config(_config())
 
     assert len(manager.rigs) == 4
+    assert manager.get_rig(1).enabled is True
+    for rig_id in range(2, 5):
+        assert manager.get_rig(rig_id).enabled is False
+
     for rig_id in range(1, 5):
-        rig = manager.get_rig(rig_id)
-        assert rig.enabled is False
-        _assert_no_hardware_services(rig)
+        _assert_no_hardware_services(manager.get_rig(rig_id))
 
 
 def test_one_enabled_rig_constructs_with_empty_service_placeholders():

@@ -76,9 +76,14 @@ class RigManager:
             if not isinstance(devices, dict):
                 raise ValueError(f"{prefix}.devices must be an object")
 
+            # RIG 1 is the mandatory primary rig.  Persisted legacy
+            # configurations may still contain enabled=false, but that
+            # stale value must never disable RIG 1 in the runtime.
+            effective_enabled = True if rig_id == 1 else enabled
+
             rigs[rig_id] = Rig(
                 rig_id=rig_id,
-                enabled=enabled,
+                enabled=effective_enabled,
                 name=name,
                 devices=dict(devices),
             )

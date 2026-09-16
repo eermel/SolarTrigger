@@ -179,7 +179,7 @@ def test_preparing_rigs_for_ui_creates_no_services_or_legacy_rig_state(
     rigs = rig_runtime.normalize_rigs_for_ui(rig_runtime.get_rig_manager())
 
     assert rigs == [
-        {"rig_id": 1, "name": "RIG 1", "enabled": False},
+        {"rig_id": 1, "name": "RIG 1", "enabled": True},
         {"rig_id": 2, "name": "RIG 2", "enabled": False},
         {"rig_id": 3, "name": "RIG 3", "enabled": False},
         {"rig_id": 4, "name": "RIG 4", "enabled": False},
