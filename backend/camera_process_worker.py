@@ -130,6 +130,10 @@ def _camera_process_main(
                         planned_count=result.planned_count,
                         plugin_name=result.plugin_name,
                         materialized=result.materialized,
+                        prepare_lead_s=float(
+                            getattr(result, "prepare_lead_s", 0.0) or 0.0
+                        ),
+                        target_time=getattr(result, "target_time", None),
                     )
 
                 elif operation == "trigger_prepared":

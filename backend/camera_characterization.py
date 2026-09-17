@@ -340,6 +340,15 @@ def choose_common_bracket_command(candidates, excluded, sizes):
     return min(
         eligible,
         key=lambda key: (
+            # Synchronization criterion: minimize the worst measured time from
+            # preparation start to the first camera file notification.
+            max(
+                item["spec"].get(
+                    "peak_prepare_to_first_file_ms",
+                    item["spec"]["peak_capture_ms"],
+                )
+                for item in eligible[key].values()
+            ),
             max(item["spec"]["peak_capture_ms"] for item in eligible[key].values()),
             sum(item["spec"]["peak_capture_ms"] for item in eligible[key].values()),
             key,
@@ -999,6 +1008,66 @@ def characterize(camera, entry, job):
         all_set_samples
     )
 
+    def timed_runtime_prepare(shutter, bracket_mode=None):
+        """Measure the exact SET preamble emitted by contract-v3 runtime.
+
+        The characterization deliberately performs all SETs even when their
+        current values already match. This measures the conservative cold/cache-
+        invalidated path that Trigger must reserve before the requested PHOTO
+        instant.
+        """
+        started = time.monotonic()
+
+        def runtime_set(key, value):
+            # Mirror ProfilePlugin._apply(): first prove live writability
+            # through a fresh get_config(), then perform write_checked().
+            _, live_node = widget(
+                camera,
+                commands[key]["path"],
+            )
+            if bool(live_node.get_readonly()):
+                raise RuntimeError(
+                    f"SET {key} became readonly during runtime preparation"
+                )
+            write_checked(
+                camera,
+                commands[key]["path"],
+                value,
+            )
+
+        runtime_set(
+            "iso",
+            commands["iso"]["values"]["100"],
+        )
+
+        capture_mode_writable = (
+            "capture_mode" in commands
+            and commands["capture_mode"].get("set") is not False
+        )
+
+        if capture_mode_writable:
+            runtime_set(
+                "capture_mode",
+                commands["capture_mode"]["value"],
+            )
+
+        runtime_set(
+            "shutter",
+            commands["shutter"]["values"][str(shutter)],
+        )
+
+        if bracket_mode is not None:
+            if not capture_mode_writable:
+                raise RuntimeError(
+                    "Bracket mode requires a writable capture_mode"
+                )
+            runtime_set(
+                "capture_mode",
+                bracket_mode,
+            )
+
+        return (time.monotonic() - started) * 1000.0
+
     # Probe every known capture entry point. Operator confirmation is used only
     # for the first discovery of each method/size; five timing repetitions then
     # run automatically.
@@ -1084,6 +1153,7 @@ def characterize(camera, entry, job):
         error = None
         returned_ms = 0.0
         release_ms = 0.0
+        first_file_ms = None
 
         begin = time.monotonic()
 
@@ -1095,6 +1165,10 @@ def characterize(camera, entry, job):
                     gp.GP_CAPTURE_IMAGE
                 )
                 if getattr(file_ref, "name", None):
+                    if first_file_ms is None:
+                        first_file_ms = (
+                            time.monotonic() - begin
+                        ) * 1000.0
                     seen.add(
                         (
                             file_ref.folder,
@@ -1130,6 +1204,10 @@ def characterize(camera, entry, job):
                 kind, data = camera.wait_for_event(100)
 
                 if kind == gp.GP_EVENT_FILE_ADDED:
+                    if first_file_ms is None:
+                        first_file_ms = (
+                            time.monotonic() - begin
+                        ) * 1000.0
                     seen.add(
                         (
                             getattr(data, "folder", ""),
@@ -1221,6 +1299,11 @@ def characterize(camera, entry, job):
         phases = {
             "pre_trigger_drain_ms": pre_trigger_drain_ms,
             "trigger_call_ms": returned_ms,
+            "first_file_ms": (
+                float(first_file_ms)
+                if first_file_ms is not None
+                else float(duration_ms)
+            ),
             "frame_wait_ms": max(
                 0.0,
                 (
@@ -1357,6 +1440,7 @@ def characterize(camera, entry, job):
             )
 
             # Operator discovery is excluded from speed measurements.
+            timed_runtime_prepare("1/500")
             probe(
                 spec,
                 expected=1,
@@ -1364,13 +1448,13 @@ def characterize(camera, entry, job):
             )
 
             for _ in range(5):
-                samples.append(
-                    probe(
-                        spec,
-                        expected=1,
-                        exposure_s=_parse_speed("1/500"),
-                    )
+                prepare_ms = timed_runtime_prepare("1/500")
+                sample = probe(
+                    spec,
+                    expected=1,
+                    exposure_s=_parse_speed("1/500"),
                 )
+                samples.append((*sample, prepare_ms))
 
             summarize_samples(
                 spec,
@@ -1520,9 +1604,7 @@ def characterize(camera, entry, job):
 
                 try:
                     # Discovery run.
-                    prepare_photo(
-                        camera,
-                        commands,
+                    timed_runtime_prepare(
                         "1/500",
                         mode_value,
                     )
@@ -1532,22 +1614,20 @@ def characterize(camera, entry, job):
                         exposure_s=reference_exposure_s,
                     )
 
-                    # Five timing runs. SETs are intentionally outside probe().
+                    # Five automatic timing runs. The PHOTO stopwatch remains
+                    # separate, while SET preparation is measured explicitly.
                     for _ in range(5):
                         job.check()
-                        prepare_photo(
-                            camera,
-                            commands,
+                        prepare_ms = timed_runtime_prepare(
                             "1/500",
                             mode_value,
                         )
-                        samples.append(
-                            probe(
-                                trigger_spec,
-                                expected=frames,
-                                exposure_s=reference_exposure_s,
-                            )
+                        sample = probe(
+                            trigger_spec,
+                            expected=frames,
+                            exposure_s=reference_exposure_s,
                         )
+                        samples.append((*sample, prepare_ms))
 
                     summarize_samples(
                         trigger_spec,
@@ -1563,6 +1643,14 @@ def characterize(camera, entry, job):
                         ),
                         "peak_capture_ms": max(
                             sample[1]
+                            for sample in samples
+                        ),
+                        "peak_first_file_ms": max(
+                            sample[3]["first_file_ms"]
+                            for sample in samples
+                        ),
+                        "peak_prepare_to_first_file_ms": max(
+                            sample[4] + sample[3]["first_file_ms"]
                             for sample in samples
                         ),
                     }
@@ -1717,6 +1805,25 @@ def characterize(camera, entry, job):
                 "sequential only"
             )
 
+    prepare_lead_samples = [
+        sample[4]
+        for sample in single_samples
+        if len(sample) > 4
+    ]
+    if selected is not None:
+        for item in bracket_candidates[selected].values():
+            prepare_lead_samples.extend(
+                sample[4]
+                for sample in item["samples"]
+                if len(sample) > 4
+            )
+
+    prepare_lead_ms = (
+        budget_ms(prepare_lead_samples)
+        if prepare_lead_samples
+        else 0
+    )
+
     contract = {
         "version": 3,
         "safety_policy": deepcopy(
@@ -1724,6 +1831,7 @@ def characterize(camera, entry, job):
         ),
         "set_overhead_ms": set_overhead_ms,
         "single_overhead_ms": single_overhead_ms,
+        "prepare_lead_ms": prepare_lead_ms,
         "bracket_overhead_ms": (
             bracket_overhead_ms
         ),
@@ -1758,6 +1866,16 @@ def characterize(camera, entry, job):
 
     contract = profile["timing_contract"]
     set_overhead_ms = contract["set_overhead_ms"]
+
+    # Operational qualification may increase SET budgets. The published
+    # preparation lead must never become smaller than the complete guarded
+    # worst-case SET preamble.
+    guarded_set_count = 4 if profile["brackets"] else 3
+    contract["prepare_lead_ms"] = max(
+        int(contract.get("prepare_lead_ms", 0) or 0),
+        int(guarded_set_count * set_overhead_ms),
+    )
+
     single_overhead_ms = contract["single_overhead_ms"]
     bracket_overhead_ms = contract["bracket_overhead_ms"]
     bracket_inter_image_ms = contract[
@@ -2006,6 +2124,7 @@ def characterize(camera, entry, job):
         "measurement_status": {
             "set_overhead_ms": "measured",
             "single_overhead_ms": "measured",
+            "prepare_lead_ms": "measured_full_runtime_set_preamble",
             "bracket_overhead_ms": (
                 "derived_from_measured_brackets"
                 if profile["brackets"]
@@ -2039,6 +2158,7 @@ def characterize(camera, entry, job):
     job.log(
         "TIMING CONTRACT V3: "
         f"SET={contract['set_overhead_ms']} ms; "
+        f"prepare lead={contract.get('prepare_lead_ms', 0)} ms; "
         f"single overhead={contract['single_overhead_ms']} ms; "
         f"bracket overhead={contract['bracket_overhead_ms']} ms; "
         f"inter-image={contract['bracket_inter_image_ms']} ms"
@@ -2893,6 +3013,7 @@ def qualify_operational_contract_v3(
         "RUNTIME QUALIFICATION V3 PASSED: "
         f"attempts={attempt}; "
         f"SET={contract['set_overhead_ms']} ms; "
+        f"prepare lead={contract.get('prepare_lead_ms', 0)} ms; "
         f"single overhead={contract['single_overhead_ms']} ms; "
         f"bracket overhead={contract['bracket_overhead_ms']} ms; "
         f"inter-image={contract['bracket_inter_image_ms']} ms"

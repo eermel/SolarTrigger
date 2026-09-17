@@ -227,6 +227,47 @@ class ProfilePlugin(CameraPlugin):
         model = re.sub(r"\s*\(PC Control\)\s*$", "", model)
         return model.replace("Alpha-A", "A")
 
+    def preparation_lead_s(self) -> float:
+        """Conservative SET-preparation reservation before PHOTO target.
+
+        New v3 characterizations publish a directly measured prepare_lead_ms.
+        Existing profiles remain usable: their historical total_ms/atomic_ms
+        split already measured the SET preparation preceding the atomic PHOTO.
+        """
+        contract = self.profile.get("timing_contract")
+        if isinstance(contract, dict) and contract.get("version") == 3:
+            measured = contract.get("prepare_lead_ms")
+            if (
+                type(measured) in (int, float)
+                and math.isfinite(float(measured))
+                and float(measured) >= 0
+            ):
+                return float(measured) / 1000.0
+
+            # v3 compatibility for profiles characterized before prepare_lead_ms
+            # existed. Reserve the complete worst-case SET preamble.
+            set_ms = float(contract.get("set_overhead_ms", 0) or 0)
+            set_count = 4 if self.profile.get("brackets") else 3
+            return max(0.0, set_count * set_ms / 1000.0)
+
+        leads_ms = []
+        planning = self.profile.get("planning_timing", {})
+        single_total = planning.get("single_ms")
+        single_atomic = planning.get("single_atomic_ms")
+        if (
+            type(single_total) in (int, float)
+            and type(single_atomic) in (int, float)
+        ):
+            leads_ms.append(max(0.0, float(single_total) - float(single_atomic)))
+
+        for spec in self.profile.get("brackets", {}).values():
+            total = spec.get("total_ms")
+            atomic = spec.get("atomic_ms")
+            if type(total) in (int, float) and type(atomic) in (int, float):
+                leads_ms.append(max(0.0, float(total) - float(atomic)))
+
+        return max(leads_ms, default=0.0) / 1000.0
+
     def _manual_instruction(self, key, target, actual) -> str:
         model = self._display_model()
         if key == "manual_mode" and str(target).casefold() in {"m", "manual"}:
@@ -1374,6 +1415,8 @@ class ProfilePlugin(CameraPlugin):
     def trigger_prepared(self, prepared, deadline=None):
         frames = 0
         truncated = False
+        first_photo_pending = True
+        target_time = getattr(prepared, "target_time", None)
         groups = self._capture_groups(self.audit_prepared_capture(prepared))
         for group in groups:
             effective_group = self._effective_capture_group(group)
@@ -1398,6 +1441,14 @@ class ProfilePlugin(CameraPlugin):
                             operation["value"],
                         )
                     else:
+                        # SET preparation may start before the scheduled slot,
+                        # but the PHOTO command itself must never be sent early.
+                        if first_photo_pending and target_time is not None:
+                            remaining = seconds_until_deadline(target_time)
+                            while remaining is not None and remaining > 0:
+                                time.sleep(min(0.05, remaining))
+                                remaining = seconds_until_deadline(target_time)
+                            first_photo_pending = False
                         frames += self.execute_photo(operation).frames
             except Exception:
                 self._known_settings.clear()

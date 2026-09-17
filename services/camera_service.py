@@ -45,6 +45,10 @@ class PreparedCapture:
     planned_count: Optional[int]
     plugin_name: str
     materialized: Optional[list] = None
+    # Seconds reserved before target_time for camera SET preparation.
+    prepare_lead_s: float = 0.0
+    # Desired UTC instant at which the physical PHOTO command is admitted.
+    target_time: Optional[datetime] = None
 
 
 def _parse_speed(value):
@@ -344,7 +348,14 @@ class CameraService:
         # A materialized plan is already the exact physical sequence.
         # Do not normalize/deduplicate it back into a logical bracket.
         if intent.exposure_plan is not None:
-            return self.plugin.prepare_capture(intent)
+            prepared = self.plugin.prepare_capture(intent)
+            prepared.target_time = intent.target_time
+            lead_fn = getattr(self.plugin, "preparation_lead_s", None)
+            if callable(lead_fn):
+                prepared.prepare_lead_s = max(
+                    0.0, float(lead_fn())
+                )
+            return prepared
 
         if intent.speeds:
             speeds = [str(speed) for speed in intent.speeds]
@@ -380,7 +391,14 @@ class CameraService:
                 speeds=None,
             )
 
-        return self.plugin.prepare_capture(intent)
+        prepared = self.plugin.prepare_capture(intent)
+        prepared.target_time = intent.target_time
+        lead_fn = getattr(self.plugin, "preparation_lead_s", None)
+        if callable(lead_fn):
+            prepared.prepare_lead_s = max(
+                0.0, float(lead_fn())
+            )
+        return prepared
 
     def trigger_prepared(
         self, prepared, deadline=None, *, monotonic_deadline=None

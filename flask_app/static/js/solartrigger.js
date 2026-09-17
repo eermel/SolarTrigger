@@ -3806,6 +3806,10 @@ async function startDebug() {
 
   const failures = [];
   const results = [];
+  // One absolute UTC anchor is shared by every RIG in this DEBUG ALL run.
+  // The requests remain sequential for generated-state safety, but their
+  // eclipse circumstances are now bit-for-bit time aligned.
+  const debugAnchorUtc = new Date().toISOString();
 
   // Deliberately sequential: /debug updates generated circumstances state.
   // Running these requests concurrently would introduce a race.
@@ -3816,6 +3820,7 @@ async function startDebug() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           rig_id: rigId,
+          debug_anchor_utc: debugAnchorUtc,
           photo_file: inputs.photo_file,
           exposure_opt_file: inputs.exposure_opt_file
         })

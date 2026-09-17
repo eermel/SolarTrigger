@@ -31,6 +31,7 @@ from backend.phase_trigger import (
     build_phase_schedule,
 )
 from backend.preview_materializer import apply_atmos_if_enabled, normalize_intent_plan
+from backend.camera_profiles import discover_profiles
 from backend.rig_runtime import load_rig_configuration
 from backend.timeline import build_timeline
 from backend.trigger_runtime import RuntimeClock
@@ -124,6 +125,52 @@ def _speed_seconds(value: str) -> float:
         numerator, denominator = text.split("/", 1)
         return float(numerator) / float(denominator)
     return float(text)
+
+
+def _camera_prepare_lead_s(rig_snapshot: dict) -> float:
+    """Read the characterized SET reservation without touching hardware."""
+    devices = rig_snapshot.get("devices")
+    camera = devices.get("camera") if isinstance(devices, dict) else None
+    backend = camera.get("backend") if isinstance(camera, dict) else None
+    if not isinstance(backend, str) or not backend.startswith("profile-"):
+        return 0.0
+
+    profile = discover_profiles().get(backend)
+    if not isinstance(profile, dict):
+        return 0.0
+
+    contract = profile.get("timing_contract")
+    if isinstance(contract, dict) and contract.get("version") == 3:
+        measured = contract.get("prepare_lead_ms")
+        if type(measured) in (int, float) and isfinite(float(measured)):
+            return max(0.0, float(measured) / 1000.0)
+        set_ms = float(contract.get("set_overhead_ms", 0) or 0)
+        set_count = 4 if profile.get("brackets") else 3
+        return max(0.0, set_count * set_ms / 1000.0)
+
+    # Legacy profile fallback: total_ms includes setup + atomic PHOTO.
+    leads = []
+    planning = profile.get("planning_timing", {})
+    if (
+        type(planning.get("single_ms")) in (int, float)
+        and type(planning.get("single_atomic_ms")) in (int, float)
+    ):
+        leads.append(
+            max(
+                0.0,
+                float(planning["single_ms"])
+                - float(planning["single_atomic_ms"]),
+            )
+        )
+    for spec in profile.get("brackets", {}).values():
+        if (
+            type(spec.get("total_ms")) in (int, float)
+            and type(spec.get("atomic_ms")) in (int, float)
+        ):
+            leads.append(
+                max(0.0, float(spec["total_ms"]) - float(spec["atomic_ms"]))
+            )
+    return max(leads, default=0.0) / 1000.0
 
 
 def _phase_label(window: PhaseWindow) -> str:
@@ -754,7 +801,14 @@ def main() -> int:
                     f"SET aperture={aperture} ISO={iso}"
                 )
 
-        def capture_cycle(window: PhaseWindow, started: datetime) -> bool:
+        def capture_cycle(
+            window: PhaseWindow,
+            started: datetime,
+            target: datetime | None = None,
+        ) -> bool:
+            # `started` is the actual preparation admission time.
+            # `target` is the requested physical PHOTO slot.
+            photo_instant = target if target is not None else started
             config = phase_config(window)
             plan = normalize_intent_plan({
                 "speeds": config.get("speeds"),
@@ -765,7 +819,7 @@ def main() -> int:
             atmos_added = False
             if window.photo_phase == "partial":
                 plan, atmos_added, atmos_speed = apply_atmos_if_enabled(
-                    rig_snapshot, plan, started, eclipse_context,
+                    rig_snapshot, plan, photo_instant, eclipse_context,
                 )
                 if atmos_added:
                     log(
@@ -784,7 +838,7 @@ def main() -> int:
                 step_ev=None if speeds is not None else step_ev,
                 speeds=speeds,
                 phase=window.photo_phase,
-                target_time=_aware_utc(started),
+                target_time=_aware_utc(photo_instant),
                 deadline=deadline,
                 overflow_policy="truncate",
                 origin="atmos" if atmos_added else window.photo_phase,
@@ -830,7 +884,7 @@ def main() -> int:
                 + (f" {exposure_text}" if exposure_text else "")
             )
             log(
-                f"TRIGGER_PHOTO {photo_log_level(window, started)} "
+                f"TRIGGER_PHOTO {photo_log_level(window, photo_instant)} "
                 f"{photo_text}"
             )
             return not truncated
@@ -870,6 +924,17 @@ def main() -> int:
 
             log(f"ERROR {message}")
 
+        camera_prepare_lead_s = (
+            0.0
+            if args.simulate or args.totality_only
+            else _camera_prepare_lead_s(rig_snapshot)
+        )
+        if camera_prepare_lead_s > 0:
+            log(
+                "TRIGGER_CONFIG characterized camera preparation lead="
+                f"{camera_prepare_lead_s:.3f}s"
+            )
+
         emergency_stats = None
         if args.totality_only:
             emergency_stats = run_emergency_totality(
@@ -889,9 +954,13 @@ def main() -> int:
                     enter_phase=initialize_phase,
                     reconcile_phase=reconcile_phase,
                     capture=capture_cycle,
+                    capture_with_target=capture_cycle,
                     log_error=runtime_error,
                     stopped=stopped.is_set,
                     override_phase=request_emergency_totality,
+                    capture_lead_s=(
+                        lambda _window, _target: camera_prepare_lead_s
+                    ),
                     next_capture_log=log_next_capture,
                 ).run()
             except EmergencyTotalityRequested:

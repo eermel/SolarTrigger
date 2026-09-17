@@ -5498,7 +5498,42 @@ def api_trigger_debug():
         return jsonify({"error": "Select valid Photo Setup and Exposure Optimization files", "code": "TRIGGER_INPUTS_NOT_LOADED"}), 400
     destination_path = None
     try:
-        now_utc = datetime.now(timezone.utc)
+        raw_anchor = payload.get("debug_anchor_utc")
+        if raw_anchor is None:
+            now_utc = datetime.now(timezone.utc)
+        else:
+            if not isinstance(raw_anchor, str) or not raw_anchor.strip():
+                return jsonify({
+                    "error": "Invalid DEBUG anchor.",
+                    "code": "DEBUG_ANCHOR_INVALID",
+                    "rig_id": rig_id,
+                }), 400
+            try:
+                now_utc = datetime.fromisoformat(
+                    raw_anchor.strip().replace("Z", "+00:00")
+                )
+                if now_utc.tzinfo is None or now_utc.utcoffset() is None:
+                    raise ValueError("timezone required")
+                now_utc = now_utc.astimezone(timezone.utc)
+            except Exception:
+                return jsonify({
+                    "error": "Invalid DEBUG anchor.",
+                    "code": "DEBUG_ANCHOR_INVALID",
+                    "rig_id": rig_id,
+                }), 400
+
+            # The UI generates one anchor for the whole DEBUG ALL operation.
+            # Reject stale/replayed anchors while allowing sequential per-RIG
+            # requests and normal browser/network jitter.
+            if abs(
+                (datetime.now(timezone.utc) - now_utc).total_seconds()
+            ) > 30:
+                return jsonify({
+                    "error": "DEBUG anchor is stale.",
+                    "code": "DEBUG_ANCHOR_STALE",
+                    "rig_id": rig_id,
+                }), 400
+
         generated = generate_debug_now(now_utc)
         destination_dir = CONFIGS_DIR / "circumstances"
         destination_dir.mkdir(parents=True, exist_ok=True)

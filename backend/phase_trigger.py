@@ -224,6 +224,10 @@ class PhaseRuntime:
         log_error: Callable[[str], None],
         stopped: Callable[[], bool] = lambda: False,
         override_phase: Callable[[datetime], PhaseWindow | None] = lambda _now: None,
+        capture_lead_s: Callable[[PhaseWindow, datetime], float] | None = None,
+        capture_with_target: Callable[
+            [PhaseWindow, datetime, datetime], bool | None
+        ] | None = None,
         next_capture_log: Callable[[PhaseWindow, datetime], None] | None = None,
     ) -> None:
         self.schedule = schedule
@@ -232,9 +236,11 @@ class PhaseRuntime:
         self.enter_phase = enter_phase
         self.reconcile_phase = reconcile_phase
         self.capture = capture
+        self.capture_with_target = capture_with_target
         self.log_error = log_error
         self.stopped = stopped
         self.override_phase = override_phase
+        self.capture_lead_s = capture_lead_s or (lambda _window, _target: 0.0)
         self.next_capture_log = next_capture_log
 
     def run(self) -> None:
@@ -268,7 +274,21 @@ class PhaseRuntime:
             if next_capture >= window.end:
                 self.wait_until(window.end)
                 continue
-            if current < next_capture:
+            try:
+                lead_s = float(self.capture_lead_s(window, next_capture))
+            except (TypeError, ValueError):
+                lead_s = 0.0
+            if not isfinite(lead_s) or lead_s < 0:
+                lead_s = 0.0
+
+            # Never prepare a future phase while the previous phase still owns
+            # the camera. Inside an active phase, start the SET preamble early.
+            prepare_at = max(
+                window.start,
+                next_capture - timedelta(seconds=lead_s),
+            )
+
+            if current < prepare_at:
                 if (
                     window.photo_phase == "partial"
                     and self.next_capture_log is not None
@@ -276,13 +296,16 @@ class PhaseRuntime:
                 ):
                     self.next_capture_log(window, next_capture)
                     announced_next_capture = next_capture
-                self.wait_until(min(next_capture, window.end))
+                self.wait_until(min(prepare_at, window.end))
                 continue
 
             # Re-evaluate the phase immediately before every capture.
             current = self.now()
             if not window.contains(current):
                 continue
+            # Preserve the historical meaning of `started`: the actual
+            # runtime instant at which this capture cycle is admitted.
+            # `next_capture` remains the distinct desired PHOTO target.
             started = current
             settings_ok = True
             try:
@@ -321,8 +344,16 @@ class PhaseRuntime:
                 continue
 
             captured = None
+            target_capture = next_capture
             try:
-                captured = self.capture(window, started)
+                if self.capture_with_target is not None:
+                    captured = self.capture_with_target(
+                        window,
+                        started,
+                        target_capture,
+                    )
+                else:
+                    captured = self.capture(window, started)
             except Exception as exc:
                 self.log_error(
                     f"phase={window.name} stage=photo "
@@ -333,7 +364,19 @@ class PhaseRuntime:
             if captured is False:
                 next_capture = window.end
             elif window.interval_s > 0:
-                next_capture = started + timedelta(seconds=window.interval_s)
+                # Normal case: cadence remains anchored to the requested PHOTO
+                # target even though preparation began early.
+                #
+                # Overrun case: if the target was already in the past when this
+                # cycle was admitted, retain the historical behaviour and start
+                # the next interval from the actual admission time.
+                cadence_anchor = max(
+                    target_capture,
+                    started,
+                )
+                next_capture = cadence_anchor + timedelta(
+                    seconds=window.interval_s
+                )
             else:
                 # Continuous means no deliberate delay after a real capture:
                 # when camera work already consumed >= 1 s, self.now() wins.
