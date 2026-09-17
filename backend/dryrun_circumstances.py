@@ -78,6 +78,24 @@ def generate_debug_now(now_utc: datetime) -> dict[str, Any]:
         "_type": "Total",
         "_type_global": "Total",
         "title": "DEBUG scenario",
+
+        # Synthetic but complete atmospheric context.
+        #
+        # DEBUG is a functional scenario, not an astronomical prediction.
+        # Keep the Sun below the 30-degree atmospheric-compensation threshold
+        # so an enabled Exposure Optimization actually exercises that path.
+        "_circumstances_location": {
+            "latitude_deg": 0.0,
+            "longitude_deg": 0.0,
+            "altitude_m": 0.0,
+            "source": "debug_synthetic",
+        },
+        "C1_alt_deg": 20.0,
+        "C2_alt_deg": 18.0,
+        "TMAX_alt_deg": 17.0,
+        "C3_alt_deg": 16.0,
+        "C4_alt_deg": 14.0,
+
         "TSTART": hms(tstart), "C1": hms(c1), "C2": hms(c2),
         "TMAX": hms(tmax), "C3": hms(c3), "C4": hms(c4), "TEND": hms(tend),
     }
