@@ -112,6 +112,7 @@ def test_preview_payload_accepts_temporary_rig_override():
                 "iso_compensation_enabled": False,
                 "iso_max": 3200,
                 "atmos_enabled": True,
+                "atmos_replace_enabled": False,
             },
         },
     }
