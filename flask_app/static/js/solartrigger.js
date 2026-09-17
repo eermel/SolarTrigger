@@ -1781,6 +1781,19 @@ async function pollCameraCharacterization() {
     select.disabled = status.running;
     document.getElementById('camera-characterization-start').disabled = status.running || !select.options.length;
     document.getElementById('camera-characterization-cancel').disabled = !status.running;
+    const recharacterizationSelect =
+      document.getElementById('camera-recharacterization-select');
+    const recharacterizationButton =
+      document.getElementById('camera-recharacterization-start');
+    if (recharacterizationSelect) {
+      recharacterizationSelect.disabled = status.running;
+    }
+    if (recharacterizationButton) {
+      recharacterizationButton.disabled =
+        status.running ||
+        !recharacterizationSelect ||
+        !recharacterizationSelect.value;
+    }
     updateCameraAddLog('characterization', status.logs, status.result);
     cameraCharacterizationQuestion = status.question?.id || null;
     document.getElementById('camera-characterization-question').hidden = !status.question;
@@ -7846,8 +7859,85 @@ if (document.readyState === 'loading') {
 // CAMERA RE-CHARACTERIZATION / SYSTEM MAINTENANCE
 // ════════════════════════════════════════════════════════════════
 let solarTriggerUploadToken=null;
-async function refreshRecharacterizationCandidates(){let e=document.getElementById('camera-recharacterization-select');if(!e)return;try{let r=await fetch('/api/camera-characterization'),d=await r.json(),v=e.value;e.innerHTML='<option value="">— Characterized camera —</option>';(d.recharacterization_candidates||[]).forEach(c=>{let o=document.createElement('option');o.value=c.transport_locator||'';o.textContent=c.display_label||c.model||o.value;o.selected=o.value===v;e.appendChild(o)})}catch(_){}}
-async function startCameraRecharacterization(){let e=document.getElementById('camera-recharacterization-select'),locator=e&&e.value;if(!locator||!confirm('Re-characterize this camera?'))return;let r=await fetch('/api/camera-characterization/recharacterize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({locator})}),d=await r.json();flash(r.ok?'Camera re-characterization started':(d.error||'Error'),r.ok?'green':'red')}
+async function refreshRecharacterizationCandidates() {
+  const select = document.getElementById('camera-recharacterization-select');
+  const button = document.getElementById('camera-recharacterization-start');
+  if (!select) return;
+
+  try {
+    const response = await fetch('/api/camera-characterization');
+    const status = await response.json();
+    const previous = select.value;
+
+    select.innerHTML =
+      '<option value="">— Characterized camera —</option>';
+
+    (status.recharacterization_candidates || []).forEach(camera => {
+      const option = document.createElement('option');
+      option.value = camera.transport_locator || '';
+      option.textContent =
+        camera.display_label || camera.model || option.value;
+      option.selected = option.value === previous;
+      select.appendChild(option);
+    });
+
+    select.disabled = Boolean(status.running);
+    if (button) {
+      button.disabled = Boolean(status.running) || !select.value;
+    }
+  } catch (_) {}
+}
+
+async function startCameraRecharacterization() {
+  const select = document.getElementById('camera-recharacterization-select');
+  const button = document.getElementById('camera-recharacterization-start');
+  const locator = select && select.value;
+
+  if (
+    !locator ||
+    !confirm(
+      'Re-characterize this camera?\n\n' +
+      'A complete new characterization will run. ' +
+      'The current profile remains active unless the new run succeeds.'
+    )
+  ) return;
+
+  // Remove the stale completed result before starting the new job.
+  cameraAddLogState.characterization = [];
+  cameraAddLogState.characterizationOffset = 0;
+  cameraAddLogState.characterizationResult = '';
+  cameraAddLogState.clearedCharacterizationResult = '';
+  renderCameraAddLog();
+
+  if (select) select.disabled = true;
+  if (button) button.disabled = true;
+  await waitForBrowserPaint();
+
+  try {
+    const response = await fetch(
+      '/api/camera-characterization/recharacterize',
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({locator})
+      }
+    );
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(
+        data.error || `HTTP ${response.status}`
+      );
+    }
+
+    cameraCharacterizationWasRunning = true;
+    await pollCameraCharacterization();
+    flash('Camera re-characterization started', 'green');
+  } catch (error) {
+    if (select) select.disabled = false;
+    if (button) button.disabled = !locator;
+    flash(error.message || 'Re-characterization failed to start', 'red');
+  }
+}
 async function maintenancePost(u,b){let r=await fetch(u,{method:'POST',headers:b?{'Content-Type':'application/json'}:{},body:b?JSON.stringify(b):undefined}),d=await r.json();if(!r.ok)throw Error(d.error||`HTTP ${r.status}`);return d}
 async function loadMaintenanceStatus(){
   const button = document.getElementById('system-check-update');

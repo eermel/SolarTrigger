@@ -50,3 +50,42 @@ def test_confirmation_stale_id_rejected(api):
 def test_invalid_start_payload(api, value):
     client, _ = api
     assert client.post("/api/camera-characterization/start", json=value).status_code == 400
+
+
+def test_recharacterize_starts_full_job_in_replace_mode(api, monkeypatch):
+    client, job = api
+
+    entry = {
+        "manufacturer": "Test",
+        "model": "Camera",
+        "serial": "1234",
+        "transport_locator": "usb:001,002",
+        "present": True,
+        "pilotable": True,
+    }
+    monkeypatch.setattr(
+        routes,
+        "refresh_inventory",
+        lambda: {"camera": [entry]},
+    )
+
+    started = []
+
+    def fake_start(selected, **kwargs):
+        started.append((selected, kwargs))
+
+    monkeypatch.setattr(job, "start", fake_start)
+
+    response = client.post(
+        "/api/camera-characterization/recharacterize",
+        json={"locator": "usb:001,002"},
+    )
+
+    assert response.status_code == 202
+    assert response.get_json()["mode"] == "recharacterize"
+    assert started == [
+        (
+            entry,
+            {"replace_existing": True},
+        )
+    ]

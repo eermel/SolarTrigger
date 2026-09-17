@@ -64,7 +64,10 @@ def register_characterization_routes(app, trigger_snapshot):
             matches = [e for e in refresh_inventory()["camera"] if e.get("transport_locator") == payload["locator"] and e.get("present") and e.get("pilotable")]
             if len(matches) != 1:
                 return jsonify(error="Unknown or uncharacterized camera; refresh Devices"), 400
-            JOB.start(matches[0])
+            JOB.start(
+                matches[0],
+                replace_existing=True,
+            )
         return jsonify(status="started", mode="recharacterize"), 202
 
     @app.post("/api/camera-characterization/answer")

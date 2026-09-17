@@ -131,7 +131,7 @@
           </div>
         </div>
 
-        <div class="card"><div class="card-title">Re-characterize Camera</div><div style="display:flex;gap:12px"><select id="camera-recharacterization-select" class="config-file-select file-select-chevron" style="flex:1"><option value="">— Characterized camera —</option></select><button class="btn btn-primary" onclick="startCameraRecharacterization()">Re-characterize</button></div><p style="font-size:12px">Use after firmware changes. Existing profile remains active until success.</p></div>
+        <div class="card"><div class="card-title">Re-characterize Camera</div><div style="display:flex;gap:12px"><select id="camera-recharacterization-select" class="config-file-select file-select-chevron" style="flex:1"><option value="">— Characterized camera —</option></select><button class="btn btn-primary" id="camera-recharacterization-start" onclick="startCameraRecharacterization()">Re-characterize</button></div><p style="font-size:12px">Runs a complete new characterization. Existing profile remains active until the new profile is successfully published.</p></div>
 
         <div class="card">
           <div class="card-title">Camera Validation</div>

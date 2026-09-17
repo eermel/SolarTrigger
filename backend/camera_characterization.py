@@ -105,7 +105,7 @@ class CharacterizationJob:
             return deepcopy({"running": self.running, "job_id": self.job_id,
                              "logs": list(self.logs), "question": self.question, "result": self.result})
 
-    def start(self, entry, root=ROOT):
+    def start(self, entry, root=ROOT, *, replace_existing=False):
         with self.lock:
             if self.running:
                 raise RuntimeError("A characterization is already running")
@@ -113,9 +113,13 @@ class CharacterizationJob:
             self.question = self.result = None
             self.logs.clear()
             self.job_id = uuid.uuid4().hex
-            threading.Thread(target=self._run, args=(deepcopy(entry), Path(root)), daemon=True).start()
+            threading.Thread(
+                target=self._run,
+                args=(deepcopy(entry), Path(root), bool(replace_existing)),
+                daemon=True,
+            ).start()
 
-    def _run(self, entry, root):
+    def _run(self, entry, root, replace_existing=False):
         camera = None
         self.measurement_state = {}
         self.measurement_path = root / "configs/camera_characterization/measurements" / f"{self.job_id or uuid.uuid4().hex}.json"
@@ -133,8 +137,16 @@ class CharacterizationJob:
             self.check()
             summary.update(status="PARTIAL" if profile["warnings"] else "SUCCESS",
                            strategy=profile["strategy"], warnings=profile["warnings"])
-            summary["files"] = publish(profile, timing, root)
-            self.log(f"Profile installed: {profile['backend']} ({profile['strategy']})")
+            summary["files"] = publish(
+                profile,
+                timing,
+                root,
+                replace_existing=replace_existing,
+            )
+            self.log(
+                f"{'Profile replaced' if replace_existing else 'Profile installed'}: "
+                f"{profile['backend']} ({profile['strategy']})"
+            )
         except Exception as exc:
             summary["status"] = "FAILED"
             summary["files"] = []
@@ -246,8 +258,14 @@ def _persistent_timing_document(timing):
     }
 
 
-def publish(profile, timing, root):
-    """Publish lean runtime JSON atomically; never overwrite an existing model."""
+def publish(profile, timing, root, *, replace_existing=False):
+    """Publish lean runtime JSON safely.
+
+    Initial characterization remains create-only.
+    Re-characterization leaves the current profile/timing untouched during all
+    camera tests, then replaces the pair only after the new documents have been
+    completely generated and validated.
+    """
     stored_profile = _persistent_profile_document(profile)
     stored_timing = _persistent_timing_document(timing)
 
@@ -271,13 +289,24 @@ def publish(profile, timing, root):
         ),
     ]
 
-    if any(path.exists() for path, _ in files):
+    existing = [path.exists() for path, _ in files]
+    if any(existing) and not replace_existing:
         raise RuntimeError(
             "Characterization files already exist; no overwrite performed"
         )
+    if replace_existing and any(existing) and not all(existing):
+        raise RuntimeError(
+            "Existing characterization is incomplete; refusing replacement"
+        )
 
-    written = []
+    import os
+    import tempfile
+
+    prepared = []
+    backups = {}
+
     try:
+        # Build and validate both replacement files before touching active data.
         for path, document in files:
             path.parent.mkdir(parents=True, exist_ok=True)
             if (
@@ -287,9 +316,6 @@ def publish(profile, timing, root):
                 raise ValueError(
                     "Camera configuration directories must not be symlinks"
                 )
-
-            import os
-            import tempfile
 
             with tempfile.NamedTemporaryFile(
                 mode="w",
@@ -308,26 +334,56 @@ def publish(profile, timing, root):
                 handle.flush()
                 os.fsync(handle.fileno())
 
-            try:
-                if document.get("config_type") == "camera_timing":
-                    from backend.camera_timing import (
-                        load_camera_timing_profile,
-                    )
-                    load_camera_timing_profile(temp)
-                os.link(temp, path)
-                written.append(path)
-            finally:
-                temp.unlink(missing_ok=True)
+            if document.get("config_type") == "camera_timing":
+                from backend.camera_timing import load_camera_timing_profile
+                load_camera_timing_profile(temp)
+
+            prepared.append((path, temp))
+
+        if replace_existing:
+            for path, _temp in prepared:
+                backups[path] = path.read_bytes() if path.exists() else None
+
+        installed = []
+        try:
+            for path, temp in prepared:
+                if replace_existing:
+                    os.replace(temp, path)
+                else:
+                    os.link(temp, path)
+                    temp.unlink(missing_ok=True)
+                installed.append(path)
+        except Exception:
+            if replace_existing:
+                for path, _temp in prepared:
+                    previous = backups.get(path)
+                    if previous is None:
+                        path.unlink(missing_ok=True)
+                        continue
+                    with tempfile.NamedTemporaryFile(
+                        mode="wb",
+                        dir=path.parent,
+                        suffix=".rollback",
+                        delete=False,
+                    ) as handle:
+                        rollback = Path(handle.name)
+                        handle.write(previous)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.replace(rollback, path)
+            else:
+                for path in installed:
+                    path.unlink(missing_ok=True)
+            raise
 
         return [
             str(path.relative_to(root))
-            for path in written
+            for path, _temp in prepared
         ]
 
-    except Exception:
-        for path in written:
-            path.unlink(missing_ok=True)
-        raise
+    finally:
+        for _path, temp in prepared:
+            temp.unlink(missing_ok=True)
 
 
 def choose_common_bracket_command(candidates, excluded, sizes):
