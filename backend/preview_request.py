@@ -140,7 +140,7 @@ def _rig_override(payload: dict[str, Any]) -> tuple[int | None, dict[str, Any] |
         "rig_override.photo must be an object",
     )
 
-    expected_photo_keys = {
+    required_photo_keys = {
         "anti_trailing_enabled",
         "motion_tolerance_px",
         "mechanical_vibration_enabled",
@@ -149,8 +149,10 @@ def _rig_override(payload: dict[str, Any]) -> tuple[int | None, dict[str, Any] |
         "iso_max",
         "atmos_enabled",
     }
+    allowed_photo_keys = required_photo_keys | {"atmos_replace_enabled"}
+    photo_keys = set(photo)
     _require(
-        set(photo) == expected_photo_keys,
+        required_photo_keys <= photo_keys <= allowed_photo_keys,
         "rig_override.photo contains invalid or missing fields",
     )
 
@@ -164,6 +166,12 @@ def _rig_override(payload: dict[str, Any]) -> tuple[int | None, dict[str, Any] |
             isinstance(photo.get(field), bool),
             f"rig_override.photo.{field} must be a boolean",
         )
+
+    atmos_replace_enabled = photo.get("atmos_replace_enabled", False)
+    _require(
+        isinstance(atmos_replace_enabled, bool),
+        "rig_override.photo.atmos_replace_enabled must be a boolean",
+    )
 
     tolerance = _positive_number(
         photo.get("motion_tolerance_px"),
@@ -200,6 +208,7 @@ def _rig_override(payload: dict[str, Any]) -> tuple[int | None, dict[str, Any] |
             "iso_compensation_enabled": photo["iso_compensation_enabled"],
             "iso_max": iso_max,
             "atmos_enabled": photo["atmos_enabled"],
+            "atmos_replace_enabled": atmos_replace_enabled,
         },
     }
 
