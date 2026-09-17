@@ -77,6 +77,21 @@ def _context(eclipse_ctx: Mapping[str, Any] | Callable[[], Mapping[str, Any]]) -
     return context
 
 
+def _inside_central_totality(target_time: Any, timeline: Mapping[str, Any]) -> bool:
+    """Return whether target_time is inside the central-eclipse C2..C3 interval.
+
+    Atmospheric exposure compensation is a partial-phase aid only.  During a
+    central eclipse it must be disabled from second contact through third
+    contact, including C2, maximum eclipse and C3 themselves.
+    """
+
+    c2 = timeline.get("C2")
+    c3 = timeline.get("C3")
+    if c2 is None or c3 is None:
+        return False
+    return c2 <= target_time <= c3
+
+
 def apply_atmos_if_enabled(
     rig_snapshot: Mapping[str, Any],
     plan: tuple[bool, str, str, float, list[str] | None],
@@ -87,13 +102,14 @@ def apply_atmos_if_enabled(
     bool,
     str | None,
 ]:
-    """Apply atmospheric compensation to every exposure in a regular bracket.
+    """Apply atmospheric compensation to eligible partial-phase exposures.
 
     With ``atmos_replace_enabled`` false, the original executable bracket is
     preserved and one compensated version of every exposure is appended.
     With it true, the executable bracket is replaced by the compensated
     exposures only. Atmospheric correction remains inactive at Sun altitudes
-    of 30 degrees or more.
+    of 30 degrees or more and is always disabled from C2 through C3 for a
+    central eclipse.
     """
 
     photo = rig_snapshot.get("photo")
@@ -129,6 +145,14 @@ def apply_atmos_if_enabled(
     try:
         atmospheric_timeline = dict(timeline)
         validate_atmospheric_timeline(atmospheric_timeline)
+
+        # Product invariant shared with the sequencer: no atmospheric
+        # compensation is allowed during central totality.  This test occurs
+        # before altitude interpolation/factor calculation so C2..C3 can never
+        # generate compensated exposures in Preview.
+        if _inside_central_totality(target_time, atmospheric_timeline):
+            return plan, False, None
+
         solar_altitude = interpolate_altitude(
             target_time,
             atmospheric_timeline,
