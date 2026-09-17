@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
-from backend.exposure_selection import DEFAULT_SUPPORTED_ISOS, parse_speed
+from backend.exposure_selection import parse_speed
 
 
 _ROOT_KEYS_LEGACY = {"intents"}
@@ -192,8 +192,8 @@ def _rig_override(payload: dict[str, Any]) -> tuple[int | None, dict[str, Any] |
         "rig_override.photo.iso_max must be an integer",
     )
     _require(
-        iso_max in DEFAULT_SUPPORTED_ISOS,
-        "rig_override.photo.iso_max must be a supported ISO",
+        iso_max > 0,
+        "rig_override.photo.iso_max must be a positive integer",
     )
 
     return rig_id, {

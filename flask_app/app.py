@@ -216,7 +216,10 @@ from backend.eclipse_engine import loader as eclipse_loader
 from backend.preview_context import load_eclipse_context
 from backend.atmo import interpolate_altitude
 from backend.camera_model_resolution import resolve_sensor_entry
-from backend.camera_profiles import exposure_ui_capabilities
+from backend.camera_profiles import (
+    exposure_planning_capabilities,
+    exposure_ui_capabilities,
+)
 from backend.sensor_db import load_sensor_db
 from backend.preview_materializer import (
     PreviewMaterializationError,
@@ -1091,6 +1094,27 @@ def api_rigs_preview():
     for rig in rigs:
         items = []
         rig_metadata = _preview_rig_metadata(rig)
+
+        devices = rig.get("devices")
+        camera = (
+            devices.get("camera")
+            if isinstance(devices, dict)
+            else None
+        )
+        camera_backend = (
+            camera.get("backend")
+            if isinstance(camera, dict)
+            else None
+        )
+        planning_capabilities = exposure_planning_capabilities(
+            camera_backend
+        )
+        supported_shutters = (
+            planning_capabilities.get("shutter_values") or None
+        )
+        supported_isos = (
+            planning_capabilities.get("iso_values") or None
+        )
         atmospheric_summary = _preview_atmospheric_summary(
             rig,
             materializer_context,
@@ -1113,9 +1137,23 @@ def api_rigs_preview():
                     original_plan,
                 )
 
-                plan, atmos_applied, theoretical_slowest = apply_atmos_if_enabled(
-                    rig, plan, intent["target_time"], materializer_context
-                )
+                if intent["phase"] == "partial":
+                    (
+                        plan,
+                        atmos_applied,
+                        theoretical_slowest,
+                    ) = apply_atmos_if_enabled(
+                        rig,
+                        plan,
+                        intent["target_time"],
+                        materializer_context,
+                    )
+                else:
+                    # Same product invariant as the Sequencer:
+                    # atmospheric attenuation is partial-phase only.
+                    plan = original_plan
+                    atmos_applied = False
+                    theoretical_slowest = None
 
                 atmos_shutters = expand_executable_shutters(
                     rig,
@@ -1183,6 +1221,8 @@ def api_rigs_preview():
                                     True,
                                 )
                             ),
+                            supported_shutters=supported_shutters,
+                            supported_isos=supported_isos,
                         )
 
                         plan = (

@@ -29,10 +29,12 @@ def test_atmos_is_per_rig_and_requires_complete_context(monkeypatch):
         {"photo": {"atmos_enabled": False}}, plan, target, {}
     ) == (plan, False, None)
 
+    partial_target = target - timedelta(hours=1, minutes=30)
+
     updated, added, theoretical = materializer.apply_atmos_if_enabled(
         {"photo": {"atmos_enabled": True}},
         plan,
-        target,
+        partial_target,
         lambda: context,
     )
 
@@ -135,10 +137,12 @@ def test_atmos_adds_compensated_copy_of_every_exposure_without_iso_compensation(
         lambda _h, _alt: 8.0,
     )
 
+    partial_target = target - timedelta(hours=1, minutes=30)
+
     updated, applied, theoretical = materializer.apply_atmos_if_enabled(
         {"photo": {"atmos_enabled": True}},
         plan,
-        target,
+        partial_target,
         context,
     )
 

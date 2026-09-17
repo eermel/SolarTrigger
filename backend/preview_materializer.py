@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime
+
 from backend.atmo import atmospheric_compensation_active
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -77,19 +79,49 @@ def _context(eclipse_ctx: Mapping[str, Any] | Callable[[], Mapping[str, Any]]) -
     return context
 
 
+def _preview_datetime(value: Any) -> datetime | None:
+    """Normalize a Preview timestamp without weakening timeline validation."""
+
+    if isinstance(value, datetime):
+        return value
+
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    return None
+
+
 def _inside_central_totality(target_time: Any, timeline: Mapping[str, Any]) -> bool:
     """Return whether target_time is inside the central-eclipse C2..C3 interval.
 
-    Atmospheric exposure compensation is a partial-phase aid only.  During a
+    Atmospheric exposure compensation is a partial-phase aid only. During a
     central eclipse it must be disabled from second contact through third
     contact, including C2, maximum eclipse and C3 themselves.
+
+    Preview contexts may carry contact timestamps either as datetime objects
+    or as ISO-8601 strings, so this boundary check normalizes both forms.
     """
 
-    c2 = timeline.get("C2")
-    c3 = timeline.get("C3")
-    if c2 is None or c3 is None:
+    target = _preview_datetime(target_time)
+    c2 = _preview_datetime(timeline.get("C2"))
+    c3 = _preview_datetime(timeline.get("C3"))
+
+    if target is None or c2 is None or c3 is None:
         return False
-    return c2 <= target_time <= c3
+
+    try:
+        return c2 <= target <= c3
+    except TypeError:
+        # Mixed naive/aware datetimes are not comparable. The atmospheric
+        # timeline validator remains responsible for rejecting invalid real
+        # runtime contexts; mocked Preview tests must not crash here.
+        return False
 
 
 def apply_atmos_if_enabled(

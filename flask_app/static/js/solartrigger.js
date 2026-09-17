@@ -4903,6 +4903,14 @@ function renderExposureOptPreviewLog(
       return;
     }
 
+    if (item.phase !== 'partial') {
+      _exposureOptAddLine(
+        'Not applicable during Diamond Ring / Totality',
+        {indent:2, dim:true}
+      );
+      return;
+    }
+
     const added =
       Array.isArray(item.atmos_added_lines)
         ? item.atmos_added_lines

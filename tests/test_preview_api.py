@@ -354,3 +354,65 @@ def test_preview_rig_override_is_ephemeral(preview_api):
     assert after["rigs"][0]["optics"] == {
         "focal_length_mm": None,
     }
+
+
+def test_preview_atmos_is_partial_phase_only_20260917(
+    preview_api,
+    monkeypatch,
+):
+    client = preview_api(atmos_enabled=True)
+    calls = []
+
+    def fake_apply(rig, plan, target_time, context):
+        calls.append(target_time)
+        return plan, True, None
+
+    monkeypatch.setattr(
+        flask_module,
+        "apply_atmos_if_enabled",
+        fake_apply,
+    )
+
+    response = client.post(
+        "/api/rigs/preview",
+        json={
+            "intents": [
+                _regular_intent(
+                    phase="partial",
+                    request_id="partial",
+                    target_time="2026-08-12T16:30:00Z",
+                ),
+                _regular_intent(
+                    phase="diamond_ring",
+                    request_id="diamond",
+                    target_time="2026-08-12T17:00:00Z",
+                ),
+                _regular_intent(
+                    phase="totality",
+                    request_id="totality",
+                    target_time="2026-08-12T17:01:00Z",
+                ),
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+
+    # Preview intentionally materializes every configured RIG, including the
+    # trigger-disabled fixture RIG. Atmospheric compensation may therefore be
+    # invoked once per RIG, but only for the partial-phase intent.
+    assert len(calls) == len(payload["rigs"])
+    assert calls
+    assert all(
+        target.isoformat() == "2026-08-12T16:30:00"
+        for target in calls
+    )
+
+    for rig in payload["rigs"]:
+        items = rig["items"]
+        assert items[0]["atmos_applied"] is True
+        assert items[1]["atmos_applied"] is False
+        assert items[2]["atmos_applied"] is False
+        assert items[1]["atmos_added_lines"] == []
+        assert items[2]["atmos_added_lines"] == []

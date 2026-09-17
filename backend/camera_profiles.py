@@ -211,6 +211,70 @@ def one_ev_iso_values(profile, *, max_iso=25600):
     return result
 
 
+
+def exposure_planning_capabilities(backend, directory=None):
+    # Return full characterized exposure grids without touching hardware.
+    # These values are the planning authority for profile-backed cameras.
+    # iso_values contains every characterized positive integer ISO, while
+    # shutter_values contains every characterized parseable shutter value.
+
+    from backend.exposure_selection import parse_speed
+
+    key = str(backend or "").strip()
+    profiles = (
+        discover_profiles()
+        if directory is None
+        else discover_profiles(directory)
+    )
+    profile = profiles.get(key)
+    if profile is None:
+        return {
+            "strategy": None,
+            "iso_values": [],
+            "shutter_values": [],
+        }
+
+    commands = profile.get("commands", {})
+    if not isinstance(commands, dict):
+        commands = {}
+
+    iso_spec = commands.get("iso", {})
+    raw_isos = iso_spec.get("values", {}) if isinstance(iso_spec, dict) else {}
+    iso_values = []
+    if isinstance(raw_isos, dict):
+        for raw in raw_isos:
+            try:
+                value = int(str(raw).strip())
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                iso_values.append(value)
+    iso_values = sorted(set(iso_values))
+
+    shutter_spec = commands.get("shutter", {})
+    raw_shutters = (
+        shutter_spec.get("values", {})
+        if isinstance(shutter_spec, dict)
+        else {}
+    )
+    shutter_values = []
+    if isinstance(raw_shutters, dict):
+        for raw in raw_shutters:
+            value = str(raw).strip()
+            try:
+                parse_speed(value)
+            except (ArithmeticError, TypeError, ValueError):
+                continue
+            if value not in shutter_values:
+                shutter_values.append(value)
+
+    return {
+        "strategy": profile.get("strategy"),
+        "iso_values": iso_values,
+        "shutter_values": shutter_values,
+    }
+
+
 def exposure_ui_capabilities(backend, directory=None):
     """Return planning-relevant camera capabilities without touching hardware."""
     key = str(backend or "").strip()

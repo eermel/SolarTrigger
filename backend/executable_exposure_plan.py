@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from backend import sony_exposure_planner
+from backend.camera_profiles import exposure_planning_capabilities
 from backend.exposure_selection import (
     DEFAULT_SUPPORTED_SHUTTERS,
     parse_speed,
@@ -29,6 +30,8 @@ def _generic_regular_shutters(
     fastest: str,
     slowest: str,
     step_ev: float,
+    *,
+    supported_shutters: list[str] | None = None,
 ) -> list[str]:
     """Expand a generic EV range on the shared photographic shutter grid."""
 
@@ -45,10 +48,17 @@ def _generic_regular_shutters(
     count = round((ev_slow - ev_fast) / step_ev) + 1
     count = max(1, count)
 
+    grid = (
+        DEFAULT_SUPPORTED_SHUTTERS
+        if supported_shutters is None
+        else supported_shutters
+    )
     supported = [
-        (str(speed), parse_speed(speed))
-        for speed in DEFAULT_SUPPORTED_SHUTTERS
+        (str(speed), parse_speed(str(speed)))
+        for speed in grid
     ]
+    if not supported:
+        raise ValueError("supported shutter list must not be empty")
 
     result: list[str] = []
     previous = None
@@ -79,6 +89,17 @@ def expand_executable_shutters(
         return [str(speed) for speed in speeds]
 
     backend = _camera_backend(rig_snapshot)
+
+    profile_capabilities = exposure_planning_capabilities(backend)
+    profile_shutters = profile_capabilities.get("shutter_values") or []
+
+    if regular and profile_shutters:
+        return _generic_regular_shutters(
+            fastest,
+            slowest,
+            float(step),
+            supported_shutters=profile_shutters,
+        )
 
     if backend in {"nikon-dslr", "nikon-z"}:
         return nikon_speeds_between(
@@ -128,7 +149,15 @@ def nearest_executable_shutter(
 
     backend = _camera_backend(rig_snapshot)
 
-    if backend == "sony":
+    profile_capabilities = exposure_planning_capabilities(backend)
+    profile_shutters = profile_capabilities.get("shutter_values") or []
+
+    if profile_shutters:
+        supported = [
+            (str(speed), parse_speed(str(speed)))
+            for speed in profile_shutters
+        ]
+    elif backend == "sony":
         supported = sony_exposure_planner.SONY_SPEEDS
     elif backend in {"nikon", "nikon-dslr", "nikon-z"}:
         supported = NIKON_SPEEDS

@@ -300,6 +300,7 @@ __all__ = [
 
 from copy import deepcopy
 
+from backend.camera_profiles import exposure_planning_capabilities
 from backend.preview_materializer import (
     apply_atmos_if_enabled,
     expand_executable_shutters,
@@ -508,6 +509,13 @@ def materialize_capture_target_for_rig(
         raise ValueError("rig_id must be an integer")
 
     backend = _camera_backend(rig)
+    planning_capabilities = exposure_planning_capabilities(backend)
+    supported_shutters = (
+        planning_capabilities.get("shutter_values") or None
+    )
+    supported_isos = (
+        planning_capabilities.get("iso_values") or None
+    )
 
     (
         mechanical_vibration_enabled,
@@ -680,6 +688,8 @@ def materialize_capture_target_for_rig(
                         True,
                     )
                 ),
+                supported_shutters=supported_shutters,
+                supported_isos=supported_isos,
             )
 
             exposure_plan = []

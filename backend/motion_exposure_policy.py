@@ -121,6 +121,8 @@ def materialize_exposure_plan(
     iso_max: int,
     t_max: float,
     iso_compensation_enabled: bool = True,
+    supported_shutters: list[str] | None = None,
+    supported_isos: list[int] | None = None,
 ) -> dict:
     """Apply one motion ceiling without ever lengthening the exposure plan.
 
@@ -155,6 +157,22 @@ def materialize_exposure_plan(
             "iso_compensation_enabled must be a boolean"
         )
 
+    camera_shutters = (
+        list(DEFAULT_SUPPORTED_SHUTTERS)
+        if supported_shutters is None
+        else [str(value) for value in supported_shutters]
+    )
+    camera_isos = (
+        list(DEFAULT_SUPPORTED_ISOS)
+        if supported_isos is None
+        else list(supported_isos)
+    )
+
+    if not camera_shutters:
+        raise ValueError("supported shutter list must not be empty")
+    if not camera_isos:
+        raise ValueError("supported ISO list must not be empty")
+
     def materialize_one(speed: str) -> dict:
         requested_seconds = parse_speed(speed)
 
@@ -172,8 +190,8 @@ def materialize_exposure_plan(
             t_requested=speed,
             iso_requested=iso_requested,
             t_max=str(ceiling),
-            supported_shutters=DEFAULT_SUPPORTED_SHUTTERS,
-            supported_isos=DEFAULT_SUPPORTED_ISOS,
+            supported_shutters=camera_shutters,
+            supported_isos=camera_isos,
             iso_max=iso_max,
             iso_compensation_enabled=iso_compensation_enabled,
         )
@@ -194,7 +212,7 @@ def materialize_exposure_plan(
 
         supported = [
             (str(speed), parse_speed(speed))
-            for speed in DEFAULT_SUPPORTED_SHUTTERS
+            for speed in camera_shutters
         ]
 
         result: list[str] = []
@@ -278,7 +296,7 @@ def materialize_exposure_plan(
         else:
             applied_slowest = select_supported_shutter_at_or_below(
                 ceiling,
-                DEFAULT_SUPPORTED_SHUTTERS,
+                camera_shutters,
             )
 
         output = {
