@@ -177,16 +177,30 @@ def _camera_process_main(
 
             except BaseException as exc:
                 fatal = not isinstance(exc, Exception)
-                _safe_send(
-                    conn,
-                    {
-                        "kind": "error",
-                        "class": type(exc).__name__,
-                        "code": getattr(exc, "code", None),
-                        "message": str(exc),
-                        "fatal": fatal,
-                    },
-                )
+                error_payload = {
+                    "kind": "error",
+                    "class": type(exc).__name__,
+                    "code": getattr(exc, "code", None),
+                    "message": str(exc),
+                    "fatal": fatal,
+                }
+
+                observed_frames = getattr(exc, "observed_frames", None)
+                expected_frames = getattr(exc, "expected_frames", None)
+
+                if (
+                    isinstance(observed_frames, int)
+                    and not isinstance(observed_frames, bool)
+                ):
+                    error_payload["observed_frames"] = observed_frames
+
+                if (
+                    isinstance(expected_frames, int)
+                    and not isinstance(expected_frames, bool)
+                ):
+                    error_payload["expected_frames"] = expected_frames
+
+                _safe_send(conn, error_payload)
                 # Fatal/control-flow BaseException subclasses mean the child
                 # generation is no longer trustworthy.  Do not keep serving
                 # commands after reporting the failure to the parent.

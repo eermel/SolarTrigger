@@ -115,9 +115,17 @@ class CameraService:
     def _open_camera_by_serial(self, gp, serial):
         """Open exactly the physical camera matching the configured identity.
 
-        USB/sysfs serial is the canonical identity.  Protocol serial matching
-        remains as a compatibility fallback for configurations persisted by
-        older releases.
+        USB/sysfs serial is authoritative whenever available.
+
+        Critical multi-camera rule:
+        never initialize a camera carrying a *different* known USB serial merely
+        to probe its legacy PTP/protocol serial. Doing so can steal/libusb-claim
+        another RIG's body while both workers start concurrently.
+
+        Legacy protocol-serial probing remains available:
+        - for devices whose USB serial cannot be determined;
+        - for a single-camera setup, where probing cannot interfere with another
+          configured camera.
         """
         expected = str(serial).strip()
         if not expected:
@@ -133,29 +141,45 @@ class CameraService:
         port_list = gp.PortInfoList()
         port_list.load()
 
+        candidates = []
+
+        # First pass is USB/sysfs-only. It must not camera.init() any body.
         for _model, port in detected:
             usb_serial = str(
                 (_usb_identity(port).get("serial") or "")
             ).strip()
 
-            # Canonical path: identify the physical USB device without
-            # touching any other camera.
-            if usb_serial == expected:
-                camera = gp.Camera()
-                try:
-                    camera.set_port_info(
-                        port_list[port_list.lookup_path(port)]
-                    )
-                    camera.init()
-                    return camera
-                except Exception:
-                    try:
-                        camera.exit()
-                    except Exception:
-                        pass
-                    raise
+            candidates.append((port, usb_serial))
 
-            # Compatibility path for old persisted PTP/protocol serials.
+            if usb_serial != expected:
+                continue
+
+            camera = gp.Camera()
+            try:
+                camera.set_port_info(
+                    port_list[port_list.lookup_path(port)]
+                )
+                camera.init()
+                return camera
+            except Exception:
+                try:
+                    camera.exit()
+                except Exception:
+                    pass
+                raise
+
+        # Compatibility fallback for configurations created before the USB
+        # serial became canonical.
+        #
+        # In a multi-camera setup, NEVER open a camera which advertises a known
+        # different USB serial. It belongs to another physical identity and
+        # probing it here can race that RIG's worker.
+        single_camera = len(candidates) == 1
+
+        for port, usb_serial in candidates:
+            if usb_serial and not single_camera:
+                continue
+
             camera = gp.Camera()
             keep = False
             try:
@@ -163,6 +187,7 @@ class CameraService:
                     port_list[port_list.lookup_path(port)]
                 )
                 camera.init()
+
                 config = camera.get_config()
                 protocol_serial = self._config_value(
                     config,
@@ -170,6 +195,7 @@ class CameraService:
                     "serial",
                     "serial_number",
                 )
+
                 if protocol_serial == expected:
                     keep = True
                     return camera
