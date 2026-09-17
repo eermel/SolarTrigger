@@ -380,8 +380,19 @@ class ProfilePlugin(CameraPlugin):
             required["capturemode"] = self.commands["capture_mode"]["value"]
         if aperture is not None and "aperture" in self.commands:
             required["f-number"] = aperture
+
+        # image_format is a generic acquisition intent. Translate it to the
+        # exact physical RAW spelling characterized for this camera profile.
+        #
+        # Examples:
+        #   Sony ILCE-7M5 -> RAW
+        #   Nikon D850     -> NEF (Raw)
+        #
+        # Keep the semantic "image_format" key so preflight() uses the normal
+        # raw mapping while never sending the generic API spelling blindly.
         if image_format is not None and "raw" in self.commands:
-            required["image_format"] = image_format
+            required["image_format"] = self.commands["raw"]["value"]
+
         if white_balance is not None and "white_balance" in self.commands:
             required["white_balance"] = white_balance
         return self.preflight(required)

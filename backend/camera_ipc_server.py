@@ -606,18 +606,66 @@ class CameraIpcServer:
                 params, "image_format", "white_balance", nullable=False
             )
             rig_id, worker = self._worker(params, allowed=allowed)
-            plugin = worker.connect()
-            self._call_worker(
-                worker.init_settings,
-                aperture=params.get("aperture"),
-                iso=params.get("iso"),
-                image_format=params.get("image_format", "RAW"),
-                white_balance=params.get("white_balance", "Daylight"),
+
+            # Do not call worker.connect() here.
+            #
+            # The production worker is a ProcessCameraWorker. CameraService.connect()
+            # returns the live plugin instance, which owns the gphoto2 camera object
+            # and must never cross the multiprocessing boundary.
+            #
+            # CameraWorker.init_settings(..., recover_connection=True) already
+            # establishes/re-establishes the camera connection inside the child.
+            try:
+                result = self._call_worker(
+                    worker.init_settings,
+                    aperture=params.get("aperture"),
+                    iso=params.get("iso"),
+                    image_format=params.get("image_format", "RAW"),
+                    white_balance=params.get("white_balance", "Daylight"),
+                )
+            except IpcError:
+                raise
+            except Exception as exc:
+                # Initialization errors are operator-actionable. Preserve the
+                # child-side diagnostic instead of collapsing everything into the
+                # generic INTERNAL_ERROR produced by _serve_connection().
+                raise IpcError(
+                    "CAMERA_INIT_FAILED",
+                    str(exc) or "camera initialization failed",
+                ) from exc
+
+            plugin_name = None
+            policy_getter = getattr(
+                self._runtime,
+                "get_policy_config_for_rig",
+                None,
             )
+            if callable(policy_getter):
+                try:
+                    policy = policy_getter(rig_id)
+                    devices = (
+                        policy.get("devices")
+                        if isinstance(policy, dict)
+                        else None
+                    )
+                    camera_cfg = (
+                        devices.get("camera")
+                        if isinstance(devices, dict)
+                        else None
+                    )
+                    if isinstance(camera_cfg, dict):
+                        value = camera_cfg.get("backend")
+                        if isinstance(value, str) and value:
+                            plugin_name = value
+                except Exception:
+                    # plugin_name is diagnostic metadata only.
+                    pass
+
             return {
                 "rig_id": rig_id,
                 "initialized": True,
-                "plugin_name": getattr(plugin, "name", None),
+                "plugin_name": plugin_name,
+                "details": result,
             }
         if operation == "apply_phase_settings":
             self._optional_strings(params, "aperture", "iso")
