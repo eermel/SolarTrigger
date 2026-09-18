@@ -1,20 +1,6 @@
 import inspect
-import sys
-from types import SimpleNamespace
-
-import pytest
 
 from backend.camera_characterization import characterize
-
-
-def _install_fake_gphoto2(monkeypatch):
-    gp = SimpleNamespace(
-        GP_STORAGEINFO_FREESPACEIMAGES=1,
-        GP_STORAGEINFO_FREESPACEKBYTES=2,
-        GP_STORAGEINFO_MAXCAPACITY=4,
-    )
-    monkeypatch.setitem(sys.modules, "gphoto2", gp)
-    return gp
 
 
 def test_characterization_cold_starts_every_capture_candidate():
@@ -47,109 +33,14 @@ def test_characterization_promotes_optional_shutter_mode_to_direct_set():
     assert "direct shutter-mode target readback mismatch" in source
 
 
-def test_storage_guard_rejects_known_full_card(monkeypatch):
-    gp = _install_fake_gphoto2(monkeypatch)
-    from backend.camera_characterization import (
-        CameraStorageCapacityError,
-        _ensure_camera_storage,
-    )
-
-    storage = SimpleNamespace(
-        fields=(
-            gp.GP_STORAGEINFO_FREESPACEIMAGES
-            | gp.GP_STORAGEINFO_FREESPACEKBYTES
-            | gp.GP_STORAGEINFO_MAXCAPACITY
-        ),
-        basedir="/store_00010001",
-        label="CARD",
-        freeimages=0,
-        freekbytes=0,
-        capacitykbytes=1000000,
-    )
-    camera = SimpleNamespace(get_storageinfo=lambda: [storage])
-
-    with pytest.raises(CameraStorageCapacityError, match="capacity|full"):
-        _ensure_camera_storage(camera, 1, "unit test")
-
-
-def test_storage_guard_accepts_reported_capacity(monkeypatch):
-    gp = _install_fake_gphoto2(monkeypatch)
-    from backend.camera_characterization import _ensure_camera_storage
-
-    storage = SimpleNamespace(
-        fields=(
-            gp.GP_STORAGEINFO_FREESPACEIMAGES
-            | gp.GP_STORAGEINFO_FREESPACEKBYTES
-        ),
-        basedir="/store_00010001",
-        label="CARD",
-        freeimages=42,
-        freekbytes=123456,
-        capacitykbytes=0,
-    )
-    camera = SimpleNamespace(get_storageinfo=lambda: [storage])
-    result = _ensure_camera_storage(camera, 40, "unit test")
-    assert result["stores"][0]["free_images"] == 42
-
-
-def test_storage_guard_does_not_reject_unused_empty_second_slot(monkeypatch):
-    gp = _install_fake_gphoto2(monkeypatch)
-    from backend.camera_characterization import _ensure_camera_storage
-
-    def store(index, freeimages):
-        return SimpleNamespace(
-            fields=gp.GP_STORAGEINFO_FREESPACEIMAGES,
-            basedir=f"/store_{index}",
-            label=f"CARD{index}",
-            freeimages=freeimages,
-            freekbytes=0,
-            capacitykbytes=0,
-        )
-
-    camera = SimpleNamespace(
-        get_storageinfo=lambda: [store(1, 0), store(2, 100)]
-    )
-    result = _ensure_camera_storage(camera, 20, "dual-slot unit test")
-    assert max(item["free_images"] for item in result["stores"]) == 100
-
-
-def test_storage_failure_is_not_scored_as_trigger_failure():
+def test_capture_count_mismatch_is_rejected_without_operator_confirmation():
     source = inspect.getsource(characterize)
-    assert "CameraStorageCapacityError" in source
-    assert "single-trigger characterization matrix" in source
-    assert "native bracket {frames}-frame characterization matrix" in source
-    assert "incomplete capture confirmation" in source
+    assert "operator_photos" not in source
+    assert "Operator physical-card check" not in source
+    assert "_ensure_camera_storage" not in source
+    assert "CameraStorageCapacityError" not in source
+    assert "AUTO REJECT: USB confirmed" in source
 
-
-
-
-def test_unknown_storage_operator_confirmation_aborts_globally():
-    from backend.camera_characterization import (
-        CameraStorageCapacityError,
-        _raise_if_operator_reports_unknown_storage_problem,
-    )
-
-    answers = []
-
-    class Job:
-        def ask(self, message, kind="result"):
-            answers.append((kind, message))
-            return True
-
-    snapshot = {
-        "supported": False,
-        "stores": [],
-        "error": "[-1] Unspecified error",
-    }
-
-    with pytest.raises(CameraStorageCapacityError, match="reported by operator"):
-        _raise_if_operator_reports_unknown_storage_problem(
-            snapshot, Job(), "unit test"
-        )
-
-    assert answers
-    assert "full" in answers[0][1].casefold()
-    assert "write-protected" in answers[0][1].casefold()
 
 def test_readonly_fresh_session_preflight_is_operator_assisted():
     source = inspect.getsource(characterize)

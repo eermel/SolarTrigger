@@ -490,14 +490,11 @@ def test_bracket_failure_prunes_primitive_from_larger_sizes_and_matrix_stays_sor
     camera.trigger_capture = trigger_capture
     camera.capture = capture
 
-    prompts = []
-
     def ask(self, message, kind="result"):
-        prompts.append((kind, message))
-        # The simulated bracket-3 trigger failure has no automatic file proof,
-        # so a physical-card question is legitimate. There must be no GO prompt.
-        assert kind != "start"
-        return True
+        raise AssertionError(
+            "Automatic capture failure must not request operator confirmation: "
+            f"kind={kind!r} message={message!r}"
+        )
 
     monkeypatch.setattr(CharacterizationJob, "ask", ask)
 
@@ -581,7 +578,6 @@ def test_bracket_failure_prunes_primitive_from_larger_sizes_and_matrix_stays_sor
         "selected_candidate_ids_by_frames"
     ]
     assert selected["3"] == selected["5"]
-    assert prompts
 
 
 def test_single_capture_failure_does_not_suppress_bracket_capture(

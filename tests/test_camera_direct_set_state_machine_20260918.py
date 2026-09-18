@@ -142,7 +142,8 @@ def test_direct_preflight_set_failure_is_not_reported_as_physical_action(monkeyp
     plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=data)
 
     reads = iter(["Bracket 3", "Bracket 3"])
-    monkeypatch.setattr(plugin, "_read", lambda _key: next(reads))
+    monkeypatch.setattr(plugin, "_preflight_read", lambda _key: next(reads))
+    monkeypatch.setattr(plugin, "_prime_single_spec", lambda _spec: None)
 
     def fail_direct_set(_spec, _target):
         raise RuntimeError("[-2] Bad parameters")
@@ -157,6 +158,33 @@ def test_direct_preflight_set_failure_is_not_reported_as_physical_action(monkeyp
     assert "single-shot release mode" not in str(error.value)
 
 
+def test_direct_preflight_uses_authoritative_full_readback_after_set(monkeypatch):
+    data = profile("bracket")
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=data)
+
+    reads = iter(["Bracket 3", "Single Shot"])
+    monkeypatch.setattr(plugin, "_preflight_read", lambda _key: next(reads))
+    monkeypatch.setattr(plugin, "_prime_single_spec", lambda _spec: None)
+
+    calls = []
+    monkeypatch.setattr(
+        plugin,
+        "_direct_set_spec",
+        lambda _spec, target: calls.append(target),
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_read",
+        lambda _key: (_ for _ in ()).throw(
+            AssertionError("preflight must use authoritative full GET")
+        ),
+    )
+
+    assert plugin._ensure("capture_mode") is True
+    assert calls == ["Single Shot"]
+    assert plugin._known_settings["capture_mode"] == "Single Shot"
+
+
 def test_get_only_preflight_mismatch_is_explicitly_physical(monkeypatch):
     data = profile("bracket")
     data["commands"]["capture_mode"].update({
@@ -165,7 +193,7 @@ def test_get_only_preflight_mismatch_is_explicitly_physical(monkeypatch):
         "set": False,
     })
     plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=data)
-    monkeypatch.setattr(plugin, "_read", lambda _key: "Bracket 3")
+    monkeypatch.setattr(plugin, "_preflight_read", lambda _key: "Bracket 3")
 
     with pytest.raises(CameraPhysicalPreflightError, match="single-shot release mode"):
         plugin._ensure("capture_mode")

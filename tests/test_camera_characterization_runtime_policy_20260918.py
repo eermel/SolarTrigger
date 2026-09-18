@@ -58,11 +58,11 @@ def test_capture_validation_does_not_prompt_when_files_are_exact_but_command_fai
     )
 
 
-def test_capture_validation_requests_human_evidence_only_when_usb_count_is_incomplete():
-    assert characterization._capture_validation_state(5, 4, None) == "ambiguous"
+def test_capture_validation_rejects_incomplete_usb_count_automatically():
+    assert characterization._capture_validation_state(5, 4, None) == "incomplete"
     assert (
         characterization._capture_validation_state(5, 0, RuntimeError("USB"))
-        == "ambiguous"
+        == "incomplete"
     )
 
 
@@ -148,6 +148,9 @@ def test_operational_qualification_prompts_only_for_physical_preflight():
     source = inspect.getsource(characterization.qualify_operational_contract_v3)
     assert "except CameraPhysicalPreflightError as exc:" in source
     assert "except CameraPreflightError as exc:" not in source
+    assert "physically saved on the card" not in source
+    assert "Operator physical-card check" not in source
+    assert "_ensure_camera_storage" not in source
 
 def test_final_operational_qualification_starts_without_global_go_prompt():
     source = inspect.getsource(characterization.qualify_operational_contract_v3)

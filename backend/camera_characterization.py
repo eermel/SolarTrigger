@@ -428,18 +428,17 @@ def choose_common_bracket_command(candidates, excluded, sizes):
 
 
 def _capture_validation_state(expected, observed, error):
-    """Classify one capture without asking the operator unnecessarily.
+    """Classify one capture from automatic USB evidence only.
 
-    ``confirmed`` means the runtime criterion is proven automatically: exactly
-    the expected number of files arrived and the trigger path returned without
-    error.  ``runtime_error`` is also fully known automatically (the photos are
-    accounted for, but the USB command itself failed), so no human confirmation
-    can make that candidate reliable.  ``ambiguous`` is the only state where a
-    physical-card check can add information.
+    ``confirmed`` means exactly the expected number of FILE_ADDED events arrived
+    and the trigger path returned without error. ``runtime_error`` means all
+    expected files were accounted for but the command itself failed.
+    ``incomplete`` means the automatic count is wrong and the capture is rejected
+    without asking the operator.
     """
     if observed == expected:
         return "confirmed" if error is None else "runtime_error"
-    return "ambiguous"
+    return "incomplete"
 
 
 def _select_bracket_candidate(entries):
@@ -462,147 +461,6 @@ def _select_bracket_candidate(entries):
             entry["command_id"],
         ),
     )
-
-
-def _camera_storage_snapshot(camera):
-    """Return best-effort camera-card capacity evidence.
-
-    Storage information is optional in libgphoto2. Characterization uses it
-    when available, but never invents capacity when the camera/driver does not
-    expose it.
-    """
-    import gphoto2 as gp
-
-    getter = getattr(camera, "get_storageinfo", None)
-    if getter is None:
-        return {"supported": False, "stores": [], "error": "unavailable"}
-
-    try:
-        infos = list(getter())
-    except Exception as exc:
-        return {"supported": False, "stores": [], "error": str(exc)}
-
-    stores = []
-    free_images_flag = getattr(gp, "GP_STORAGEINFO_FREESPACEIMAGES", 0)
-    free_kb_flag = getattr(gp, "GP_STORAGEINFO_FREESPACEKBYTES", 0)
-    capacity_flag = getattr(gp, "GP_STORAGEINFO_MAXCAPACITY", 0)
-
-    for index, info in enumerate(infos):
-        fields = int(getattr(info, "fields", 0) or 0)
-        stores.append({
-            "index": index,
-            "basedir": str(getattr(info, "basedir", "") or ""),
-            "label": str(getattr(info, "label", "") or ""),
-            "free_images": (
-                int(getattr(info, "freeimages"))
-                if free_images_flag and fields & free_images_flag
-                else None
-            ),
-            "free_kbytes": (
-                int(getattr(info, "freekbytes"))
-                if free_kb_flag and fields & free_kb_flag
-                else None
-            ),
-            "capacity_kbytes": (
-                int(getattr(info, "capacitykbytes"))
-                if capacity_flag and fields & capacity_flag
-                else None
-            ),
-        })
-
-    return {"supported": bool(stores), "stores": stores, "error": None}
-
-
-class CameraStorageCapacityError(RuntimeError):
-    pass
-
-
-def _ensure_camera_storage(camera, required_images, phase, log_fn=None):
-    """Fail before capture when camera storage is known to be insufficient.
-
-    ``freeimages`` is preferred because RAW size varies by camera. When the
-    driver exposes only free kilobytes, zero free space still proves a full
-    card. With several reported stores and no reliable active-slot mapping, a
-    capacity failure is conclusive only when none of the stores can accept the
-    requested image count. This avoids treating an empty/unused second slot as
-    a full active card.
-    """
-    required = max(1, int(required_images))
-    snapshot = _camera_storage_snapshot(camera)
-    stores = snapshot["stores"]
-
-    if not snapshot["supported"]:
-        if log_fn:
-            log_fn(
-                f"STORAGE CHECK {phase}: capacity unavailable "
-                f"({snapshot.get('error') or 'not reported'})"
-            )
-        return snapshot
-
-    image_counts = [
-        store["free_images"]
-        for store in stores
-        if store["free_images"] is not None
-    ]
-    free_kbytes = [
-        store["free_kbytes"]
-        for store in stores
-        if store["free_kbytes"] is not None
-    ]
-
-    detail = ", ".join(
-        f"slot{store['index']}:free_images={store['free_images']} "
-        f"free_kB={store['free_kbytes']}"
-        for store in stores
-    )
-    if log_fn:
-        log_fn(
-            f"STORAGE CHECK {phase}: required_images>={required}; {detail}"
-        )
-
-    if image_counts and max(image_counts) < required:
-        raise CameraStorageCapacityError(
-            f"Insufficient camera-card capacity before {phase}: "
-            f"need at least {required} image(s); no reported store has enough "
-            f"space (best reported store has {max(image_counts)} free); {detail}"
-        )
-
-    if not image_counts and free_kbytes and max(free_kbytes) <= 0:
-        raise CameraStorageCapacityError(
-            f"Camera card is full before {phase}; {detail}"
-        )
-
-    if len(stores) > 1 and log_fn:
-        log_fn(
-            f"STORAGE CHECK {phase}: multiple stores reported; active slot is "
-            "not mapped reliably by gphoto2, so capacity is accepted when at "
-            "least one reported store can satisfy the request"
-        )
-
-    return snapshot
-
-
-def _raise_if_operator_reports_unknown_storage_problem(snapshot, job, phase):
-    """Abort globally when unreadable storage is confirmed as the real failure.
-
-    Some cameras return an error from get_storageinfo(). In that case an
-    incomplete capture must not be scored against a trigger when the real cause
-    is a full, absent or write-protected card.
-    """
-    if snapshot.get("supported"):
-        return False
-    problem = job.ask(
-        "Camera storage capacity cannot be read automatically. Is the memory "
-        "card full, write-protected, absent, or otherwise unable to save a new "
-        "RAW photo? Choose Yes only if storage caused this capture failure."
-    )
-    if problem:
-        raise CameraStorageCapacityError(
-            f"Camera storage problem reported by operator during {phase}; "
-            f"automatic capacity probe unavailable: "
-            f"{snapshot.get('error') or 'not reported'}"
-        )
-    return False
 
 
 def characterize(camera, entry, job):
@@ -1678,13 +1536,6 @@ def characterize(camera, entry, job):
         exposure_s=0.002,
     ):
         job.check()
-        _ensure_camera_storage(
-            camera,
-            expected,
-            f"capture probe {expected} frame(s) via {spec.get('method')}",
-            job.log,
-        )
-
         trial_key = (
             spec["method"],
             spec.get("path"),
@@ -1945,54 +1796,24 @@ def characterize(camera, entry, job):
             )
 
         else:
-            # Before blaming a trigger/USB path, prove that the card can still
-            # accept at least one image. A full card is a characterization
-            # environment failure, never evidence against the trigger.
-            storage_snapshot = _ensure_camera_storage(
-                camera,
-                1,
-                "incomplete capture confirmation",
-                job.log,
-            )
-
-            # Automatic evidence is incomplete.  Ask only now, so the operator
-            # can distinguish a physical capture from missing USB FILE_ADDED
-            # notifications.  Runtime selection still fails closed because the
-            # Trigger itself requires automatic file confirmation.
-            observed = job.ask(
-                "Automatic USB confirmation is incomplete. Wait until all "
-                f"shutter releases are complete. Exactly {expected} RAW "
-                f"photo(s) saved on the card? Files reported over USB: "
-                f"{len(seen)}/{expected}."
-            )
-            if not observed:
-                _raise_if_operator_reports_unknown_storage_problem(
-                    storage_snapshot,
-                    job,
-                    "incomplete capture confirmation",
-                )
+            # FILE_ADDED count is the production acceptance criterion. A wrong
+            # count is already conclusive; never ask the operator to override it.
             job.log(
-                "Operator physical-card check after incomplete USB evidence: "
-                f"{observed}. Candidate remains rejected for production "
-                "because automatic confirmation was incomplete."
+                f"AUTO REJECT: USB confirmed {len(seen)}/{expected} file(s); "
+                "capture count is incomplete"
             )
             if error is not None:
                 failure = RuntimeError(
                     f"USB method error with incomplete confirmation "
-                    f"({len(seen)}/{expected}); operator_photos={observed}: "
-                    f"{error}"
+                    f"({len(seen)}/{expected}): {error}"
                 )
             else:
                 failure = RuntimeError(
                     "Automatic capture confirmation incomplete: "
-                    f"USB confirmed {len(seen)}/{expected}; "
-                    f"operator_photos={observed}"
+                    f"USB confirmed {len(seen)}/{expected}"
                 )
-            # Preserve machine-observed evidence for diagnostics and higher-level
-            # characterization decisions.
             failure.observed_frames = len(seen)
             failure.expected_frames = expected
-            failure.operator_photos = observed
             raise failure
 
         job.log(
@@ -2049,18 +1870,6 @@ def characterize(camera, entry, job):
     )
     valid_single = []
     single_evidence = []
-
-    single_candidate_count = sum(
-        1
-        for spec in trigger_candidates
-        if spec.get("path", "").rsplit("/", 1)[-1] != "bulb"
-    )
-    _ensure_camera_storage(
-        camera,
-        max(1, single_candidate_count * 6),
-        "single-trigger characterization matrix",
-        job.log,
-    )
 
     for spec in trigger_candidates:
         if (
@@ -2128,7 +1937,6 @@ def characterize(camera, entry, job):
         except (
             Cancelled,
             CameraIdleTimeout,
-            CameraStorageCapacityError,
         ):
             raise
 
@@ -2221,15 +2029,15 @@ def characterize(camera, entry, job):
 
     # Qualify native bracket methods from smallest to largest. Once one trigger
     # primitive fails at a bracket size it is not retried for larger sizes.
-    # Global environment failures (storage/cancellation/camera idle) abort the
-    # characterization and never count as a primitive failure.
+    # Global cancellation/camera-idle failures abort the characterization and
+    # never count as a primitive failure.
     selected_bracket_items = {}
     bracket_rejections = {}
     selected_candidate_ids = {}
     bracket_overhead_samples_by_frames = {}
     # A bracket primitive that fails at one native size is not retested at
-    # larger sizes. Storage/cancellation/idle failures are raised globally and
-    # never enter this table, so only candidate-specific failures are inherited.
+    # larger sizes. Cancellation/idle failures are raised globally and never
+    # enter this table, so only candidate-specific failures are inherited.
     rejected_bracket_candidates = {}
 
     if mode:
@@ -2246,19 +2054,6 @@ def characterize(camera, entry, job):
             frame_evidence = []
             valid_frame_candidates = []
             bracket_rejections[size] = {}
-
-            active_candidate_count = sum(
-                1
-                for candidate in trigger_candidates
-                if json.dumps(candidate, sort_keys=True)
-                not in rejected_bracket_candidates
-            )
-            _ensure_camera_storage(
-                camera,
-                max(1, active_candidate_count * 6 * frames),
-                f"native bracket {frames}-frame characterization matrix",
-                job.log,
-            )
 
             for trigger_spec in trigger_candidates:
                 command_id = json.dumps(trigger_spec, sort_keys=True)
@@ -2372,7 +2167,6 @@ def characterize(camera, entry, job):
                 except (
                     Cancelled,
                     CameraIdleTimeout,
-                    CameraStorageCapacityError,
                 ):
                     raise
 
@@ -3087,12 +2881,6 @@ def qualify_operational_contract_v3(
 
     while True:
         job.check()
-        _ensure_camera_storage(
-            camera,
-            complete_attempt_photos,
-            "final operational qualification attempt",
-            job.log,
-        )
         attempt += 1
 
         job.log(
@@ -3243,42 +3031,11 @@ def qualify_operational_contract_v3(
                 )
 
                 begin = time.monotonic()
-                try:
-                    plugin.execute_photo(
-                        params,
-                        observation_timeout_s=observation_s,
-                        check=job.check,
-                    )
-                except Exception as exc:
-                    observed = getattr(exc, "observed_frames", None)
-                    expected_frames = getattr(
-                        exc, "expected_frames", frames
-                    )
-                    storage_snapshot = _ensure_camera_storage(
-                        camera,
-                        1,
-                        "runtime qualification capture failure",
-                        job.log,
-                    )
-                    if observed != expected_frames:
-                        physical = job.ask(
-                            "Operational qualification could not automatically "
-                            f"confirm {expected_frames} photo(s) "
-                            f"(USB reported {observed if observed is not None else 'unknown'}). "
-                            "Wait until the camera is idle. Exactly that many RAW "
-                            "photo(s) were physically saved on the card?"
-                        )
-                        if not physical:
-                            _raise_if_operator_reports_unknown_storage_problem(
-                                storage_snapshot,
-                                job,
-                                "runtime qualification capture failure",
-                            )
-                        job.log(
-                            "Operator physical-card check after runtime qualification "
-                            f"failure: {physical}; error={exc}"
-                        )
-                    raise
+                plugin.execute_photo(
+                    params,
+                    observation_timeout_s=observation_s,
+                    check=job.check,
+                )
                 elapsed_ms = (
                     time.monotonic() - begin
                 ) * 1000.0
@@ -3620,42 +3377,11 @@ def qualify_operational_contract_v3(
                 )
 
                 begin = time.monotonic()
-                try:
-                    cold_plugin.execute_photo(
-                        params,
-                        observation_timeout_s=observation_s,
-                        check=job.check,
-                    )
-                except Exception as exc:
-                    observed = getattr(exc, "observed_frames", None)
-                    expected_frames = getattr(
-                        exc, "expected_frames", cold_bracket_frames
-                    )
-                    storage_snapshot = _ensure_camera_storage(
-                        camera,
-                        1,
-                        "cold-bracket qualification capture failure",
-                        job.log,
-                    )
-                    if observed != expected_frames:
-                        physical = job.ask(
-                            "Cold-bracket qualification could not automatically "
-                            f"confirm {expected_frames} photo(s) "
-                            f"(USB reported {observed if observed is not None else 'unknown'}). "
-                            "Wait until the camera is idle. Exactly that many RAW "
-                            "photo(s) were physically saved on the card?"
-                        )
-                        if not physical:
-                            _raise_if_operator_reports_unknown_storage_problem(
-                                storage_snapshot,
-                                job,
-                                "cold-bracket qualification capture failure",
-                            )
-                        job.log(
-                            "Operator physical-card check after cold-bracket "
-                            f"failure: {physical}; error={exc}"
-                        )
-                    raise
+                cold_plugin.execute_photo(
+                    params,
+                    observation_timeout_s=observation_s,
+                    check=job.check,
+                )
                 elapsed_ms = (
                     time.monotonic() - begin
                 ) * 1000.0

@@ -227,6 +227,17 @@ class ProfilePlugin(CameraPlugin):
         _, node = widget(self.camera, spec["path"])
         return node.get_value()
 
+    def _preflight_read(self, key):
+        """Read authoritative camera state during preflight.
+
+        Preflight is outside timed execution, so a full get_config() is allowed.
+        This matches characterization evidence: some cameras can return a stale
+        get_single_config() value immediately after set_single_config().
+        """
+        spec = self.commands[key]
+        _, node = widget(self.camera, spec["path"])
+        return node.get_value()
+
     def _prime_single_spec(self, spec):
         if spec.get("writer") != "single_config":
             return
@@ -407,13 +418,11 @@ class ProfilePlugin(CameraPlugin):
         """Preflight GET first; SET only when the required value differs."""
         spec = self.commands[key]
         target = self._resolved_value(key, value)
-        actual = self._read(key)
+        actual = self._preflight_read(key)
         if str(actual) == str(target):
             self._known_settings[key] = target
             return False
 
-        # A non-controllable aperture is a valid manual lens/telescope.  Its
-        # f-number is informational and must never block camera initialization.
         if key == "aperture" and spec.get("set") is False:
             self._known_settings.pop(key, None)
             return False
@@ -424,8 +433,9 @@ class ProfilePlugin(CameraPlugin):
                     self._manual_instruction(key, target, actual)
                 )
             try:
+                self._prime_single_spec(spec)
                 self._direct_set_spec(spec, target)
-                verified = self._read(key)
+                verified = self._preflight_read(key)
                 if str(verified) != str(target):
                     raise RuntimeError(
                         f"readback mismatch: requested={target!r}, "
@@ -433,7 +443,7 @@ class ProfilePlugin(CameraPlugin):
                     )
             except Exception as exc:
                 try:
-                    actual = self._read(key)
+                    actual = self._preflight_read(key)
                 except Exception as read_exc:
                     raise CameraPreflightError(
                         f"Communication with {self._display_model()} failed "
@@ -464,7 +474,7 @@ class ProfilePlugin(CameraPlugin):
         except Exception as exc:
             self._writable_cache.discard(key)
             try:
-                actual = self._read(key)
+                actual = self._preflight_read(key)
             except Exception as read_exc:
                 raise CameraPreflightError(
                     f"Communication with {self._display_model()} failed "
