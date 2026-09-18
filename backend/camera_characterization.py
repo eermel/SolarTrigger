@@ -464,6 +464,124 @@ def _select_bracket_candidate(entries):
     )
 
 
+def _camera_storage_snapshot(camera):
+    """Return best-effort camera-card capacity evidence.
+
+    Storage information is optional in libgphoto2. Characterization uses it
+    when available, but never invents capacity when the camera/driver does not
+    expose it.
+    """
+    import gphoto2 as gp
+
+    getter = getattr(camera, "get_storageinfo", None)
+    if getter is None:
+        return {"supported": False, "stores": [], "error": "unavailable"}
+
+    try:
+        infos = list(getter())
+    except Exception as exc:
+        return {"supported": False, "stores": [], "error": str(exc)}
+
+    stores = []
+    free_images_flag = getattr(gp, "GP_STORAGEINFO_FREESPACEIMAGES", 0)
+    free_kb_flag = getattr(gp, "GP_STORAGEINFO_FREESPACEKBYTES", 0)
+    capacity_flag = getattr(gp, "GP_STORAGEINFO_MAXCAPACITY", 0)
+
+    for index, info in enumerate(infos):
+        fields = int(getattr(info, "fields", 0) or 0)
+        stores.append({
+            "index": index,
+            "basedir": str(getattr(info, "basedir", "") or ""),
+            "label": str(getattr(info, "label", "") or ""),
+            "free_images": (
+                int(getattr(info, "freeimages"))
+                if free_images_flag and fields & free_images_flag
+                else None
+            ),
+            "free_kbytes": (
+                int(getattr(info, "freekbytes"))
+                if free_kb_flag and fields & free_kb_flag
+                else None
+            ),
+            "capacity_kbytes": (
+                int(getattr(info, "capacitykbytes"))
+                if capacity_flag and fields & capacity_flag
+                else None
+            ),
+        })
+
+    return {"supported": bool(stores), "stores": stores, "error": None}
+
+
+class CameraStorageCapacityError(RuntimeError):
+    pass
+
+
+def _ensure_camera_storage(camera, required_images, phase, log_fn=None):
+    """Fail before capture when camera storage is known to be insufficient.
+
+    ``freeimages`` is preferred because RAW size varies by camera. When the
+    driver exposes only free kilobytes, zero free space still proves a full
+    card. With several reported stores and no reliable active-slot mapping, a
+    capacity failure is conclusive only when none of the stores can accept the
+    requested image count. This avoids treating an empty/unused second slot as
+    a full active card.
+    """
+    required = max(1, int(required_images))
+    snapshot = _camera_storage_snapshot(camera)
+    stores = snapshot["stores"]
+
+    if not snapshot["supported"]:
+        if log_fn:
+            log_fn(
+                f"STORAGE CHECK {phase}: capacity unavailable "
+                f"({snapshot.get('error') or 'not reported'})"
+            )
+        return snapshot
+
+    image_counts = [
+        store["free_images"]
+        for store in stores
+        if store["free_images"] is not None
+    ]
+    free_kbytes = [
+        store["free_kbytes"]
+        for store in stores
+        if store["free_kbytes"] is not None
+    ]
+
+    detail = ", ".join(
+        f"slot{store['index']}:free_images={store['free_images']} "
+        f"free_kB={store['free_kbytes']}"
+        for store in stores
+    )
+    if log_fn:
+        log_fn(
+            f"STORAGE CHECK {phase}: required_images>={required}; {detail}"
+        )
+
+    if image_counts and max(image_counts) < required:
+        raise CameraStorageCapacityError(
+            f"Insufficient camera-card capacity before {phase}: "
+            f"need at least {required} image(s); no reported store has enough "
+            f"space (best reported store has {max(image_counts)} free); {detail}"
+        )
+
+    if not image_counts and free_kbytes and max(free_kbytes) <= 0:
+        raise CameraStorageCapacityError(
+            f"Camera card is full before {phase}; {detail}"
+        )
+
+    if len(stores) > 1 and log_fn:
+        log_fn(
+            f"STORAGE CHECK {phase}: multiple stores reported; active slot is "
+            "not mapped reliably by gphoto2, so capacity is accepted when at "
+            "least one reported store can satisfy the request"
+        )
+
+    return snapshot
+
+
 def characterize(camera, entry, job):
     """Discover commands and build the simplified timing contract v3.
 
@@ -953,6 +1071,100 @@ def characterize(camera, entry, job):
             characterize_auxiliary_capabilities(camera, job)
         )
         commands.update(auxiliary_commands)
+
+        shutter_mode_spec = commands.get("shutter_mode")
+        if (
+            isinstance(shutter_mode_spec, dict)
+            and shutter_mode_spec.get("set") is True
+            and "value" in shutter_mode_spec
+        ):
+            shutter_item = next(
+                (
+                    item
+                    for item in enumerate_widgets(camera)
+                    if item["path"] == shutter_mode_spec.get("path")
+                ),
+                None,
+            )
+            if shutter_item is not None and not shutter_item["readonly"]:
+                direct_spec = {
+                    "path": shutter_item["path"],
+                    "name": shutter_item["config_name"],
+                    "writer": "single_config",
+                }
+                original = None
+                try:
+                    _, live_node = widget(camera, shutter_item["path"])
+                    original = live_node.get_value()
+                    target = shutter_mode_spec["value"]
+                    alternate = next(
+                        (
+                            value
+                            for value in shutter_item.get("choices", [])
+                            if str(value) != str(target)
+                        ),
+                        None,
+                    )
+                    if alternate is None and str(original) != str(target):
+                        alternate = original
+                    if alternate is None:
+                        raise RuntimeError(
+                            "no alternate shutter-mode value for direct transition proof"
+                        )
+
+                    direct_node = prime_single_config(camera, direct_spec)
+                    write_single_config(camera, direct_spec, direct_node, alternate)
+                    _, verify_node = widget(camera, shutter_item["path"])
+                    if str(verify_node.get_value()) != str(alternate):
+                        raise RuntimeError(
+                            "direct shutter-mode alternate readback mismatch"
+                        )
+
+                    write_single_config(camera, direct_spec, direct_node, target)
+                    _, verify_node = widget(camera, shutter_item["path"])
+                    if str(verify_node.get_value()) != str(target):
+                        raise RuntimeError(
+                            "direct shutter-mode target readback mismatch"
+                        )
+
+                    if str(original) != str(target):
+                        write_single_config(
+                            camera, direct_spec, direct_node, original
+                        )
+                        _, verify_node = widget(camera, shutter_item["path"])
+                        if str(verify_node.get_value()) != str(original):
+                            raise RuntimeError(
+                                "direct shutter-mode restore readback mismatch"
+                            )
+
+                    shutter_mode_spec["name"] = shutter_item["config_name"]
+                    shutter_mode_spec["writer"] = "single_config"
+                    job.log(
+                        "OPTIONAL SHUTTER: direct single_config writer proven "
+                        f"at {shutter_item['path']}"
+                    )
+                except Exception as exc:
+                    # Direct promotion is optional. Preserve the already-proven
+                    # legacy preflight writer, but never leave a test value active.
+                    try:
+                        if original is not None:
+                            _, restore_node = widget(camera, shutter_item["path"])
+                            if str(restore_node.get_value()) != str(original):
+                                write_checked(
+                                    camera,
+                                    shutter_item["path"],
+                                    original,
+                                )
+                    except Exception as restore_exc:
+                        raise RuntimeError(
+                            "Cannot restore shutter mode after direct SET probe: "
+                            f"{restore_exc}"
+                        ) from restore_exc
+                    job.log(
+                        "OPTIONAL SHUTTER: direct single_config writer not proven; "
+                        f"legacy preflight writer retained: {exc}"
+                    )
+
         job.checkpoint(
             auxiliary_capabilities=auxiliary_capabilities,
             commands=commands,
@@ -1018,6 +1230,75 @@ def characterize(camera, entry, job):
         else:
             # Compatibility only for initialization-only optional commands.
             write_widget(camera, spec["path"], value)
+
+    def characterization_read(key):
+        """Fresh GET used only by characterization/preflight evidence."""
+        spec = commands[key]
+        _, node = widget(camera, spec["path"])
+        return node.get_value()
+
+    def converge_characterized_preflight():
+        """Re-establish invariant state after opening a fresh gphoto session.
+
+        This deliberately mirrors production preflight semantics. GETs and
+        readback are allowed here because this is characterization, not timed
+        execution. Writable settings use the characterized direct writer.
+        """
+        for key in (
+            "manual_mode",
+            "capture_target",
+            "raw",
+            "white_balance",
+            "shutter_mode",
+            "capture_mode",
+            "self_timer",
+            "time_lapse",
+        ):
+            spec = commands.get(key)
+            if not isinstance(spec, dict) or "value" not in spec:
+                continue
+            target = spec["value"]
+            actual = characterization_read(key)
+            if str(actual) == str(target):
+                continue
+            if spec.get("set") is False:
+                if not job.ask(
+                    "Fresh-session camera preflight: "
+                    f"{key} must be {target!r}, current value is {actual!r}. "
+                    "Correct this setting physically on the camera, wait until "
+                    "the camera is ready, then click OK. The setting will be "
+                    "read again before any capture.",
+                    kind="start",
+                ):
+                    raise Cancelled(
+                        f"Fresh-session physical preflight cancelled for {key}"
+                    )
+                actual = characterization_read(key)
+                if str(actual) != str(target):
+                    raise RuntimeError(
+                        f"Fresh-session invariant {key} still incorrect after "
+                        f"operator confirmation: expected={target!r}, "
+                        f"actual={actual!r}"
+                    )
+                continue
+            runtime_set(key, target)
+            actual = characterization_read(key)
+            if str(actual) != str(target):
+                raise RuntimeError(
+                    f"Fresh-session invariant readback mismatch for {key}: "
+                    f"expected={target!r}, actual={actual!r}"
+                )
+
+    def fresh_capture_session(reason):
+        """Open a production-like cold gphoto session for capture discovery."""
+        job.check()
+        camera.exit()
+        camera.init()
+        # CameraWidget objects belong to the session that created them. Never
+        # reuse a primed direct SET/trigger widget across camera.init().
+        direct_nodes.clear()
+        converge_characterized_preflight()
+        job.log(f"COLD SESSION READY: {reason}; direct widgets re-primed on demand")
 
     def measure_set(key, values):
         values = list(values)
@@ -1176,31 +1457,87 @@ def characterize(camera, entry, job):
                 f"{requires_single}"
             )
 
-    # Characterize state dependencies caused by capture-mode transitions. If
-    # readback proves ISO/shutter are preserved, runtime is allowed to keep
-    # those cached values and avoid redundant SETs.
-    if "capture_mode" in commands and ordered_modes:
+    # Characterize the dependency matrix of every dynamic Direct-SET. Runtime
+    # keeps a local known-state cache and may skip redundant SETs, so that cache
+    # is safe only when characterization proves which settings survive another
+    # setting's transition. On any ambiguous probe, fail conservative: mark
+    # every other dynamic setting invalidated instead of assuming persistence.
+    dependency_baseline = {
+        "iso": commands["iso"]["values"]["100"],
+        "shutter": speeds["1/500"],
+    }
+    dependency_alternates = {
+        "iso": [iso_other],
+        "shutter": [shutter_other],
+    }
+
+    if (
+        "capture_mode" in commands
+        and commands["capture_mode"].get("set") is not False
+    ):
+        dependency_baseline["capture_mode"] = single_mode
+        dependency_alternates["capture_mode"] = list(dict.fromkeys(
+            ordered_modes[frames]
+            for frames in sorted(ordered_modes)
+        ))
+
+    if commands.get("aperture", {}).get("set") is True:
+        dependency_baseline["aperture"] = aperture_reference
+        dependency_alternates["aperture"] = [aperture_probe_value]
+
+    def restore_dependency_baseline():
+        # Mode first: some cameras accept shutter changes only in Single Shot.
+        if "capture_mode" in dependency_baseline:
+            runtime_set("capture_mode", dependency_baseline["capture_mode"])
+        runtime_set("iso", dependency_baseline["iso"])
+        runtime_set("shutter", dependency_baseline["shutter"])
+        if "aperture" in dependency_baseline:
+            runtime_set("aperture", dependency_baseline["aperture"])
+
+    def observe_dependency_peers(source_key, peer_keys, invalidates):
+        for dep_key in peer_keys:
+            actual = characterization_read(dep_key)
+            if str(actual) != str(dependency_baseline[dep_key]):
+                invalidates.add(dep_key)
+
+    for source_key, alternates in dependency_alternates.items():
+        peer_keys = [
+            key for key in dependency_baseline
+            if key != source_key
+        ]
         invalidates = set()
-        probe_mode = ordered_modes[sorted(ordered_modes)[0]]
-        runtime_set("capture_mode", single_mode)
-        runtime_set("iso", commands["iso"]["values"]["100"])
-        runtime_set("shutter", speeds["1/500"])
-        for next_mode in (probe_mode, single_mode):
-            runtime_set("capture_mode", next_mode)
-            for dep_key, expected in (
-                ("iso", commands["iso"]["values"]["100"]),
-                ("shutter", speeds["1/500"]),
-            ):
-                _, dep_node = widget(camera, commands[dep_key]["path"])
-                if str(dep_node.get_value()) != str(expected):
-                    invalidates.add(dep_key)
-        commands["capture_mode"]["invalidates"] = sorted(invalidates)
-        runtime_set("capture_mode", single_mode)
-        runtime_set("iso", commands["iso"]["values"]["100"])
-        runtime_set("shutter", speeds["1/500"])
+        tested = []
+        try:
+            for alternate in alternates:
+                if alternate is None:
+                    continue
+                restore_dependency_baseline()
+
+                # Prove both directions. A camera may preserve peers when
+                # entering a mode but reset them when returning to the baseline.
+                runtime_set(source_key, alternate)
+                observe_dependency_peers(source_key, peer_keys, invalidates)
+                runtime_set(source_key, dependency_baseline[source_key])
+                observe_dependency_peers(source_key, peer_keys, invalidates)
+                tested.append(alternate)
+        except Exception as exc:
+            # Unknown dependency means runtime must not trust cached peers.
+            invalidates.update(peer_keys)
+            warnings.append(
+                f"{source_key} dependency probe inconclusive; "
+                "conservative invalidation enabled"
+            )
+            job.log(
+                f"SET DEPENDENCIES {source_key}: probe failed: {exc}; "
+                f"conservative invalidates={sorted(invalidates)}"
+            )
+        finally:
+            restore_dependency_baseline()
+
+        commands[source_key]["invalidates"] = sorted(invalidates)
         job.log(
-            "CAPTURE MODE DEPENDENCIES: invalidates="
-            f"{commands['capture_mode']['invalidates']}"
+            f"SET DEPENDENCIES {source_key}: tested={tested}; "
+            f"invalidates={commands[source_key]['invalidates']}"
         )
 
     all_set_samples = [
@@ -1275,9 +1612,9 @@ def characterize(camera, entry, job):
 
         return (time.monotonic() - started) * 1000.0
 
-    # Probe every known capture entry point. Operator confirmation is used only
-    # for the first discovery of each method/size; five timing repetitions then
-    # run automatically.
+    # Probe every known capture entry point. Each eligible primitive gets one
+    # fresh-session cold trial followed by five warm timing repetitions.
+    # Operator input is requested only when automatic USB evidence is incomplete.
     trigger_candidates = [
         {"method": "trigger_capture"},
         {"method": "capture"},
@@ -1302,8 +1639,8 @@ def characterize(camera, entry, job):
     import gphoto2 as gp
 
     job.log(
-        "TEST POLICY: every capture primitive is tested independently for each "
-        "supported bracket size; rejection at one size never suppresses another"
+        "TEST POLICY: bracket primitives are tested smallest-to-largest; "
+        "rejected methods are pruned from larger sizes"
     )
     job.log(
         "TIMING MODEL V3: SET=max guarded command; "
@@ -1318,6 +1655,12 @@ def characterize(camera, entry, job):
         exposure_s=0.002,
     ):
         job.check()
+        _ensure_camera_storage(
+            camera,
+            expected,
+            f"capture probe {expected} frame(s) via {spec.get('method')}",
+            job.log,
+        )
 
         trial_key = (
             spec["method"],
@@ -1579,6 +1922,16 @@ def characterize(camera, entry, job):
             )
 
         else:
+            # Before blaming a trigger/USB path, prove that the card can still
+            # accept at least one image. A full card is a characterization
+            # environment failure, never evidence against the trigger.
+            _ensure_camera_storage(
+                camera,
+                1,
+                "incomplete capture confirmation",
+                job.log,
+            )
+
             # Automatic evidence is incomplete.  Ask only now, so the operator
             # can distinguish a physical capture from missing USB FILE_ADDED
             # notifications.  Runtime selection still fails closed because the
@@ -1595,16 +1948,23 @@ def characterize(camera, entry, job):
                 "because automatic confirmation was incomplete."
             )
             if error is not None:
-                raise RuntimeError(
+                failure = RuntimeError(
                     f"USB method error with incomplete confirmation "
                     f"({len(seen)}/{expected}); operator_photos={observed}: "
                     f"{error}"
                 )
-            raise RuntimeError(
-                "Automatic capture confirmation incomplete: "
-                f"USB confirmed {len(seen)}/{expected}; "
-                f"operator_photos={observed}"
-            )
+            else:
+                failure = RuntimeError(
+                    "Automatic capture confirmation incomplete: "
+                    f"USB confirmed {len(seen)}/{expected}; "
+                    f"operator_photos={observed}"
+                )
+            # Preserve machine-observed evidence for diagnostics and higher-level
+            # characterization decisions.
+            failure.observed_frames = len(seen)
+            failure.expected_frames = expected
+            failure.operator_photos = observed
+            raise failure
 
         job.log(
             f"TEST END "
@@ -1661,6 +2021,18 @@ def characterize(camera, entry, job):
     valid_single = []
     single_evidence = []
 
+    single_candidate_count = sum(
+        1
+        for spec in trigger_candidates
+        if spec.get("path", "").rsplit("/", 1)[-1] != "bulb"
+    )
+    _ensure_camera_storage(
+        camera,
+        max(1, single_candidate_count * 6),
+        "single-trigger characterization matrix",
+        job.log,
+    )
+
     for spec in trigger_candidates:
         if (
             spec.get("path", "").rsplit("/", 1)[-1]
@@ -1679,14 +2051,26 @@ def characterize(camera, entry, job):
                 f"TRIGGER TEST {spec}"
             )
 
-            # Untimed discovery is excluded from speed measurements.
-            timed_runtime_prepare("1/500")
-            probe(
+            # The existing discovery shot is now the mandatory cold-start
+            # qualification. It uses a fresh gphoto session and is INCLUDED in
+            # worst-case selection/timing so a fast warm path cannot hide an
+            # unreliable or slower first production PHOTO.
+            fresh_capture_session(
+                f"single trigger {json.dumps(spec, sort_keys=True)}"
+            )
+            cold_prepare_ms = timed_runtime_prepare("1/500")
+            cold_sample = probe(
                 spec,
                 expected=1,
                 exposure_s=_parse_speed("1/500"),
             )
+            samples.append((*cold_sample, cold_prepare_ms))
+            job.log(
+                f"COLD TRIGGER PASS: {spec}; "
+                f"capture_ms={cold_sample[1]:.1f}"
+            )
 
+            # Five warm repetitions remain, giving one cold + five warm trials.
             for _ in range(5):
                 prepare_ms = timed_runtime_prepare("1/500")
                 sample = probe(
@@ -1705,7 +2089,7 @@ def characterize(camera, entry, job):
             evidence = CandidateEvidence(
                 candidate_id=json.dumps(spec, sort_keys=True),
                 recipe=deepcopy(spec),
-                expected_trials=5,
+                expected_trials=6,
                 durations_ms=[sample[1] for sample in samples],
                 functional_ok=True,
             )
@@ -1715,6 +2099,7 @@ def characterize(camera, entry, job):
         except (
             Cancelled,
             CameraIdleTimeout,
+            CameraStorageCapacityError,
         ):
             raise
 
@@ -1722,7 +2107,7 @@ def characterize(camera, entry, job):
             rejected = CandidateEvidence(
                 candidate_id=json.dumps(spec, sort_keys=True),
                 recipe=deepcopy(spec),
-                expected_trials=5,
+                expected_trials=6,
                 functional_ok=False,
             )
             rejected.failures.append(str(exc))
@@ -1805,13 +2190,18 @@ def characterize(camera, entry, job):
         "selection": deepcopy(selection_evidence),
     }
 
-    # Qualify the complete capture matrix independently per bracket size.
-    # A primitive that fails for 3 frames is still tested for 5/7/9 frames, and
-    # each size may select a different trigger implementation.
+    # Qualify native bracket methods from smallest to largest. Once one trigger
+    # primitive fails at a bracket size it is not retried for larger sizes.
+    # Global environment failures (storage/cancellation/camera idle) abort the
+    # characterization and never count as a primitive failure.
     selected_bracket_items = {}
     bracket_rejections = {}
     selected_candidate_ids = {}
     bracket_overhead_samples_by_frames = {}
+    # A bracket primitive that fails at one native size is not retested at
+    # larger sizes. Storage/cancellation/idle failures are raised globally and
+    # never enter this table, so only candidate-specific failures are inherited.
+    rejected_bracket_candidates = {}
 
     if mode:
         for frames, mode_value in sorted(ordered_modes.items()):
@@ -1828,22 +2218,67 @@ def characterize(camera, entry, job):
             valid_frame_candidates = []
             bracket_rejections[size] = {}
 
+            active_candidate_count = sum(
+                1
+                for candidate in trigger_candidates
+                if json.dumps(candidate, sort_keys=True)
+                not in rejected_bracket_candidates
+            )
+            _ensure_camera_storage(
+                camera,
+                max(1, active_candidate_count * 6 * frames),
+                f"native bracket {frames}-frame characterization matrix",
+                job.log,
+            )
+
             for trigger_spec in trigger_candidates:
                 command_id = json.dumps(trigger_spec, sort_keys=True)
                 samples = []
 
+                inherited_rejection = rejected_bracket_candidates.get(command_id)
+                if inherited_rejection is not None:
+                    reason = (
+                        "bracket rejection inherited from "
+                        f"{inherited_rejection['frames']}-frame test: "
+                        f"{inherited_rejection['reason']}"
+                    )
+                    rejected = CandidateEvidence(
+                        candidate_id=command_id,
+                        recipe=deepcopy(trigger_spec),
+                        expected_trials=6,
+                        functional_ok=False,
+                    )
+                    rejected.failures.append(reason)
+                    frame_evidence.append(rejected)
+                    bracket_rejections[size][command_id] = reason
+                    job.log(
+                        f"SKIP BRACKET {frames} {trigger_spec}: {reason}"
+                    )
+                    continue
+
                 try:
-                    # Untimed functional discovery for this exact
-                    # (bracket-size, trigger-primitive) combination.
-                    timed_runtime_prepare("1/500", mode_value)
-                    probe(
+                    # The existing discovery shot becomes a cold-start test for
+                    # this exact (size, primitive). It is measured and included
+                    # in candidate selection, followed by five warm repetitions.
+                    fresh_capture_session(
+                        f"bracket {frames} trigger {command_id}"
+                    )
+                    cold_prepare_ms = timed_runtime_prepare(
+                        "1/500", mode_value
+                    )
+                    cold_sample = probe(
                         trigger_spec,
                         expected=frames,
                         exposure_s=reference_exposure_s,
                     )
+                    samples.append((*cold_sample, cold_prepare_ms))
+                    job.log(
+                        f"COLD BRACKET PASS {frames}: {trigger_spec}; "
+                        f"capture_ms={cold_sample[1]:.1f}"
+                    )
 
-                    # Five automatic timing repetitions of the same complete
-                    # combination. SET preparation and PHOTO remain separate.
+                    # Five warm automatic timing repetitions. SET preparation
+                    # and PHOTO remain separate.
                     for _ in range(5):
                         job.check()
                         prepare_ms = timed_runtime_prepare(
@@ -1887,7 +2322,7 @@ def characterize(camera, entry, job):
                     evidence = CandidateEvidence(
                         candidate_id=command_id,
                         recipe=deepcopy(trigger_spec),
-                        expected_trials=5,
+                        expected_trials=6,
                         durations_ms=[
                             sample[1]
                             for sample in samples
@@ -1908,6 +2343,7 @@ def characterize(camera, entry, job):
                 except (
                     Cancelled,
                     CameraIdleTimeout,
+                    CameraStorageCapacityError,
                 ):
                     raise
 
@@ -1915,12 +2351,21 @@ def characterize(camera, entry, job):
                     rejected = CandidateEvidence(
                         candidate_id=command_id,
                         recipe=deepcopy(trigger_spec),
-                        expected_trials=5,
+                        expected_trials=6,
                         functional_ok=False,
                     )
                     rejected.failures.append(str(exc))
                     frame_evidence.append(rejected)
                     bracket_rejections[size][command_id] = str(exc)
+
+                    rejected_bracket_candidates[command_id] = {
+                        "frames": frames,
+                        "reason": str(exc),
+                    }
+                    job.log(
+                        f"BRACKET PRUNE {trigger_spec}: failed at {frames} "
+                        "frames and will not be retested at larger frame counts"
+                    )
 
                     timing_trials.append(
                         {
@@ -1935,9 +2380,8 @@ def characterize(camera, entry, job):
                     )
 
                 finally:
-                    write_checked(
-                        camera,
-                        commands["capture_mode"]["path"],
+                    runtime_set(
+                        "capture_mode",
                         commands["capture_mode"]["value"],
                     )
 
@@ -2591,6 +3035,12 @@ def qualify_operational_contract_v3(
 
     while True:
         job.check()
+        _ensure_camera_storage(
+            camera,
+            complete_attempt_photos,
+            "final operational qualification attempt",
+            job.log,
+        )
         attempt += 1
 
         job.log(
@@ -2748,6 +3198,12 @@ def qualify_operational_contract_v3(
                     observed = getattr(exc, "observed_frames", None)
                     expected_frames = getattr(
                         exc, "expected_frames", frames
+                    )
+                    _ensure_camera_storage(
+                        camera,
+                        1,
+                        "runtime qualification capture failure",
+                        job.log,
                     )
                     if observed != expected_frames:
                         physical = job.ask(
@@ -3110,6 +3566,12 @@ def qualify_operational_contract_v3(
                     observed = getattr(exc, "observed_frames", None)
                     expected_frames = getattr(
                         exc, "expected_frames", cold_bracket_frames
+                    )
+                    _ensure_camera_storage(
+                        camera,
+                        1,
+                        "cold-bracket qualification capture failure",
+                        job.log,
                     )
                     if observed != expected_frames:
                         physical = job.ask(

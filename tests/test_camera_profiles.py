@@ -310,8 +310,11 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     # Cold-bracket proof adds one bracket-5 as the first PHOTO of a second
     # fresh session: 108 + 12 + 5 = 125 physical images.
     assert camera.counter == 125
-    assert camera.exit_count == 2
-    assert camera.init_count == 2
+    # Two single candidates + two candidates for each of the 3/5-frame
+    # bracket sizes are cold-started, then operational qualification opens one
+    # fresh session plus one cold-bracket session: 2 + 2 + 2 + 2 = 8.
+    assert camera.exit_count == 8
+    assert camera.init_count == 8
 
     # Discovery is ISO100-only, while operational qualification must prove
     # at least one real alternate-ISO transition before publication.
@@ -341,7 +344,7 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     assert timing["timing"]["trigger_single_latency_ms"] == 0
     assert len(timing["timing_trials"]) == 6
     for trial in timing["timing_trials"]:
-        assert len(trial["samples"]) == 5
+        assert len(trial["samples"]) == 6
         for sample in trial["samples"]:
             assert sample["test_pause_ms"] >= 2000
             assert sample["total_ms"] < sample["test_pause_ms"]
@@ -434,7 +437,7 @@ def test_budgeted_plan_has_self_contained_groups_and_exact_reservations(profile)
         ProfilePlugin(None, profile=profile)
 
 
-def test_bracket_failure_is_isolated_to_one_size_and_matrix_stays_sorted(
+def test_bracket_failure_prunes_primitive_from_larger_sizes_and_matrix_stays_sorted(
     monkeypatch,
     profile,
 ):
@@ -521,14 +524,14 @@ def test_bracket_failure_is_isolated_to_one_size_and_matrix_stays_sorted(
     trial_frames = [trial["frames"] for trial in bracket_trials]
     assert trial_frames == sorted(trial_frames)
 
-    # A trigger_capture failure for bracket 3 must be isolated to that exact
-    # (size, primitive) combination. The same primitive must still be exercised
-    # and allowed to qualify for bracket 5.
+    # A primitive that fails at bracket 3 is structurally pruned from
+    # larger brackets. This avoids repeating a known-incompatible trigger at
+    # 5/7/9 frames while independent primitives remain fully testable.
     assert any(
         method == "trigger_capture" and "3 Img." in mode
         for method, mode in bracket_calls
     )
-    assert any(
+    assert not any(
         method == "trigger_capture" and "5 Img." in mode
         for method, mode in bracket_calls
     )
@@ -542,25 +545,24 @@ def test_bracket_failure_is_isolated_to_one_size_and_matrix_stays_sorted(
             and trial["status"] == "rejected"
         )
     ]
-    validated_5 = [
+    retried_5 = [
         trial
         for trial in bracket_trials
         if (
             trial["frames"] == 5
             and trial["trigger"]["method"] == "trigger_capture"
-            and trial["status"] == "validated"
         )
     ]
 
     assert len(rejected_3) == 1
-    assert len(validated_5) == 1
+    assert retried_5 == []
 
-    # Failure at 3 frames must not globally exclude trigger_capture: it is
-    # independently retried and qualified for the 5-frame bracket.
+    # Failure at 3 frames globally excludes this primitive only from larger
+    # native brackets; the other capture primitive remains available.
     assert (
         "trigger_capture",
         "Continuous Bracket 1 EV 5 Img.",
-    ) in bracket_calls
+    ) not in bracket_calls
 
     rejected = [
         trial
@@ -574,11 +576,11 @@ def test_bracket_failure_is_isolated_to_one_size_and_matrix_stays_sorted(
 
     assert result["commands"]["trigger_single"]["method"] == "trigger_capture"
     assert result["brackets"]["3"]["trigger"]["method"] == "capture"
-    assert result["brackets"]["5"]["trigger"]["method"] == "trigger_capture"
+    assert result["brackets"]["5"]["trigger"]["method"] == "capture"
     selected = result["selection"]["native_bracket"][
         "selected_candidate_ids_by_frames"
     ]
-    assert selected["3"] != selected["5"]
+    assert selected["3"] == selected["5"]
     assert prompts
 
 
@@ -767,9 +769,10 @@ def test_characterization_preserves_single_shot_target_for_readonly_capture_mode
     assert result["strategy"] == "sequential"
     assert timing is not None
 
-    # Qualification still exercised a fresh camera session.
-    assert camera.exit_count == 1
-    assert camera.init_count == 1
+    # Two single candidates are cold-started, then operational qualification
+    # opens its own fresh camera session.
+    assert camera.exit_count == 3
+    assert camera.init_count == 3
 
 
 def test_single_shot_operator_instruction_is_unambiguous(profile):

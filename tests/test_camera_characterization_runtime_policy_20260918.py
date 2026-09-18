@@ -127,7 +127,8 @@ def test_runtime_apply_uses_legacy_write_only_for_legacy_profile(monkeypatch):
 def test_characterization_source_has_no_per_capture_go_prompt():
     source = inspect.getsource(characterization.characterize)
     assert "Ready for a test of" not in source
-    assert "a rejected bracket command is not retried at larger sizes" not in source
+    assert "rejection at one size never suppresses another" not in source
+    assert "rejected methods are pruned from larger sizes" in source
     assert "selected_candidate_ids_by_frames" in source
 
 
