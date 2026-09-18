@@ -280,39 +280,25 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     monkeypatch.setitem(sys.modules, "gphoto2", SimpleNamespace(GP_CAPTURE_IMAGE=2, GP_EVENT_FILE_ADDED=1, GP_EVENT_TIMEOUT=0))
     monkeypatch.setattr(module.time, "monotonic", lambda: camera.now)
     monkeypatch.setattr(module.time, "sleep", lambda seconds: setattr(camera, "now", camera.now + seconds))
-    confirmations = []
-    qualification_starts = []
+    prompts = []
 
-    def confirm(self, message, kind="result"):
-        if (
-            kind == "start"
-            and "Final operational qualification" in message
-        ):
-            qualification_starts.append((kind, camera.counter))
-            return True
+    def unexpected_prompt(self, message, kind="result"):
+        prompts.append((kind, message))
+        raise AssertionError(
+            "Fully observable characterization must not ask the operator"
+        )
 
-        confirmations.append((kind, camera.counter))
-        if kind == "start":
-            assert (
-                len(confirmations) == 1
-                or confirmations[-2][0] == "result"
-            )
-        else:
-            assert confirmations[-2][0] == "start"
-            assert camera.counter > confirmations[-2][1]
-        return True
-
-    monkeypatch.setattr(CharacterizationJob, "ask", confirm)
+    monkeypatch.setattr(CharacterizationJob, "ask", unexpected_prompt)
     result, timing = module.characterize(
         camera,
         {"manufacturer": "Test", "model": "Test Camera"},
         CharacterizationJob(),
     )
 
-    assert confirmations[0] == ("start", 0)
-    assert confirmations[-1][0] == "result"
-    assert len(confirmations) == 12
-    assert len(qualification_starts) == 1
+    # Every capture in this simulation is confirmed automatically by exact
+    # FILE_ADDED counts, and every required camera state is USB-writable.
+    # Characterization must therefore complete with zero operator prompts.
+    assert prompts == []
 
     # Historical discovery/timing = 108 physical images.
     # Main operational recipe = 4 singles + bracket 3 + bracket 5 = 12.
@@ -443,38 +429,232 @@ def test_budgeted_plan_has_self_contained_groups_and_exact_reservations(profile)
         ProfilePlugin(None, profile=profile)
 
 
-@pytest.mark.parametrize('reject_single', [False, True])
-def test_command_exclusion_is_bracket_only_and_sizes_are_sorted(monkeypatch, profile, reject_single):
+def test_bracket_failure_is_isolated_to_one_size_and_matrix_stays_sorted(
+    monkeypatch,
+    profile,
+):
     import sys
     from backend import camera_characterization as module
-    camera = SimulatedCamera(list(profile['commands']['shutter']['values']))
-    camera.config.get_child_by_name('capturemode').choices = [
-        'Single Shot', 'Continuous Bracket 1 EV 5 Img.', 'Continuous Bracket 1 EV 3 Img.']
-    monkeypatch.setitem(sys.modules, 'gphoto2', SimpleNamespace(GP_CAPTURE_IMAGE=2, GP_EVENT_FILE_ADDED=1, GP_EVENT_TIMEOUT=0))
-    monkeypatch.setattr(module.time, 'monotonic', lambda: camera.now)
-    monkeypatch.setattr(module.time, 'sleep', lambda seconds: setattr(camera, 'now', camera.now + seconds))
-    starts, current = [], ['']
-    def ask(self, message, kind='result'):
-        if kind == 'start':
-            starts.append(message)
-            current[0] = message
-            return True
-        if reject_single:
-            return not ('1 RAW photo(s)' in current[0] and "'method': 'capture'" in current[0])
-        return not ('3 RAW photo(s)' in current[0] and "'method': 'trigger_capture'" in current[0])
-    monkeypatch.setattr(CharacterizationJob, 'ask', ask)
-    result, timing = module.characterize(camera, {'manufacturer': 'Test', 'model': 'Camera'}, CharacterizationJob())
-    bracket_starts = [m for m in starts if '1 RAW photo(s)' not in m]
-    assert '3 RAW photo(s)' in bracket_starts[0]
-    if not reject_single:
-        assert not any('5 RAW photo(s)' in m and "'method': 'trigger_capture'" in m for m in starts)
-        rejected = [t for t in timing['timing_trials'] if t['frames'] > 1 and t['trigger']['method'] == 'trigger_capture']
-        assert len(rejected) == 1 and rejected[0]['status'] == 'rejected' and 'samples' not in rejected[0]
-        assert result['commands']['trigger_single']['method'] == 'trigger_capture'
-        assert result['bracket_command']['method'] == 'capture'
-    else:
-        assert any('5 RAW photo(s)' in m and "'method': 'capture'" in m for m in starts)
-    assert len({json.dumps(v['trigger'], sort_keys=True) for v in result['brackets'].values()}) == 1
+
+    camera = SimulatedCamera(
+        list(profile["commands"]["shutter"]["values"])
+    )
+    camera.config.get_child_by_name("capturemode").choices = [
+        "Single Shot",
+        "Continuous Bracket 1 EV 5 Img.",
+        "Continuous Bracket 1 EV 3 Img.",
+    ]
+    monkeypatch.setitem(
+        sys.modules,
+        "gphoto2",
+        SimpleNamespace(
+            GP_CAPTURE_IMAGE=2,
+            GP_EVENT_FILE_ADDED=1,
+            GP_EVENT_TIMEOUT=0,
+        ),
+    )
+    monkeypatch.setattr(module.time, "monotonic", lambda: camera.now)
+    monkeypatch.setattr(
+        module.time,
+        "sleep",
+        lambda seconds: setattr(camera, "now", camera.now + seconds),
+    )
+
+    original_trigger = camera.trigger_capture
+    primitive_calls = []
+
+    def trigger_capture():
+        mode = camera.config.get_child_by_name("capturemode").value
+        primitive_calls.append(("trigger_capture", mode))
+        if mode == "Continuous Bracket 1 EV 3 Img.":
+            raise RuntimeError("simulated trigger_capture failure for bracket 3")
+        return original_trigger()
+
+    def capture(kind):
+        mode = camera.config.get_child_by_name("capturemode").value
+        primitive_calls.append(("capture", mode))
+        # Deliberately bypass the monkeypatched trigger_capture: this is a
+        # distinct gphoto primitive and must remain independently testable.
+        original_trigger()
+        camera.now += .2
+        return camera.events.pop(0)
+
+    camera.trigger_capture = trigger_capture
+    camera.capture = capture
+
+    prompts = []
+
+    def ask(self, message, kind="result"):
+        prompts.append((kind, message))
+        # The simulated bracket-3 trigger failure has no automatic file proof,
+        # so a physical-card question is legitimate. There must be no GO prompt.
+        assert kind != "start"
+        return True
+
+    monkeypatch.setattr(CharacterizationJob, "ask", ask)
+
+    result, timing = module.characterize(
+        camera,
+        {"manufacturer": "Test", "model": "Camera"},
+        CharacterizationJob(),
+    )
+
+    bracket_calls = [
+        (method, mode)
+        for method, mode in primitive_calls
+        if "Bracket" in mode
+    ]
+
+    # The discovery matrix itself is ordered by bracket size. Later
+    # operational qualification deliberately reuses selected brackets, so the
+    # complete primitive call history is not globally ordered by frame count.
+    bracket_trials = [
+        trial
+        for trial in timing["timing_trials"]
+        if trial["frames"] > 1
+    ]
+    trial_frames = [trial["frames"] for trial in bracket_trials]
+    assert trial_frames == sorted(trial_frames)
+
+    # A trigger_capture failure for bracket 3 must be isolated to that exact
+    # (size, primitive) combination. The same primitive must still be exercised
+    # and allowed to qualify for bracket 5.
+    assert any(
+        method == "trigger_capture" and "3 Img." in mode
+        for method, mode in bracket_calls
+    )
+    assert any(
+        method == "trigger_capture" and "5 Img." in mode
+        for method, mode in bracket_calls
+    )
+
+    rejected_3 = [
+        trial
+        for trial in bracket_trials
+        if (
+            trial["frames"] == 3
+            and trial["trigger"]["method"] == "trigger_capture"
+            and trial["status"] == "rejected"
+        )
+    ]
+    validated_5 = [
+        trial
+        for trial in bracket_trials
+        if (
+            trial["frames"] == 5
+            and trial["trigger"]["method"] == "trigger_capture"
+            and trial["status"] == "validated"
+        )
+    ]
+
+    assert len(rejected_3) == 1
+    assert len(validated_5) == 1
+
+    # Failure at 3 frames must not globally exclude trigger_capture: it is
+    # independently retried and qualified for the 5-frame bracket.
+    assert (
+        "trigger_capture",
+        "Continuous Bracket 1 EV 5 Img.",
+    ) in bracket_calls
+
+    rejected = [
+        trial
+        for trial in timing["timing_trials"]
+        if trial["frames"] == 3
+        and trial["trigger"]["method"] == "trigger_capture"
+        and trial["status"] == "rejected"
+    ]
+    assert len(rejected) == 1
+    assert "samples" not in rejected[0]
+
+    assert result["commands"]["trigger_single"]["method"] == "trigger_capture"
+    assert result["brackets"]["3"]["trigger"]["method"] == "capture"
+    assert result["brackets"]["5"]["trigger"]["method"] == "trigger_capture"
+    selected = result["selection"]["native_bracket"][
+        "selected_candidate_ids_by_frames"
+    ]
+    assert selected["3"] != selected["5"]
+    assert prompts
+
+
+def test_single_capture_failure_does_not_suppress_bracket_capture(
+    monkeypatch,
+    profile,
+):
+    import sys
+    from backend import camera_characterization as module
+
+    camera = SimulatedCamera(
+        list(profile["commands"]["shutter"]["values"])
+    )
+    camera.config.get_child_by_name("capturemode").choices = [
+        "Single Shot",
+        "Continuous Bracket 1 EV 3 Img.",
+        "Continuous Bracket 1 EV 5 Img.",
+    ]
+    monkeypatch.setitem(
+        sys.modules,
+        "gphoto2",
+        SimpleNamespace(
+            GP_CAPTURE_IMAGE=2,
+            GP_EVENT_FILE_ADDED=1,
+            GP_EVENT_TIMEOUT=0,
+        ),
+    )
+    monkeypatch.setattr(module.time, "monotonic", lambda: camera.now)
+    monkeypatch.setattr(
+        module.time,
+        "sleep",
+        lambda seconds: setattr(camera, "now", camera.now + seconds),
+    )
+
+    original_trigger = camera.trigger_capture
+    capture_modes = []
+
+    def capture(kind):
+        mode = camera.config.get_child_by_name("capturemode").value
+        capture_modes.append(mode)
+        original_trigger()
+        if mode == "Single Shot":
+            # A physical file exists and will be drained automatically, but the
+            # capture primitive itself reports an error. That is an automatic
+            # runtime rejection, not an operator question.
+            raise RuntimeError("simulated single capture USB error")
+        camera.now += .2
+        return camera.events.pop(0)
+
+    camera.capture = capture
+
+    prompts = []
+
+    def unexpected_prompt(self, message, kind="result"):
+        prompts.append((kind, message))
+        raise AssertionError(
+            "Exact file evidence or runtime error must be resolved automatically"
+        )
+
+    monkeypatch.setattr(CharacterizationJob, "ask", unexpected_prompt)
+
+    result, timing = module.characterize(
+        camera,
+        {"manufacturer": "Test", "model": "Camera"},
+        CharacterizationJob(),
+    )
+
+    assert prompts == []
+    assert "Single Shot" in capture_modes
+    assert "Continuous Bracket 1 EV 3 Img." in capture_modes
+    assert "Continuous Bracket 1 EV 5 Img." in capture_modes
+
+    rejected_single_capture = [
+        trial
+        for trial in timing["timing_trials"]
+        if trial["frames"] == 1
+        and trial["trigger"]["method"] == "capture"
+        and trial["status"] == "rejected"
+    ]
+    assert len(rejected_single_capture) == 1
+    assert result["commands"]["trigger_single"]["method"] == "trigger_capture"
 
 
 

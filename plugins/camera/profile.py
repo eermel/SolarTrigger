@@ -360,13 +360,11 @@ class ProfilePlugin(CameraPlugin):
                 self._manual_instruction(key, target, actual)
             )
 
-        writer = (
-            write_checked
-            if self.profile.get("timing_contract")
-            else write_widget
-        )
+        # Runtime timing contracts describe guard budgets only.  They must not
+        # change the USB write protocol: qualification uses checked writes, but
+        # timed Trigger SETs use the minimal characterized path (GET + SET).
         try:
-            writer(self.camera, self.commands[key]["path"], target)
+            write_widget(self.camera, self.commands[key]["path"], target)
         except Exception:
             self._writable_cache.discard(key)
             raise
