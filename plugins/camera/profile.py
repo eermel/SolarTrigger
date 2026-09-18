@@ -130,6 +130,12 @@ class ProfilePlugin(CameraPlugin):
         # successfully.  A failed capture invalidates this knowledge so the
         # next physical group replays its complete characterized preamble.
         self._known_settings = {}
+        # Positive-only cache of settings proven writable at least once.
+        # Never cache a live read-only result: on Sony, writability can be
+        # transient or mode-dependent. A successful SET is sufficient proof
+        # to skip the dedicated readonly GET on later writes; if a write later
+        # fails, that key is evicted so the next attempt probes again.
+        self._writable_cache = set()
 
     @staticmethod
     def matches(model_string):
@@ -213,14 +219,22 @@ class ProfilePlugin(CameraPlugin):
         spec = self.commands[key]
         if spec.get("set") is False:
             return False
+        if key in self._writable_cache:
+            return True
+
         _, node = widget(self.camera, spec["path"])
         try:
-            return not bool(node.get_readonly())
+            writable = not bool(node.get_readonly())
         except Exception:
             # Legacy profiles did not persist capability flags.  If the live
             # widget cannot report readonly state, preserve historical SET
-            # behaviour and let write_checked provide the final proof.
-            return spec.get("set") is not False
+            # behaviour. Do not cache this optimistic result: only an
+            # observed writable widget or a successful SET is durable proof.
+            return True
+
+        if writable:
+            self._writable_cache.add(key)
+        return writable
 
     def _display_model(self) -> str:
         model = str(self.profile.get("model") or "camera")
@@ -310,6 +324,7 @@ class ProfilePlugin(CameraPlugin):
         try:
             write_checked(self.camera, self.commands[key]["path"], target)
         except Exception as exc:
+            self._writable_cache.discard(key)
             # Legacy profiles may lack explicit set=false even when gphoto2
             # exposes a physical-dial setting as superficially writable.  A
             # failed transition at preflight is still an operator-actionable
@@ -325,6 +340,7 @@ class ProfilePlugin(CameraPlugin):
                 self._manual_instruction(key, target, actual)
             ) from exc
         self._known_settings[key] = target
+        self._writable_cache.add(key)
         return True
 
     def _apply(self, key, value=None):
@@ -349,8 +365,13 @@ class ProfilePlugin(CameraPlugin):
             if self.profile.get("timing_contract")
             else write_widget
         )
-        writer(self.camera, self.commands[key]["path"], target)
+        try:
+            writer(self.camera, self.commands[key]["path"], target)
+        except Exception:
+            self._writable_cache.discard(key)
+            raise
         self._known_settings[key] = target
+        self._writable_cache.add(key)
         return True
 
     def preflight(self, required_state=None):
@@ -1452,6 +1473,7 @@ class ProfilePlugin(CameraPlugin):
                         frames += self.execute_photo(operation).frames
             except Exception:
                 self._known_settings.clear()
+                self._writable_cache.clear()
                 raise
 
         return CaptureResult(
