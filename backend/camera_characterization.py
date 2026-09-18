@@ -582,6 +582,29 @@ def _ensure_camera_storage(camera, required_images, phase, log_fn=None):
     return snapshot
 
 
+def _raise_if_operator_reports_unknown_storage_problem(snapshot, job, phase):
+    """Abort globally when unreadable storage is confirmed as the real failure.
+
+    Some cameras return an error from get_storageinfo(). In that case an
+    incomplete capture must not be scored against a trigger when the real cause
+    is a full, absent or write-protected card.
+    """
+    if snapshot.get("supported"):
+        return False
+    problem = job.ask(
+        "Camera storage capacity cannot be read automatically. Is the memory "
+        "card full, write-protected, absent, or otherwise unable to save a new "
+        "RAW photo? Choose Yes only if storage caused this capture failure."
+    )
+    if problem:
+        raise CameraStorageCapacityError(
+            f"Camera storage problem reported by operator during {phase}; "
+            f"automatic capacity probe unavailable: "
+            f"{snapshot.get('error') or 'not reported'}"
+        )
+    return False
+
+
 def characterize(camera, entry, job):
     """Discover commands and build the simplified timing contract v3.
 
@@ -1925,7 +1948,7 @@ def characterize(camera, entry, job):
             # Before blaming a trigger/USB path, prove that the card can still
             # accept at least one image. A full card is a characterization
             # environment failure, never evidence against the trigger.
-            _ensure_camera_storage(
+            storage_snapshot = _ensure_camera_storage(
                 camera,
                 1,
                 "incomplete capture confirmation",
@@ -1942,6 +1965,12 @@ def characterize(camera, entry, job):
                 f"photo(s) saved on the card? Files reported over USB: "
                 f"{len(seen)}/{expected}."
             )
+            if not observed:
+                _raise_if_operator_reports_unknown_storage_problem(
+                    storage_snapshot,
+                    job,
+                    "incomplete capture confirmation",
+                )
             job.log(
                 "Operator physical-card check after incomplete USB evidence: "
                 f"{observed}. Candidate remains rejected for production "
@@ -2961,7 +2990,7 @@ def qualify_operational_contract_v3(
     )
     from backend.camera_validation import build_validation_recipe
     from plugins.camera.base import _parse_speed
-    from plugins.camera.profile import CameraPreflightError
+    from plugins.camera.profile import CameraPhysicalPreflightError
 
     contract = profile["timing_contract"]
 
@@ -3015,6 +3044,29 @@ def qualify_operational_contract_v3(
 
     attempt = 0
 
+    def quiesce_before_session_reopen(reason):
+        """Wait for quiet before a characterization-only session reopen.
+
+        A budget revision can interrupt qualification immediately after a PHOTO.
+        Reopening gphoto while the body is still finalizing that capture can make
+        an otherwise valid Direct-SET fail transiently. This wait is outside all
+        measured production cadence; uninterrupted attempts remain fully reactive.
+        """
+        late_files = set()
+        idle_ms = wait_camera_idle(
+            camera,
+            late_files,
+            quiet_s=2.0,
+            timeout_s=15.0,
+            check=job.check,
+        )
+        job.log(
+            "RUNTIME QUALIFICATION QUIET BEFORE SESSION REOPEN: "
+            f"{reason}; idle_wait={idle_ms:.1f} ms excluded; "
+            f"late_file_events={len(late_files)}"
+        )
+        return idle_ms
+
     def revise(field, previous, revised, observed, command_index):
         adjustments.append(
             {
@@ -3051,7 +3103,10 @@ def qualify_operational_contract_v3(
 
         # A fresh CameraWorker opens a fresh gphoto session in production.
         # Reproduce that property explicitly so the first capture is measured,
-        # not discarded as a warm-up.
+        # not discarded as a warm-up. A qualification retry itself is not a
+        # production transition, so never reopen while the body is still
+        # finalizing the PHOTO that caused a budget revision.
+        quiesce_before_session_reopen(f"attempt {attempt}")
         camera.exit()
         camera.init()
 
@@ -3073,7 +3128,7 @@ def qualify_operational_contract_v3(
             try:
                 plugin.preflight()
                 break
-            except CameraPreflightError as exc:
+            except CameraPhysicalPreflightError as exc:
                 job.log(
                     "RUNTIME QUALIFICATION PREFLIGHT: "
                     f"operator action required: {exc}"
@@ -3199,7 +3254,7 @@ def qualify_operational_contract_v3(
                     expected_frames = getattr(
                         exc, "expected_frames", frames
                     )
-                    _ensure_camera_storage(
+                    storage_snapshot = _ensure_camera_storage(
                         camera,
                         1,
                         "runtime qualification capture failure",
@@ -3213,6 +3268,12 @@ def qualify_operational_contract_v3(
                             "Wait until the camera is idle. Exactly that many RAW "
                             "photo(s) were physically saved on the card?"
                         )
+                        if not physical:
+                            _raise_if_operator_reports_unknown_storage_problem(
+                                storage_snapshot,
+                                job,
+                                "runtime qualification capture failure",
+                            )
                         job.log(
                             "Operator physical-card check after runtime qualification "
                             f"failure: {physical}; error={exc}"
@@ -3409,6 +3470,9 @@ def qualify_operational_contract_v3(
                 "this bracket will be the first PHOTO"
             )
 
+            quiesce_before_session_reopen(
+                f"cold bracket {cold_bracket_frames}-frame session"
+            )
             camera.exit()
             camera.init()
 
@@ -3423,7 +3487,7 @@ def qualify_operational_contract_v3(
                 try:
                     cold_plugin.preflight()
                     break
-                except CameraPreflightError as exc:
+                except CameraPhysicalPreflightError as exc:
                     job.log(
                         "RUNTIME QUALIFICATION COLD BRACKET PREFLIGHT: "
                         f"operator action required: {exc}"
@@ -3567,7 +3631,7 @@ def qualify_operational_contract_v3(
                     expected_frames = getattr(
                         exc, "expected_frames", cold_bracket_frames
                     )
-                    _ensure_camera_storage(
+                    storage_snapshot = _ensure_camera_storage(
                         camera,
                         1,
                         "cold-bracket qualification capture failure",
@@ -3581,6 +3645,12 @@ def qualify_operational_contract_v3(
                             "Wait until the camera is idle. Exactly that many RAW "
                             "photo(s) were physically saved on the card?"
                         )
+                        if not physical:
+                            _raise_if_operator_reports_unknown_storage_problem(
+                                storage_snapshot,
+                                job,
+                                "cold-bracket qualification capture failure",
+                            )
                         job.log(
                             "Operator physical-card check after cold-bracket "
                             f"failure: {physical}; error={exc}"

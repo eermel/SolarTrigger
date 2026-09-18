@@ -132,6 +132,23 @@ def test_characterization_source_has_no_per_capture_go_prompt():
     assert "selected_candidate_ids_by_frames" in source
 
 
+
+
+def test_operational_qualification_quiesces_only_before_session_reopen():
+    source = inspect.getsource(characterization.qualify_operational_contract_v3)
+    assert "def quiesce_before_session_reopen(reason)" in source
+    # Definition + main attempt reopen + cold-bracket reopen.
+    assert source.count("quiesce_before_session_reopen(") == 3
+    assert "wait_camera_idle(" in source
+    assert "idle_wait=" in source
+    assert "outside all" in source
+
+
+def test_operational_qualification_prompts_only_for_physical_preflight():
+    source = inspect.getsource(characterization.qualify_operational_contract_v3)
+    assert "except CameraPhysicalPreflightError as exc:" in source
+    assert "except CameraPreflightError as exc:" not in source
+
 def test_final_operational_qualification_starts_without_global_go_prompt():
     source = inspect.getsource(characterization.qualify_operational_contract_v3)
     assert "Final operational qualification before publication" not in source

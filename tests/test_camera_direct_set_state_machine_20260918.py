@@ -3,7 +3,11 @@ from types import SimpleNamespace
 import pytest
 
 from backend.camera_timing_contract import SAFETY_POLICY
-from plugins.camera.profile import ProfilePlugin
+from plugins.camera.profile import (
+    CameraPhysicalPreflightError,
+    CameraPreflightError,
+    ProfilePlugin,
+)
 
 
 class Node:
@@ -125,6 +129,46 @@ def prime(plugin, *names):
     for name in names:
         plugin._single_config_widgets[name] = plugin.camera.nodes[name]
 
+
+
+
+def test_direct_preflight_set_failure_is_not_reported_as_physical_action(monkeypatch):
+    data = profile("bracket")
+    data["commands"]["capture_mode"].update({
+        "name": "capturemode",
+        "writer": "single_config",
+        "set": True,
+    })
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=data)
+
+    reads = iter(["Bracket 3", "Bracket 3"])
+    monkeypatch.setattr(plugin, "_read", lambda _key: next(reads))
+
+    def fail_direct_set(_spec, _target):
+        raise RuntimeError("[-2] Bad parameters")
+
+    monkeypatch.setattr(plugin, "_direct_set_spec", fail_direct_set)
+
+    with pytest.raises(CameraPreflightError, match="USB preflight SET failed") as error:
+        plugin._ensure("capture_mode")
+
+    assert not isinstance(error.value, CameraPhysicalPreflightError)
+    assert "Bad parameters" in str(error.value)
+    assert "single-shot release mode" not in str(error.value)
+
+
+def test_get_only_preflight_mismatch_is_explicitly_physical(monkeypatch):
+    data = profile("bracket")
+    data["commands"]["capture_mode"].update({
+        "name": "capturemode",
+        "writer": "single_config",
+        "set": False,
+    })
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=data)
+    monkeypatch.setattr(plugin, "_read", lambda _key: "Bracket 3")
+
+    with pytest.raises(CameraPhysicalPreflightError, match="single-shot release mode"):
+        plugin._ensure("capture_mode")
 
 def test_timed_set_uses_single_config_only_and_skips_unchanged_value():
     camera = DirectCamera()

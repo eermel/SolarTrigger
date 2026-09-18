@@ -150,9 +150,15 @@ def wait_camera_idle(
 
 
 class CameraPreflightError(RuntimeError):
-    """A required physical camera state cannot be established before START."""
+    """Camera preflight failed before START."""
 
     code = "PREFLIGHT_FAILED"
+
+
+class CameraPhysicalPreflightError(CameraPreflightError):
+    """A required camera state can only be corrected physically."""
+
+    code = "PREFLIGHT_PHYSICAL_ACTION_REQUIRED"
 
 
 class ProfilePlugin(CameraPlugin):
@@ -414,7 +420,7 @@ class ProfilePlugin(CameraPlugin):
 
         if spec.get("writer") == "single_config":
             if spec.get("set") is False:
-                raise CameraPreflightError(
+                raise CameraPhysicalPreflightError(
                     self._manual_instruction(key, target, actual)
                 )
             try:
@@ -434,15 +440,23 @@ class ProfilePlugin(CameraPlugin):
                         f"during preflight of {key}: {read_exc}"
                     ) from exc
                 raise CameraPreflightError(
-                    self._manual_instruction(key, target, actual)
+                    f"USB preflight SET failed for {key} on "
+                    f"{self._display_model()}: requested={target!r}, "
+                    f"current={actual!r}: {exc}"
                 ) from exc
             self._invalidate_after_set(key)
             self._known_settings[key] = target
             return True
 
         if not self._live_writable(key):
+            if spec.get("set") is False:
+                raise CameraPhysicalPreflightError(
+                    self._manual_instruction(key, target, actual)
+                )
             raise CameraPreflightError(
-                self._manual_instruction(key, target, actual)
+                f"Characterized writable setting {key} is currently read-only "
+                f"on {self._display_model()}: requested={target!r}, "
+                f"current={actual!r}"
             )
 
         try:
@@ -457,7 +471,9 @@ class ProfilePlugin(CameraPlugin):
                     f"during preflight of {key}: {read_exc}"
                 ) from exc
             raise CameraPreflightError(
-                self._manual_instruction(key, target, actual)
+                f"USB preflight SET failed for {key} on "
+                f"{self._display_model()}: requested={target!r}, "
+                f"current={actual!r}: {exc}"
             ) from exc
         self._invalidate_after_set(key)
         self._known_settings[key] = target

@@ -1,5 +1,8 @@
 from copy import deepcopy
+import sys
 from types import SimpleNamespace
+
+import pytest
 
 from backend import camera_characterization as module
 from backend.camera_timing_contract import (
@@ -8,6 +11,22 @@ from backend.camera_timing_contract import (
     budget_ms,
     single_photo_duration_ms,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fake_gphoto2(monkeypatch):
+    # Only the constants exercised by this hardware-free test module.
+    monkeypatch.setitem(
+        sys.modules,
+        "gphoto2",
+        SimpleNamespace(
+            GP_EVENT_TIMEOUT=0,
+            GP_EVENT_FILE_ADDED=1,
+            GP_STORAGEINFO_FREESPACEIMAGES=1,
+            GP_STORAGEINFO_FREESPACEKBYTES=2,
+            GP_STORAGEINFO_MAXCAPACITY=4,
+        ),
+    )
 
 
 class FakeJob:
@@ -39,6 +58,15 @@ class FakeCamera:
 
     def init(self):
         self.init_count += 1
+
+    def wait_for_event(self, timeout_ms):
+        # Real gphoto2 wait_for_event() blocks for the requested timeout.
+        # These qualification tests use a synthetic monotonic clock, so advance
+        # that same clock through the monkeypatched module.time.sleep().
+        import gphoto2 as gp
+
+        module.time.sleep(max(0.0, float(timeout_ms) / 1000.0))
+        return gp.GP_EVENT_TIMEOUT, None
 
 
 def _contract(single=650):

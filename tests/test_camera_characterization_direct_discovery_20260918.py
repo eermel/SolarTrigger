@@ -121,6 +121,36 @@ def test_storage_failure_is_not_scored_as_trigger_failure():
     assert "incomplete capture confirmation" in source
 
 
+
+
+def test_unknown_storage_operator_confirmation_aborts_globally():
+    from backend.camera_characterization import (
+        CameraStorageCapacityError,
+        _raise_if_operator_reports_unknown_storage_problem,
+    )
+
+    answers = []
+
+    class Job:
+        def ask(self, message, kind="result"):
+            answers.append((kind, message))
+            return True
+
+    snapshot = {
+        "supported": False,
+        "stores": [],
+        "error": "[-1] Unspecified error",
+    }
+
+    with pytest.raises(CameraStorageCapacityError, match="reported by operator"):
+        _raise_if_operator_reports_unknown_storage_problem(
+            snapshot, Job(), "unit test"
+        )
+
+    assert answers
+    assert "full" in answers[0][1].casefold()
+    assert "write-protected" in answers[0][1].casefold()
+
 def test_readonly_fresh_session_preflight_is_operator_assisted():
     source = inspect.getsource(characterize)
     assert "Fresh-session camera preflight" in source

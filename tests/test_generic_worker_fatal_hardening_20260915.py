@@ -89,5 +89,13 @@ def test_keyboard_interrupt_also_fails_closed():
         time.sleep(0.001)
 
     assert worker.healthy is False
+
+    # unhealthy is published before the worker thread has necessarily completed
+    # its finally cleanup. Wait independently for thread termination, just as
+    # for the SystemExit fatal path above.
+    until = time.monotonic() + 1.0
+    while worker.running and time.monotonic() < until:
+        time.sleep(0.001)
+
     assert worker.running is False
     assert worker.stop(timeout=1.0) is True
