@@ -1923,13 +1923,14 @@ def characterize(camera, entry, job):
     contract = profile["timing_contract"]
     set_overhead_ms = contract["set_overhead_ms"]
 
-    # Operational qualification may increase SET budgets. The published
-    # preparation lead must never become smaller than the complete guarded
-    # worst-case SET preamble.
-    guarded_set_count = 4 if profile["brackets"] else 3
-    contract["prepare_lead_ms"] = max(
-        int(contract.get("prepare_lead_ms", 0) or 0),
-        int(guarded_set_count * set_overhead_ms),
+    # Runtime v3 is reactive: SET/PHOTO guard budgets are limits, not
+    # reservations that must be consumed.  prepare_lead_ms is therefore the
+    # independently measured full runtime SET preamble (already protected by
+    # the v3 safety policy), and must not be inflated to N * set_overhead_ms.
+    #
+    # set_overhead_ms remains a per-command overrun/deadline guard only.
+    contract["prepare_lead_ms"] = int(
+        contract.get("prepare_lead_ms", 0) or 0
     )
 
     single_overhead_ms = contract["single_overhead_ms"]
@@ -2301,7 +2302,8 @@ def qualify_operational_contract_v3(
     end-to-end camera IVVQ.
 
     The validation-only diagnostic guard and late-confirmation grace are not
-    used here: every next operation starts at the production contract boundary.
+    used here. Qualification follows the reactive production cadence: the next
+    operation starts immediately when the previous real operation completes.
 
     If a newly observed operation requires a larger guarded budget under the
     v3 safety policy, the affected contract value is revised and the complete
@@ -2396,7 +2398,8 @@ def qualify_operational_contract_v3(
 
         job.log(
             f"RUNTIME QUALIFICATION V3: attempt {attempt}; "
-            "fresh gphoto session; production cadence; no diagnostic guard"
+            "fresh gphoto session; reactive production cadence; "
+            "guards are limits, not reservations"
         )
 
         # A fresh CameraWorker opens a fresh gphoto session in production.
@@ -2508,14 +2511,9 @@ def qualify_operational_contract_v3(
                     restart = True
                     break
 
-                # Production starts the following operation at the next
-                # reserved contract boundary.
-                time.sleep(
-                    max(
-                        0.0,
-                        (budget - elapsed_ms) / 1000.0,
-                    )
-                )
+                # Reactive runtime: the guarded budget is an overrun limit,
+                # not a reservation. Continue immediately when the real SET
+                # completes; do not sleep away unused guard time.
 
             elif action == "PHOTO":
                 # This grace belongs only to the external IVVQ.  Qualification
@@ -2684,14 +2682,9 @@ def qualify_operational_contract_v3(
                         restart = True
                         break
 
-                # Keep the exact production reservation.  There is
-                # intentionally no IVVQ +2000 ms diagnostic gap here.
-                time.sleep(
-                    max(
-                        0.0,
-                        (budget - elapsed_ms) / 1000.0,
-                    )
-                )
+                # Reactive runtime: PHOTO guard values bound admission and
+                # timeout handling, but unused guard time is not consumed.
+                # There is intentionally no IVVQ diagnostic gap here.
 
             else:
                 raise RuntimeError(
@@ -2863,12 +2856,8 @@ def qualify_operational_contract_v3(
                         restart = True
                         return False
 
-                    time.sleep(
-                        max(
-                            0.0,
-                            (budget - elapsed_ms) / 1000.0,
-                        )
-                    )
+                    # Reactive runtime: proceed immediately after a SET
+                    # that completed within its guard budget.
 
                 return True
 
@@ -3007,15 +2996,8 @@ def qualify_operational_contract_v3(
                     cold_record["status"] = "budget_revised"
                     restart = True
                 else:
-                    # Respect the same production reservation before applying
-                    # the deterministic final-state SET tail.
-                    time.sleep(
-                        max(
-                            0.0,
-                            (budget - elapsed_ms) / 1000.0,
-                        )
-                    )
-
+                    # Do not consume unused PHOTO budget. Restore the final
+                    # camera state immediately after the real PHOTO completes.
                     if run_cold_sets(
                         cold_restore_sets,
                         "restore",
