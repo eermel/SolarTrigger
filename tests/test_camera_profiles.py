@@ -241,6 +241,11 @@ class SimulatedCamera:
 
     def get_config(self): return self.config
     def set_config(self, config): self.now += .25
+    def get_single_config(self, name):
+        return self.config.get_child_by_name(name)
+    def set_single_config(self, name, widget):
+        assert self.config.get_child_by_name(name) is widget
+        self.now += .05
     def exit(self):
         self.exit_count += 1
     def init(self):

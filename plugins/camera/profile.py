@@ -27,6 +27,12 @@ def widget(camera, path):
 
 
 def write_widget(camera, path, value):
+    """Legacy full-tree writer.
+
+    This performs a camera.get_config() and therefore is forbidden on the
+    characterized timed path.  It remains for legacy profiles and non-timed
+    compatibility code only.
+    """
     config, node = widget(camera, path)
     # Preserve the widget's native scalar type, notably TOGGLE/RANGE.
     current = node.get_value()
@@ -34,6 +40,39 @@ def write_widget(camera, path, value):
         value = type(current)(value)
     node.set_value(value)
     camera.set_config(config)
+
+
+def prime_single_config(camera, spec):
+    """Fetch one characterized widget before timed execution.
+
+    The returned CameraWidget is an in-memory template.  Runtime SETs mutate
+    this template and call set_single_config(); they never call get_config().
+    """
+    name = spec.get("name")
+    if not isinstance(name, str) or not name:
+        raise RuntimeError("characterized single-config writer has no name")
+    getter = getattr(camera, "get_single_config", None)
+    if not callable(getter):
+        raise RuntimeError("gphoto2 get_single_config is unavailable")
+    return getter(name)
+
+
+def write_single_config(camera, spec, node, value):
+    """Perform one application-level single-config SET using a pre-fetched widget."""
+    name = spec.get("name")
+    if not isinstance(name, str) or not name:
+        raise RuntimeError("characterized single-config writer has no name")
+    setter = getattr(camera, "set_single_config", None)
+    if not callable(setter):
+        raise RuntimeError("gphoto2 set_single_config is unavailable")
+
+    # get_value() reads the already cached CameraWidget object; it is not a
+    # camera/USB GET.  It is used only to preserve native scalar types.
+    current = node.get_value()
+    if isinstance(current, (int, float)):
+        value = type(current)(value)
+    node.set_value(value)
+    setter(name, node)
 
 
 def write_checked(camera, path, value, timeout_s=5.0):
@@ -136,6 +175,10 @@ class ProfilePlugin(CameraPlugin):
         # to skip the dedicated readonly GET on later writes; if a write later
         # fails, that key is evicted so the next attempt probes again.
         self._writable_cache = set()
+        # Characterized set_single_config widgets are fetched during preflight
+        # only.  Once START/timed execution begins, this cache is the sole
+        # source used by direct SETs: no configuration GET is permitted.
+        self._single_config_widgets = {}
 
     @staticmethod
     def matches(model_string):
@@ -171,8 +214,54 @@ class ProfilePlugin(CameraPlugin):
 
     def _read(self, key):
         spec = self.commands[key]
+        if spec.get("writer") == "single_config":
+            node = prime_single_config(self.camera, spec)
+            self._single_config_widgets[spec["name"]] = node
+            return node.get_value()
         _, node = widget(self.camera, spec["path"])
         return node.get_value()
+
+    def _prime_single_spec(self, spec):
+        if spec.get("writer") != "single_config":
+            return
+        name = spec.get("name")
+        if name not in self._single_config_widgets:
+            self._single_config_widgets[name] = prime_single_config(
+                self.camera, spec
+            )
+
+    def _prime_runtime_writers(self):
+        """Prime all direct writers before the timed trigger path starts."""
+        for spec in self.commands.values():
+            if isinstance(spec, dict) and spec.get("set") is not False:
+                self._prime_single_spec(spec)
+
+        trigger_specs = [self.commands.get("trigger_single")]
+        trigger_specs.extend(
+            bracket.get("trigger")
+            for bracket in self.profile.get("brackets", {}).values()
+            if isinstance(bracket, dict)
+        )
+        for spec in trigger_specs:
+            if isinstance(spec, dict) and spec.get("method") == "widget":
+                self._prime_single_spec(spec)
+
+    def _direct_set_spec(self, spec, value):
+        """SET from the primed cache; deliberately never performs a GET."""
+        if spec.get("writer") != "single_config":
+            raise RuntimeError("command is not characterized for direct SET")
+        name = spec.get("name")
+        node = self._single_config_widgets.get(name)
+        if node is None:
+            raise CameraPreflightError(
+                f"Direct SET writer {name!r} was not primed before START"
+            )
+        write_single_config(self.camera, spec, node, value)
+
+    def _invalidate_after_set(self, key):
+        spec = self.commands.get(key, {})
+        for invalidated in spec.get("invalidates", []):
+            self._known_settings.pop(str(invalidated), None)
 
     def _resolve_profile_shutter(self, value):
         """Resolve a requested shutter to one characterized profile spelling.
@@ -309,12 +398,47 @@ class ProfilePlugin(CameraPlugin):
         )
 
     def _ensure(self, key, value=None) -> bool:
-        """GET first; SET only when the required value is different."""
+        """Preflight GET first; SET only when the required value differs."""
+        spec = self.commands[key]
         target = self._resolved_value(key, value)
         actual = self._read(key)
         if str(actual) == str(target):
             self._known_settings[key] = target
             return False
+
+        # A non-controllable aperture is a valid manual lens/telescope.  Its
+        # f-number is informational and must never block camera initialization.
+        if key == "aperture" and spec.get("set") is False:
+            self._known_settings.pop(key, None)
+            return False
+
+        if spec.get("writer") == "single_config":
+            if spec.get("set") is False:
+                raise CameraPreflightError(
+                    self._manual_instruction(key, target, actual)
+                )
+            try:
+                self._direct_set_spec(spec, target)
+                verified = self._read(key)
+                if str(verified) != str(target):
+                    raise RuntimeError(
+                        f"readback mismatch: requested={target!r}, "
+                        f"actual={verified!r}"
+                    )
+            except Exception as exc:
+                try:
+                    actual = self._read(key)
+                except Exception as read_exc:
+                    raise CameraPreflightError(
+                        f"Communication with {self._display_model()} failed "
+                        f"during preflight of {key}: {read_exc}"
+                    ) from exc
+                raise CameraPreflightError(
+                    self._manual_instruction(key, target, actual)
+                ) from exc
+            self._invalidate_after_set(key)
+            self._known_settings[key] = target
+            return True
 
         if not self._live_writable(key):
             raise CameraPreflightError(
@@ -322,13 +446,9 @@ class ProfilePlugin(CameraPlugin):
             )
 
         try:
-            write_checked(self.camera, self.commands[key]["path"], target)
+            write_checked(self.camera, spec["path"], target)
         except Exception as exc:
             self._writable_cache.discard(key)
-            # Legacy profiles may lack explicit set=false even when gphoto2
-            # exposes a physical-dial setting as superficially writable.  A
-            # failed transition at preflight is still an operator-actionable
-            # physical requirement, not a generic runtime USB error.
             try:
                 actual = self._read(key)
             except Exception as read_exc:
@@ -339,18 +459,39 @@ class ProfilePlugin(CameraPlugin):
             raise CameraPreflightError(
                 self._manual_instruction(key, target, actual)
             ) from exc
+        self._invalidate_after_set(key)
         self._known_settings[key] = target
         self._writable_cache.add(key)
         return True
 
     def _apply(self, key, value=None):
-        """Apply one SET only when the effective camera state must change."""
+        """Timed SET path: no camera GET, and no SET when state is unchanged."""
+        spec = self.commands[key]
         target = self._resolved_value(key, value)
         if (
             key in self._known_settings
             and str(self._known_settings[key]) == str(target)
         ):
             return False
+
+        # Manual optics are intentionally ignored.  The profile may retain a
+        # readable aperture for diagnostics, but runtime never tries to set it.
+        if key == "aperture" and spec.get("set") is False:
+            return False
+
+        if spec.get("writer") == "single_config":
+            if spec.get("set") is False:
+                raise CameraPreflightError(
+                    f"Characterized setting {key} is not writable"
+                )
+            self._direct_set_spec(spec, target)
+            self._invalidate_after_set(key)
+            self._known_settings[key] = target
+            return True
+
+        # Legacy profile compatibility. New characterizations never use this
+        # branch for timed ISO/shutter/capture-mode SETs because it performs a
+        # configuration GET before SET.
         if not self._live_writable(key):
             actual = self._read(key)
             if str(actual) == str(target):
@@ -359,15 +500,12 @@ class ProfilePlugin(CameraPlugin):
             raise CameraPreflightError(
                 self._manual_instruction(key, target, actual)
             )
-
-        # Runtime timing contracts describe guard budgets only.  They must not
-        # change the USB write protocol: qualification uses checked writes, but
-        # timed Trigger SETs use the minimal characterized path (GET + SET).
         try:
-            write_widget(self.camera, self.commands[key]["path"], target)
+            write_widget(self.camera, spec["path"], target)
         except Exception:
             self._writable_cache.discard(key)
             raise
+        self._invalidate_after_set(key)
         self._known_settings[key] = target
         self._writable_cache.add(key)
         return True
@@ -407,8 +545,17 @@ class ProfilePlugin(CameraPlugin):
                 raise CameraPreflightError(
                     f"Required parameter is not characterized: {parameter}"
                 )
+            if key == "aperture" and self.commands[key].get("set") is False:
+                # Manual lens / telescope: aperture is not a controllable camera
+                # variable and therefore is never a preflight failure.
+                continue
             if self._ensure(key, value):
                 changed.append(str(parameter))
+
+        # Prime every direct writer now, while camera GETs are still allowed.
+        # The timed Trigger path treats a missing primed widget as an error
+        # rather than silently issuing a USB GET.
+        self._prime_runtime_writers()
 
         return {
             "ok": True,
@@ -438,7 +585,11 @@ class ProfilePlugin(CameraPlugin):
         required = {"iso": 100 if iso is None else iso}
         if "capture_mode" in self.commands:
             required["capturemode"] = self.commands["capture_mode"]["value"]
-        if aperture is not None and "aperture" in self.commands:
+        if (
+            aperture is not None
+            and "aperture" in self.commands
+            and self.commands["aperture"].get("set") is not False
+        ):
             required["f-number"] = aperture
 
         # image_format is a generic acquisition intent. Translate it to the
@@ -461,7 +612,11 @@ class ProfilePlugin(CameraPlugin):
         changed = False
         if iso is not None:
             changed = self._apply("iso", iso) or changed
-        if aperture is not None and "aperture" in self.commands:
+        if (
+            aperture is not None
+            and "aperture" in self.commands
+            and self.commands["aperture"].get("set") is not False
+        ):
             changed = self._apply("aperture", aperture) or changed
         return changed
 
@@ -533,11 +688,14 @@ class ProfilePlugin(CameraPlugin):
             import gphoto2 as gp
             return self.camera.capture(gp.GP_CAPTURE_IMAGE)
         elif method == "widget":
-            write_widget(
-                self.camera,
-                spec["path"],
-                spec["value"],
-            )
+            if spec.get("writer") == "single_config":
+                self._direct_set_spec(spec, spec["value"])
+            else:
+                write_widget(
+                    self.camera,
+                    spec["path"],
+                    spec["value"],
+                )
         else:
             raise ValueError("unsupported trigger")
 
@@ -643,11 +801,14 @@ class ProfilePlugin(CameraPlugin):
                     )
         finally:
             if "release" in spec:
-                write_widget(
-                    self.camera,
-                    spec["path"],
-                    spec["release"],
-                )
+                if spec.get("writer") == "single_config":
+                    self._direct_set_spec(spec, spec["release"])
+                else:
+                    write_widget(
+                        self.camera,
+                        spec["path"],
+                        spec["release"],
+                    )
 
         # Confirm late files after release. There is deliberately no
         # characterization-only quiet period in Trigger.
@@ -1223,17 +1384,24 @@ class ProfilePlugin(CameraPlugin):
                         group_speeds[0],
                     )
 
-                # Self-contained group:
-                #   ISO
-                #   [Single capture mode]
-                #   shutter
-                #   [bracket capture mode]
-                #   PHOTO
-                set_count = 2
+                # Conservative planner cost. Runtime later removes
+                # every SET whose value is already known to be effective.
+                # Native brackets characterized with in-bracket shutter SET
+                # need only one capture-mode SET instead of the historical
+                # Single->shutter->Bracket round-trip.
+                set_count = 2  # ISO + shutter
                 if has_capture_mode:
-                    set_count += 1
-                if frames > 1:
-                    set_count += 1
+                    if frames > 1:
+                        bracket_spec = self.profile["brackets"][str(frames)]
+                        set_count += (
+                            2
+                            if bracket_spec.get(
+                                "shutter_requires_single_mode", True
+                            )
+                            else 1
+                        )
+                    else:
+                        set_count += 1
 
                 total = (
                     set_count * set_ms
@@ -1279,29 +1447,42 @@ class ProfilePlugin(CameraPlugin):
                 )
             )
 
-            if has_capture_mode:
-                operations.append(
-                    set_operation(
-                        "capturemode",
-                        self.commands["capture_mode"]["value"],
-                    )
-                )
-
-            operations.append(
-                set_operation(
-                    "shutterspeed",
-                    centre,
-                )
-            )
-
             if frames > 1:
-                operations.append(
-                    set_operation(
-                        "capturemode",
-                        self.profile["brackets"][
-                            str(frames)
-                        ]["mode"],
+                bracket_spec = self.profile["brackets"][str(frames)]
+                requires_single = bracket_spec.get(
+                    "shutter_requires_single_mode", True
+                )
+                if has_capture_mode and requires_single:
+                    operations.append(
+                        set_operation(
+                            "capturemode",
+                            self.commands["capture_mode"]["value"],
+                        )
                     )
+                    operations.append(
+                        set_operation("shutterspeed", centre)
+                    )
+                    operations.append(
+                        set_operation("capturemode", bracket_spec["mode"])
+                    )
+                else:
+                    if has_capture_mode:
+                        operations.append(
+                            set_operation("capturemode", bracket_spec["mode"])
+                        )
+                    operations.append(
+                        set_operation("shutterspeed", centre)
+                    )
+            else:
+                if has_capture_mode:
+                    operations.append(
+                        set_operation(
+                            "capturemode",
+                            self.commands["capture_mode"]["value"],
+                        )
+                    )
+                operations.append(
+                    set_operation("shutterspeed", centre)
                 )
 
             operations.append(
@@ -1379,20 +1560,18 @@ class ProfilePlugin(CameraPlugin):
         return sum(float(value) for value in durations) / 1000.0
 
     def _effective_capture_group(self, group):
-        """Filter redundant SETs while preserving camera mode dependencies.
+        """Remove every redundant SET using characterized state dependencies.
 
-        Sony bracket capture requires:
-            Bracket -> Single Shot -> SET shutter -> Bracket N -> PHOTO
-
-        Therefore a real transition back to Single Shot forces the following
-        shutter SET even when its numeric value matches the cached value.
+        No camera GET is allowed here.  The local state cache is authoritative
+        until a SET/capture failure or reconnect.  A setting is resent only if
+        its requested value changed, or if a characterized dependency explicitly
+        invalidated our knowledge of that setting.
         """
         if not group or group[-1].get("action") == "set":
             return group
 
         simulated = dict(self._known_settings)
         effective = []
-        force_shutter = False
 
         for operation in group:
             if operation.get("action") != "set":
@@ -1405,29 +1584,13 @@ class ProfilePlugin(CameraPlugin):
 
             target = self._resolved_value(key, operation.get("value"))
             same = key in simulated and str(simulated[key]) == str(target)
-
-            if key == "capture_mode":
-                single = self._resolved_value(
-                    "capture_mode",
-                    self.commands["capture_mode"]["value"],
-                )
-                if not same and str(target) == str(single):
-                    effective.append(operation)
-                    simulated[key] = target
-                    force_shutter = True
-                    continue
-
-            if key == "shutter" and force_shutter:
-                effective.append(operation)
-                simulated[key] = target
-                force_shutter = False
-                continue
-
             if same:
                 continue
 
             effective.append(operation)
             simulated[key] = target
+            for invalidated in self.commands[key].get("invalidates", []):
+                simulated.pop(str(invalidated), None)
 
         return tuple(effective)
 

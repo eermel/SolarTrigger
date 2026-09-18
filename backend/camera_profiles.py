@@ -23,8 +23,17 @@ def _valid_trigger(spec):
         return False
     if spec.get("method") not in ("trigger_capture", "capture", "widget"):
         return False
-    if spec.get("method") == "widget" and not spec.get("path"):
-        return False
+    if spec.get("method") == "widget":
+        if not spec.get("path"):
+            return False
+        writer = spec.get("writer")
+        if writer not in (None, "single_config"):
+            return False
+        if writer == "single_config" and (
+            not isinstance(spec.get("name"), str)
+            or not spec["name"].strip()
+        ):
+            return False
     return True
 
 
@@ -81,6 +90,20 @@ def validate_profile(data):
             raise ValueError(
                 f"camera command {key} is neither readable nor writable"
             )
+        writer = command.get("writer")
+        if writer not in (None, "single_config"):
+            raise ValueError(f"invalid {key}.writer")
+        if writer == "single_config" and (
+            not isinstance(command.get("name"), str)
+            or not command["name"].strip()
+        ):
+            raise ValueError(f"missing {key}.name for single_config writer")
+        invalidates = command.get("invalidates", [])
+        if (
+            not isinstance(invalidates, list)
+            or any(not isinstance(value, str) for value in invalidates)
+        ):
+            raise ValueError(f"invalid {key}.invalidates")
 
     contract = data.get("timing_contract")
     contract_version = contract.get("version") if isinstance(contract, dict) else None
@@ -102,6 +125,11 @@ def validate_profile(data):
             raise ValueError("only validated 1 EV brackets are supported")
         if not _valid_trigger(spec.get("trigger", {})):
             raise ValueError("invalid bracket trigger")
+        if (
+            "shutter_requires_single_mode" in spec
+            and type(spec["shutter_requires_single_mode"]) is not bool
+        ):
+            raise ValueError("invalid bracket shutter preparation policy")
 
         # Contract v3 no longer stores per-size timing histories. Older profiles
         # still require their legacy atomic/total fields for compatibility.

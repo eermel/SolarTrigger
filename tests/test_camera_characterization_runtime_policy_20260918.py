@@ -104,7 +104,7 @@ def test_bracket_sizes_can_select_different_capture_primitives():
     assert characterization._select_bracket_candidate(bracket9)["command_id"] == "bulb"
 
 
-def test_runtime_apply_uses_minimal_write_even_with_timing_contract(monkeypatch):
+def test_runtime_apply_uses_legacy_write_only_for_legacy_profile(monkeypatch):
     plugin = ProfilePlugin(
         None,
         log_fn=lambda _message: None,
@@ -117,12 +117,9 @@ def test_runtime_apply_uses_minimal_write_even_with_timing_contract(monkeypatch)
     def fake_write_widget(camera, path, value):
         calls.append(("write_widget", path, value))
 
-    def forbidden_write_checked(*_args, **_kwargs):
-        raise AssertionError("runtime _apply must not use write_checked")
-
     monkeypatch.setattr(profile_module, "write_widget", fake_write_widget)
-    monkeypatch.setattr(profile_module, "write_checked", forbidden_write_checked)
 
+    # Profiles characterized before the direct-writer metadata remain usable.
     assert plugin._apply("iso", "200") is True
     assert calls == [("write_widget", "/main/iso", "200")]
 

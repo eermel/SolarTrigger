@@ -19,7 +19,17 @@ import time
 import uuid
 
 from backend.camera_profiles import validate_profile
-from plugins.camera.profile import write_widget, widget, ProfilePlugin, wait_camera_idle, CameraIdleTimeout, write_checked, prepare_photo
+from plugins.camera.profile import (
+    write_widget,
+    widget,
+    ProfilePlugin,
+    wait_camera_idle,
+    CameraIdleTimeout,
+    write_checked,
+    prepare_photo,
+    prime_single_config,
+    write_single_config,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -189,7 +199,9 @@ def enumerate_widgets(camera):
                 choices = list(node.get_choices())
             except Exception:
                 choices = []
-            result.append({"path": path, "name": node.get_name().lower(),
+            exact_name = node.get_name()
+            result.append({"path": path, "name": exact_name.lower(),
+                           "config_name": exact_name,
                            "value": node.get_value(), "choices": choices,
                            "readonly": bool(node.get_readonly())})
     walk(camera.get_config())
@@ -230,6 +242,9 @@ def _persistent_profile_document(profile):
             "step_ev": spec["step_ev"],
             "mode": spec["mode"],
             "trigger": deepcopy(spec["trigger"]),
+            "shutter_requires_single_mode": bool(
+                spec.get("shutter_requires_single_mode", True)
+            ),
         }
 
     return validate_profile(result)
@@ -506,15 +521,25 @@ def characterize(camera, entry, job):
             _, node = widget(camera, path)
             return node.get_value()
 
-        def write_and_confirm(path, value):
+        def direct_spec(candidate):
+            return {
+                "path": candidate["path"],
+                "name": candidate["config_name"],
+                "writer": "single_config",
+            }
+
+        def write_and_confirm(candidate, node, value):
+            # Timed portion is SET-only. Readback happens afterwards and is
+            # characterization evidence, never part of the runtime path.
             started = time.monotonic()
-            write_widget(camera, path, value)
+            write_single_config(camera, direct_spec(candidate), node, value)
+            elapsed_ms = (time.monotonic() - started) * 1000.0
             deadline = time.monotonic() + 5.0
             for attempt in range(20):
                 job.check()
-                actual = read_value(path)
+                actual = read_value(candidate["path"])
                 if str(actual) == str(value):
-                    return (time.monotonic() - started) * 1000.0
+                    return elapsed_ms
                 if time.monotonic() >= deadline or attempt == 19:
                     raise RuntimeError(
                         f"readback mismatch: requested={value!r}, actual={actual!r}"
@@ -551,19 +576,21 @@ def characterize(camera, entry, job):
                         ev.durations_ms.append(0.0)
                         job.log(f"CANDIDATE {key}: {cid} qualified GET-only")
                         continue
-                    # Qualify exactly the runtime operation we need:
-                    # repeated SET(target) followed by readback(target).
-                    #
-                    # Do not bounce through unrelated alternate values merely
-                    # to prove reversibility.  A camera may legitimately reject
-                    # some advertised choices in its current mode/session
-                    # (Sony PC Control is one example).  Such a rejection says
-                    # nothing about the reliability of the requested runtime
-                    # value and must not invalidate it.
+                    # Qualify the exact production primitive:
+                    # get_single_config is done once before timing, then each
+                    # trial is one set_single_config followed by an untimed
+                    # readback. New runtime profiles therefore never need a
+                    # configuration GET to perform a SET.
+                    try:
+                        node = prime_single_config(camera, direct_spec(candidate))
+                    except Exception as exc:
+                        ev.failures.append(f"direct writer prime: {exc}")
+                        errors.append(f"DIRECT SET {cid}: {exc}")
+                        continue
                     for trial in range(5):
                         try:
                             ev.durations_ms.append(
-                                write_and_confirm(path, target)
+                                write_and_confirm(candidate, node, target)
                             )
                         except Exception as exc:
                             ev.failures.append(f"trial {trial+1}: {exc}")
@@ -584,8 +611,15 @@ def characterize(camera, entry, job):
             if selectable:
                 selected = select_best(selectable)
                 candidate, target, _ = candidate_by_id[selected.candidate_id]
-                commands[key] = {"path": candidate["path"], "value": target,
-                                 "get": True, "set": not candidate["readonly"]}
+                commands[key] = {
+                    "path": candidate["path"],
+                    "name": candidate["config_name"],
+                    "value": target,
+                    "get": True,
+                    "set": not candidate["readonly"],
+                }
+                if not candidate["readonly"]:
+                    commands[key]["writer"] = "single_config"
                 selection_evidence[key] = compact_selection(key, evidence, selected)
                 job.log(f"SELECT {key}: {selected.candidate_id}")
                 return candidate
@@ -764,6 +798,7 @@ def characterize(camera, entry, job):
 
             commands["aperture"] = {
                 "path": aperture_path,
+                "name": aperture_item["config_name"],
                 "get": True,
                 "set": False,
                 "values": {
@@ -812,24 +847,41 @@ def characterize(camera, entry, job):
                 alternates = alternates[:aperture_probe_limit]
 
                 proof_errors = []
+                aperture_direct_spec = {
+                    "path": aperture_path,
+                    "name": aperture_item["config_name"],
+                    "writer": "single_config",
+                }
+                try:
+                    aperture_node = prime_single_config(
+                        camera, aperture_direct_spec
+                    )
+                except Exception as exc:
+                    aperture_node = None
+                    proof_errors.append(f"direct writer unavailable: {exc}")
 
-                for alternate in alternates:
+                for alternate in alternates if aperture_node is not None else []:
                     job.check()
 
                     try:
-                        # Real transition.
-                        write_checked(
-                            camera,
-                            aperture_path,
-                            alternate,
+                        # Real direct transition and untimed readback proof.
+                        write_single_config(
+                            camera, aperture_direct_spec, aperture_node, alternate
                         )
+                        _, verify_node = widget(camera, aperture_path)
+                        if str(verify_node.get_value()) != str(alternate):
+                            raise RuntimeError("aperture transition readback mismatch")
 
                         # Restore and prove the original aperture too.
-                        write_checked(
+                        write_single_config(
                             camera,
-                            aperture_path,
+                            aperture_direct_spec,
+                            aperture_node,
                             aperture_reference,
                         )
+                        _, verify_node = widget(camera, aperture_path)
+                        if str(verify_node.get_value()) != str(aperture_reference):
+                            raise RuntimeError("aperture restore readback mismatch")
 
                     except Exception as exc:
                         proof_errors.append(
@@ -865,6 +917,7 @@ def characterize(camera, entry, job):
                         continue
 
                     commands["aperture"]["set"] = True
+                    commands["aperture"]["writer"] = "single_config"
                     aperture_probe_value = alternate
 
                     job.log(
@@ -947,6 +1000,25 @@ def characterize(camera, entry, job):
                 value,
             )
 
+    direct_nodes = {}
+
+    def prime_runtime_spec(spec):
+        if spec.get("writer") != "single_config":
+            return None
+        name = spec["name"]
+        if name not in direct_nodes:
+            direct_nodes[name] = prime_single_config(camera, spec)
+        return direct_nodes[name]
+
+    def runtime_set(key, value):
+        spec = commands[key]
+        if spec.get("writer") == "single_config":
+            node = prime_runtime_spec(spec)
+            write_single_config(camera, spec, node, value)
+        else:
+            # Compatibility only for initialization-only optional commands.
+            write_widget(camera, spec["path"], value)
+
     def measure_set(key, values):
         values = list(values)
         if not values:
@@ -958,17 +1030,13 @@ def characterize(camera, entry, job):
         for _ in range(5):
             for value in values:
                 job.check()
-                # Functional SET qualification above already proved that this
-                # exact command is writable and stable using readback.  Timing
-                # must now measure the hot production path only: write_widget()
-                # performs the one GET needed to obtain the widget, then SET.
-                # Do not add a separate readonly GET or verification readback.
+                # Production timing measures one SolarTrigger SET call only.
+                # The CameraWidget was primed before this loop, so SolarTrigger
+                # performs no get_config()/get_single_config() here. Any internal
+                # PTP traffic performed by libgphoto2 is part of the measured SET.
+                prime_runtime_spec(commands[key])
                 begin = time.monotonic()
-                write_widget(
-                    camera,
-                    commands[key]["path"],
-                    value,
-                )
+                runtime_set(key, value)
                 samples.append(
                     (time.monotonic() - begin) * 1000.0
                 )
@@ -1047,11 +1115,7 @@ def characterize(camera, entry, job):
 
         # Characterization must leave the physical lens at the exact
         # aperture that was present before the timing trials.
-        write_checked(
-            camera,
-            commands["aperture"]["path"],
-            aperture_reference,
-        )
+        runtime_set("aperture", aperture_reference)
 
     if mode and commands["capture_mode"].get("set") is not False:
         single_mode = commands["capture_mode"]["value"]
@@ -1079,10 +1143,64 @@ def characterize(camera, entry, job):
             "capture_mode",
             mode_values,
         )
-        write_checked(
-            camera,
-            commands["capture_mode"]["path"],
-            single_mode,
+        runtime_set("capture_mode", single_mode)
+
+    # Determine whether a shutter transition can be made while each native
+    # bracket mode is already active. This decides whether runtime needs the
+    # historical Single->shutter->Bracket round-trip. GET/readback is allowed
+    # here because this is characterization, never timed execution.
+    bracket_prepare_policy = {}
+    if ordered_modes and "capture_mode" in commands:
+        for frames, mode_value in sorted(ordered_modes.items()):
+            requires_single = True
+            try:
+                runtime_set("capture_mode", mode_value)
+                runtime_set("shutter", shutter_other)
+                _, verify_node = widget(camera, commands["shutter"]["path"])
+                first_ok = str(verify_node.get_value()) == str(shutter_other)
+                runtime_set("shutter", speeds["1/500"])
+                _, verify_node = widget(camera, commands["shutter"]["path"])
+                restore_ok = str(verify_node.get_value()) == str(speeds["1/500"])
+                requires_single = not (first_ok and restore_ok)
+            except Exception as exc:
+                requires_single = True
+                job.log(
+                    f"BRACKET PREP {frames}: in-bracket shutter SET not proven: {exc}"
+                )
+            finally:
+                runtime_set("capture_mode", single_mode)
+                runtime_set("shutter", speeds["1/500"])
+            bracket_prepare_policy[frames] = requires_single
+            job.log(
+                f"BRACKET PREP {frames}: shutter_requires_single_mode="
+                f"{requires_single}"
+            )
+
+    # Characterize state dependencies caused by capture-mode transitions. If
+    # readback proves ISO/shutter are preserved, runtime is allowed to keep
+    # those cached values and avoid redundant SETs.
+    if "capture_mode" in commands and ordered_modes:
+        invalidates = set()
+        probe_mode = ordered_modes[sorted(ordered_modes)[0]]
+        runtime_set("capture_mode", single_mode)
+        runtime_set("iso", commands["iso"]["values"]["100"])
+        runtime_set("shutter", speeds["1/500"])
+        for next_mode in (probe_mode, single_mode):
+            runtime_set("capture_mode", next_mode)
+            for dep_key, expected in (
+                ("iso", commands["iso"]["values"]["100"]),
+                ("shutter", speeds["1/500"]),
+            ):
+                _, dep_node = widget(camera, commands[dep_key]["path"])
+                if str(dep_node.get_value()) != str(expected):
+                    invalidates.add(dep_key)
+        commands["capture_mode"]["invalidates"] = sorted(invalidates)
+        runtime_set("capture_mode", single_mode)
+        runtime_set("iso", commands["iso"]["values"]["100"])
+        runtime_set("shutter", speeds["1/500"])
+        job.log(
+            "CAPTURE MODE DEPENDENCIES: invalidates="
+            f"{commands['capture_mode']['invalidates']}"
         )
 
     all_set_samples = [
@@ -1104,15 +1222,6 @@ def characterize(camera, entry, job):
         """
         started = time.monotonic()
 
-        def runtime_set(key, value):
-            # Mirror the hot ProfilePlugin._apply() path after writability has
-            # already been proven/cached: one widget GET followed by SET.
-            write_widget(
-                camera,
-                commands[key]["path"],
-                value,
-            )
-
         runtime_set(
             "iso",
             commands["iso"]["values"]["100"],
@@ -1123,26 +1232,46 @@ def characterize(camera, entry, job):
             and commands["capture_mode"].get("set") is not False
         )
 
-        if capture_mode_writable:
+        if bracket_mode is None:
+            if capture_mode_writable:
+                runtime_set(
+                    "capture_mode",
+                    commands["capture_mode"]["value"],
+                )
             runtime_set(
-                "capture_mode",
-                commands["capture_mode"]["value"],
+                "shutter",
+                commands["shutter"]["values"][str(shutter)],
             )
-
-        runtime_set(
-            "shutter",
-            commands["shutter"]["values"][str(shutter)],
-        )
-
-        if bracket_mode is not None:
+        else:
             if not capture_mode_writable:
                 raise RuntimeError(
                     "Bracket mode requires a writable capture_mode"
                 )
-            runtime_set(
-                "capture_mode",
-                bracket_mode,
+            frames = next(
+                (
+                    size
+                    for size, value in ordered_modes.items()
+                    if str(value) == str(bracket_mode)
+                ),
+                None,
             )
+            requires_single = bracket_prepare_policy.get(frames, True)
+            if requires_single:
+                runtime_set(
+                    "capture_mode",
+                    commands["capture_mode"]["value"],
+                )
+                runtime_set(
+                    "shutter",
+                    commands["shutter"]["values"][str(shutter)],
+                )
+                runtime_set("capture_mode", bracket_mode)
+            else:
+                runtime_set("capture_mode", bracket_mode)
+                runtime_set(
+                    "shutter",
+                    commands["shutter"]["values"][str(shutter)],
+                )
 
         return (time.monotonic() - started) * 1000.0
 
@@ -1162,6 +1291,8 @@ def characterize(camera, entry, job):
             candidate = {
                 "method": "widget",
                 "path": item["path"],
+                "name": item["config_name"],
+                "writer": "single_config",
                 "value": 1,
                 "release": 0,
             }
@@ -1200,6 +1331,9 @@ def characterize(camera, entry, job):
         job.log(
             f"TEST START: {expected} photo(s), {spec}"
         )
+
+        if spec.get("method") == "widget":
+            prime_runtime_spec(spec)
 
         # CHARACTERIZATION RUNTIME-PATH TIMING V2
         # ProfilePlugin.execute_photo() starts its guarded PHOTO deadline before
@@ -1244,10 +1378,9 @@ def characterize(camera, entry, job):
                 camera.trigger_capture()
 
             else:
-                write_widget(
-                    camera,
-                    spec["path"],
-                    spec["value"],
+                node = prime_runtime_spec(spec)
+                write_single_config(
+                    camera, spec, node, spec["value"]
                 )
 
             returned_ms = (
@@ -1292,10 +1425,9 @@ def characterize(camera, entry, job):
         finally:
             before_release = time.monotonic()
             if "release" in spec:
-                write_widget(
-                    camera,
-                    spec["path"],
-                    spec["release"],
+                node = prime_runtime_spec(spec)
+                write_single_config(
+                    camera, spec, node, spec["release"]
                 )
                 release_ms = (
                     time.monotonic()
@@ -1735,6 +1867,9 @@ def characterize(camera, entry, job):
                         "step_ev": 1,
                         "mode": mode_value,
                         "trigger": deepcopy(trigger_spec),
+                        "shutter_requires_single_mode": bool(
+                            bracket_prepare_policy.get(frames, True)
+                        ),
                         "peak_capture_ms": max(
                             sample[1]
                             for sample in samples

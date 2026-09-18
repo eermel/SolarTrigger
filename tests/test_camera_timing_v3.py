@@ -211,7 +211,6 @@ def test_identical_successive_bracket_skips_redundant_set_preamble(
         ("set", "capturemode", "Bracket 3"),
         ("photo", 3),
         ("set", "capturemode", "Single Shot"),
-        ("set", "shutterspeed", "1/1000"),
         ("set", "capturemode", "Bracket 3"),
         ("photo", 3),
     ]

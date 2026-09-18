@@ -44,11 +44,13 @@ def test_setting_characterization_qualifies_requested_value_idempotently():
 
     src = inspect.getsource(cc.characterize)
 
-    # Qualification must exercise the exact operation required at runtime.
-    assert "write_and_confirm(path, target)" in src
+    # Qualification must exercise the exact direct single-config operation
+    # required at runtime using the widget prepared during characterization.
+    assert "write_and_confirm(candidate, node, target)" in src
+    assert "write_single_config(camera, direct_spec(candidate), node, value)" in src
 
     # It must not require an unrelated alternate value before every SET.
-    assert "write_and_confirm(path, alternate)" not in src
+    assert "write_and_confirm(candidate, node, alternate)" not in src
     assert 'idempotent_probe = key == "capture_target"' not in src
 
 def test_characterization_does_not_require_physical_shutter_start_latency():
