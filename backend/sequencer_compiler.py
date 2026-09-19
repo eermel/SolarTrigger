@@ -1045,6 +1045,11 @@ class CameraTimingProfile:
     # bulb=0 and settle-idle. Keys are physical frame counts (3/5/7/9).
     bracket_atomic_ms_by_frames: dict[int, float] | None = None
 
+    # Guarded overhead floor for the first physical PHOTO of one fresh camera
+    # session. Contract-v3 profiles publish this separately from steady-state
+    # timings. Zero preserves all legacy behaviour.
+    session_first_photo_overhead_ms: float = 0.0
+
 
 @dataclass(frozen=True)
 class ScheduledOperation:

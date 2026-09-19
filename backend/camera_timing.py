@@ -58,9 +58,17 @@ def load_camera_timing_profile(path: str | Path) -> CameraTimingProfile:
     contract = data.get("timing_contract")
     if isinstance(contract, dict) and contract.get("version") == 3:
         validate_timing_contract_v3(contract)
-        # The profile plugin carries all v3 operation reservations directly in
-        # audited SET/PHOTO commands. Legacy scalar fields are intentionally zero.
-        return CameraTimingProfile(backend=backend)
+        # Ordinary v3 reservations are carried directly by audited SET/PHOTO
+        # commands. The session-first PHOTO floor is different: only the final
+        # chronological scheduler knows which physical PHOTO is first for a
+        # RIG, so expose that one contract value here.
+        return CameraTimingProfile(
+            backend=backend,
+            session_first_photo_overhead_ms=_nonnegative_ms(
+                contract.get("session_first_photo_overhead_ms", 0),
+                "session_first_photo_overhead_ms",
+            ),
+        )
 
     timing = data.get("timing")
 

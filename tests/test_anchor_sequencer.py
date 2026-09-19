@@ -7,6 +7,7 @@ from backend.anchor_sequencer import (
     _pack_complete_totality_cycles,
     _pack_totality_to_c3_anchor,
     _validate_contact_capture,
+    schedule_anchor_first_capture_plan,
 )
 from backend.sequencer_compiler import (
     AuditedRigCapture,
@@ -46,11 +47,16 @@ def _capture(target_time, shutters, *, duration_ms=2750.0, phase="diamond_ring",
     )
 
 
-def _profile(*, trigger_latency_ms=0.0):
+def _profile(
+    *,
+    trigger_latency_ms=0.0,
+    session_first_photo_overhead_ms=0.0,
+):
     return CameraTimingProfile(
         backend="profile-test",
         trigger_single_latency_ms=trigger_latency_ms,
         trigger_single_duration_ms=0.0,
+        session_first_photo_overhead_ms=session_first_photo_overhead_ms,
     )
 
 
@@ -72,6 +78,47 @@ def test_c3_contact_anchor_is_built_before_other_phases_and_crosses_contact():
     assert capture.target.target_time == contact - timedelta(seconds=1)
     assert start == capture.target.target_time
     assert end > contact
+
+
+def test_final_scheduler_applies_cold_floor_only_to_first_photo_per_rig():
+    start = datetime(2027, 8, 2, 10, 0, 0)
+    first = _capture(
+        start,
+        ["1/1000"],
+        duration_ms=1000.0,
+        phase="partial",
+        window="phase_1a",
+    )
+    second = _capture(
+        start + timedelta(seconds=10),
+        ["1/1000"],
+        duration_ms=1000.0,
+        phase="partial",
+        window="phase_1a",
+    )
+
+    events, _final_states = schedule_anchor_first_capture_plan(
+        {1: [first, second]},
+        initial_states={1: {}},
+        timing_profiles={
+            1: _profile(
+                session_first_photo_overhead_ms=5000.0,
+            )
+        },
+    )
+
+    photos = [
+        event
+        for event in events
+        if event.operation.get("action") == "trigger_capture"
+    ]
+
+    assert len(photos) == 2
+    # The contract field is an overhead: add the 1/1000 s exposure once.
+    assert photos[0].duration_ms == pytest.approx(5001.0)
+    assert photos[0].operation["duration_ms"] == pytest.approx(5001.0)
+    assert photos[1].duration_ms == pytest.approx(1000.0)
+    assert photos[1].operation["duration_ms"] == pytest.approx(1000.0)
 
 
 def test_c3_contact_rejects_exposure_slower_than_1_500():

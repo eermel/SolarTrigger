@@ -76,6 +76,61 @@ def _shutter_seconds(value: Any) -> float:
     return seconds
 
 
+def _apply_session_first_photo_floor(
+    capture: AuditedRigCapture,
+    profile: CameraTimingProfile,
+) -> tuple[AuditedRigCapture, bool]:
+    # Prepared profile PHOTO durations contain steady-state exposure + overhead.
+    # Only the final chronological scheduler knows which PHOTO is first for a
+    # RIG, so the one-off cold-session floor is applied here.
+    floor_ms = float(profile.session_first_photo_overhead_ms)
+    if floor_ms <= 0 or not capture.backend.startswith("profile-"):
+        return capture, False
+
+    operations = [dict(operation) for operation in capture.operations]
+
+    for operation in operations:
+        if operation.get("action") not in {
+            "trigger_capture",
+            "bracket_press",
+        }:
+            continue
+
+        duration = operation.get("duration_ms")
+        if (
+            isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or duration < 0
+        ):
+            raise ValueError("profile PHOTO duration_ms must be >= 0")
+
+        physical_views = operation.get("physical_views")
+        if (
+            isinstance(physical_views, (list, tuple))
+            and physical_views
+        ):
+            exposure_ms = sum(
+                _shutter_seconds(value) * 1000.0
+                for value in physical_views
+            )
+        else:
+            shutter = operation.get("shutter") or operation.get("centre")
+            exposure_ms = (
+                _shutter_seconds(shutter) * 1000.0
+                if shutter is not None
+                else 0.0
+            )
+
+        operation["duration_ms"] = max(
+            float(duration),
+            floor_ms + exposure_ms,
+        )
+
+        return replace(capture, operations=tuple(operations)), True
+
+    return capture, False
+
+
 def _validate_contact_capture(
     capture: AuditedRigCapture,
     *,
@@ -1074,8 +1129,19 @@ def schedule_anchor_first_capture_plan(
 
         state = _normalize_camera_state(initial_states.get(rig_id, {}))
         scheduled: list[ScheduledOperation] = []
+        session_first_photo_pending = (
+            profile.session_first_photo_overhead_ms > 0
+        )
 
         for capture in captures:
+            if session_first_photo_pending:
+                capture, applied = _apply_session_first_photo_floor(
+                    capture,
+                    profile,
+                )
+                if applied:
+                    session_first_photo_pending = False
+
             reduced, state = reduce_audited_capture_operations(capture, state)
             scheduled.extend(schedule_audited_capture(reduced, profile))
 

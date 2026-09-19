@@ -286,6 +286,28 @@ def test_persistent_documents_strip_debug_history(tmp_path):
     loaded = load_camera_timing_profile(path)
     assert loaded.backend == rich_profile["backend"]
 
+
+def test_v3_timing_loader_exposes_session_first_photo_floor(tmp_path):
+    rich_profile = profile()
+    rich_profile["timing_contract"][
+        "session_first_photo_overhead_ms"
+    ] = 5450
+    timing = {
+        "schema_version": 2,
+        "config_type": "camera_timing",
+        "backend": rich_profile["backend"],
+        "manufacturer": rich_profile["manufacturer"],
+        "model": rich_profile["model"],
+        "timing_contract": deepcopy(rich_profile["timing_contract"]),
+    }
+
+    path = tmp_path / "timing.json"
+    path.write_text(json.dumps(timing), encoding="utf-8")
+
+    loaded = load_camera_timing_profile(path)
+    assert loaded.session_first_photo_overhead_ms == 5450
+
+
 def test_apply_skips_known_persistent_iso_without_usb_probe(monkeypatch):
     plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=profile())
     plugin._known_settings["iso"] = plugin._resolved_value("iso", "100")
