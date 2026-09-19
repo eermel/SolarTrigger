@@ -753,7 +753,6 @@ def characterize(camera, entry, job):
     commands["shutter"]["values"] = speeds
 
     aperture_reference = None
-    aperture_probe_value = None
 
     current_widgets = enumerate_widgets(camera)
 
@@ -764,9 +763,7 @@ def characterize(camera, entry, job):
                 "get": True,
                 "set": False,
             }
-            job.log(
-                f"Battery: {item['value']}"
-            )
+            job.log(f"Battery: {item['value']}")
 
     aperture_item = next(
         (
@@ -779,14 +776,12 @@ def characterize(camera, entry, job):
 
     if aperture_item is not None:
         aperture_path = aperture_item["path"]
-
         try:
             _, aperture_node = widget(camera, aperture_path)
             aperture_reference = aperture_node.get_value()
         except Exception as exc:
             job.log(
-                f"APERTURE GET unavailable: "
-                f"{aperture_path}: {exc}"
+                f"APERTURE GET unavailable: {aperture_path}: {exc}"
             )
             aperture_reference = None
 
@@ -794,151 +789,34 @@ def characterize(camera, entry, job):
             aperture_values = list(
                 aperture_item["choices"] or [aperture_reference]
             )
-
-            commands["aperture"] = {
+            aperture_spec = {
                 "path": aperture_path,
                 "name": aperture_item["config_name"],
                 "get": True,
-                "set": False,
+                # Lens-dependent capability: never freeze SET=no into a body
+                # profile merely because the characterization lens is manual.
+                "set": True,
+                "runtime_optional": True,
                 "values": {
                     str(value): value
                     for value in aperture_values
                 },
             }
+            # Prove only that the direct writer can be addressed.  Do not move
+            # the aperture during characterization; the mounted lens may differ
+            # on eclipse day.  Runtime SET failure is warning-only.
+            try:
+                prime_single_config(camera, aperture_spec)
+                aperture_spec["writer"] = "single_config"
+                writer_note = "single_config available"
+            except Exception as exc:
+                writer_note = f"single_config unavailable: {exc}"
 
-            if aperture_item["readonly"]:
-                job.log(
-                    f"VALID aperture: {aperture_path} "
-                    f"current={aperture_reference} "
-                    "(GET=yes SET=no, readonly)"
-                )
-
-            else:
-                # A writable flag alone is not proof of SET capability.
-                # Exercise a real transition and restore the exact original
-                # value.  Prefer adjacent aperture values when the current
-                # value appears in the advertised choice list.
-                indexed = {
-                    str(value): index
-                    for index, value in enumerate(aperture_values)
-                }
-                current_index = indexed.get(str(aperture_reference))
-
-                alternates = [
-                    value
-                    for value in aperture_values
-                    if str(value) != str(aperture_reference)
-                ]
-
-                if current_index is not None:
-                    alternates.sort(
-                        key=lambda value: abs(
-                            indexed[str(value)] - current_index
-                        )
-                    )
-
-                # SET capability does not require testing every advertised
-                # aperture.  Some bodies expose a theoretical f-number list
-                # even with a fully manual lens attached (for example f/0 as
-                # the effective value).  Two distinct failed transitions are
-                # sufficient evidence that USB aperture SET is not proven.
-                aperture_probe_limit = 2
-                alternates = alternates[:aperture_probe_limit]
-
-                proof_errors = []
-                aperture_direct_spec = {
-                    "path": aperture_path,
-                    "name": aperture_item["config_name"],
-                    "writer": "single_config",
-                }
-                try:
-                    aperture_node = prime_single_config(
-                        camera, aperture_direct_spec
-                    )
-                except Exception as exc:
-                    aperture_node = None
-                    proof_errors.append(f"direct writer unavailable: {exc}")
-
-                for alternate in alternates if aperture_node is not None else []:
-                    job.check()
-
-                    try:
-                        # Real direct transition and untimed readback proof.
-                        write_single_config(
-                            camera, aperture_direct_spec, aperture_node, alternate
-                        )
-                        _, verify_node = widget(camera, aperture_path)
-                        if str(verify_node.get_value()) != str(alternate):
-                            raise RuntimeError("aperture transition readback mismatch")
-
-                        # Restore and prove the original aperture too.
-                        write_single_config(
-                            camera,
-                            aperture_direct_spec,
-                            aperture_node,
-                            aperture_reference,
-                        )
-                        _, verify_node = widget(camera, aperture_path)
-                        if str(verify_node.get_value()) != str(aperture_reference):
-                            raise RuntimeError("aperture restore readback mismatch")
-
-                    except Exception as exc:
-                        proof_errors.append(
-                            f"{aperture_reference!r}"
-                            f"->{alternate!r}"
-                            f"->{aperture_reference!r}: {exc}"
-                        )
-
-                        # Never silently leave the lens at a test value.
-                        try:
-                            _, node = widget(camera, aperture_path)
-                            actual = node.get_value()
-
-                            if (
-                                str(actual)
-                                != str(aperture_reference)
-                            ):
-                                write_checked(
-                                    camera,
-                                    aperture_path,
-                                    aperture_reference,
-                                )
-
-                        except Exception as restore_exc:
-                            raise RuntimeError(
-                                "Cannot restore aperture after "
-                                "SET qualification failure: "
-                                f"{aperture_path}="
-                                f"{aperture_reference!r}: "
-                                f"{restore_exc}"
-                            ) from restore_exc
-
-                        continue
-
-                    commands["aperture"]["set"] = True
-                    commands["aperture"]["writer"] = "single_config"
-                    aperture_probe_value = alternate
-
-                    job.log(
-                        f"VALID aperture: {aperture_path}="
-                        f"{aperture_reference} "
-                        "(GET=yes SET=yes, transition proven "
-                        f"via {alternate})"
-                    )
-                    break
-
-                if not commands["aperture"]["set"]:
-                    detail = (
-                        "; ".join(proof_errors)
-                        if proof_errors
-                        else "no alternate aperture value"
-                    )
-                    job.log(
-                        f"VALID aperture: {aperture_path} "
-                        f"current={aperture_reference} "
-                        "(GET=yes SET=no, transition not proven; "
-                        f"{detail})"
-                    )
+            commands["aperture"] = aperture_spec
+            job.log(
+                f"VALID aperture: {aperture_path} current={aperture_reference} "
+                f"(GET=yes SET=runtime-optional; {writer_note})"
+            )
 
     auxiliary_capabilities = {
         "clock": {"local_sync_supported": False, "probe_error": "not_run"},
@@ -1071,7 +949,7 @@ def characterize(camera, entry, job):
         warnings.append("battery: unavailable")
 
     # Discover supported 1-EV native bracket modes before timing SETs so the
-    # shared SET reservation covers every drive-mode value later used by .plan.
+    # shared SET reservation covers every drive-mode value later used by reactive execution.
     ordered_modes = {}
     if mode and commands["capture_mode"].get("set") is not False:
         for value in mode["choices"]:
@@ -1170,17 +1048,6 @@ def characterize(camera, entry, job):
                     f"expected={target!r}, actual={actual!r}"
                 )
 
-    def fresh_capture_session(reason):
-        """Open a production-like cold gphoto session for capture discovery."""
-        job.check()
-        camera.exit()
-        camera.init()
-        # CameraWidget objects belong to the session that created them. Never
-        # reuse a primed direct SET/trigger widget across camera.init().
-        direct_nodes.clear()
-        converge_characterized_preflight()
-        job.log(f"COLD SESSION READY: {reason}; direct widgets re-primed on demand")
-
     def measure_set(key, values):
         values = list(values)
         if not values:
@@ -1256,28 +1123,6 @@ def characterize(camera, entry, job):
             speeds["1/500"],
         ],
     )
-
-    if commands.get("aperture", {}).get("set") is True:
-        if (
-            aperture_reference is None
-            or aperture_probe_value is None
-        ):
-            raise RuntimeError(
-                "Aperture SET was marked supported without "
-                "a proven transition pair"
-            )
-
-        measure_set(
-            "aperture",
-            [
-                aperture_probe_value,
-                aperture_reference,
-            ],
-        )
-
-        # Characterization must leave the physical lens at the exact
-        # aperture that was present before the timing trials.
-        runtime_set("aperture", aperture_reference)
 
     if mode and commands["capture_mode"].get("set") is not False:
         single_mode = commands["capture_mode"]["value"]
@@ -1362,18 +1207,12 @@ def characterize(camera, entry, job):
             for frames in sorted(ordered_modes)
         ))
 
-    if commands.get("aperture", {}).get("set") is True:
-        dependency_baseline["aperture"] = aperture_reference
-        dependency_alternates["aperture"] = [aperture_probe_value]
-
     def restore_dependency_baseline():
         # Mode first: some cameras accept shutter changes only in Single Shot.
         if "capture_mode" in dependency_baseline:
             runtime_set("capture_mode", dependency_baseline["capture_mode"])
         runtime_set("iso", dependency_baseline["iso"])
         runtime_set("shutter", dependency_baseline["shutter"])
-        if "aperture" in dependency_baseline:
-            runtime_set("aperture", dependency_baseline["aperture"])
 
     def observe_dependency_peers(source_key, peer_keys, invalidates):
         for dep_key in peer_keys:
@@ -1534,6 +1373,7 @@ def characterize(camera, entry, job):
         spec,
         expected=1,
         exposure_s=0.002,
+        ready_set=None,
     ):
         job.check()
         trial_key = (
@@ -1545,18 +1385,15 @@ def characterize(camera, entry, job):
         )
         discovery = trial_key not in validated_trials
 
-        job.log(
-            f"TEST START: {expected} photo(s), {spec}"
-        )
+        job.log(f"TEST START: {expected} photo(s), {spec}")
 
         if spec.get("method") == "widget":
             prime_runtime_spec(spec)
 
-        # CHARACTERIZATION RUNTIME-PATH TIMING V2
-        # ProfilePlugin.execute_photo() starts its guarded PHOTO deadline before
-        # draining stale events. Characterization used to drain them outside the
-        # stopwatch, underestimating the runtime PHOTO budget on slow USB bodies.
         operation_begin = time.monotonic()
+
+        # Runtime also starts from a clean event boundary.  This drain is part
+        # of PHOTO duration because it is executed on the real timed path.
         drain_begin = operation_begin
         for _ in range(100):
             kind, _data = camera.wait_for_event(1)
@@ -1569,96 +1406,62 @@ def characterize(camera, entry, job):
         returned_ms = 0.0
         release_ms = 0.0
         first_file_ms = None
+        last_file_at = None
 
         begin = time.monotonic()
+
+        def remember_file(data):
+            nonlocal first_file_ms, last_file_at
+            now = time.monotonic()
+            if first_file_ms is None:
+                first_file_ms = (now - begin) * 1000.0
+            key = (
+                getattr(data, "folder", ""),
+                getattr(data, "name", str(data)),
+            )
+            before = len(seen)
+            seen.add(key)
+            if len(seen) != before:
+                last_file_at = now
 
         try:
             method = spec["method"]
 
             if method == "capture":
-                file_ref = camera.capture(
-                    gp.GP_CAPTURE_IMAGE
-                )
+                file_ref = camera.capture(gp.GP_CAPTURE_IMAGE)
                 if getattr(file_ref, "name", None):
-                    if first_file_ms is None:
-                        first_file_ms = (
-                            time.monotonic() - begin
-                        ) * 1000.0
-                    seen.add(
-                        (
-                            file_ref.folder,
-                            file_ref.name,
-                        )
-                    )
+                    remember_file(file_ref)
 
             elif method == "trigger_capture":
                 camera.trigger_capture()
 
             else:
                 node = prime_runtime_spec(spec)
-                write_single_config(
-                    camera, spec, node, spec["value"]
-                )
+                write_single_config(camera, spec, node, spec["value"])
 
-            returned_ms = (
-                time.monotonic() - begin
-            ) * 1000.0
+            returned_ms = (time.monotonic() - begin) * 1000.0
 
-            until = (
-                time.monotonic()
-                + float(exposure_s)
-                + 5.0
-            )
-
-            while (
-                len(seen) < expected
-                and time.monotonic() < until
-            ):
+            until = time.monotonic() + float(exposure_s) + 5.0
+            while len(seen) < expected and time.monotonic() < until:
                 job.check()
                 kind, data = camera.wait_for_event(100)
-
                 if kind == gp.GP_EVENT_FILE_ADDED:
-                    if first_file_ms is None:
-                        first_file_ms = (
-                            time.monotonic() - begin
-                        ) * 1000.0
-                    seen.add(
-                        (
-                            getattr(data, "folder", ""),
-                            getattr(
-                                data,
-                                "name",
-                                str(data),
-                            ),
-                        )
-                    )
+                    remember_file(data)
 
         except Cancelled:
             raise
-
         except Exception as exc:
             error = exc
-
         finally:
             before_release = time.monotonic()
             if "release" in spec:
                 node = prime_runtime_spec(spec)
-                write_single_config(
-                    camera, spec, node, spec["release"]
-                )
-                release_ms = (
-                    time.monotonic()
-                    - before_release
-                ) * 1000.0
+                write_single_config(camera, spec, node, spec["release"])
+                release_ms = (time.monotonic() - before_release) * 1000.0
 
         # Files delivered after release still belong to this PHOTO.
         post_release_start = time.monotonic()
-        until = (
-            post_release_start
-            + float(exposure_s)
-            + 5.0
-        )
-
+        until = post_release_start + float(exposure_s) + 5.0
         while (
             error is None
             and len(seen) < expected
@@ -1666,107 +1469,11 @@ def characterize(camera, entry, job):
         ):
             job.check()
             kind, data = camera.wait_for_event(100)
-
             if kind == gp.GP_EVENT_FILE_ADDED:
-                seen.add(
-                    (
-                        getattr(data, "folder", ""),
-                        getattr(
-                            data,
-                            "name",
-                            str(data),
-                        ),
-                    )
-                )
+                remember_file(data)
 
-        post_release_ms = (
-            time.monotonic()
-            - post_release_start
-        ) * 1000.0
-
-        duration_ms = (
-            time.monotonic() - operation_begin
-        ) * 1000.0
-
-        # Keep draining until the camera has been quiet for two seconds.
-        #
-        # If missing FILE_ADDED notifications arrive during this drain, the
-        # time up to the last event is real capture-completion latency and must
-        # be included in the PHOTO timing. Only the final quiet tail is a
-        # characterization-only pause excluded from the runtime measurement.
-        files_before_idle = len(seen)
-        quiet_s = 2.0
-
-        job.log(
-            "TEST PAUSE: waiting for camera quiet; "
-            f"files {len(seen)}/{expected}"
-        )
-
-        idle_ms = wait_camera_idle(
-            camera,
-            seen,
-            quiet_s=quiet_s,
-            check=job.check,
-        )
-
-        late_confirmation_ms = 0.0
-        if (
-            files_before_idle < expected
-            and len(seen) == expected
-        ):
-            # wait_camera_idle() returns only after quiet_s without an event.
-            # Therefore elapsed - quiet_s is a conservative timestamp for the
-            # last event needed to complete automatic N/N confirmation.
-            late_confirmation_ms = max(
-                0.0,
-                idle_ms - quiet_s * 1000.0,
-            )
-            duration_ms += late_confirmation_ms
-            post_release_ms += late_confirmation_ms
-
-            # If no FILE_ADDED was observed before the quiet drain, we do not
-            # know the exact first-file timestamp. Use completion time as a
-            # conservative upper bound rather than underestimate it.
-            if first_file_ms is None:
-                first_file_ms = duration_ms
-
-            job.log(
-                "LATE AUTO CONFIRM timing included: "
-                f"{late_confirmation_ms:.1f} ms; "
-                f"files {len(seen)}/{expected}"
-            )
-
-        excluded_idle_ms = max(
-            0.0,
-            idle_ms - late_confirmation_ms,
-        )
-
-        job.log(
-            f"TEST PAUSE END: {excluded_idle_ms:.1f} ms excluded; "
-            f"files {len(seen)}/{expected}"
-        )
-
-        phases = {
-            "pre_trigger_drain_ms": pre_trigger_drain_ms,
-            "trigger_call_ms": returned_ms,
-            "first_file_ms": (
-                float(first_file_ms)
-                if first_file_ms is not None
-                else float(duration_ms)
-            ),
-            "frame_wait_ms": max(
-                0.0,
-                (
-                    before_release - begin
-                ) * 1000.0
-                - returned_ms,
-            ),
-            "release_ms": release_ms,
-            "post_release_wait_ms": post_release_ms,
-            "settle_ms": 0.0,
-            "test_pause_ms": excluded_idle_ms,
-            "total_ms": duration_ms,
-        }
+        post_release_ms = (time.monotonic() - post_release_start) * 1000.0
+        file_complete_ms = (time.monotonic() - operation_begin) * 1000.0
 
         validation_state = _capture_validation_state(
             expected,
@@ -1774,18 +1481,7 @@ def characterize(camera, entry, job):
             error,
         )
 
-        if validation_state == "confirmed":
-            if discovery:
-                validated_trials.add(trial_key)
-            job.log(
-                f"AUTO CONFIRM: USB reported exactly {len(seen)}/{expected} "
-                "file(s); no operator confirmation required"
-            )
-
-        elif validation_state == "runtime_error":
-            # Exact N/N evidence already tells us that the physical photos were
-            # produced, while the command exception tells us the runtime path is
-            # unreliable. Asking the operator cannot change that conclusion.
+        if validation_state == "runtime_error":
             job.log(
                 f"AUTO REJECT: USB reported {len(seen)}/{expected} file(s) "
                 f"but the command returned an error: {error}"
@@ -1795,16 +1491,14 @@ def characterize(camera, entry, job):
                 f"confirmed files: {error}"
             )
 
-        else:
-            # FILE_ADDED count is the production acceptance criterion. A wrong
-            # count is already conclusive; never ask the operator to override it.
+        if validation_state != "confirmed":
             job.log(
                 f"AUTO REJECT: USB confirmed {len(seen)}/{expected} file(s); "
                 "capture count is incomplete"
             )
             if error is not None:
                 failure = RuntimeError(
-                    f"USB method error with incomplete confirmation "
+                    "USB method error with incomplete confirmation "
                     f"({len(seen)}/{expected}): {error}"
                 )
             else:
@@ -1816,11 +1510,84 @@ def characterize(camera, entry, job):
             failure.expected_frames = expected
             raise failure
 
+        # Exact N/N proves the physical capture count.  It does NOT prove that
+        # Sony is ready for the next command.  Measure the missing tail by
+        # repeatedly attempting one representative Direct-SET until the body
+        # accepts it. For a bracket this is deliberately the real transition
+        # back to Single Shot -- the exact operation that exposed Sony -2
+        # Bad parameters. Singles use a harmless same-value ISO100 SET.
+        ready_origin = last_file_at or time.monotonic()
+        ready_deadline = time.monotonic() + 5.0
+        ready_attempts = 0
+        last_ready_error = None
+        while True:
+            job.check()
+            ready_attempts += 1
+            try:
+                ready_key, ready_value = ready_set or (
+                    "iso",
+                    commands["iso"]["values"]["100"],
+                )
+                runtime_set(ready_key, ready_value)
+                break
+            except Cancelled:
+                raise
+            except Exception as exc:
+                last_ready_error = exc
+                # A failed single-config transaction can poison the cached
+                # CameraWidget. Re-prime only during characterization retry.
+                name = commands[ready_key].get("name")
+                if name:
+                    direct_nodes.pop(name, None)
+                if time.monotonic() >= ready_deadline:
+                    raise RuntimeError(
+                        "Camera did not return to USB SET-ready state within "
+                        f"5 s after PHOTO: {last_ready_error}"
+                    ) from exc
+                time.sleep(0.01)
+
+        usb_return_ms = max(
+            0.0,
+            (time.monotonic() - ready_origin) * 1000.0,
+        )
+        duration_ms = (time.monotonic() - operation_begin) * 1000.0
+
+        if discovery:
+            validated_trials.add(trial_key)
+
+        phases = {
+            "pre_trigger_drain_ms": pre_trigger_drain_ms,
+            "trigger_call_ms": returned_ms,
+            # FILE_ADDED is not physical shutter-open telemetry.  This value is
+            # retained only as USB evidence and never used as shutter latency.
+            "first_file_ms": (
+                float(first_file_ms)
+                if first_file_ms is not None
+                else float(file_complete_ms)
+            ),
+            "frame_wait_ms": max(
+                0.0,
+                (before_release - begin) * 1000.0 - returned_ms,
+            ),
+            "release_ms": release_ms,
+            "post_release_wait_ms": post_release_ms,
+            "file_complete_ms": file_complete_ms,
+            "usb_return_ms": usb_return_ms,
+            "usb_ready_attempts": ready_attempts,
+            "settle_ms": 0.0,
+            "test_pause_ms": 0.0,
+            "total_ms": duration_ms,
+        }
+
         job.log(
-            f"TEST END "
-            f"{'discovery confirmed' if discovery else 'automatic timing'}: "
-            f"{expected} photo(s), {duration_ms:.1f} ms "
-            "(test pause excluded)"
+            f"AUTO CONFIRM: USB reported exactly {len(seen)}/{expected} "
+            f"file(s); USB SET-ready after {usb_return_ms:.1f} ms "
+            f"({ready_attempts} attempt(s))"
+        )
+        job.log(
+            f"TEST END {'discovery confirmed' if discovery else 'automatic timing'}: "
+            f"{expected} photo(s), file_complete={file_complete_ms:.1f} ms, "
+            f"usb_ready_total={duration_ms:.1f} ms"
         )
 
         return (
@@ -1872,10 +1639,7 @@ def characterize(camera, entry, job):
     single_evidence = []
 
     for spec in trigger_candidates:
-        if (
-            spec.get("path", "").rsplit("/", 1)[-1]
-            == "bulb"
-        ):
+        if spec.get("path", "").rsplit("/", 1)[-1] == "bulb":
             job.log(
                 "SKIP single bulb: held exposure is not a validated "
                 "fixed-shutter capture"
@@ -1883,33 +1647,10 @@ def characterize(camera, entry, job):
             continue
 
         samples = []
-
         try:
-            job.log(
-                f"TRIGGER TEST {spec}"
-            )
-
-            # The existing discovery shot is now the mandatory cold-start
-            # qualification. It uses a fresh gphoto session and is INCLUDED in
-            # worst-case selection/timing so a fast warm path cannot hide an
-            # unreliable or slower first production PHOTO.
-            fresh_capture_session(
-                f"single trigger {json.dumps(spec, sort_keys=True)}"
-            )
-            cold_prepare_ms = timed_runtime_prepare("1/500")
-            cold_sample = probe(
-                spec,
-                expected=1,
-                exposure_s=_parse_speed("1/500"),
-            )
-            samples.append((*cold_sample, cold_prepare_ms))
-            job.log(
-                f"COLD TRIGGER PASS: {spec}; "
-                f"capture_ms={cold_sample[1]:.1f}"
-            )
-
-            # Five warm repetitions remain, giving one cold + five warm trials.
-            for _ in range(5):
+            job.log(f"TRIGGER TEST {spec}: 5 persistent-session trials")
+            for repetition in range(5):
+                job.check()
                 prepare_ms = timed_runtime_prepare("1/500")
                 sample = probe(
                     spec,
@@ -1917,34 +1658,29 @@ def characterize(camera, entry, job):
                     exposure_s=_parse_speed("1/500"),
                 )
                 samples.append((*sample, prepare_ms))
+                job.log(
+                    f"TRIGGER PASS {repetition + 1}/5: {spec}; "
+                    f"capture_ms={sample[1]:.1f}"
+                )
 
-            summarize_samples(
-                spec,
-                1,
-                samples,
-            )
-
+            summarize_samples(spec, 1, samples)
             evidence = CandidateEvidence(
                 candidate_id=json.dumps(spec, sort_keys=True),
                 recipe=deepcopy(spec),
-                expected_trials=6,
+                expected_trials=5,
                 durations_ms=[sample[1] for sample in samples],
                 functional_ok=True,
             )
             single_evidence.append(evidence)
             valid_single.append((evidence, deepcopy(spec), samples))
 
-        except (
-            Cancelled,
-            CameraIdleTimeout,
-        ):
+        except (Cancelled, CameraIdleTimeout):
             raise
-
         except Exception as exc:
             rejected = CandidateEvidence(
                 candidate_id=json.dumps(spec, sort_keys=True),
                 recipe=deepcopy(spec),
-                expected_trials=6,
+                expected_trials=5,
                 functional_ok=False,
             )
             rejected.failures.append(str(exc))
@@ -1980,17 +1716,30 @@ def characterize(camera, entry, job):
     )
 
     reference_single_s = _parse_speed("1/500")
-    single_overhead_samples = [
+    single_core_overhead_samples = [
         max(
             0.0,
-            sample[1]
+            sample[3]["file_complete_ms"]
             - reference_single_s * 1000.0,
         )
         for sample in single_samples
     ]
-    single_overhead_ms = budget_ms(
-        single_overhead_samples
-    )
+    single_usb_return_samples = [
+        sample[3]["usb_return_ms"]
+        for sample in single_samples
+    ]
+    single_core_overhead_ms = budget_ms(single_core_overhead_samples)
+    single_usb_return_ms = budget_ms(single_usb_return_samples)
+    # Complete PHOTO duration through the point where the next USB SET is safe.
+    single_overhead_ms = single_core_overhead_ms + single_usb_return_ms
+    # Compatibility/debug name consumed by qualification evidence.
+    single_overhead_samples = [
+        core + usb
+        for core, usb in zip(
+            single_core_overhead_samples,
+            single_usb_return_samples,
+        )
+    ]
 
     model_key = (
         f"{entry['manufacturer']} "
@@ -2022,146 +1771,127 @@ def characterize(camera, entry, job):
         "commands": commands,
         "warnings": warnings,
         "settle_idle_s": 0.0,
-        "test_pause_s": 2.0,
+        "test_pause_s": 0.0,
         "brackets": {},
         "selection": deepcopy(selection_evidence),
     }
 
-    # Qualify native bracket methods from smallest to largest. Once one trigger
-    # primitive fails at a bracket size it is not retried for larger sizes.
-    # Global cancellation/camera-idle failures abort the characterization and
-    # never count as a primitive failure.
+    # Native bracket qualification uses the same persistent gphoto session as
+    # Trigger.  All advertised sizes are functionally checked, while timing is
+    # identified from BRK3 and BRK7 only (five trials each) when available.
     selected_bracket_items = {}
-    bracket_rejections = {}
+    bracket_rejections = {str(frames): {} for frames in sorted(ordered_modes)}
     selected_candidate_ids = {}
     bracket_overhead_samples_by_frames = {}
-    # A bracket primitive that fails at one native size is not retested at
-    # larger sizes. Cancellation/idle failures are raised globally and never
-    # enter this table, so only candidate-specific failures are inherited.
-    rejected_bracket_candidates = {}
+    bracket_usb_return_samples = []
+    bracket_calibration_frames = []
 
-    if mode:
-        for frames, mode_value in sorted(ordered_modes.items()):
-            size = str(frames)
-            reference_views_s = [
-                reference_single_s * (2 ** ev)
-                for ev in range(
-                    -(frames // 2),
-                    frames // 2 + 1,
+    # Functional discovery is per bracket size.  Timing calibration requires
+    # one common trigger primitive across the two calibration sizes so that
+    # trigger overhead cancels correctly when deriving the inter-frame slope.
+    #
+    # Preferred timing pair is BRK3 + BRK7.  If that exact pair is unavailable,
+    # use the widest supported pair that has one common reliable primitive.
+    # Other bracket sizes remain usable even when they need another primitive.
+    bracket_candidates_by_frames = {
+        frames: []
+        for frames in sorted(ordered_modes)
+    }
+
+    if mode and ordered_modes:
+        for trigger_spec in trigger_candidates:
+            command_id = json.dumps(
+                trigger_spec,
+                sort_keys=True,
+            )
+
+            for frames, mode_value in sorted(
+                ordered_modes.items()
+            ):
+                size = str(frames)
+                reference_views_s = [
+                    reference_single_s * (2 ** ev)
+                    for ev in range(
+                        -(frames // 2),
+                        frames // 2 + 1,
+                    )
+                ]
+                reference_exposure_s = sum(
+                    reference_views_s
                 )
-            ]
-            reference_exposure_s = sum(reference_views_s)
-            frame_evidence = []
-            valid_frame_candidates = []
-            bracket_rejections[size] = {}
-
-            for trigger_spec in trigger_candidates:
-                command_id = json.dumps(trigger_spec, sort_keys=True)
-                samples = []
-
-                inherited_rejection = rejected_bracket_candidates.get(command_id)
-                if inherited_rejection is not None:
-                    reason = (
-                        "bracket rejection inherited from "
-                        f"{inherited_rejection['frames']}-frame test: "
-                        f"{inherited_rejection['reason']}"
-                    )
-                    rejected = CandidateEvidence(
-                        candidate_id=command_id,
-                        recipe=deepcopy(trigger_spec),
-                        expected_trials=6,
-                        functional_ok=False,
-                    )
-                    rejected.failures.append(reason)
-                    frame_evidence.append(rejected)
-                    bracket_rejections[size][command_id] = reason
-                    job.log(
-                        f"SKIP BRACKET {frames} {trigger_spec}: {reason}"
-                    )
-                    continue
 
                 try:
-                    # The existing discovery shot becomes a cold-start test for
-                    # this exact (size, primitive). It is measured and included
-                    # in candidate selection, followed by five warm repetitions.
-                    fresh_capture_session(
-                        f"bracket {frames} trigger {command_id}"
+                    # One functional N/N trial for this exact
+                    # (bracket size, trigger primitive).
+                    prepare_ms = timed_runtime_prepare(
+                        "1/500",
+                        mode_value,
                     )
-                    cold_prepare_ms = timed_runtime_prepare(
-                        "1/500", mode_value
-                    )
-                    cold_sample = probe(
+                    sample = probe(
                         trigger_spec,
                         expected=frames,
                         exposure_s=reference_exposure_s,
+                        ready_set=(
+                            "capture_mode",
+                            commands["capture_mode"]["value"],
+                        ),
                     )
-                    samples.append((*cold_sample, cold_prepare_ms))
-                    job.log(
-                        f"COLD BRACKET PASS {frames}: {trigger_spec}; "
-                        f"capture_ms={cold_sample[1]:.1f}"
-                    )
-
-                    # Five warm automatic timing repetitions. SET preparation
-                    # and PHOTO remain separate.
-                    for _ in range(5):
-                        job.check()
-                        prepare_ms = timed_runtime_prepare(
-                            "1/500",
-                            mode_value,
-                        )
-                        sample = probe(
-                            trigger_spec,
-                            expected=frames,
-                            exposure_s=reference_exposure_s,
-                        )
-                        samples.append((*sample, prepare_ms))
-
-                    summarize_samples(
-                        trigger_spec,
-                        frames,
-                        samples,
+                    packed = (
+                        *sample,
+                        prepare_ms,
                     )
 
                     spec = {
                         "step_ev": 1,
                         "mode": mode_value,
-                        "trigger": deepcopy(trigger_spec),
+                        "trigger": deepcopy(
+                            trigger_spec
+                        ),
                         "shutter_requires_single_mode": bool(
-                            bracket_prepare_policy.get(frames, True)
+                            bracket_prepare_policy.get(
+                                frames,
+                                True,
+                            )
                         ),
-                        "peak_capture_ms": max(
-                            sample[1]
-                            for sample in samples
-                        ),
-                        "peak_first_file_ms": max(
+                        "peak_capture_ms": sample[1],
+                        "peak_first_file_ms": (
                             sample[3]["first_file_ms"]
-                            for sample in samples
                         ),
-                        "peak_prepare_to_first_file_ms": max(
-                            sample[4] + sample[3]["first_file_ms"]
-                            for sample in samples
+                        "peak_prepare_to_first_file_ms": (
+                            prepare_ms
+                            + sample[3]["first_file_ms"]
                         ),
                     }
 
                     evidence = CandidateEvidence(
                         candidate_id=command_id,
                         recipe=deepcopy(trigger_spec),
-                        expected_trials=6,
-                        durations_ms=[
-                            sample[1]
-                            for sample in samples
-                        ],
+                        expected_trials=1,
+                        durations_ms=[sample[1]],
                         functional_ok=True,
                     )
-                    frame_evidence.append(evidence)
-                    valid_frame_candidates.append(
+
+                    bracket_candidates_by_frames[
+                        frames
+                    ].append(
                         {
                             "command_id": command_id,
                             "evidence": evidence,
                             "spec": spec,
-                            "samples": samples,
-                            "reference_views_s": reference_views_s,
+                            "trigger": deepcopy(
+                                trigger_spec
+                            ),
+                            "samples": [packed],
+                            "reference_views_s":
+                                reference_views_s,
+                            "mode": mode_value,
                         }
+                    )
+
+                    job.log(
+                        f"BRACKET FUNCTIONAL PASS "
+                        f"{frames}: {trigger_spec}; "
+                        f"capture_ms={sample[1]:.1f}"
                     )
 
                 except (
@@ -2174,140 +1904,515 @@ def characterize(camera, entry, job):
                     rejected = CandidateEvidence(
                         candidate_id=command_id,
                         recipe=deepcopy(trigger_spec),
-                        expected_trials=6,
+                        expected_trials=1,
                         functional_ok=False,
                     )
-                    rejected.failures.append(str(exc))
-                    frame_evidence.append(rejected)
-                    bracket_rejections[size][command_id] = str(exc)
-
-                    rejected_bracket_candidates[command_id] = {
-                        "frames": frames,
-                        "reason": str(exc),
-                    }
-                    job.log(
-                        f"BRACKET PRUNE {trigger_spec}: failed at {frames} "
-                        "frames and will not be retested at larger frame counts"
+                    rejected.failures.append(
+                        str(exc)
                     )
+
+                    bracket_rejections[
+                        size
+                    ][command_id] = str(exc)
 
                     timing_trials.append(
                         {
-                            "trigger": deepcopy(trigger_spec),
+                            "trigger": deepcopy(
+                                trigger_spec
+                            ),
                             "frames": frames,
                             "status": "rejected",
                             "reason": str(exc),
                         }
                     )
+
+                    # Preserve the existing conservative pruning policy:
+                    # a primitive that already fails a smaller native
+                    # bracket is not exercised again at larger sizes.
                     job.log(
-                        f"BRACKET {frames} {trigger_spec} rejected: {exc}"
+                        f"BRACKET PRUNE "
+                        f"{trigger_spec}: failed at "
+                        f"{frames} frames and will not "
+                        "be retested at larger frame counts"
                     )
+                    break
 
                 finally:
                     runtime_set(
                         "capture_mode",
-                        commands["capture_mode"]["value"],
+                        commands[
+                            "capture_mode"
+                        ]["value"],
                     )
 
-            selected_item = _select_bracket_candidate(
-                valid_frame_candidates
-            )
-            if selected_item is None:
-                selected_candidate_ids[size] = None
-                selection_evidence[f"native_bracket_{size}"] = {
-                    "action": f"native_bracket_{size}",
-                    "policy": (
-                        "correctness_then_reliability_then_"
-                        "prepare_to_first_file_peak_then_capture_peak"
-                    ),
-                    "candidate_count": len(frame_evidence),
-                    "qualified_count": sum(
-                        1 for item in frame_evidence if item.reliable
-                    ),
-                    "selected": None,
-                }
-                job.log(
-                    f"BRACKET {frames}: no reliable trigger combination"
+        supported_sizes = [
+            frames
+            for frames in sorted(ordered_modes)
+            if bracket_candidates_by_frames[
+                frames
+            ]
+        ]
+
+        def candidate_ids(frames):
+            return {
+                item["command_id"]
+                for item
+                in bracket_candidates_by_frames[
+                    frames
+                ]
+            }
+
+        # Find a calibration pair with one common primitive.
+        candidate_pairs = []
+
+        for index, first in enumerate(
+            supported_sizes
+        ):
+            for second in supported_sizes[
+                index + 1:
+            ]:
+                common = (
+                    candidate_ids(first)
+                    & candidate_ids(second)
                 )
-                continue
+                if common:
+                    candidate_pairs.append(
+                        (first, second)
+                    )
 
-            selected_bracket_items[size] = selected_item
-            selected_candidate_ids[size] = selected_item["command_id"]
-            profile["brackets"][size] = deepcopy(
-                selected_item["spec"]
+        candidate_pairs.sort(
+            key=lambda pair: (
+                0
+                if pair == (3, 7)
+                else 1,
+                -(pair[1] - pair[0]),
+                pair[0],
+                pair[1],
+            )
+        )
+
+        calibration_trigger_id = None
+
+        if candidate_pairs:
+            bracket_calibration_frames = list(
+                candidate_pairs[0]
             )
 
-            exposure_ms = (
-                sum(selected_item["reference_views_s"])
-                * 1000.0
+            common_ids = (
+                candidate_ids(
+                    bracket_calibration_frames[0]
+                )
+                & candidate_ids(
+                    bracket_calibration_frames[1]
+                )
             )
-            bracket_overhead_samples_by_frames[frames] = [
-                max(0.0, sample[1] - exposure_ms)
-                for sample in selected_item["samples"]
+
+            combined_candidates = []
+
+            for command_id in sorted(common_ids):
+                entries = [
+                    next(
+                        item
+                        for item
+                        in bracket_candidates_by_frames[
+                            frames
+                        ]
+                        if item["command_id"]
+                        == command_id
+                    )
+                    for frames
+                    in bracket_calibration_frames
+                ]
+
+                evidence = CandidateEvidence(
+                    candidate_id=command_id,
+                    recipe=deepcopy(
+                        entries[0]["trigger"]
+                    ),
+                    expected_trials=len(
+                        entries
+                    ),
+                    durations_ms=[
+                        item["samples"][0][1]
+                        for item in entries
+                    ],
+                    functional_ok=True,
+                )
+
+                combined_candidates.append(
+                    {
+                        "command_id":
+                            command_id,
+                        "evidence":
+                            evidence,
+                        "spec": {
+                            "peak_prepare_to_first_file_ms":
+                                max(
+                                    item[
+                                        "samples"
+                                    ][0][4]
+                                    + item[
+                                        "samples"
+                                    ][0][3][
+                                        "first_file_ms"
+                                    ]
+                                    for item
+                                    in entries
+                                ),
+                            "peak_capture_ms":
+                                max(
+                                    item[
+                                        "samples"
+                                    ][0][1]
+                                    for item
+                                    in entries
+                                ),
+                        },
+                    }
+                )
+
+            selected_calibration = (
+                _select_bracket_candidate(
+                    combined_candidates
+                )
+            )
+
+            if selected_calibration is None:
+                raise RuntimeError(
+                    "Internal error selecting "
+                    "bracket calibration primitive"
+                )
+
+            calibration_trigger_id = (
+                selected_calibration[
+                    "command_id"
+                ]
+            )
+
+        elif supported_sizes:
+            # Inter-frame cannot be identified from only one
+            # native size.  Keep that bracket functional and
+            # publish a minimal guarded inter-frame term.
+            bracket_calibration_frames = [
+                supported_sizes[0]
             ]
 
-            selection_evidence[f"native_bracket_{size}"] = (
-                compact_selection(
-                    f"native_bracket_{size}",
-                    frame_evidence,
-                    selected_item["evidence"],
+            selected_calibration = (
+                _select_bracket_candidate(
+                    bracket_candidates_by_frames[
+                        supported_sizes[0]
+                    ]
                 )
             )
-            job.log(
-                f"SELECT BRACKET {frames}: "
-                f"{selected_item['command_id']}; "
-                f"prepare_to_first_file_peak="
-                f"{selected_item['spec']['peak_prepare_to_first_file_ms']:.1f} ms; "
-                f"capture_peak="
-                f"{selected_item['spec']['peak_capture_ms']:.1f} ms"
+
+            if selected_calibration is not None:
+                calibration_trigger_id = (
+                    selected_calibration[
+                        "command_id"
+                    ]
+                )
+
+        # Select each supported bracket independently, except
+        # calibration sizes which MUST use the common calibration
+        # primitive so the timing slope remains mathematically valid.
+        for frames in supported_sizes:
+            size = str(frames)
+            candidates = (
+                bracket_candidates_by_frames[
+                    frames
+                ]
             )
 
-    selected_values = [
-        value
-        for value in selected_candidate_ids.values()
-        if value is not None
-    ]
-    common_selected = (
-        selected_values[0]
-        if selected_values
-        and len(set(selected_values)) == 1
-        and len(selected_values) == len(ordered_modes)
-        else None
-    )
-    selection_evidence["native_bracket"] = {
-        "action": "native_bracket",
-        "policy": (
-            "per_size_correctness_then_reliability_then_"
-            "prepare_to_first_file_peak_then_capture_peak"
-        ),
-        "required_sizes": sorted(int(value) for value in ordered_modes),
-        # Backward-compatible summary: populated only when every size happens
-        # to choose the same primitive.
-        "selected_candidate_id": common_selected,
-        "selected_candidate_ids_by_frames": deepcopy(
-            selected_candidate_ids
-        ),
-    }
+            if (
+                frames
+                in bracket_calibration_frames
+                and calibration_trigger_id
+                is not None
+            ):
+                selected_item = next(
+                    item
+                    for item in candidates
+                    if item["command_id"]
+                    == calibration_trigger_id
+                )
+            else:
+                selected_item = (
+                    _select_bracket_candidate(
+                        candidates
+                    )
+                )
 
-    profile["selection"] = deepcopy(selection_evidence)
-    profile["bracket_selection"] = {
-        "criterion": (
-            "per-size correctness and reliability; lowest peak preparation-"
-            "to-first-file, then lowest capture peak and median"
-        ),
-        "required_sizes": sorted(ordered_modes),
-        "selected_by_frames": deepcopy(selected_candidate_ids),
-        "excluded_by_frames": deepcopy(bracket_rejections),
-    }
+            if selected_item is None:
+                continue
+
+            samples = selected_item[
+                "samples"
+            ]
+
+            target_trials = (
+                5
+                if frames
+                in bracket_calibration_frames
+                else 1
+            )
+
+            # Functional trial above is trial 1/5 for
+            # calibration sizes.
+            while len(samples) < target_trials:
+                job.check()
+
+                prepare_ms = (
+                    timed_runtime_prepare(
+                        "1/500",
+                        selected_item["mode"],
+                    )
+                )
+
+                sample = probe(
+                    selected_item["trigger"],
+                    expected=frames,
+                    exposure_s=sum(
+                        selected_item[
+                            "reference_views_s"
+                        ]
+                    ),
+                    ready_set=(
+                        "capture_mode",
+                        commands[
+                            "capture_mode"
+                        ]["value"],
+                    ),
+                )
+
+                samples.append(
+                    (
+                        *sample,
+                        prepare_ms,
+                    )
+                )
+
+                runtime_set(
+                    "capture_mode",
+                    commands[
+                        "capture_mode"
+                    ]["value"],
+                )
+
+            # Timing-trial history contains only the sizes
+            # that actually identify the timing model.
+            if (
+                frames
+                in bracket_calibration_frames
+            ):
+                summarize_samples(
+                    selected_item["trigger"],
+                    frames,
+                    samples,
+                )
+
+            bracket_spec = {
+                "step_ev": 1,
+                "mode":
+                    selected_item["mode"],
+                "trigger": deepcopy(
+                    selected_item["trigger"]
+                ),
+                "shutter_requires_single_mode":
+                    bool(
+                        bracket_prepare_policy.get(
+                            frames,
+                            True,
+                        )
+                    ),
+                "peak_capture_ms":
+                    max(
+                        sample[1]
+                        for sample in samples
+                    ),
+                "peak_first_file_ms":
+                    max(
+                        sample[3][
+                            "first_file_ms"
+                        ]
+                        for sample in samples
+                    ),
+                "peak_prepare_to_first_file_ms":
+                    max(
+                        sample[4]
+                        + sample[3][
+                            "first_file_ms"
+                        ]
+                        for sample in samples
+                    ),
+            }
+
+            profile["brackets"][
+                size
+            ] = bracket_spec
+
+            selected_candidate_ids[
+                size
+            ] = selected_item[
+                "command_id"
+            ]
+
+            selected_bracket_items[
+                size
+            ] = {
+                "command_id":
+                    selected_item[
+                        "command_id"
+                    ],
+                "evidence":
+                    selected_item[
+                        "evidence"
+                    ],
+                "spec":
+                    bracket_spec,
+                "samples":
+                    samples,
+                "reference_views_s":
+                    selected_item[
+                        "reference_views_s"
+                    ],
+            }
+
+            bracket_usb_return_samples.extend(
+                sample[3][
+                    "usb_return_ms"
+                ]
+                for sample in samples
+            )
+
+            if (
+                frames
+                in bracket_calibration_frames
+            ):
+                exposure_ms = (
+                    sum(
+                        selected_item[
+                            "reference_views_s"
+                        ]
+                    )
+                    * 1000.0
+                )
+
+                bracket_overhead_samples_by_frames[
+                    frames
+                ] = [
+                    max(
+                        0.0,
+                        sample[3][
+                            "file_complete_ms"
+                        ]
+                        - exposure_ms,
+                    )
+                    for sample in samples
+                ]
+
+            selection_evidence[
+                f"native_bracket_{size}"
+            ] = compact_selection(
+                f"native_bracket_{size}",
+                [
+                    item["evidence"]
+                    for item in candidates
+                ],
+                selected_item[
+                    "evidence"
+                ],
+            )
+
+            job.log(
+                f"SELECT BRACKET "
+                f"{frames}: "
+                f"{selected_item['command_id']}; "
+                f"trials={len(samples)}; "
+                f"timing_model="
+                f"{'yes' if frames in bracket_calibration_frames else 'functional-only'}"
+            )
+
+        selected_values = [
+            value
+            for value
+            in selected_candidate_ids.values()
+            if value is not None
+        ]
+
+        common_selected = (
+            selected_values[0]
+            if selected_values
+            and len(
+                set(selected_values)
+            ) == 1
+            else None
+        )
+
+        selection_evidence["native_bracket"] = {
+            "action":
+                "native_bracket",
+            "policy": (
+                "per-size reliable primitive; "
+                "one common primitive required "
+                "only across timing calibration sizes"
+            ),
+            "required_sizes":
+                sorted(ordered_modes),
+            "selected_candidate_id":
+                common_selected,
+            "selected_candidate_ids_by_frames":
+                deepcopy(
+                    selected_candidate_ids
+                ),
+        }
+
+        profile["selection"] = deepcopy(
+            selection_evidence
+        )
+
+        profile[
+            "bracket_selection"
+        ] = {
+            "criterion": (
+                "per-size exact N/N capability; "
+                "BRK3/BRK7 use one common primitive "
+                "for timing when available"
+            ),
+            "required_sizes":
+                sorted(ordered_modes),
+            "timing_calibration_frames":
+                list(
+                    bracket_calibration_frames
+                ),
+            "selected_by_frames":
+                deepcopy(
+                    selected_candidate_ids
+                ),
+            "excluded_by_frames":
+                deepcopy(
+                    bracket_rejections
+                ),
+        }
 
     if profile["brackets"]:
         bracket_components = derive_bracket_components(
             bracket_overhead_samples_by_frames
         )
-        bracket_overhead_ms = budget_ms(
+        bracket_core_overhead_ms = budget_ms(
             [bracket_components["raw_bracket_overhead_ms"]]
         )
-        bracket_inter_image_ms = budget_ms(
-            [bracket_components["raw_bracket_inter_image_ms"]]
+        bracket_inter_image_ms = (
+            budget_ms(
+                [bracket_components["raw_bracket_inter_image_ms"]]
+            )
+            if len(bracket_calibration_frames) >= 2
+            else budget_ms([0.0])
+        )
+        bracket_usb_return_ms = budget_ms(
+            bracket_usb_return_samples
+        )
+        bracket_overhead_ms = (
+            bracket_core_overhead_ms + bracket_usb_return_ms
         )
     else:
         bracket_components = {
@@ -2315,12 +2420,14 @@ def characterize(camera, entry, job):
             "raw_bracket_overhead_ms": 0.0,
             "raw_bracket_inter_image_ms": 0.0,
         }
+        bracket_core_overhead_ms = 0
+        bracket_usb_return_ms = 0
         bracket_overhead_ms = 0
         bracket_inter_image_ms = 0
-
         if ordered_modes:
             warnings.append(
-                "No native bracket capture combination validated; sequential only"
+                "No common native bracket capture primitive validated; "
+                "sequential only"
             )
 
     missing_bracket_sizes = sorted(
@@ -2354,29 +2461,32 @@ def characterize(camera, entry, job):
 
     contract = {
         "version": 3,
-        "safety_policy": deepcopy(
-            SAFETY_POLICY
-        ),
+        "safety_policy": deepcopy(SAFETY_POLICY),
         "set_overhead_ms": set_overhead_ms,
         "single_overhead_ms": single_overhead_ms,
+        "single_usb_return_ms": single_usb_return_ms,
         "prepare_lead_ms": prepare_lead_ms,
-        "bracket_overhead_ms": (
-            bracket_overhead_ms
-        ),
-        "bracket_inter_image_ms": (
-            bracket_inter_image_ms
-        ),
+        "bracket_overhead_ms": bracket_overhead_ms,
+        "bracket_inter_image_ms": bracket_inter_image_ms,
+        "bracket_usb_return_ms": bracket_usb_return_ms,
         "supported_bracket_frames": sorted(
-            int(size)
-            for size in profile["brackets"]
+            int(size) for size in profile["brackets"]
         ),
+        "bracket_calibration_frames": list(bracket_calibration_frames),
+        # gphoto2 does not expose an authoritative physical shutter-open event.
+        # Never substitute command return or FILE_ADDED for this measurement.
+        "physical_trigger_latency": {
+            "status": "unmeasured",
+            "compensation_ms": 0.0,
+            "jitter_ms": None,
+        },
     }
 
     profile["timing_contract"] = contract
 
-    # Qualification must use the same logical recipe as the end-to-end IVVQ,
-    # but without its diagnostic +2 s spacing.  A fresh gphoto session is used
-    # on every attempt so the first capture is part of the measured contract.
+    # Qualification exercises representative reactive SET/PHOTO groups in
+    # the already-open persistent camera session.  It never owns camera.init()
+    # or camera.exit(); Trigger/CameraService own that lifecycle.
     profile["strategy"] = (
         "bracket"
         if profile["brackets"]
@@ -2411,7 +2521,9 @@ def characterize(camera, entry, job):
         "bracket_inter_image_ms"
     ]
 
-    # Operational bracket samples may have revised the fitted components.
+    # Bracket timing remains identified exclusively from the characterized
+    # calibration sizes (normally BRK3 and BRK7). Qualification validates the
+    # model but does not turn BRK5/9 into redundant timing benchmarks.
     if profile["brackets"]:
         bracket_components = derive_bracket_components(
             bracket_overhead_samples_by_frames
@@ -2638,6 +2750,15 @@ def characterize(camera, entry, job):
             "single_overhead_samples_ms": (
                 single_overhead_samples
             ),
+            "single_core_overhead_samples_ms": (
+                single_core_overhead_samples
+            ),
+            "single_usb_return_samples_ms": (
+                single_usb_return_samples
+            ),
+            "bracket_usb_return_samples_ms": (
+                bracket_usb_return_samples
+            ),
             "bracket_overhead_samples_ms_by_frames": {
                 str(frames): samples
                 for frames, samples
@@ -2661,12 +2782,14 @@ def characterize(camera, entry, job):
                 if profile["brackets"]
                 else "not_applicable"
             ),
-            "trigger_single_latency_ms": (
-                "unmeasured"
+            "trigger_single_latency_ms": "unmeasured_physical",
+            "single_usb_return_ms": "measured",
+            "bracket_usb_return_ms": (
+                "measured" if profile["brackets"] else "not_applicable"
             ),
         },
         "physical_latency_measured": False,
-        "test_pause_s": 2.0,
+        "test_pause_s": 0.0,
     }
 
     job.checkpoint(
@@ -2686,8 +2809,11 @@ def characterize(camera, entry, job):
         f"SET={contract['set_overhead_ms']} ms; "
         f"prepare lead={contract.get('prepare_lead_ms', 0)} ms; "
         f"single overhead={contract['single_overhead_ms']} ms; "
+        f"single USB return={contract.get('single_usb_return_ms', 0)} ms; "
         f"bracket overhead={contract['bracket_overhead_ms']} ms; "
-        f"inter-image={contract['bracket_inter_image_ms']} ms"
+        f"inter-image={contract['bracket_inter_image_ms']} ms; "
+        f"bracket USB return={contract.get('bracket_usb_return_ms', 0)} ms; "
+        "physical trigger latency=UNMEASURED"
     )
     job.log(
         f"RESULT {profile['strategy']}: "
@@ -2763,103 +2889,57 @@ def qualify_operational_contract_v3(
     bracket_overhead_samples_by_frames,
     job,
 ):
-    """Qualify contract-v3 budgets through the real ProfilePlugin path.
+    """Validate contract-v3 through the real plugin in one persistent session.
 
-    Discovery/micro-benchmark measurements remain useful for selecting camera
-    commands.  Publication, however, is allowed only after a fresh gphoto
-    session has executed the same logical validation recipe used by the
-    end-to-end camera IVVQ.
-
-    The validation-only diagnostic guard and late-confirmation grace are not
-    used here. Qualification follows the reactive production cadence: the next
-    operation starts immediately when the previous real operation completes.
-
-    If a newly observed operation requires a larger guarded budget under the
-    v3 safety policy, the affected contract value is revised and the complete
-    qualification is restarted from a fresh gphoto session.
+    Camera lifecycle belongs to Trigger/CameraService.  Characterization must
+    therefore never emulate normal eclipse execution with repeated exit()/init().
+    Budget revisions restart the logical validation recipe only; the physical
+    gphoto session stays up exactly as it does from partial phase through both
+    Diamond Rings and totality.
     """
-    from backend.camera_timing_contract import (
-        budget_ms,
-        derive_bracket_components,
-    )
+    from backend.camera_timing_contract import budget_ms
     from backend.camera_validation import build_validation_recipe
     from plugins.camera.base import _parse_speed
     from plugins.camera.profile import CameraPhysicalPreflightError
 
     contract = profile["timing_contract"]
-
     preview = build_validation_recipe(profile)
-
-    # For bracket profiles, additionally prove the largest characterized
-    # bracket as the very first PHOTO of another fresh gphoto session.
-    # The normal recipe intentionally starts with singles, so it cannot prove
-    # this cold-bracket condition by itself.
-    preview_bracket_frames = [
-        int(command["params"].get("frames", 1))
-        for command in preview["commands"]
-        if (
-            command["action"] == "PHOTO"
-            and int(command["params"].get("frames", 1)) > 1
-        )
-    ]
-    cold_bracket_frames = (
-        max(preview_bracket_frames)
-        if preview_bracket_frames
-        else None
-    )
-    complete_attempt_photos = (
-        int(preview["expected_photos"])
-        + int(cold_bracket_frames or 0)
-    )
-    cold_description = (
-        f" including {cold_bracket_frames} photo(s) for the cold bracket "
-        "triggered as the first PHOTO of a second fresh session."
-        if cold_bracket_frames is not None
-        else "."
-    )
-
     job.log(
-        "Final operational qualification starts automatically: "
-        f"{complete_attempt_photos} RAW photo(s) for one complete attempt "
-        f"({preview['expected_photos']} for the operational recipe"
-        f"{cold_description} "
-        "Automatic file confirmation is authoritative; operator input is "
-        "requested only for physical preflight states that software cannot set."
+        "Final operational qualification starts automatically in the current "
+        "persistent camera session: "
+        f"{preview['expected_photos']} RAW photo(s) per complete attempt. "
+        "No camera.exit()/camera.init() is performed."
     )
 
     runtime_set_samples = []
     runtime_single_overheads = []
-    runtime_bracket_overheads = {
-        int(frames): []
-        for frames in bracket_overhead_samples_by_frames
-    }
+    runtime_bracket_overheads = {}
     adjustments = []
     attempts = []
-
     attempt = 0
 
-    def quiesce_before_session_reopen(reason):
-        """Wait for quiet before a characterization-only session reopen.
-
-        A budget revision can interrupt qualification immediately after a PHOTO.
-        Reopening gphoto while the body is still finalizing that capture can make
-        an otherwise valid Direct-SET fail transiently. This wait is outside all
-        measured production cadence; uninterrupted attempts remain fully reactive.
-        """
-        late_files = set()
-        idle_ms = wait_camera_idle(
-            camera,
-            late_files,
-            quiet_s=2.0,
-            timeout_s=15.0,
-            check=job.check,
-        )
-        job.log(
-            "RUNTIME QUALIFICATION QUIET BEFORE SESSION REOPEN: "
-            f"{reason}; idle_wait={idle_ms:.1f} ms excluded; "
-            f"late_file_events={len(late_files)}"
-        )
-        return idle_ms
+    def initialize_plugin():
+        plugin = ProfilePlugin(camera, job.log, profile=profile)
+        while True:
+            job.check()
+            try:
+                plugin.preflight()
+                return plugin
+            except CameraPhysicalPreflightError as exc:
+                job.log(
+                    "RUNTIME QUALIFICATION CAMERA INITIALIZATION: "
+                    f"operator action required: {exc}"
+                )
+                if not job.ask(
+                    "Camera initialization: "
+                    f"{exc} Correct this physical setting, wait until the "
+                    "camera is ready, then click OK.",
+                    kind="start",
+                ):
+                    raise Cancelled(
+                        "Operational qualification cancelled during physical "
+                        "camera initialization"
+                    )
 
     def revise(field, previous, revised, observed, command_index):
         adjustments.append(
@@ -2874,70 +2954,15 @@ def qualify_operational_contract_v3(
         )
         job.log(
             f"RUNTIME QUALIFICATION BUDGET REVISED {field}: "
-            f"{previous} -> {revised} ms "
-            f"(observed={observed:.1f} ms); "
-            "restarting complete qualification"
+            f"{previous} -> {revised} ms (observed={observed:.1f} ms); "
+            "restarting logical qualification in the same camera session"
         )
 
     while True:
         job.check()
         attempt += 1
-
-        job.log(
-            f"RUNTIME QUALIFICATION V3: attempt {attempt}; "
-            "fresh gphoto session; reactive production cadence; "
-            "guards are limits, not reservations"
-        )
-
-        # A fresh CameraWorker opens a fresh gphoto session in production.
-        # Reproduce that property explicitly so the first capture is measured,
-        # not discarded as a warm-up. A qualification retry itself is not a
-        # production transition, so never reopen while the body is still
-        # finalizing the PHOTO that caused a budget revision.
-        quiesce_before_session_reopen(f"attempt {attempt}")
-        camera.exit()
-        camera.init()
-
-        plugin = ProfilePlugin(
-            camera,
-            job.log,
-            profile=profile,
-        )
-
-        # Same invariant convergence performed before a scheduled production
-        # sequence.  Preflight itself is outside the timed execution plan.
-        #
-        # A GET-only invariant (for example a physical Nikon release-mode
-        # selector) must already be correct.  Never bypass it and never attempt
-        # an USB SET that characterization proved unavailable: ask the operator
-        # to establish the required physical state, then prove it by GET.
-        while True:
-            job.check()
-            try:
-                plugin.preflight()
-                break
-            except CameraPhysicalPreflightError as exc:
-                job.log(
-                    "RUNTIME QUALIFICATION PREFLIGHT: "
-                    f"operator action required: {exc}"
-                )
-                if not job.ask(
-                    "Camera qualification preflight: "
-                    f"{exc} "
-                    "Correct this setting physically on the camera, "
-                    "wait until the camera is ready, then click OK. "
-                    "The setting will be read again before any measurement.",
-                    kind="start",
-                ):
-                    raise Cancelled(
-                        "Operational v3 qualification cancelled "
-                        "during physical preflight"
-                    )
-
-        # Rebuild after every budget revision: command durations must always
-        # reflect the current provisional contract.
+        plugin = initialize_plugin()
         recipe = build_validation_recipe(profile)
-
         attempt_record = {
             "attempt": attempt,
             "expected_photos": recipe["expected_photos"],
@@ -2945,35 +2970,34 @@ def qualify_operational_contract_v3(
             "commands_completed": 0,
             "set_samples_ms": [],
             "photo_samples": [],
-            "cold_bracket_first": None,
             "restarted": False,
+            "persistent_session": True,
         }
         attempt_started = time.monotonic()
         restart = False
 
         for command_index, command in enumerate(recipe["commands"]):
             job.check()
-
             action = command["action"]
             budget = float(command["duration_ms"])
             params = deepcopy(command["params"])
 
+            job.log(
+                "RUNTIME QUALIFICATION COMMAND "
+                f"{command_index + 1}/{len(recipe['commands'])}: "
+                f"{action} {params}"
+            )
+
             if action == "SET":
                 parameter = params["parameter"]
                 value = params["value"]
-
                 begin = time.monotonic()
                 plugin.set_parameter(
                     parameter,
                     value,
-                    fallback_parameter=params.get(
-                        "fallback_parameter"
-                    ),
+                    fallback_parameter=params.get("fallback_parameter"),
                 )
-                elapsed_ms = (
-                    time.monotonic() - begin
-                ) * 1000.0
-
+                elapsed_ms = (time.monotonic() - begin) * 1000.0
                 runtime_set_samples.append(elapsed_ms)
                 all_set_samples.append(elapsed_ms)
                 attempt_record["set_samples_ms"].append(
@@ -2984,67 +3008,41 @@ def qualify_operational_contract_v3(
                         "budget_ms": budget,
                     }
                 )
-
-                required = budget_ms(all_set_samples)
-                previous = contract["set_overhead_ms"]
-
-                if required > previous:
-                    contract["set_overhead_ms"] = required
+                if elapsed_ms > budget:
+                    previous = contract["set_overhead_ms"]
+                    revised = max(previous, budget_ms([elapsed_ms]))
+                    contract["set_overhead_ms"] = revised
                     profile["timing_contract"] = contract
                     revise(
                         "set_overhead_ms",
                         previous,
-                        required,
+                        revised,
                         elapsed_ms,
                         command_index,
                     )
                     restart = True
                     break
 
-                # Reactive runtime: the guarded budget is an overrun limit,
-                # not a reservation. Continue immediately when the real SET
-                # completes; do not sleep away unused guard time.
-
             elif action == "PHOTO":
-                # This grace belongs only to the external IVVQ.  Qualification
-                # instead uses the explicit characterization-only observation
-                # timeout below, allowing an underestimated candidate budget
-                # to be measured and revised.
-                params.pop(
-                    "validation_confirmation_grace_ms",
-                    None,
-                )
-
-                views = (
-                    params.get("physical_views")
-                    or [params["shutter"]]
-                )
-                exposure_s = sum(
-                    _parse_speed(value)
-                    for value in views
-                )
+                params.pop("validation_confirmation_grace_ms", None)
+                views = params.get("physical_views") or [params["shutter"]]
+                exposure_s = sum(_parse_speed(value) for value in views)
                 frames = int(params.get("frames", 1))
-
                 observation_s = max(
                     15.0 + exposure_s,
                     budget / 1000.0 + 5.0,
                 )
-
                 begin = time.monotonic()
                 plugin.execute_photo(
                     params,
                     observation_timeout_s=observation_s,
                     check=job.check,
                 )
-                elapsed_ms = (
-                    time.monotonic() - begin
-                ) * 1000.0
-
+                elapsed_ms = (time.monotonic() - begin) * 1000.0
                 overhead_ms = max(
                     0.0,
                     elapsed_ms - exposure_s * 1000.0,
                 )
-
                 attempt_record["photo_samples"].append(
                     {
                         "frames": frames,
@@ -3057,453 +3055,41 @@ def qualify_operational_contract_v3(
                 )
 
                 if frames == 1:
-                    runtime_single_overheads.append(
-                        overhead_ms
-                    )
-                    single_overhead_samples.append(
-                        overhead_ms
-                    )
-
-                    required = budget_ms(
-                        single_overhead_samples
-                    )
-                    previous = contract[
-                        "single_overhead_ms"
-                    ]
-
-                    if required > previous:
-                        contract[
-                            "single_overhead_ms"
-                        ] = required
-                        profile["timing_contract"] = contract
-                        revise(
-                            "single_overhead_ms",
-                            previous,
-                            required,
-                            elapsed_ms,
-                            command_index,
-                        )
-                        restart = True
-                        break
-
+                    runtime_single_overheads.append(overhead_ms)
                 else:
-                    samples = (
-                        bracket_overhead_samples_by_frames
-                        .setdefault(frames, [])
-                    )
-                    samples.append(overhead_ms)
-                    runtime_bracket_overheads.setdefault(
-                        frames, []
-                    ).append(overhead_ms)
-
-                    components = derive_bracket_components(
-                        bracket_overhead_samples_by_frames
-                    )
-                    required_fixed = budget_ms(
-                        [
-                            components[
-                                "raw_bracket_overhead_ms"
-                            ]
-                        ]
-                    )
-                    required_inter = budget_ms(
-                        [
-                            components[
-                                "raw_bracket_inter_image_ms"
-                            ]
-                        ]
+                    runtime_bracket_overheads.setdefault(frames, []).append(
+                        overhead_ms
                     )
 
-                    previous_fixed = contract[
-                        "bracket_overhead_ms"
-                    ]
-                    previous_inter = contract[
-                        "bracket_inter_image_ms"
-                    ]
-
-                    revised_fixed = max(
-                        previous_fixed,
-                        required_fixed,
+                if elapsed_ms > budget:
+                    excess_ms = elapsed_ms - budget
+                    if frames == 1:
+                        field = "single_overhead_ms"
+                    else:
+                        # A BRK3/7-derived inter-frame slope is preserved.  Any
+                        # unexpected validation overrun is conservatively folded
+                        # into the fixed bracket component.
+                        field = "bracket_overhead_ms"
+                    previous = contract[field]
+                    revised = previous + budget_ms([excess_ms])
+                    contract[field] = revised
+                    profile["timing_contract"] = contract
+                    revise(
+                        field,
+                        previous,
+                        revised,
+                        elapsed_ms,
+                        command_index,
                     )
-                    revised_inter = max(
-                        previous_inter,
-                        required_inter,
-                    )
-
-                    if (
-                        revised_fixed > previous_fixed
-                        or revised_inter > previous_inter
-                    ):
-                        contract[
-                            "bracket_overhead_ms"
-                        ] = revised_fixed
-                        contract[
-                            "bracket_inter_image_ms"
-                        ] = revised_inter
-                        profile["timing_contract"] = contract
-
-                        adjustments.append(
-                            {
-                                "attempt": attempt,
-                                "field": "bracket_model",
-                                "frames": frames,
-                                "observed_ms": elapsed_ms,
-                                "overhead_ms": overhead_ms,
-                                "previous_bracket_overhead_ms":
-                                    previous_fixed,
-                                "revised_bracket_overhead_ms":
-                                    revised_fixed,
-                                "previous_inter_image_ms":
-                                    previous_inter,
-                                "revised_inter_image_ms":
-                                    revised_inter,
-                                "command_index": command_index,
-                            }
-                        )
-                        job.log(
-                            "RUNTIME QUALIFICATION BUDGET REVISED "
-                            f"bracket model: fixed "
-                            f"{previous_fixed}->{revised_fixed} ms; "
-                            f"inter-image "
-                            f"{previous_inter}->{revised_inter} ms; "
-                            f"frames={frames}, observed={elapsed_ms:.1f} ms; "
-                            "restarting complete qualification"
-                        )
-                        restart = True
-                        break
-
-                # Reactive runtime: PHOTO guard values bound admission and
-                # timeout handling, but unused guard time is not consumed.
-                # There is intentionally no IVVQ diagnostic gap here.
+                    restart = True
+                    break
 
             else:
                 raise RuntimeError(
                     f"Unsupported qualification action: {action}"
                 )
 
-            attempt_record[
-                "commands_completed"
-            ] = command_index + 1
-
-        # The main operational recipe always exercises singles before brackets.
-        # Therefore, after a complete main pass, explicitly prove the largest
-        # supported bracket as the very first PHOTO of another fresh gphoto
-        # session.  Only the minimum SET state required immediately before that
-        # bracket is replayed; no warm-up PHOTO is allowed.
-        #
-        # After the cold bracket, replay the deterministic final-state SET tail
-        # from the same validation recipe so characterization never leaves the
-        # physical camera parked in bracket mode.
-        if not restart and cold_bracket_frames is not None:
-            cold_targets = [
-                (index, command)
-                for index, command in enumerate(recipe["commands"])
-                if (
-                    command["action"] == "PHOTO"
-                    and int(
-                        command["params"].get("frames", 1)
-                    ) == cold_bracket_frames
-                )
-            ]
-            if len(cold_targets) != 1:
-                raise RuntimeError(
-                    "Operational v3 cold bracket target is ambiguous: "
-                    f"frames={cold_bracket_frames}, "
-                    f"matches={len(cold_targets)}"
-                )
-
-            cold_target_index, cold_target = cold_targets[0]
-            cold_record = {
-                "frames": cold_bracket_frames,
-                "status": "running",
-                "setup_set_samples_ms": [],
-                "restore_set_samples_ms": [],
-            }
-            attempt_record["cold_bracket_first"] = cold_record
-
-            job.log(
-                "RUNTIME QUALIFICATION COLD BRACKET: "
-                f"{cold_bracket_frames} frames; fresh gphoto session; "
-                "this bracket will be the first PHOTO"
-            )
-
-            quiesce_before_session_reopen(
-                f"cold bracket {cold_bracket_frames}-frame session"
-            )
-            camera.exit()
-            camera.init()
-
-            cold_plugin = ProfilePlugin(
-                camera,
-                job.log,
-                profile=profile,
-            )
-
-            while True:
-                job.check()
-                try:
-                    cold_plugin.preflight()
-                    break
-                except CameraPhysicalPreflightError as exc:
-                    job.log(
-                        "RUNTIME QUALIFICATION COLD BRACKET PREFLIGHT: "
-                        f"operator action required: {exc}"
-                    )
-                    if not job.ask(
-                        "Cold bracket preflight: "
-                        f"{exc} "
-                        "Correct this setting physically on the camera, "
-                        "wait until the camera is ready, then click OK. "
-                        "The setting will be read again before any measurement.",
-                        kind="start",
-                    ):
-                        raise Cancelled(
-                            "Operational v3 cold bracket qualification "
-                            "cancelled during physical preflight"
-                        )
-
-            # Collapse the recipe prefix to the last SET for each parameter.
-            # Those values are exactly the camera state immediately before the
-            # selected bracket, without replaying unrelated earlier singles.
-            last_setup_by_parameter = {}
-            for original_index, command in enumerate(
-                recipe["commands"][:cold_target_index]
-            ):
-                if command["action"] != "SET":
-                    continue
-                parameter = command["params"]["parameter"]
-                last_setup_by_parameter[parameter] = (
-                    original_index,
-                    command,
-                )
-
-            cold_setup_sets = sorted(
-                last_setup_by_parameter.values(),
-                key=lambda item: item[0],
-            )
-
-            # The target is the largest/last bracket in the validation recipe;
-            # the remaining SET commands are its deterministic final-state tail.
-            cold_restore_sets = [
-                (original_index, command)
-                for original_index, command in enumerate(
-                    recipe["commands"][cold_target_index + 1:],
-                    start=cold_target_index + 1,
-                )
-                if command["action"] == "SET"
-            ]
-
-            def run_cold_sets(items, phase):
-                nonlocal restart
-
-                for original_index, command in items:
-                    job.check()
-
-                    params = deepcopy(command["params"])
-                    parameter = params["parameter"]
-                    value = params["value"]
-                    budget = float(command["duration_ms"])
-
-                    begin = time.monotonic()
-                    cold_plugin.set_parameter(
-                        parameter,
-                        value,
-                        fallback_parameter=params.get(
-                            "fallback_parameter"
-                        ),
-                    )
-                    elapsed_ms = (
-                        time.monotonic() - begin
-                    ) * 1000.0
-
-                    runtime_set_samples.append(elapsed_ms)
-                    all_set_samples.append(elapsed_ms)
-
-                    sample = {
-                        "parameter": parameter,
-                        "value": value,
-                        "elapsed_ms": elapsed_ms,
-                        "budget_ms": budget,
-                        "recipe_command_index": original_index,
-                    }
-                    cold_record[
-                        f"{phase}_set_samples_ms"
-                    ].append(sample)
-
-                    required = budget_ms(all_set_samples)
-                    previous = contract["set_overhead_ms"]
-
-                    if required > previous:
-                        contract["set_overhead_ms"] = required
-                        profile["timing_contract"] = contract
-                        revise(
-                            "set_overhead_ms",
-                            previous,
-                            required,
-                            elapsed_ms,
-                            original_index,
-                        )
-                        cold_record["status"] = (
-                            f"{phase}_set_budget_revised"
-                        )
-                        restart = True
-                        return False
-
-                    # Reactive runtime: proceed immediately after a SET
-                    # that completed within its guard budget.
-
-                return True
-
-            if run_cold_sets(cold_setup_sets, "setup"):
-                params = deepcopy(cold_target["params"])
-                params.pop(
-                    "validation_confirmation_grace_ms",
-                    None,
-                )
-
-                views = (
-                    params.get("physical_views")
-                    or [params["shutter"]]
-                )
-                exposure_s = sum(
-                    _parse_speed(value)
-                    for value in views
-                )
-                budget = float(cold_target["duration_ms"])
-
-                observation_s = max(
-                    15.0 + exposure_s,
-                    budget / 1000.0 + 5.0,
-                )
-
-                begin = time.monotonic()
-                cold_plugin.execute_photo(
-                    params,
-                    observation_timeout_s=observation_s,
-                    check=job.check,
-                )
-                elapsed_ms = (
-                    time.monotonic() - begin
-                ) * 1000.0
-
-                overhead_ms = max(
-                    0.0,
-                    elapsed_ms - exposure_s * 1000.0,
-                )
-
-                cold_record.update(
-                    {
-                        "elapsed_ms": elapsed_ms,
-                        "exposure_ms": exposure_s * 1000.0,
-                        "overhead_ms": overhead_ms,
-                        "budget_ms": budget,
-                    }
-                )
-
-                samples = (
-                    bracket_overhead_samples_by_frames
-                    .setdefault(cold_bracket_frames, [])
-                )
-                samples.append(overhead_ms)
-
-                runtime_bracket_overheads.setdefault(
-                    cold_bracket_frames, []
-                ).append(overhead_ms)
-
-                components = derive_bracket_components(
-                    bracket_overhead_samples_by_frames
-                )
-                required_fixed = budget_ms(
-                    [
-                        components[
-                            "raw_bracket_overhead_ms"
-                        ]
-                    ]
-                )
-                required_inter = budget_ms(
-                    [
-                        components[
-                            "raw_bracket_inter_image_ms"
-                        ]
-                    ]
-                )
-
-                previous_fixed = contract[
-                    "bracket_overhead_ms"
-                ]
-                previous_inter = contract[
-                    "bracket_inter_image_ms"
-                ]
-
-                revised_fixed = max(
-                    previous_fixed,
-                    required_fixed,
-                )
-                revised_inter = max(
-                    previous_inter,
-                    required_inter,
-                )
-
-                if (
-                    revised_fixed > previous_fixed
-                    or revised_inter > previous_inter
-                ):
-                    contract[
-                        "bracket_overhead_ms"
-                    ] = revised_fixed
-                    contract[
-                        "bracket_inter_image_ms"
-                    ] = revised_inter
-                    profile["timing_contract"] = contract
-
-                    adjustments.append(
-                        {
-                            "attempt": attempt,
-                            "field": "bracket_model_cold_first",
-                            "frames": cold_bracket_frames,
-                            "observed_ms": elapsed_ms,
-                            "overhead_ms": overhead_ms,
-                            "previous_bracket_overhead_ms":
-                                previous_fixed,
-                            "revised_bracket_overhead_ms":
-                                revised_fixed,
-                            "previous_inter_image_ms":
-                                previous_inter,
-                            "revised_inter_image_ms":
-                                revised_inter,
-                            "command_index":
-                                cold_target_index,
-                            "cold_first_photo": True,
-                        }
-                    )
-                    job.log(
-                        "RUNTIME QUALIFICATION COLD BRACKET "
-                        "BUDGET REVISED: "
-                        f"fixed {previous_fixed}->{revised_fixed} ms; "
-                        f"inter-image "
-                        f"{previous_inter}->{revised_inter} ms; "
-                        f"frames={cold_bracket_frames}, "
-                        f"observed={elapsed_ms:.1f} ms; "
-                        "restarting complete qualification"
-                    )
-                    cold_record["status"] = "budget_revised"
-                    restart = True
-                else:
-                    # Do not consume unused PHOTO budget. Restore the final
-                    # camera state immediately after the real PHOTO completes.
-                    if run_cold_sets(
-                        cold_restore_sets,
-                        "restore",
-                    ):
-                        cold_record["status"] = "validated"
-                        job.log(
-                            "RUNTIME QUALIFICATION COLD BRACKET "
-                            "PASSED: "
-                            f"frames={cold_bracket_frames}; "
-                            f"elapsed={elapsed_ms:.1f} ms; "
-                            f"overhead={overhead_ms:.1f} ms; "
-                            "first PHOTO of fresh session"
-                        )
+            attempt_record["commands_completed"] = command_index + 1
 
         attempt_record["elapsed_ms"] = (
             time.monotonic() - attempt_started
@@ -3513,41 +3099,34 @@ def qualify_operational_contract_v3(
 
         job.checkpoint(
             runtime_v3_qualification={
-                "status": (
-                    "retrying"
-                    if restart
-                    else "validated"
-                ),
+                "status": "retrying" if restart else "validated",
                 "attempts": deepcopy(attempts),
                 "adjustments": deepcopy(adjustments),
-                "runtime_set_samples_ms": list(
-                    runtime_set_samples
-                ),
+                "runtime_set_samples_ms": list(runtime_set_samples),
                 "runtime_single_overheads_ms": list(
                     runtime_single_overheads
                 ),
                 "runtime_bracket_overheads_ms_by_frames": {
                     str(frames): list(samples)
-                    for frames, samples
-                    in runtime_bracket_overheads.items()
+                    for frames, samples in runtime_bracket_overheads.items()
                 },
                 "timing_contract": deepcopy(contract),
+                "persistent_camera_session": True,
             }
         )
 
         if restart:
             continue
-
         break
 
     job.log(
-        "RUNTIME QUALIFICATION V3 PASSED: "
-        f"attempts={attempt}; "
-        f"SET={contract['set_overhead_ms']} ms; "
-        f"prepare lead={contract.get('prepare_lead_ms', 0)} ms; "
+        "RUNTIME QUALIFICATION V3 PASSED: persistent camera session; "
+        f"attempts={attempt}; SET={contract['set_overhead_ms']} ms; "
         f"single overhead={contract['single_overhead_ms']} ms; "
+        f"single USB return={contract.get('single_usb_return_ms', 0)} ms; "
         f"bracket overhead={contract['bracket_overhead_ms']} ms; "
-        f"inter-image={contract['bracket_inter_image_ms']} ms"
+        f"inter-image={contract['bracket_inter_image_ms']} ms; "
+        f"bracket USB return={contract.get('bracket_usb_return_ms', 0)} ms"
     )
 
     return {
@@ -3558,15 +3137,11 @@ def qualify_operational_contract_v3(
         "runtime_single_overheads_ms": runtime_single_overheads,
         "runtime_bracket_overheads_ms_by_frames": {
             str(frames): samples
-            for frames, samples
-            in runtime_bracket_overheads.items()
+            for frames, samples in runtime_bracket_overheads.items()
         },
-        "cold_bracket_first_frames": cold_bracket_frames,
-        "cold_bracket_first": (
-            attempts[-1].get("cold_bracket_first")
-            if attempts
-            else None
-        ),
+        "persistent_camera_session": True,
+        "cold_bracket_first_frames": None,
+        "cold_bracket_first": None,
     }
 
 

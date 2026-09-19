@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import re
 import time
+from datetime import timedelta
 from types import SimpleNamespace
 
 from .base import (
@@ -249,9 +250,19 @@ class ProfilePlugin(CameraPlugin):
 
     def _prime_runtime_writers(self):
         """Prime all direct writers before the timed trigger path starts."""
-        for spec in self.commands.values():
-            if isinstance(spec, dict) and spec.get("set") is not False:
+        for key, spec in self.commands.items():
+            if not isinstance(spec, dict) or spec.get("set") is False:
+                continue
+            try:
                 self._prime_single_spec(spec)
+            except Exception as exc:
+                if spec.get("runtime_optional") is True:
+                    self.log(
+                        f"WARNING optional camera setting {key} writer "
+                        f"could not be primed: {exc}"
+                    )
+                    continue
+                raise
 
         trigger_specs = [self.commands.get("trigger_single")]
         trigger_specs.extend(
@@ -347,6 +358,49 @@ class ProfilePlugin(CameraPlugin):
         model = re.sub(r"\s*\(PC Control\)\s*$", "", model)
         return model.replace("Alpha-A", "A")
 
+    def _photo_usb_return_s(self, frames: int) -> float:
+        contract = self.profile.get("timing_contract")
+        if not isinstance(contract, dict) or contract.get("version") != 3:
+            return 0.0
+        field = (
+            "bracket_usb_return_ms"
+            if int(frames) > 1
+            else "single_usb_return_ms"
+        )
+        value = contract.get(field, 0)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0
+        ):
+            raise ValueError(f"invalid {field}")
+        return float(value) / 1000.0
+
+    def _physical_trigger_compensation_s(self) -> float:
+        """Return compensation only for an externally measured shutter lag.
+
+        gphoto2 provides no authoritative physical exposure-start event.  A
+        command-return or FILE_ADDED timestamp must never be relabelled as
+        shutter lag.  Characterization therefore publishes status=unmeasured
+        until an optical calibration supplies a real value.
+        """
+        contract = self.profile.get("timing_contract")
+        if not isinstance(contract, dict) or contract.get("version") != 3:
+            return 0.0
+        physical = contract.get("physical_trigger_latency")
+        if not isinstance(physical, dict) or physical.get("status") != "measured":
+            return 0.0
+        value = physical.get("compensation_ms", 0)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0
+        ):
+            raise ValueError("invalid physical trigger latency compensation")
+        return float(value) / 1000.0
+
     def preparation_lead_s(self) -> float:
         """Conservative SET-preparation reservation before PHOTO target.
 
@@ -418,7 +472,18 @@ class ProfilePlugin(CameraPlugin):
         """Preflight GET first; SET only when the required value differs."""
         spec = self.commands[key]
         target = self._resolved_value(key, value)
-        actual = self._preflight_read(key)
+        optional = spec.get("runtime_optional") is True
+        try:
+            actual = self._preflight_read(key)
+        except Exception as exc:
+            if optional:
+                self._known_settings.pop(key, None)
+                self.log(
+                    f"WARNING optional camera setting {key} GET failed; "
+                    f"continuing without changing it: {exc}"
+                )
+                return False
+            raise
         if str(actual) == str(target):
             self._known_settings[key] = target
             return False
@@ -442,12 +507,19 @@ class ProfilePlugin(CameraPlugin):
                         f"actual={verified!r}"
                     )
             except Exception as exc:
+                if optional:
+                    self._known_settings.pop(key, None)
+                    self.log(
+                        f"WARNING optional camera setting {key} SET failed; "
+                        f"continuing with the physical lens/body state: {exc}"
+                    )
+                    return False
                 try:
                     actual = self._preflight_read(key)
                 except Exception as read_exc:
                     raise CameraPreflightError(
                         f"Communication with {self._display_model()} failed "
-                        f"during preflight of {key}: {read_exc}"
+                        f"during camera initialization of {key}: {read_exc}"
                     ) from exc
                 raise CameraPreflightError(
                     f"USB preflight SET failed for {key} on "
@@ -459,6 +531,13 @@ class ProfilePlugin(CameraPlugin):
             return True
 
         if not self._live_writable(key):
+            if optional:
+                self._known_settings.pop(key, None)
+                self.log(
+                    f"WARNING optional camera setting {key} is currently "
+                    "read-only; continuing without changing it"
+                )
+                return False
             if spec.get("set") is False:
                 raise CameraPhysicalPreflightError(
                     self._manual_instruction(key, target, actual)
@@ -473,6 +552,13 @@ class ProfilePlugin(CameraPlugin):
             write_checked(self.camera, spec["path"], target)
         except Exception as exc:
             self._writable_cache.discard(key)
+            if optional:
+                self._known_settings.pop(key, None)
+                self.log(
+                    f"WARNING optional camera setting {key} SET failed; "
+                    f"continuing with the physical lens/body state: {exc}"
+                )
+                return False
             try:
                 actual = self._preflight_read(key)
             except Exception as read_exc:
@@ -494,6 +580,7 @@ class ProfilePlugin(CameraPlugin):
         """Timed SET path: no camera GET, and no SET when state is unchanged."""
         spec = self.commands[key]
         target = self._resolved_value(key, value)
+        optional = spec.get("runtime_optional") is True
         if (
             key in self._known_settings
             and str(self._known_settings[key]) == str(target)
@@ -507,10 +594,22 @@ class ProfilePlugin(CameraPlugin):
 
         if spec.get("writer") == "single_config":
             if spec.get("set") is False:
+                if optional:
+                    return False
                 raise CameraPreflightError(
                     f"Characterized setting {key} is not writable"
                 )
-            self._direct_set_spec(spec, target)
+            try:
+                self._direct_set_spec(spec, target)
+            except Exception as exc:
+                if optional:
+                    self._known_settings.pop(key, None)
+                    self.log(
+                        f"WARNING optional camera setting {key} SET failed "
+                        f"during execution; continuing: {exc}"
+                    )
+                    return False
+                raise
             self._invalidate_after_set(key)
             self._known_settings[key] = target
             return True
@@ -528,8 +627,15 @@ class ProfilePlugin(CameraPlugin):
             )
         try:
             write_widget(self.camera, spec["path"], target)
-        except Exception:
+        except Exception as exc:
             self._writable_cache.discard(key)
+            if optional:
+                self._known_settings.pop(key, None)
+                self.log(
+                    f"WARNING optional camera setting {key} SET failed "
+                    f"during execution; continuing: {exc}"
+                )
+                return False
             raise
         self._invalidate_after_set(key)
         self._known_settings[key] = target
@@ -909,6 +1015,17 @@ class ProfilePlugin(CameraPlugin):
             error.observed_frames = len(observed)
             error.expected_frames = count
             raise error
+
+        usb_return_s = self._photo_usb_return_s(count)
+        if usb_return_s > 0:
+            guard_deadline = time.monotonic() + usb_return_s
+            while True:
+                if check:
+                    check()
+                remaining = guard_deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(0.01, remaining))
 
         return CaptureResult(
             frames=count,
@@ -1649,13 +1766,18 @@ class ProfilePlugin(CameraPlugin):
                             operation["value"],
                         )
                     else:
-                        # SET preparation may start before the scheduled slot,
-                        # but the PHOTO command itself must never be sent early.
+                        # SET preparation may start before the scheduled slot.
+                        # If (and only if) physical shutter lag was measured
+                        # optically, send the PHOTO command that much earlier so
+                        # the physical exposure starts at target_time.
                         if first_photo_pending and target_time is not None:
-                            remaining = seconds_until_deadline(target_time)
+                            command_target = target_time - timedelta(
+                                seconds=self._physical_trigger_compensation_s()
+                            )
+                            remaining = seconds_until_deadline(command_target)
                             while remaining is not None and remaining > 0:
                                 time.sleep(min(0.05, remaining))
-                                remaining = seconds_until_deadline(target_time)
+                                remaining = seconds_until_deadline(command_target)
                             first_photo_pending = False
                         frames += self.execute_photo(operation).frames
             except Exception:

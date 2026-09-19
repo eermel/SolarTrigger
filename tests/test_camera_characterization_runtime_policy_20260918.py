@@ -134,14 +134,12 @@ def test_characterization_source_has_no_per_capture_go_prompt():
 
 
 
-def test_operational_qualification_quiesces_only_before_session_reopen():
+def test_operational_qualification_keeps_one_persistent_camera_session():
     source = inspect.getsource(characterization.qualify_operational_contract_v3)
-    assert "def quiesce_before_session_reopen(reason)" in source
-    # Definition + main attempt reopen + cold-bracket reopen.
-    assert source.count("quiesce_before_session_reopen(") == 3
-    assert "wait_camera_idle(" in source
-    assert "idle_wait=" in source
-    assert "outside all" in source
+    assert "quiesce_before_session_reopen" not in source
+    assert "fresh gphoto session" not in source
+    assert "persistent camera session" in source
+    assert "RUNTIME QUALIFICATION COMMAND" in source
 
 
 def test_operational_qualification_prompts_only_for_physical_preflight():

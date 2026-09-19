@@ -1,4 +1,4 @@
-"""Camera timing budgets used by characterization and plan compilation.
+"""Camera timing budgets used by characterization and reactive execution.
 
 Contract v3 deliberately stores only operational budgets. Raw observations stay in
 configs/camera_characterization/measurements and are never required by Trigger.
@@ -154,6 +154,39 @@ def validate_timing_contract_v3(contract, *, bracket_frames=None):
             allow_zero=True,
         )
 
+    # Contract-v3.1 optional subcomponents.  Old v3 profiles remain valid.
+    # USB-return is a consumed post-FILE_ADDED guard: Trigger must not issue the
+    # next SET until this characterized interval has elapsed.
+    for field in ("single_usb_return_ms", "bracket_usb_return_ms"):
+        if field in contract:
+            _multiple_of_50(
+                contract.get(field),
+                field,
+                allow_zero=True,
+            )
+
+    physical = contract.get("physical_trigger_latency")
+    if physical is not None:
+        if not isinstance(physical, dict):
+            raise ValueError("physical_trigger_latency must be an object")
+        status = physical.get("status")
+        if status not in ("measured", "unmeasured"):
+            raise ValueError("invalid physical trigger latency status")
+        compensation = _finite_nonnegative(
+            physical.get("compensation_ms", 0),
+            "physical_trigger_latency.compensation_ms",
+        )
+        if status == "unmeasured" and compensation != 0:
+            raise ValueError(
+                "unmeasured physical trigger latency cannot apply compensation"
+            )
+        jitter = physical.get("jitter_ms")
+        if jitter is not None:
+            _finite_nonnegative(
+                jitter,
+                "physical_trigger_latency.jitter_ms",
+            )
+
     raw_supported = contract.get("supported_bracket_frames", [])
     if not isinstance(raw_supported, list):
         raise ValueError("supported_bracket_frames must be an array")
@@ -167,6 +200,25 @@ def validate_timing_contract_v3(contract, *, bracket_frames=None):
         supported.append(frames)
     if supported != sorted(set(supported)):
         raise ValueError("supported_bracket_frames must be sorted and unique")
+
+    calibration = contract.get("bracket_calibration_frames")
+    if calibration is not None:
+        if not isinstance(calibration, list):
+            raise ValueError("bracket_calibration_frames must be an array")
+        normalized_calibration = []
+        for raw in calibration:
+            if isinstance(raw, bool):
+                raise ValueError("bracket calibration frame count must be an integer")
+            frames = int(raw)
+            if frames not in supported:
+                raise ValueError(
+                    "bracket_calibration_frames must be supported bracket sizes"
+                )
+            normalized_calibration.append(frames)
+        if normalized_calibration != sorted(set(normalized_calibration)):
+            raise ValueError(
+                "bracket_calibration_frames must be sorted and unique"
+            )
 
     if bracket_frames is not None:
         expected = sorted(int(value) for value in bracket_frames)

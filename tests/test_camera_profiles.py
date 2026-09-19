@@ -305,16 +305,14 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     # Characterization must therefore complete with zero operator prompts.
     assert prompts == []
 
-    # Historical discovery/timing = 108 physical images.
-    # Main operational recipe = 4 singles + bracket 3 + bracket 5 = 12.
-    # Cold-bracket proof adds one bracket-5 as the first PHOTO of a second
-    # fresh session: 108 + 12 + 5 = 125 physical images.
-    assert camera.counter == 125
-    # Two single candidates + two candidates for each of the 3/5-frame
-    # bracket sizes are cold-started, then operational qualification opens one
-    # fresh session plus one cold-bracket session: 2 + 2 + 2 + 2 = 8.
-    assert camera.exit_count == 8
-    assert camera.init_count == 8
+    # Persistent-session characterization: two single primitives receive five
+    # trials each; bracket primitives are functionally checked at 3/5, then the
+    # selected primitive receives five timing trials at the two available
+    # calibration sizes.  The operational validation recipe then adds 12 RAWs.
+    assert camera.counter == 70
+    # Characterization/qualification never own the gphoto lifecycle.
+    assert camera.exit_count == 0
+    assert camera.init_count == 0
 
     # Discovery is ISO100-only, while operational qualification must prove
     # at least one real alternate-ISO transition before publication.
@@ -340,16 +338,23 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     assert set(_TIMING_FIELDS) <= timing["timing"].keys()
     assert timing["raw_timing"]["settle_idle_ms"] == 0
     assert result["settle_idle_s"] == 0
-    assert timing["measurement_status"]["trigger_single_latency_ms"] == "unmeasured"
+    assert timing["measurement_status"]["trigger_single_latency_ms"] == "unmeasured_physical"
     assert timing["timing"]["trigger_single_latency_ms"] == 0
-    assert len(timing["timing_trials"]) == 6
+    assert len(timing["timing_trials"]) == 4
     for trial in timing["timing_trials"]:
-        assert len(trial["samples"]) == 6
+        assert len(trial["samples"]) == 5
         for sample in trial["samples"]:
-            assert sample["test_pause_ms"] >= 2000
-            assert sample["total_ms"] < sample["test_pause_ms"]
-            summed = sum(sample[k] for k in ("pre_trigger_drain_ms", "trigger_call_ms", "frame_wait_ms", "release_ms", "post_release_wait_ms", "settle_ms"))
-            assert summed == pytest.approx(sample["total_ms"], abs=0.01)
+            assert sample["test_pause_ms"] == 0
+            assert sample["usb_return_ms"] >= 0
+            assert sample["total_ms"] >= sample["file_complete_ms"]
+    assert timing["timing_contract"]["single_usb_return_ms"] > 0
+    assert timing["timing_contract"]["bracket_usb_return_ms"] > 0
+    assert timing["timing_contract"]["bracket_calibration_frames"] == [3, 5]
+    assert timing["timing_contract"]["physical_trigger_latency"] == {
+        "status": "unmeasured",
+        "compensation_ms": 0.0,
+        "jitter_ms": None,
+    }
 
 
 def test_raw_failure_prevents_all_exposures(monkeypatch, profile):
@@ -720,10 +725,10 @@ def test_characterization_preserves_single_shot_target_for_readonly_capture_mode
     physical_preflight_prompts = []
 
     def confirm_d850(self, message, kind="result"):
-        if (
-            kind == "start"
-            and "Correct this setting physically" in message
-        ):
+        if kind == "start":
+            # In this simulated D850 all photographic settings except the
+            # physical release-mode selector are USB-writable. Therefore any
+            # operator action requested here is the physical Single Shot change.
             physical_preflight_prompts.append(message)
 
             # Simulate the human moving the physical release-mode selector.
@@ -765,10 +770,9 @@ def test_characterization_preserves_single_shot_target_for_readonly_capture_mode
     assert result["strategy"] == "sequential"
     assert timing is not None
 
-    # Two single candidates are cold-started, then operational qualification
-    # opens its own fresh camera session.
-    assert camera.exit_count == 3
-    assert camera.init_count == 3
+    # Characterization and qualification use the already-open camera session.
+    assert camera.exit_count == 0
+    assert camera.init_count == 0
 
 
 def test_single_shot_operator_instruction_is_unambiguous(profile):
@@ -821,3 +825,206 @@ def test_genuinely_unsupported_shutter_still_fails_closed(profile):
         match=r"Unsupported profile shutter: 1/3",
     ):
         plugin.prepare_capture(capture_intent)
+
+
+
+def test_single_bracket_size_keeps_positive_interframe_guard(
+    monkeypatch,
+    profile,
+):
+    """One native bracket remains valid with a guarded inter-frame term."""
+    import sys
+    from backend import camera_characterization as module
+
+    camera = SimulatedCamera(
+        list(profile["commands"]["shutter"]["values"])
+    )
+
+    camera.config.get_child_by_name(
+        "capturemode"
+    ).choices = [
+        "Single Shot",
+        "Continuous Bracket 1 EV 3 Img.",
+    ]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "gphoto2",
+        SimpleNamespace(
+            GP_CAPTURE_IMAGE=2,
+            GP_EVENT_FILE_ADDED=1,
+            GP_EVENT_TIMEOUT=0,
+        ),
+    )
+
+    monkeypatch.setattr(
+        module.time,
+        "monotonic",
+        lambda: camera.now,
+    )
+
+    monkeypatch.setattr(
+        module.time,
+        "sleep",
+        lambda seconds: setattr(
+            camera,
+            "now",
+            camera.now + seconds,
+        ),
+    )
+
+    monkeypatch.setattr(
+        CharacterizationJob,
+        "ask",
+        lambda *args, **kwargs: (
+            (_ for _ in ()).throw(
+                AssertionError(
+                    "No operator prompt expected"
+                )
+            )
+        ),
+    )
+
+    result, timing = module.characterize(
+        camera,
+        {
+            "manufacturer": "Test",
+            "model": "Single Bracket Camera",
+        },
+        CharacterizationJob(),
+    )
+
+    assert set(result["brackets"]) == {"3"}
+
+    contract = timing["timing_contract"]
+
+    assert contract[
+        "supported_bracket_frames"
+    ] == [3]
+
+    assert contract[
+        "bracket_calibration_frames"
+    ] == [3]
+
+    # Inter-frame cannot be identified from one size, but
+    # the operational contract still needs a positive guard.
+    assert contract[
+        "bracket_inter_image_ms"
+    ] == 50
+
+
+def test_failed_bracket9_does_not_discard_valid_smaller_brackets(
+    monkeypatch,
+    profile,
+):
+    """BRK9 failure must not force BRK3/5/7 back to sequential."""
+    import sys
+    from backend import camera_characterization as module
+
+    camera = SimulatedCamera(
+        list(profile["commands"]["shutter"]["values"])
+    )
+
+    camera.config.get_child_by_name(
+        "capturemode"
+    ).choices = [
+        "Single Shot",
+        "Continuous Bracket 1 EV 3 Img.",
+        "Continuous Bracket 1 EV 5 Img.",
+        "Continuous Bracket 1 EV 7 Img.",
+        "Continuous Bracket 1 EV 9 Img.",
+    ]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "gphoto2",
+        SimpleNamespace(
+            GP_CAPTURE_IMAGE=2,
+            GP_EVENT_FILE_ADDED=1,
+            GP_EVENT_TIMEOUT=0,
+        ),
+    )
+
+    monkeypatch.setattr(
+        module.time,
+        "monotonic",
+        lambda: camera.now,
+    )
+
+    monkeypatch.setattr(
+        module.time,
+        "sleep",
+        lambda seconds: setattr(
+            camera,
+            "now",
+            camera.now + seconds,
+        ),
+    )
+
+    original_trigger = camera.trigger_capture
+
+    def trigger_without_brk9():
+        mode = camera.config.get_child_by_name(
+            "capturemode"
+        ).value
+
+        if "9 Img." in mode:
+            raise RuntimeError(
+                "simulated BRK9 unsupported"
+            )
+
+        return original_trigger()
+
+    camera.trigger_capture = (
+        trigger_without_brk9
+    )
+
+    monkeypatch.setattr(
+        CharacterizationJob,
+        "ask",
+        lambda *args, **kwargs: (
+            (_ for _ in ()).throw(
+                AssertionError(
+                    "No operator prompt expected"
+                )
+            )
+        ),
+    )
+
+    result, timing = module.characterize(
+        camera,
+        {
+            "manufacturer": "Test",
+            "model": "Partial Bracket Camera",
+        },
+        CharacterizationJob(),
+    )
+
+    assert result["strategy"] == "bracket"
+
+    assert set(
+        result["brackets"]
+    ) == {
+        "3",
+        "5",
+        "7",
+    }
+
+    contract = timing["timing_contract"]
+
+    assert contract[
+        "supported_bracket_frames"
+    ] == [
+        3,
+        5,
+        7,
+    ]
+
+    assert contract[
+        "bracket_calibration_frames"
+    ] == [
+        3,
+        7,
+    ]
+
+    assert "9" not in result["brackets"]
