@@ -305,11 +305,13 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     # Characterization must therefore complete with zero operator prompts.
     assert prompts == []
 
-    # Persistent-session characterization: two single primitives receive five
-    # trials each; bracket primitives are functionally checked at 3/5, then the
-    # selected primitive receives five timing trials at the two available
-    # calibration sizes.  The operational validation recipe then adds 12 RAWs.
-    assert camera.counter == 70
+    # Persistent-session characterization: one dedicated session cold-start
+    # capture is measured first (excluded from candidate statistics), then
+    # two single primitives receive five trials each; bracket primitives are
+    # functionally checked at 3/5, then the selected primitive receives five
+    # timing trials at the two available calibration sizes.  The operational
+    # validation recipe then adds 12 RAWs.
+    assert camera.counter == 71
     # Characterization/qualification never own the gphoto lifecycle.
     assert camera.exit_count == 0
     assert camera.init_count == 0

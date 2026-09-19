@@ -1638,6 +1638,74 @@ def characterize(camera, entry, job):
 
         return phases
 
+    # --- Session cold-start measurement --------------------------------
+    # The very first physical capture of a freshly opened camera session
+    # can be measurably slower than subsequent ones (observed on Nikon D850/
+    # gphoto2: several seconds vs ~1 second afterwards). Because trigger
+    # candidates below are tested one after another, only the FIRST
+    # candidate's FIRST trial ever experiences this cold state -- and
+    # select_best() ranks candidates by peak_ms, so it systematically
+    # discards exactly that candidate in favour of one tested later on an
+    # already-warmed-up camera. The real cost of "first shot of a live
+    # session" was therefore never characterized or budgeted. When a worker
+    # really starts cold (notably a temporary Validation worker, or a Trigger
+    # worker created after restart), that missing budget can make the scheduler
+    # skip a later command
+    # (see execution_plan budget_overrun_ms handling).
+    #
+    # Fix: measure it once, explicitly, before any candidate competes, using
+    # the first candidate as a neutral reference. This trial is excluded
+    # from every candidate's own statistics (evidence/peak_ms/median_ms), so
+    # it no longer biases trigger selection; its value is kept separately as
+    # contract["session_first_photo_overhead_ms"].
+    job.log(
+        "COLD START: measuring the first physical capture of this session "
+        "before any trigger candidate is scored"
+    )
+    cold_start_overhead_ms = None
+    try:
+        cold_start_reference_s = _parse_speed("1/500")
+
+        # Reproduce the real v3 preamble before the first PHOTO.  Capability
+        # and dependency probing above may have left the camera in a native
+        # bracket mode.  Trigger never fires a PHOTO from that accidental
+        # state: it first applies ISO / capture-mode / shutter SETs.  Without
+        # this normalization the cold-start probe can fire trigger_capture()
+        # while BRK5 is still active, defeating the smaller-to-larger bracket
+        # pruning invariant tested below.
+        cold_start_prepare_ms = timed_runtime_prepare("1/500")
+
+        cold_start_sample = probe(
+            trigger_candidates[0],
+            expected=1,
+            exposure_s=cold_start_reference_s,
+        )
+
+        # Use the complete PHOTO blocking interval through USB SET-ready.
+        # file_complete_ms alone is insufficient: on Sony in particular the
+        # body can report the last FILE_ADDED and still reject the next SET.
+        # single_overhead_ms is defined with the same complete-PHOTO semantics.
+        cold_start_overhead_ms = max(
+            0.0,
+            cold_start_sample[3]["total_ms"]
+            - cold_start_reference_s * 1000.0,
+        )
+        job.log(
+            f"COLD START measured: {cold_start_overhead_ms:.1f} ms overhead "
+            f"(prepare={cold_start_prepare_ms:.1f} ms, "
+            f"file_complete={cold_start_sample[3]['file_complete_ms']:.1f} ms, "
+            f"usb_ready_total={cold_start_sample[3]['total_ms']:.1f} ms); "
+            "excluded from candidate peak/median statistics"
+        )
+    except (Cancelled, CameraIdleTimeout):
+        raise
+    except Exception as exc:
+        job.log(
+            "COLD START measurement failed; no dedicated session-first-photo "
+            f"floor will be recorded (falls back to single_overhead_ms): {exc}"
+        )
+    # ---------------------------------------------------------------------
+
     from backend.camera_candidate_optimizer import (
         CandidateEvidence,
         compact_selection,
@@ -2473,6 +2541,16 @@ def characterize(camera, entry, job):
         "set_overhead_ms": set_overhead_ms,
         "single_overhead_ms": single_overhead_ms,
         "single_usb_return_ms": single_usb_return_ms,
+        # Dedicated floor for the very first PHOTO of a fresh session (see
+        # the "Session cold-start measurement" block above). Never lower
+        # than single_overhead_ms: if the cold trial happened to be faster
+        # than the steady-state budget (noise, or measurement unavailable),
+        # single_overhead_ms already covers it.
+        "session_first_photo_overhead_ms": (
+            max(single_overhead_ms, budget_ms([cold_start_overhead_ms]))
+            if cold_start_overhead_ms is not None
+            else single_overhead_ms
+        ),
         "prepare_lead_ms": prepare_lead_ms,
         "bracket_overhead_ms": bracket_overhead_ms,
         "bracket_inter_image_ms": bracket_inter_image_ms,

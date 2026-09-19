@@ -6,7 +6,12 @@ import time
 
 import pytest
 
-from backend.camera_timing_contract import budget_ms, photo_budget_ms
+from backend.camera_timing_contract import (
+    SAFETY_POLICY,
+    budget_ms,
+    photo_budget_ms,
+    validate_timing_contract_v3,
+)
 from backend.execution_plan_runtime import ExecutionPlanRuntime
 from backend.camera_worker import CameraWorker
 from backend.generic_worker import BusyDeviceError, ExpiredJobError
@@ -17,6 +22,39 @@ def test_margin_uses_peak_not_median_and_never_rounds_down():
     assert budget_ms([804]) == 950
     with pytest.raises(ValueError):
         budget_ms([float("nan")])
+
+
+def _base_contract(**overrides):
+    contract = {
+        "version": 3,
+        "safety_policy": dict(SAFETY_POLICY),
+        "set_overhead_ms": 350,
+        "single_overhead_ms": 1250,
+        "bracket_overhead_ms": 0,
+        "bracket_inter_image_ms": 0,
+        "supported_bracket_frames": [],
+    }
+    contract.update(overrides)
+    return contract
+
+
+def test_session_first_photo_overhead_is_optional_and_backward_compatible():
+    # Old v3 profiles characterized before this field existed remain valid.
+    validate_timing_contract_v3(_base_contract())
+
+
+def test_session_first_photo_overhead_must_be_a_multiple_of_50_when_present():
+    validate_timing_contract_v3(
+        _base_contract(session_first_photo_overhead_ms=4550)
+    )
+    with pytest.raises(ValueError):
+        validate_timing_contract_v3(
+            _base_contract(session_first_photo_overhead_ms=4551)
+        )
+    with pytest.raises(ValueError):
+        validate_timing_contract_v3(
+            _base_contract(session_first_photo_overhead_ms=-50)
+        )
 
 
 def test_exposure_is_not_counted_twice():

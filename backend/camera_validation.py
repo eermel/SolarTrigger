@@ -342,6 +342,15 @@ def build_validation_recipe(profile: dict[str, Any]) -> dict[str, Any]:
     single_overhead_ms = _finite_nonnegative(contract["single_overhead_ms"], "single_overhead_ms")
     bracket_overhead_ms = _finite_nonnegative(contract.get("bracket_overhead_ms", 0), "bracket_overhead_ms")
     bracket_inter_ms = _finite_nonnegative(contract.get("bracket_inter_image_ms", 0), "bracket_inter_image_ms")
+    # Validation may run on either a fresh temporary worker or an already
+    # configured persistent worker. Reserve the measured cold-start floor for
+    # the first PHOTO unconditionally: it is the safe worst case, while a warm
+    # worker merely finishes early. Older profiles fall back to the historical
+    # single_overhead_ms behaviour.
+    session_first_photo_overhead_ms = _finite_nonnegative(
+        contract.get("session_first_photo_overhead_ms", single_overhead_ms),
+        "session_first_photo_overhead_ms",
+    )
 
     shutters = _deduplicated_shutters(profile)
     iso_base, iso_alt = _choose_iso_pair(profile)
@@ -399,7 +408,15 @@ def build_validation_recipe(profile: dict[str, Any]) -> dict[str, Any]:
         frames = len(views)
         exposure_s = [_speed_seconds(value) for value in views]
         if frames == 1:
-            duration_ms = single_photo_duration_ms(single_overhead_ms, exposure_s[0])
+            # Only the very first PHOTO of the whole recipe is a genuine
+            # session cold-start; every later single reuses the already
+            # warmed-up camera and single_overhead_ms is representative.
+            overhead_ms = (
+                session_first_photo_overhead_ms
+                if photo_id == 1
+                else single_overhead_ms
+            )
+            duration_ms = single_photo_duration_ms(overhead_ms, exposure_s[0])
         else:
             duration_ms = bracket_photo_duration_ms(
                 bracket_overhead_ms,

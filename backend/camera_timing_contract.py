@@ -165,6 +165,19 @@ def validate_timing_contract_v3(contract, *, bracket_frames=None):
                 allow_zero=True,
             )
 
+    # Contract-v3.2 optional field. The very first PHOTO of a freshly opened
+    # camera session can be measurably slower than later ones (observed:
+    # several seconds vs ~1 s on a Nikon D850/gphoto2 session). This is a
+    # dedicated floor applied only to that one command; it never replaces
+    # single_overhead_ms/bracket_overhead_ms, which stay calibrated on the
+    # warm/steady-state regime. Old v3 profiles without it remain valid.
+    if "session_first_photo_overhead_ms" in contract:
+        _multiple_of_50(
+            contract.get("session_first_photo_overhead_ms"),
+            "session_first_photo_overhead_ms",
+            allow_zero=True,
+        )
+
     physical = contract.get("physical_trigger_latency")
     if physical is not None:
         if not isinstance(physical, dict):

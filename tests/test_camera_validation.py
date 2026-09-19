@@ -80,6 +80,46 @@ def _successful_sets(recipe):
     ]
 
 
+def test_first_photo_uses_session_cold_start_floor_not_steady_state_budget():
+    """Reproduces the observed FAIL: a fresh camera worker's very first PHOTO
+    is a session cold-start, not a steady-state capture. Without a dedicated
+    floor, budget_overrun_ms on that first PHOTO makes the scheduler skip the
+    next scheduled command (see EXECUTION_PLAN skip_past in the field log).
+    """
+    profile = _profile()
+    profile["timing_contract"]["single_overhead_ms"] = 1250
+    profile["timing_contract"]["session_first_photo_overhead_ms"] = 5450
+
+    recipe = build_validation_recipe(profile)
+    photos = [c for c in recipe["commands"] if c["action"] == "PHOTO"]
+
+    # First PHOTO of the whole recipe gets the cold-start floor...
+    assert photos[0]["params"]["duration_ms"] > photos[1]["params"]["duration_ms"]
+    assert photos[0]["params"]["duration_ms"] >= 5450.0
+    # ...while every later single/bracket keeps using the steady-state budget.
+    for photo in photos[1:]:
+        assert photo["params"]["duration_ms"] < 5450.0
+
+
+def test_missing_session_first_photo_overhead_falls_back_to_single_overhead():
+    """Profiles characterized before this fix behave exactly as before."""
+    profile = _profile()
+    assert "session_first_photo_overhead_ms" not in profile["timing_contract"]
+
+    with_field = build_validation_recipe(profile)
+
+    profile_with_field = _profile()
+    single_overhead_ms = profile_with_field["timing_contract"]["single_overhead_ms"]
+    profile_with_field["timing_contract"]["session_first_photo_overhead_ms"] = (
+        single_overhead_ms
+    )
+    explicit = build_validation_recipe(profile_with_field)
+
+    # Setting session_first_photo_overhead_ms == single_overhead_ms must
+    # produce byte-for-byte the same recipe as leaving the field absent.
+    assert with_field == explicit
+
+
 def test_recipe_is_deterministic_and_covers_all_brackets():
     first = build_validation_recipe(_profile())
     second = build_validation_recipe(_profile())
