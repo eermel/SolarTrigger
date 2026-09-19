@@ -403,8 +403,8 @@ def test_multirig_sony_and_d850_use_independent_measured_timings():
                 set_iso_ms=830,
                 set_capturemode_ms=838,
                 set_shutter_ms=827,
-                trigger_single_latency_ms=26,
-                bracket_press_latency_ms=840,
+                trigger_single_lead_ms=26,
+                bracket_press_lead_ms=840,
                 bracket_release_ms=854,
                 settle_idle_ms=666,
                 bracket_atomic_ms_by_frames={
@@ -419,9 +419,9 @@ def test_multirig_sony_and_d850_use_independent_measured_timings():
                 set_iso_ms=550,
                 set_capturemode_ms=0,
                 set_shutter_ms=543,
-                trigger_single_latency_ms=285,
+                trigger_single_lead_ms=285,
                 trigger_single_duration_ms=285,
-                bracket_press_latency_ms=0,
+                bracket_press_lead_ms=0,
                 bracket_release_ms=0,
                 settle_idle_ms=0,
             ),
@@ -639,7 +639,7 @@ def test_camera_backends_are_not_tied_to_rig_numbers():
                 backend="nikon-dslr",
                 set_iso_ms=550,
                 set_shutter_ms=543,
-                trigger_single_latency_ms=285,
+                trigger_single_lead_ms=285,
                 trigger_single_duration_ms=285,
             ),
             4: CameraTimingProfile(
@@ -647,8 +647,8 @@ def test_camera_backends_are_not_tied_to_rig_numbers():
                 set_iso_ms=830,
                 set_capturemode_ms=838,
                 set_shutter_ms=827,
-                trigger_single_latency_ms=26,
-                bracket_press_latency_ms=840,
+                trigger_single_lead_ms=26,
+                bracket_press_lead_ms=840,
                 bracket_release_ms=854,
                 settle_idle_ms=666,
                 bracket_atomic_ms_by_frames={
@@ -715,9 +715,9 @@ def test_nikon_multiframe_schedule_is_sequential_and_statically_timed():
             set_iso_ms=550,
             set_capturemode_ms=0,
             set_shutter_ms=543,
-            trigger_single_latency_ms=285,
+            trigger_single_lead_ms=285,
             trigger_single_duration_ms=285,
-            bracket_press_latency_ms=0,
+            bracket_press_lead_ms=0,
             bracket_release_ms=0,
             settle_idle_ms=0,
         ),
@@ -832,7 +832,7 @@ def test_same_rig_overlapping_nikon_periodic_capture_is_skipped():
         backend="nikon-dslr",
         set_iso_ms=550,
         set_shutter_ms=543,
-        trigger_single_latency_ms=285,
+        trigger_single_lead_ms=285,
         trigger_single_duration_ms=285,
     )
 
@@ -894,7 +894,7 @@ def test_simultaneous_nikon_captures_on_different_rigs_are_allowed():
         backend="nikon-dslr",
         set_iso_ms=550,
         set_shutter_ms=543,
-        trigger_single_latency_ms=285,
+        trigger_single_lead_ms=285,
         trigger_single_duration_ms=285,
     )
 

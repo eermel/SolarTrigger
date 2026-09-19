@@ -1020,8 +1020,8 @@ def _sony_test_timing():
         set_iso_ms=100,
         set_capturemode_ms=120,
         set_shutter_ms=150,
-        bracket_press_latency_ms=280,
-        trigger_single_latency_ms=250,
+        bracket_press_lead_ms=280,
+        trigger_single_lead_ms=250,
         settle_idle_ms=500,
         bracket_atomic_ms_by_frames={
             3: 3000,
@@ -1032,7 +1032,7 @@ def _sony_test_timing():
     )
 
 
-def test_sony_bracket_trigger_is_compensated_before_target():
+def test_sony_bracket_trigger_uses_scheduler_lead_before_target():
     audited = audit_materialized_sony_capture(
         _sony_materialized_capture()
     )
@@ -1580,7 +1580,7 @@ def test_merge_orders_different_rig_command_times_globally():
             "sony": CameraTimingProfile(
                 backend="sony",
                 set_capturemode_ms=120,
-                bracket_press_latency_ms=280,
+                bracket_press_lead_ms=280,
                 bracket_atomic_ms_by_frames={
                     3: 3000,
                     5: 3200,
@@ -1844,7 +1844,7 @@ def test_multirig_can_use_different_timing_for_same_backend():
             1: CameraTimingProfile(
                 backend="sony",
                 set_capturemode_ms=120,
-                bracket_press_latency_ms=275,
+                bracket_press_lead_ms=275,
                 bracket_atomic_ms_by_frames={
                     3: 3000,
                     5: 3200,
@@ -1855,7 +1855,7 @@ def test_multirig_can_use_different_timing_for_same_backend():
             2: CameraTimingProfile(
                 backend="sony",
                 set_capturemode_ms=120,
-                bracket_press_latency_ms=291,
+                bracket_press_lead_ms=291,
                 bracket_atomic_ms_by_frames={
                     3: 3000,
                     5: 3200,

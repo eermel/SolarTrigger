@@ -49,12 +49,12 @@ def _capture(target_time, shutters, *, duration_ms=2750.0, phase="diamond_ring",
 
 def _profile(
     *,
-    trigger_latency_ms=0.0,
+    trigger_lead_ms=0.0,
     session_first_photo_overhead_ms=0.0,
 ):
     return CameraTimingProfile(
         backend="profile-test",
-        trigger_single_latency_ms=trigger_latency_ms,
+        trigger_single_lead_ms=trigger_lead_ms,
         trigger_single_duration_ms=0.0,
         session_first_photo_overhead_ms=session_first_photo_overhead_ms,
     )
@@ -328,7 +328,7 @@ def test_sequential_contact_anchor_centres_middle_exposure():
         )
 
     profile = _profile(
-        trigger_latency_ms=100.0
+        trigger_lead_ms=100.0
     )
 
     capture, scheduled, start, end = (
@@ -354,7 +354,7 @@ def test_sequential_contact_anchor_centres_middle_exposure():
         item.command_time
         + timedelta(
             milliseconds=(
-                profile.trigger_single_latency_ms
+                profile.trigger_single_lead_ms
             )
         )
         for item in triggers

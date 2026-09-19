@@ -8,9 +8,9 @@
     "set_iso_ms": 550,
     "set_capturemode_ms": 0,
     "set_shutter_ms": 543,
-    "trigger_single_latency_ms": 0,
+    "trigger_single_lead_ms": 0,
     "trigger_single_duration_ms": 285,
-    "bracket_press_latency_ms": 0,
+    "bracket_press_lead_ms": 0,
     "bracket_release_ms": 0,
     "settle_idle_ms": 0
   }

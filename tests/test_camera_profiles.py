@@ -334,14 +334,13 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     assert result["benchmark"]["comparison_source"] == "operational budget model"
     assert "sequential_ms" not in result["benchmark"]
     assert len({json.dumps(v["trigger"], sort_keys=True) for v in result["brackets"].values()}) == 1
-    assert timing["physical_latency_measured"] is False
     assert "battery: unavailable" in result["warnings"]
     from backend.camera_timing import _TIMING_FIELDS
     assert set(_TIMING_FIELDS) <= timing["timing"].keys()
     assert timing["raw_timing"]["settle_idle_ms"] == 0
     assert result["settle_idle_s"] == 0
-    assert timing["measurement_status"]["trigger_single_latency_ms"] == "unmeasured_physical"
-    assert timing["timing"]["trigger_single_latency_ms"] == 0
+    assert timing["measurement_status"]["trigger_single_lead_ms"] == "scheduler_default"
+    assert timing["timing"]["trigger_single_lead_ms"] == 0
     assert len(timing["timing_trials"]) == 4
     for trial in timing["timing_trials"]:
         assert len(trial["samples"]) == 5
@@ -352,11 +351,6 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     assert timing["timing_contract"]["single_usb_return_ms"] > 0
     assert timing["timing_contract"]["bracket_usb_return_ms"] > 0
     assert timing["timing_contract"]["bracket_calibration_frames"] == [3, 5]
-    assert timing["timing_contract"]["physical_trigger_latency"] == {
-        "status": "unmeasured",
-        "compensation_ms": 0.0,
-        "jitter_ms": None,
-    }
 
 
 def test_raw_failure_prevents_all_exposures(monkeypatch, profile):

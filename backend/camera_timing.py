@@ -18,9 +18,9 @@ _TIMING_FIELDS = (
     "set_iso_ms",
     "set_capturemode_ms",
     "set_shutter_ms",
-    "trigger_single_latency_ms",
+    "trigger_single_lead_ms",
     "trigger_single_duration_ms",
-    "bracket_press_latency_ms",
+    "bracket_press_lead_ms",
     "bracket_release_ms",
     "settle_idle_ms",
 )

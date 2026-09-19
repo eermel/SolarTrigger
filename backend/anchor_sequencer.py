@@ -287,7 +287,7 @@ def _make_contact_anchor(
     datetime,
     datetime,
 ]:
-    """Build a C2/C3 anchor according to physical camera strategy.
+    """Build a C2/C3 anchor according to camera scheduling strategy.
 
     Atomic bracket:
         keep the validated policy: trigger the priority native bracket one
@@ -295,7 +295,7 @@ def _make_contact_anchor(
         An auxiliary Atmos single may be scheduled before C2.
 
     Sequential:
-        place the modeled physical start of the middle exposure exactly
+        place the logical target of the middle PHOTO exactly
         on the contact. Other exposures are positioned from characterized
         SET/PHOTO timings, without hard-coded camera offsets.
     """
@@ -398,20 +398,19 @@ def _make_contact_anchor(
                 f"for RIG {capture.rig_id}"
             )
 
-        # target_time models desired physical exposure start.
-        # Convert USB dispatch time back to the same modeled reference.
-        middle_physical_time = (
+        # Convert scheduler dispatch lead back to the logical target reference.
+        middle_target_time = (
             middle.command_time
             + timedelta(
                 milliseconds=float(
-                    profile.trigger_single_latency_ms
+                    profile.trigger_single_lead_ms
                 )
             )
         )
 
         delta = (
             contact_time
-            - middle_physical_time
+            - middle_target_time
         )
 
         if (

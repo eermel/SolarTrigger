@@ -377,30 +377,6 @@ class ProfilePlugin(CameraPlugin):
             raise ValueError(f"invalid {field}")
         return float(value) / 1000.0
 
-    def _physical_trigger_compensation_s(self) -> float:
-        """Return compensation only for an externally measured shutter lag.
-
-        gphoto2 provides no authoritative physical exposure-start event.  A
-        command-return or FILE_ADDED timestamp must never be relabelled as
-        shutter lag.  Characterization therefore publishes status=unmeasured
-        until an optical calibration supplies a real value.
-        """
-        contract = self.profile.get("timing_contract")
-        if not isinstance(contract, dict) or contract.get("version") != 3:
-            return 0.0
-        physical = contract.get("physical_trigger_latency")
-        if not isinstance(physical, dict) or physical.get("status") != "measured":
-            return 0.0
-        value = physical.get("compensation_ms", 0)
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(float(value))
-            or float(value) < 0
-        ):
-            raise ValueError("invalid physical trigger latency compensation")
-        return float(value) / 1000.0
-
     def preparation_lead_s(self) -> float:
         """Conservative SET-preparation reservation before PHOTO target.
 
@@ -1767,17 +1743,13 @@ class ProfilePlugin(CameraPlugin):
                         )
                     else:
                         # SET preparation may start before the scheduled slot.
-                        # If (and only if) physical shutter lag was measured
-                        # optically, send the PHOTO command that much earlier so
-                        # the physical exposure starts at target_time.
+                        # The first PHOTO command is dispatched at target_time.
+                        # No shutter-lag measurement or compensation exists.
                         if first_photo_pending and target_time is not None:
-                            command_target = target_time - timedelta(
-                                seconds=self._physical_trigger_compensation_s()
-                            )
-                            remaining = seconds_until_deadline(command_target)
+                            remaining = seconds_until_deadline(target_time)
                             while remaining is not None and remaining > 0:
                                 time.sleep(min(0.05, remaining))
-                                remaining = seconds_until_deadline(command_target)
+                                remaining = seconds_until_deadline(target_time)
                             first_photo_pending = False
                         frames += self.execute_photo(operation).frames
             except Exception:

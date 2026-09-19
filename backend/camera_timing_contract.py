@@ -178,28 +178,6 @@ def validate_timing_contract_v3(contract, *, bracket_frames=None):
             allow_zero=True,
         )
 
-    physical = contract.get("physical_trigger_latency")
-    if physical is not None:
-        if not isinstance(physical, dict):
-            raise ValueError("physical_trigger_latency must be an object")
-        status = physical.get("status")
-        if status not in ("measured", "unmeasured"):
-            raise ValueError("invalid physical trigger latency status")
-        compensation = _finite_nonnegative(
-            physical.get("compensation_ms", 0),
-            "physical_trigger_latency.compensation_ms",
-        )
-        if status == "unmeasured" and compensation != 0:
-            raise ValueError(
-                "unmeasured physical trigger latency cannot apply compensation"
-            )
-        jitter = physical.get("jitter_ms")
-        if jitter is not None:
-            _finite_nonnegative(
-                jitter,
-                "physical_trigger_latency.jitter_ms",
-            )
-
     raw_supported = contract.get("supported_bracket_frames", [])
     if not isinstance(raw_supported, list):
         raise ValueError("supported_bracket_frames must be an array")

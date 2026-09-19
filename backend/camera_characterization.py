@@ -2559,13 +2559,6 @@ def characterize(camera, entry, job):
             int(size) for size in profile["brackets"]
         ),
         "bracket_calibration_frames": list(bracket_calibration_frames),
-        # gphoto2 does not expose an authoritative physical shutter-open event.
-        # Never substitute command return or FILE_ADDED for this measurement.
-        "physical_trigger_latency": {
-            "status": "unmeasured",
-            "compensation_ms": 0.0,
-            "jitter_ms": None,
-        },
     }
 
     profile["timing_contract"] = contract
@@ -2770,13 +2763,13 @@ def characterize(camera, entry, job):
             raw_single_total
         ),
         "settle_idle_ms": 0.0,
-        "bracket_press_latency_ms": 0.0,
+        "bracket_press_lead_ms": 0.0,
         "bracket_release_ms": (
             max(release_samples)
             if release_samples
             else 0.0
         ),
-        "trigger_single_latency_ms": 0.0,
+        "trigger_single_lead_ms": 0.0,
         "bracket_atomic_ms_by_frames": (
             raw_bracket_atomic
         ),
@@ -2799,13 +2792,13 @@ def characterize(camera, entry, job):
             budget_ms([raw_single_total])
         ),
         "settle_idle_ms": 0,
-        "bracket_press_latency_ms": 0,
+        "bracket_press_lead_ms": 0,
         "bracket_release_ms": (
             budget_ms(release_samples)
             if release_samples
             else 0
         ),
-        "trigger_single_latency_ms": 0,
+        "trigger_single_lead_ms": 0,
         "bracket_atomic_ms_by_frames": {
             size: budget_ms([value])
             for size, value
@@ -2868,13 +2861,12 @@ def characterize(camera, entry, job):
                 if profile["brackets"]
                 else "not_applicable"
             ),
-            "trigger_single_latency_ms": "unmeasured_physical",
+            "trigger_single_lead_ms": "scheduler_default",
             "single_usb_return_ms": "measured",
             "bracket_usb_return_ms": (
                 "measured" if profile["brackets"] else "not_applicable"
             ),
         },
-        "physical_latency_measured": False,
         "test_pause_s": 0.0,
     }
 
@@ -2898,8 +2890,7 @@ def characterize(camera, entry, job):
         f"single USB return={contract.get('single_usb_return_ms', 0)} ms; "
         f"bracket overhead={contract['bracket_overhead_ms']} ms; "
         f"inter-image={contract['bracket_inter_image_ms']} ms; "
-        f"bracket USB return={contract.get('bracket_usb_return_ms', 0)} ms; "
-        "physical trigger latency=UNMEASURED"
+        f"bracket USB return={contract.get('bracket_usb_return_ms', 0)} ms"
     )
     job.log(
         f"RESULT {profile['strategy']}: "

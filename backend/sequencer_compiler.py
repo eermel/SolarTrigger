@@ -1020,8 +1020,8 @@ class CameraTimingProfile:
 
     Values are milliseconds.
 
-    trigger_latency_ms is the delay between sending the physical trigger
-    command and the desired physical start of exposure.
+    trigger_lead_ms is the configured scheduler advance applied to the
+    PHOTO command relative to its logical target.
 
     set_* values are reservation durations used to schedule preparation
     commands far enough ahead of the trigger command.
@@ -1033,9 +1033,9 @@ class CameraTimingProfile:
     set_capturemode_ms: float = 0.0
     set_shutter_ms: float = 0.0
 
-    trigger_single_latency_ms: float = 0.0
+    trigger_single_lead_ms: float = 0.0
     trigger_single_duration_ms: float = 0.0
-    bracket_press_latency_ms: float = 0.0
+    bracket_press_lead_ms: float = 0.0
 
     bracket_release_ms: float = 0.0
     settle_idle_ms: float = 0.0
@@ -1213,7 +1213,7 @@ def schedule_audited_capture(
     ]
 
     trigger_index = None
-    trigger_latency_ms = None
+    trigger_lead_ms = None
 
     priority_indexes = [
         index
@@ -1240,30 +1240,30 @@ def schedule_audited_capture(
 
         if action == "bracket_press":
             trigger_index = index
-            trigger_latency_ms = _timing_ms(
-                profile.bracket_press_latency_ms,
-                "bracket_press_latency_ms",
+            trigger_lead_ms = _timing_ms(
+                profile.bracket_press_lead_ms,
+                "bracket_press_lead_ms",
             )
             break
 
         if action == "trigger_capture":
             trigger_index = index
-            trigger_latency_ms = _timing_ms(
-                profile.trigger_single_latency_ms,
-                "trigger_single_latency_ms",
+            trigger_lead_ms = _timing_ms(
+                profile.trigger_single_lead_ms,
+                "trigger_single_lead_ms",
             )
             break
 
     if trigger_index is None:
         raise ValueError(
-            "audited capture contains no physical trigger operation"
+            "audited capture contains no PHOTO trigger operation"
         )
 
     target_time = capture.target.target_time
 
     trigger_command_time = (
         target_time
-        - timedelta(milliseconds=trigger_latency_ms)
+        - timedelta(milliseconds=trigger_lead_ms)
     )
 
     command_times: list[datetime | None] = [

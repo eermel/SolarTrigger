@@ -48,11 +48,6 @@ def _contract(single=650):
         "bracket_usb_return_ms": 0,
         "supported_bracket_frames": [],
         "bracket_calibration_frames": [],
-        "physical_trigger_latency": {
-            "status": "unmeasured",
-            "compensation_ms": 0.0,
-            "jitter_ms": None,
-        },
     }
 
 
