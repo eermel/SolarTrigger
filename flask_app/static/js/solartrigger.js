@@ -7519,7 +7519,7 @@ async function deleteFailedCameraValidationFiles() {
   if (!confirm(
     'DELETE THE GENERATED CAMERA PROFILE AND TIMING FILES?\n\n' +
     'Only the exact profile/timing files associated with this failed validation will be deleted.\n' +
-    'The validation report, .plan and run log will be kept for debugging.\n\n' +
+    'The validation report and run log will be kept for debugging.\n\n' +
     'This action cannot be undone.'
   )) return;
 

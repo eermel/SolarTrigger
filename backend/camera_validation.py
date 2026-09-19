@@ -1395,9 +1395,7 @@ class CameraValidationJob:
         recorder: RecordingCameraClient | None = None
         readbacks: list[dict[str, Any]] = []
         fatal_error: dict[str, Any] | None = None
-        operator_outcome: str | None = None
         plan_path: Path | None = None
-        automatic: dict[str, Any] | None = None
 
         entry = deepcopy(prepared["entry"])
         recipe = deepcopy(prepared["recipe"])
@@ -1483,7 +1481,7 @@ class CameraValidationJob:
             "gets": [],
         }
         runtime_logs = list(self.logs)
-        automatic = analyse_validation(
+        analysis = analyse_validation(
             recipe=recipe,
             recording=recording,
             runtime_logs=runtime_logs,
@@ -1492,27 +1490,10 @@ class CameraValidationJob:
             fatal_error=fatal_error,
             cancelled=self.cancel_event.is_set(),
         )
-
-        # Ask the operator only after a real capture run reached at least one
-        # PHOTO dispatch.  Preflight/startup failures are already conclusive.
-        if recording.get("photos") and not self.cancel_event.is_set():
-            try:
-                operator_outcome = self._ask_operator(automatic)
-            except CameraValidationCancelled as exc:
-                fatal_error = self._exception_payload(exc)
-                self.log(f"CANCELLED: {exc}")
-            except Exception as exc:
-                fatal_error = self._exception_payload(exc)
-                self.log(f"OPERATOR CONFIRMATION FAILED: {exc}")
-
-        analysis = analyse_validation(
-            recipe=recipe,
-            recording=recording,
-            runtime_logs=list(self.logs),
-            readbacks=readbacks,
-            operator_outcome=operator_outcome,
-            fatal_error=fatal_error,
-            cancelled=self.cancel_event.is_set(),
+        self.log(
+            "AUTOMATIC VALIDATION COMPLETED "
+            f"verdict={analysis['verdict']} "
+            f"confirmed={analysis['confirmed_photos']}/{analysis['expected_photos']}"
         )
 
         report = {

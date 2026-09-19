@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
+import inspect
 
 import pytest
 
 from backend.camera_timing_contract import SAFETY_POLICY
 from backend.camera_validation import (
+    CameraValidationJob,
     analyse_validation,
     build_validation_recipe,
     materialize_validation_plan,
@@ -300,3 +302,54 @@ def test_late_file_confirmation_is_counted_and_reported_as_warning():
     assert result["verdict"] == "WARNING"
     assert any(error["type"] == "LATE_FILE_CONFIRMATION" for error in result["errors"])
     assert not any(error["type"] == "MISSING_PHOTO" for error in result["errors"])
+
+
+
+def test_exact_usb_count_passes_without_operator_confirmation():
+    recipe = build_validation_recipe(_profile())
+    photos = []
+    for command in recipe["commands"]:
+        if command["action"] != "PHOTO":
+            continue
+        photos.append(
+            {
+                "validation_photo_id": command["params"]["validation_photo_id"],
+                "expected_frames": command["frames"],
+                "confirmed_frames": command["frames"],
+                "status": "success",
+                "dispatch_error_ms": 0.0,
+                "duration_ms": command["duration_ms"],
+                "budget_ms": command["duration_ms"],
+            }
+        )
+
+    result = analyse_validation(
+        recipe=recipe,
+        recording={
+            "preflight": {},
+            "sets": _successful_sets(recipe),
+            "photos": photos,
+            "gets": [],
+        },
+        runtime_logs=[],
+        readbacks=[],
+        operator_outcome=None,
+    )
+
+    assert result["verdict"] == "PASS"
+    assert result["confirmed_photos"] == result["expected_photos"] == 28
+    assert result["operator_outcome"] is None
+    assert not any(
+        error["type"].startswith("OPERATOR_")
+        for error in result["errors"]
+    )
+
+
+def test_validation_job_run_never_waits_for_operator_confirmation():
+    source = inspect.getsource(CameraValidationJob._run)
+
+    assert "_ask_operator" not in source
+    assert "WAITING FOR OPERATOR CONFIRMATION" not in source
+    assert "OPERATOR CONFIRMATION FAILED" not in source
+    assert "AUTOMATIC VALIDATION COMPLETED" in source
+    assert "operator_outcome=None" in source
