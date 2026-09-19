@@ -444,10 +444,18 @@ def _capture_validation_state(expected, observed, error):
 def _select_bracket_candidate(entries):
     """Choose one reliable capture recipe for one bracket size only.
 
-    Selection remains synchronization-first: lowest worst prepare-to-first-file
-    time, then lowest full capture peak, then lowest median full capture time.
-    Different bracket sizes are deliberately allowed to select different trigger
-    primitives (for example ``capture`` for 3/5/7 and ``bulb`` for 9).
+    Selection is based on complete operational duration, not on FILE_ADDED
+    timing. FILE_ADDED is USB evidence that a frame exists; it is not an
+    authoritative physical exposure-start timestamp.
+
+    Among reliable exact-N/N candidates:
+      1. lowest worst complete capture duration;
+      2. lowest median complete capture duration;
+      3. lowest prepare-to-first-file value only as a final tie-breaker;
+      4. deterministic command id.
+
+    Different bracket sizes may deliberately select different trigger
+    primitives when that gives the shortest safe operational path.
     """
     reliable = [entry for entry in entries if entry["evidence"].reliable]
     if not reliable:
@@ -455,9 +463,9 @@ def _select_bracket_candidate(entries):
     return min(
         reliable,
         key=lambda entry: (
-            entry["spec"]["peak_prepare_to_first_file_ms"],
             entry["spec"]["peak_capture_ms"],
             entry["evidence"].median_ms,
+            entry["spec"]["peak_prepare_to_first_file_ms"],
             entry["command_id"],
         ),
     )

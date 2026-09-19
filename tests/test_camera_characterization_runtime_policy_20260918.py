@@ -82,26 +82,39 @@ def _entry(candidate_id, prepare_first, capture_peak, median, reliable=True):
     }
 
 
-def test_bracket_selection_prefers_reliable_then_fastest_synchronization_path():
+def test_bracket_selection_prefers_reliable_then_shortest_complete_capture():
     entries = [
         _entry("capture", 1200, 2200, 2000),
         _entry("bulb", 1000, 2400, 2100),
         _entry("fast-but-unreliable", 100, 200, 150, reliable=False),
     ]
-    assert characterization._select_bracket_candidate(entries)["command_id"] == "bulb"
+
+    # FILE_ADDED may arrive earlier for bulb, but complete operational
+    # duration is longer. The faster complete capture path must win.
+    assert (
+        characterization._select_bracket_candidate(entries)["command_id"]
+        == "capture"
+    )
 
 
 def test_bracket_sizes_can_select_different_capture_primitives():
     bracket3 = [
-        _entry("capture", 800, 1800, 1700),
-        _entry("bulb", 900, 1700, 1600),
+        _entry("capture", 900, 1700, 1600),
+        _entry("bulb", 800, 1800, 1700),
     ]
     bracket9 = [
         _entry("capture", 1600, 4200, 4000),
         _entry("bulb", 1100, 3900, 3700),
     ]
-    assert characterization._select_bracket_candidate(bracket3)["command_id"] == "capture"
-    assert characterization._select_bracket_candidate(bracket9)["command_id"] == "bulb"
+
+    assert (
+        characterization._select_bracket_candidate(bracket3)["command_id"]
+        == "capture"
+    )
+    assert (
+        characterization._select_bracket_candidate(bracket9)["command_id"]
+        == "bulb"
+    )
 
 
 def test_runtime_apply_uses_legacy_write_only_for_legacy_profile(monkeypatch):
@@ -154,3 +167,33 @@ def test_final_operational_qualification_starts_without_global_go_prompt():
     source = inspect.getsource(characterization.qualify_operational_contract_v3)
     assert "Final operational qualification before publication" not in source
     assert "Final operational qualification starts automatically" in source
+
+
+
+def test_sony_bracket_selection_rejects_slow_bulb_usb_tail():
+    """Sony a7V: complete USB-ready duration must dominate FILE_ADDED timing."""
+
+    entries = [
+        # Real characterization order of magnitude:
+        # /main/actions/capture BRK5 total ~= 1263.7 ms.
+        _entry(
+            "capture",
+            1200.0,
+            1263.7,
+            1263.7,
+        ),
+        # /main/actions/bulb can expose FILE_ADDED competitively but leaves
+        # the body unavailable for SET for ~1.7 s afterwards:
+        # total ~= 2941.5 ms.
+        _entry(
+            "bulb",
+            1000.0,
+            2941.5,
+            2941.5,
+        ),
+    ]
+
+    selected = characterization._select_bracket_candidate(entries)
+
+    assert selected["command_id"] == "capture"
+    assert selected["spec"]["peak_capture_ms"] == 1263.7
