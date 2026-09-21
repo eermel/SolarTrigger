@@ -120,6 +120,30 @@ def test_missing_session_first_photo_overhead_falls_back_to_single_overhead():
     assert with_field == explicit
 
 
+def test_runtime_optional_aperture_is_not_exercised_or_required_for_readback():
+    """A manual lens must not turn optional aperture control into IVVQ FAIL."""
+    profile = _profile()
+    profile["commands"]["aperture"]["runtime_optional"] = True
+
+    recipe = build_validation_recipe(profile)
+
+    aperture_sets = [
+        command
+        for command in recipe["commands"]
+        if command["action"] == "SET"
+        and command["params"]["parameter"] == "f-number"
+    ]
+
+    assert aperture_sets == []
+    assert "f-number" not in recipe["final_state"]
+
+    # Camera coverage is unchanged: singles and all native brackets are still
+    # exercised; only the lens-dependent aperture transitions are omitted.
+    assert recipe["expected_photos"] == 28
+    assert recipe["photo_command_count"] == 8
+    assert recipe["supported_bracket_frames"] == [3, 5, 7, 9]
+
+
 def test_recipe_is_deterministic_and_covers_all_brackets():
     first = build_validation_recipe(_profile())
     second = build_validation_recipe(_profile())

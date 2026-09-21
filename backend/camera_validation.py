@@ -305,6 +305,13 @@ def _choose_aperture_pair(profile: dict[str, Any]) -> tuple[str, str] | None:
     spec = profile.get("commands", {}).get("aperture")
     if not isinstance(spec, dict) or spec.get("set") is False:
         return None
+    # runtime_optional means the body exposes an aperture command, but the
+    # mounted lens may not implement electronic aperture control.  Do not turn
+    # that optional, lens-dependent capability into a mandatory validation
+    # transition/readback.  A manual lens legitimately reports values such as
+    # f/0 and must not make an otherwise valid camera profile fail IVVQ.
+    if spec.get("runtime_optional") is True:
+        return None
     values = spec.get("values")
     if not isinstance(values, dict) or len(values) < 2:
         return None
