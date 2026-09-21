@@ -104,6 +104,10 @@ class ZwoFocuser(FocuserPlugin):
     def get_position(self):
         return self.eaf.get_position()
 
+    def set_current_position(self, value):
+        """Reset the EAF hardware position counter/reference."""
+        return self.eaf.set_current_position(int(value))
+
     # -- pas --------------------------------------------------------------- #
     def set_step(self, coarse=None, fine=None):
         if coarse is not None:

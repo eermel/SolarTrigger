@@ -177,7 +177,22 @@ class FocuserService:
         raw = dict(plugin.status() or {})
         # Position is deliberately read from the device, not from cached status.
         raw["position"] = plugin.get_position()
-        if self._motion_command in ("go", "home") and not raw.get("moving"):
+        motion_finished = (
+            self._motion_command in ("go", "home")
+            and not raw.get("moving")
+        )
+        home_succeeded = (
+            motion_finished
+            and self._motion_command == "home"
+            and raw.get("position") == 0
+        )
+        if home_succeeded:
+            reset_position = getattr(plugin, "set_current_position", None)
+            if callable(reset_position):
+                reset_position(0)
+                raw["position"] = plugin.get_position()
+                self._log("   [focuser] HOME complete: position reset to 0")
+        if motion_finished:
             self._motion_command = None
             self._target_position = None
         return {
