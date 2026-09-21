@@ -353,6 +353,114 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     assert timing["timing_contract"]["bracket_calibration_frames"] == [3, 5]
 
 
+def test_bracket_usb_return_requires_authoritative_capture_mode_readback(
+    monkeypatch,
+    profile,
+):
+    """A successful USB SET call is not enough if Sony silently ignores it."""
+    import re
+    import sys
+    from backend import camera_characterization as module
+
+    camera = SimulatedCamera(
+        list(profile["commands"]["shutter"]["values"])
+    )
+    camera.config.get_child_by_name("capturemode").choices = [
+        "Single Shot",
+        "Continuous Bracket 1 EV 3 Img.",
+        "Continuous Bracket 1 EV 5 Img.",
+    ]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "gphoto2",
+        SimpleNamespace(
+            GP_CAPTURE_IMAGE=2,
+            GP_EVENT_FILE_ADDED=1,
+            GP_EVENT_TIMEOUT=0,
+        ),
+    )
+    monkeypatch.setattr(
+        module.time,
+        "monotonic",
+        lambda: camera.now,
+    )
+    monkeypatch.setattr(
+        module.time,
+        "sleep",
+        lambda seconds: setattr(
+            camera,
+            "now",
+            camera.now + seconds,
+        ),
+    )
+
+    original_trigger = camera.trigger_capture
+    original_set_single_config = camera.set_single_config
+    busy_until = [0.0]
+    last_bracket_mode = [None]
+    silently_ignored_sets = []
+
+    def trigger_capture():
+        mode = camera.config.get_child_by_name("capturemode").value
+        result = original_trigger()
+        if "Bracket" in mode:
+            last_bracket_mode[0] = mode
+            # Sony-like tail: for a short period after the final bracket file,
+            # set_single_config() returns success but the drive mode remains
+            # physically unchanged.
+            busy_until[0] = camera.now + 0.22
+        return result
+
+    def set_single_config(name, widget):
+        requested = widget.get_value()
+        original_set_single_config(name, widget)
+        if (
+            name == "capturemode"
+            and requested == "Single Shot"
+            and last_bracket_mode[0] is not None
+            and camera.now < busy_until[0]
+        ):
+            widget.value = last_bracket_mode[0]
+            silently_ignored_sets.append(camera.now)
+
+    camera.trigger_capture = trigger_capture
+    camera.set_single_config = set_single_config
+
+    def unexpected_prompt(self, message, kind="result"):
+        raise AssertionError(
+            "Verified USB readiness must recover automatically without "
+            f"operator input: kind={kind!r} message={message!r}"
+        )
+
+    monkeypatch.setattr(
+        CharacterizationJob,
+        "ask",
+        unexpected_prompt,
+    )
+
+    job = CharacterizationJob()
+    result, timing = module.characterize(
+        camera,
+        {"manufacturer": "Sony", "model": "Sony-like delayed drive mode"},
+        job,
+    )
+
+    assert silently_ignored_sets
+    assert result["strategy"] == "bracket"
+    assert camera.config.get_child_by_name("capturemode").value == "Single Shot"
+    assert timing["timing_contract"]["bracket_usb_return_ms"] > 0
+
+    ready_attempt_counts = []
+    for line in job.logs:
+        match = re.search(r"USB SET-ready .* \((\d+) attempt\(s\)\)", line)
+        if match:
+            ready_attempt_counts.append(int(match.group(1)))
+
+    assert ready_attempt_counts
+    assert max(ready_attempt_counts) > 1
+
+
 def test_raw_failure_prevents_all_exposures(monkeypatch, profile):
     from backend.camera_characterization import characterize
     camera = SimulatedCamera(list(profile["commands"]["shutter"]["values"]))

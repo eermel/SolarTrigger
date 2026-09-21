@@ -1537,6 +1537,18 @@ def characterize(camera, entry, job):
                     commands["iso"]["values"]["100"],
                 )
                 runtime_set(ready_key, ready_value)
+                # set_single_config() returning successfully is not sufficient
+                # evidence that the camera actually applied the setting. Sony
+                # bodies can transiently accept the USB transaction while still
+                # keeping the previous drive mode after a bracket. Characterization
+                # is allowed to perform an authoritative GET here; runtime is not.
+                actual_ready_value = characterization_read(ready_key)
+                if str(actual_ready_value) != str(ready_value):
+                    raise RuntimeError(
+                        "SET returned without applying the requested value: "
+                        f"{ready_key} requested={ready_value!r}, "
+                        f"actual={actual_ready_value!r}"
+                    )
                 break
             except Cancelled:
                 raise
