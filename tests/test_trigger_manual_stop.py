@@ -1,14 +1,12 @@
 import signal
-import subprocess
 import threading
 
 from backend.trigger_service import TriggerService
 
 
 class FakeProc:
-    def __init__(self, timeout_once=False, returncode=0):
+    def __init__(self, returncode=0):
         self._running = True
-        self.timeout_once = timeout_once
         self.returncode = returncode
         self.wait_timeouts = []
         self.terminated = False
@@ -27,10 +25,8 @@ class FakeProc:
 
     def wait(self, timeout=None):
         self.wait_timeouts.append(timeout)
-        if self.timeout_once and not self.killed:
-            self.timeout_once = False
-            raise subprocess.TimeoutExpired('trigger', timeout)
-        self._running = False
+        if self._running:
+            self._running = False
         return self.returncode
 
 
@@ -45,31 +41,46 @@ def make_service(proc):
     return svc
 
 
-def test_manual_stop_allows_atomic_camera_group_to_finish():
+def test_graceful_stop_returns_without_timing_out_atomic_camera_group():
     proc = FakeProc(returncode=0)
     svc = make_service(proc)
+
     result = svc.stop(1)
+
     assert proc.terminated is True
     assert proc.killed is False
-    assert proc.wait_timeouts == [30]
-    assert result['forced'] is False
-    assert result['still_running'] is False
+    assert proc.wait_timeouts == []
+    assert result == {
+        "status": "stopping",
+        "rig_id": 1,
+        "forced": False,
+        "still_running": True,
+    }
     assert svc._manual_stop_requested_by_rig[1] is True
+    assert any("Graceful STOP requested" in text for text, _, _ in svc.log_lines)
 
 
-def test_manual_stop_kills_only_after_graceful_timeout():
-    proc = FakeProc(timeout_once=True)
+def test_explicit_force_stop_is_the_only_operator_sigkill_path():
+    proc = FakeProc(returncode=0)
     svc = make_service(proc)
-    result = svc.stop(1)
+
+    graceful = svc.stop(1)
+    forced = svc.stop(1, force=True)
+
+    assert graceful["status"] == "stopping"
     assert proc.terminated is True
     assert proc.killed is True
-    assert proc.wait_timeouts == [30, 2]
-    assert result['forced'] is True
-    assert result['still_running'] is False
-    assert any('30 s graceful-stop timeout' in text for text, _, _ in svc.log_lines)
+    assert proc.wait_timeouts == [2.0]
+    assert forced == {
+        "status": "stopped",
+        "rig_id": 1,
+        "forced": True,
+        "still_running": False,
+    }
+    assert any("FORCE STOP requested" in text for text, _, _ in svc.log_lines)
 
 
-def test_duplicate_stop_request_is_coalesced():
+def test_duplicate_graceful_stop_request_is_coalesced():
     proc = FakeProc(returncode=0)
     svc = make_service(proc)
     svc._stopping_by_rig = {1: True, 2: False, 3: False, 4: False}

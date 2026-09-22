@@ -63,7 +63,7 @@ def test_stop_cancels_start_before_popen_is_published():
     assert result["still_running"] is False
 
 
-def test_stop_joins_supervisor_after_process_exit():
+def test_graceful_stop_does_not_wait_for_supervisor_or_atomic_photo():
     service = _service_shell()
     proc = _FakeProc()
     service._procs[1] = proc
@@ -73,6 +73,6 @@ def test_stop_joins_supervisor_after_process_exit():
     result = service.stop(1)
 
     assert proc.terminated is True
-    assert supervisor.joined is True
-    assert result["status"] == "stopped"
-    assert result["still_running"] is False
+    assert supervisor.joined is False
+    assert result["status"] == "stopping"
+    assert result["still_running"] is True

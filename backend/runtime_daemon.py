@@ -391,7 +391,13 @@ class RuntimeController:
             )
 
         if operation == "trigger.stop":
-            return self.trigger.stop(rig_id=payload.get("rig_id", 1))
+            force = payload.get("force", False)
+            if not isinstance(force, bool):
+                raise ValueError("force must be boolean")
+            return self.trigger.stop(
+                rig_id=payload.get("rig_id", 1),
+                force=force,
+            )
 
         if operation == "camera.reconcile":
             config = payload.get("config")
@@ -484,7 +490,7 @@ class RuntimeController:
                 continue
             thread = threading.Thread(
                 target=self.trigger.stop,
-                kwargs={"rig_id": rig_id},
+                kwargs={"rig_id": rig_id, "force": True},
                 name=f"runtime-stop-rig-{rig_id}",
                 daemon=True,
             )
@@ -492,7 +498,7 @@ class RuntimeController:
             threads.append(thread)
 
         for thread in threads:
-            thread.join(timeout=35.0)
+            thread.join(timeout=5.0)
 
         self.camera_runtime.shutdown()
 

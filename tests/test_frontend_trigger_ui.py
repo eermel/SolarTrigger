@@ -264,3 +264,21 @@ def test_workflow_tabs_have_visual_arrows_only():
         in css
     )
     assert "content: '→';" in css
+
+
+
+def test_trigger_stop_is_graceful_then_explicit_force_stop():
+    js = (
+        Path(__file__).resolve().parents[1]
+        / "flask_app"
+        / "static"
+        / "js"
+        / "solartrigger.js"
+    ).read_text(encoding="utf-8")
+
+    assert "const force = rigState.phase === 'stopping';" in js
+    assert "JSON.stringify({rig_id: rigId, force})" in js
+    assert "■ FORCE STOP" in js
+    assert "SIGKILL immediately" in js
+    assert "Any atomic PHOTO already in progress is allowed to finish safely." in js
+    assert "Stop / force-stop the trigger?" not in js

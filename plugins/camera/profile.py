@@ -165,6 +165,10 @@ class CameraPhysicalPreflightError(CameraPreflightError):
 class ProfilePlugin(CameraPlugin):
     # Persistent worker instances own the effective camera-state cache.
     stateful_settings = True
+    # Sony bodies can expose the previous/placeholder value immediately after
+    # set_single_config(). Never resend the SET: wait briefly for authoritative
+    # get_config() readback to converge instead. Total settling budget: 1.85 s.
+    PREFLIGHT_SETTLE_DELAYS_S = (0.10, 0.25, 0.50, 1.00)
 
     def __init__(self, camera, log_fn=print, profile=None):
         super().__init__(camera, log_fn)
@@ -444,6 +448,27 @@ class ProfilePlugin(CameraPlugin):
             f"(current: {actual})."
         )
 
+    def _settle_preflight_readback(self, key, target, verified):
+        """Wait for post-SET authoritative readback without repeating the SET."""
+        if str(verified) == str(target):
+            return verified
+
+        last = verified
+        for delay_s in self.PREFLIGHT_SETTLE_DELAYS_S:
+            time.sleep(delay_s)
+            try:
+                last = self._preflight_read(key)
+            except Exception:
+                # A transient GET failure during the settling window does not
+                # justify replaying a USB SET. Keep waiting within the bound.
+                continue
+            if str(last) == str(target):
+                self.log(
+                    f"READBACK camera {key}={target!r} confirmed after settling"
+                )
+                return last
+        return last
+
     def _ensure(self, key, value=None) -> bool:
         """Preflight GET first; SET only when the required value differs."""
         spec = self.commands[key]
@@ -475,12 +500,16 @@ class ProfilePlugin(CameraPlugin):
                 )
             try:
                 self._prime_single_spec(spec)
+                self.log(f"SET camera {key}={target!r}")
                 self._direct_set_spec(spec, target)
                 verified = self._preflight_read(key)
+                verified = self._settle_preflight_readback(
+                    key, target, verified
+                )
                 if str(verified) != str(target):
                     raise RuntimeError(
-                        f"readback mismatch: requested={target!r}, "
-                        f"actual={verified!r}"
+                        f"readback mismatch after settling: "
+                        f"requested={target!r}, actual={verified!r}"
                     )
             except Exception as exc:
                 if optional:
@@ -525,6 +554,7 @@ class ProfilePlugin(CameraPlugin):
             )
 
         try:
+            self.log(f"SET camera {key}={target!r}")
             write_checked(self.camera, spec["path"], target)
         except Exception as exc:
             self._writable_cache.discard(key)
@@ -576,6 +606,7 @@ class ProfilePlugin(CameraPlugin):
                     f"Characterized setting {key} is not writable"
                 )
             try:
+                self.log(f"SET camera {key}={target!r}")
                 self._direct_set_spec(spec, target)
             except Exception as exc:
                 if optional:
@@ -602,6 +633,7 @@ class ProfilePlugin(CameraPlugin):
                 self._manual_instruction(key, target, actual)
             )
         try:
+            self.log(f"SET camera {key}={target!r}")
             write_widget(self.camera, spec["path"], target)
         except Exception as exc:
             self._writable_cache.discard(key)

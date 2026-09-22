@@ -3042,7 +3042,11 @@ function updatePhase(phase) {
       window._triggerStopPendingRigs &&
       window._triggerStopPendingRigs.has(selectedTriggerRigId)
     );
+    const selectedRigStopping = selectedRigState.phase === 'stopping';
     btnStop.disabled = !selectedRigRunning || stopPending;
+    btnStop.textContent = stopPending
+      ? (selectedRigStopping ? '⏳ Force stopping…' : '⏳ Stopping…')
+      : (selectedRigStopping ? '■ FORCE STOP' : '■ STOP');
   }
 
   if (btnTot) {
@@ -4127,47 +4131,87 @@ async function startDryRun() {
 
 async function stopTrigger() {
   const rigId = selectedTriggerRigId;
+  const rigKey = String(rigId);
+  const rigState = state.triggerRigs[rigKey] || {};
+  const force = rigState.phase === 'stopping';
   const btn = document.getElementById('btn-stop');
   const debugBtn = document.getElementById('btn-debug-stop');
   const pending = window._triggerStopPendingRigs || new Set();
   window._triggerStopPendingRigs = pending;
 
   if (pending.has(rigId)) {
-    flash('Trigger stop already in progress', 'yellow');
+    flash(force ? 'Force stop already in progress' : 'Trigger stop already in progress', 'yellow');
     return;
   }
-  if (!confirm('⚠️ Stop / force-stop the trigger?')) return;
+
+  const confirmed = force
+    ? confirm(
+        '⚠️ FORCE STOP this RIG now?\n\n' +
+        'This sends SIGKILL immediately and can interrupt the atomic PHOTO currently in progress.\n' +
+        'Use only when you explicitly want to abort the current camera operation.'
+      )
+    : confirm(
+        '■ Request graceful STOP?\n\n' +
+        'Any atomic PHOTO already in progress is allowed to finish safely.\n' +
+        'If it does not finish, the STOP button will become FORCE STOP.'
+      );
+  if (!confirmed) return;
 
   pending.add(rigId);
+  const pendingLabel = force ? '⏳ Force stopping…' : '⏳ Stopping…';
   if (btn) {
     btn.disabled = true;
-    btn.textContent = '⏳ Stopping…';
+    btn.textContent = pendingLabel;
   }
   if (debugBtn) {
     debugBtn.disabled = true;
-    debugBtn.textContent = '⏳ Stopping…';
+    debugBtn.textContent = pendingLabel;
   }
 
   try {
     const r = await fetch('/api/trigger/stop', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({rig_id: rigId})
+      body: JSON.stringify({rig_id: rigId, force})
     });
     const d = await r.json();
+
+    if (!r.ok || d.error) {
+      flash(d.error || `HTTP error ${r.status}`, 'red');
+      return;
+    }
+
     if (d.status === 'not_running') {
+      state.triggerRigs[rigKey] = {
+        ...rigState,
+        running: false,
+        phase: 'idle'
+      };
       flash('Trigger not active', 'yellow');
     } else if (d.status === 'stopping') {
-      flash('Trigger stop already in progress', 'yellow');
+      state.triggerRigs[rigKey] = {
+        ...rigState,
+        running: true,
+        phase: 'stopping'
+      };
+      flash(
+        force
+          ? '⚠️ FORCE STOP sent — process exit pending'
+          : '■ Graceful STOP requested — waiting for current atomic PHOTO',
+        force ? 'red' : 'yellow'
+      );
     } else {
-      flash('■ Trigger stopped', 'yellow');
+      state.triggerRigs[rigKey] = {
+        ...rigState,
+        running: Boolean(d.still_running),
+        phase: d.still_running ? 'stopping' : 'idle'
+      };
+      flash(force ? '■ Trigger force-stopped' : '■ Trigger stopped', 'yellow');
     }
   } catch(e) {
     flash('Network error while stopping', 'red');
   } finally {
     pending.delete(rigId);
-    if (btn) btn.textContent = '■ STOP';
-    if (debugBtn) debugBtn.textContent = '■ STOP';
     updateSelectedTriggerPhase();
     syncDebugActionState();
   }

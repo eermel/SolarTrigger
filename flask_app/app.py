@@ -5814,7 +5814,10 @@ def api_trigger_debug():
 def api_trigger_stop():
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
-    return jsonify(_trigger_service.stop(rig_id=rig_id))
+    force = payload.get("force", False)
+    if not isinstance(force, bool):
+        return jsonify({"error": "force must be boolean"}), 400
+    return jsonify(_trigger_service.stop(rig_id=rig_id, force=force))
 
 @app.route("/api/trigger/status")
 def api_trigger_status():

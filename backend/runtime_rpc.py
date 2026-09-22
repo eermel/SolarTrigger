@@ -338,11 +338,13 @@ class RemoteTriggerService:
             timeout=20.0,
         )
 
-    def stop(self, rig_id=1):
+    def stop(self, rig_id=1, force=False):
+        if not isinstance(force, bool):
+            raise ValueError("force must be boolean")
         return self._trigger_call(
             "trigger.stop",
-            {"rig_id": rig_id},
-            timeout=45.0,
+            {"rig_id": rig_id, "force": force},
+            timeout=10.0,
         )
 
     def is_active_or_starting(self, rig_id: int) -> bool:

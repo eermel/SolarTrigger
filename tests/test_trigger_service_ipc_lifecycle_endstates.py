@@ -414,7 +414,7 @@ def test_clean_exit_revokes_session_stops_service_and_removes_socket(
     }
 
 
-def test_forced_stop_terminates_then_kills_and_closes_session(tmp_path, monkeypatch):
+def test_graceful_then_explicit_force_stop_closes_session(tmp_path, monkeypatch):
     runtime, _servers = _make_runtime(tmp_path)
     service = _make_service(tmp_path, runtime)
     process_ready = threading.Event()
@@ -445,8 +445,6 @@ def test_forced_stop_terminates_then_kills_and_closes_session(tmp_path, monkeypa
 
         def wait(self, timeout=None):
             if self.returncode is None:
-                if timeout == 3:
-                    raise subprocess.TimeoutExpired("trigger", timeout)
                 killed.wait(timeout=timeout)
             return self.returncode
 
@@ -467,19 +465,30 @@ def test_forced_stop_terminates_then_kills_and_closes_session(tmp_path, monkeypa
     assert service._proc is proc
     socket_path = runtime._ipc_server.socket_path
 
-    result = service.stop()
+    graceful = service.stop()
+
+    assert graceful == {
+        "status": "stopping",
+        "rig_id": 1,
+        "forced": False,
+        "still_running": True,
+    }
+    assert proc.terminated is True
+    assert proc.killed is False
+    assert runtime._ipc_server is not None
+
+    forced = service.stop(force=True)
 
     deadline = time.monotonic() + 2
     while runtime._ipc_server is not None and time.monotonic() < deadline:
         time.sleep(0.01)
 
-    assert result == {
+    assert forced == {
         "status": "stopped",
         "rig_id": 1,
         "forced": True,
         "still_running": False,
     }
-    assert proc.terminated is True
     assert proc.killed is True
     assert runtime._ipc_server is None
     assert runtime._ipc_session_ids == set()

@@ -1208,6 +1208,9 @@ class TriggerService:
                     self._analysis_suppressed_by_rig[rig_id] = False
                     self._manual_stop_requested_by_rig[rig_id] = False
                     self._cancel_start_requested_by_rig[rig_id] = False
+                    stopping_map = getattr(self, "_stopping_by_rig", None)
+                    if isinstance(stopping_map, dict):
+                        stopping_map[rig_id] = False
                 elif owns_process and process_still_alive:
                     # Supervision is ending but the child resisted every
                     # terminate/kill attempt. Never publish a false idle state
@@ -1433,7 +1436,15 @@ class TriggerService:
 
             raise
 
-    def stop(self, rig_id=1):
+    def stop(self, rig_id=1, force=False):
+        """Stop one Trigger RIG.
+
+        The first request is always graceful: SIGTERM asks eclipse_trigger.py
+        to stop at the next safe boundary and this method returns immediately.
+        An atomic PHOTO group which is already on the camera is allowed to
+        finish, regardless of duration.  SIGKILL is reserved for a second,
+        explicit ``force=True`` operator request (or runtime service shutdown).
+        """
         if (
             not isinstance(rig_id, int)
             or isinstance(rig_id, bool)
@@ -1443,6 +1454,15 @@ class TriggerService:
                 "status": "invalid_rig",
                 "rig_id": rig_id,
             }
+        if not isinstance(force, bool):
+            return {
+                "status": "invalid_force",
+                "rig_id": rig_id,
+            }
+
+        proc = None
+        starting = False
+        supervisor = None
 
         with self._lock:
             stopping_map = getattr(self, "_stopping_by_rig", None)
@@ -1452,14 +1472,6 @@ class TriggerService:
                     for item_rig_id in range(1, 5)
                 }
                 self._stopping_by_rig = stopping_map
-
-            if stopping_map.get(rig_id, False):
-                return {
-                    "status": "stopping",
-                    "rig_id": rig_id,
-                    "forced": False,
-                    "still_running": True,
-                }
 
             proc = self._procs[rig_id]
             starting_map = getattr(self, "_starting_by_rig", None)
@@ -1476,17 +1488,37 @@ class TriggerService:
                 if isinstance(supervisor_map, dict)
                 else None
             )
+            live_proc = proc is not None and proc.poll() is None
+            already_stopping = bool(stopping_map.get(rig_id, False))
 
-            if starting:
-                # A start request can have released start() while _run() has
-                # not yet published its Popen object. Make STOP authoritative
-                # across that gap instead of returning a false not_running.
-                if isinstance(cancel_map, dict):
-                    cancel_map[rig_id] = True
-                self._analysis_suppressed_by_rig[rig_id] = True
-                self._manual_stop_requested_by_rig[rig_id] = True
+            if not live_proc and not starting:
+                stopping_map[rig_id] = False
+                return {
+                    "status": "not_running",
+                    "rig_id": rig_id,
+                }
 
-        if (not proc or proc.poll() is not None) and starting:
+            if already_stopping and not force:
+                return {
+                    "status": "stopping",
+                    "rig_id": rig_id,
+                    "forced": False,
+                    "still_running": bool(live_proc or starting),
+                }
+
+            stopping_map[rig_id] = True
+            self._analysis_suppressed_by_rig[rig_id] = True
+            self._manual_stop_requested_by_rig[rig_id] = True
+
+            if starting and isinstance(cancel_map, dict):
+                # STOP is authoritative even in the short window before Popen
+                # has been published by the supervisor.
+                cancel_map[rig_id] = True
+
+        # A cancelled startup has no atomic camera operation to preserve. Give
+        # its supervisor a bounded opportunity to observe cancellation and
+        # avoid launching the child at all.
+        if (proc is None or proc.poll() is not None) and starting:
             if (
                 supervisor is not None
                 and supervisor is not threading.current_thread()
@@ -1500,97 +1532,108 @@ class TriggerService:
                     if isinstance(starting_map, dict)
                     else False
                 )
-            if not proc or proc.poll() is not None:
-                return {
-                    "status": "stopped" if not starting else "stopping",
-                    "rig_id": rig_id,
-                    "forced": False,
-                    "still_running": bool(starting),
-                }
-
-        if not proc or proc.poll() is not None:
-            return {
-                "status": "not_running",
-                "rig_id": rig_id,
-            }
-
-        with self._lock:
-            if self._stopping_by_rig.get(rig_id, False):
+                live_proc = proc is not None and proc.poll() is None
+                if not live_proc and not starting:
+                    self._stopping_by_rig[rig_id] = False
+                    return {
+                        "status": "stopped",
+                        "rig_id": rig_id,
+                        "forced": bool(force),
+                        "still_running": False,
+                    }
+            if not live_proc:
                 return {
                     "status": "stopping",
                     "rig_id": rig_id,
-                    "forced": False,
+                    "forced": bool(force),
                     "still_running": True,
                 }
-            self._stopping_by_rig[rig_id] = True
-            self._analysis_suppressed_by_rig[rig_id] = True
-            self._manual_stop_requested_by_rig[rig_id] = True
 
+        if proc is None or proc.poll() is not None:
+            with self._lock:
+                self._stopping_by_rig[rig_id] = False
+            return {
+                "status": "stopped",
+                "rig_id": rig_id,
+                "forced": bool(force),
+                "still_running": False,
+            }
+
+        # Publish stopping before signalling the child. Buffered child phase
+        # messages are already suppressed above and cannot overwrite it.
         try:
+            state = getattr(self, "state", None)
+            if state is not None:
+                state.update_trigger_rig(
+                    rig_id,
+                    {"running": True, "phase": "stopping"},
+                )
+            emit = getattr(self, "emit", None)
+            if callable(emit):
+                emit(
+                    "trigger_phase",
+                    {"rig_id": rig_id, "phase": "stopping"},
+                )
+        except Exception:
+            # STOP remains a hardware-safety action even if UI publication
+            # fails. The periodic runtime snapshot will reconcile later.
+            pass
+
+        if force:
             try:
-                proc.terminate()
+                proc.kill()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=2.0)
             except Exception:
                 pass
 
-            forced = False
-
-            # SIGTERM only sets the trigger stop flag. An atomic camera PHOTO
-            # group already in progress may finish before the process observes
-            # that flag. Keep the existing 30 s emergency bound, but coalesce
-            # duplicate STOP requests so only one terminate/kill sequence owns
-            # the process.
-            try:
-                proc.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                forced = True
-            else:
-                forced = proc.poll() is None
-
-            if forced:
-                try:
-                    proc.kill()
-                    proc.wait(timeout=2)
-                except Exception:
-                    pass
-
-                self.log(
-                    f"■ RIG {rig_id} — Trigger killed (SIGKILL) after 30 s graceful-stop timeout.",
-                    "warning",
-                    "trigger",
-                )
-
-            with self._lock:
-                supervisor_map = getattr(self, "_supervisor_threads", None)
-                supervisor = (
-                    supervisor_map.get(rig_id)
-                    if isinstance(supervisor_map, dict)
-                    else None
-                )
-            if (
-                supervisor is not None
-                and supervisor is not threading.current_thread()
-            ):
-                supervisor.join(timeout=5.0)
-
             still = proc.poll() is None
-
             self.log(
                 (
-                    f"⚠️ RIG {rig_id} — process still active after SIGKILL."
+                    f"⚠️ RIG {rig_id} — FORCE STOP requested (SIGKILL); "
+                    "process still active."
                     if still
-                    else f"■ RIG {rig_id} — Trigger stopped manually."
+                    else f"■ RIG {rig_id} — FORCE STOP requested (SIGKILL)."
                 ),
                 "error" if still else "warning",
                 "trigger",
             )
-
             return {
-                "status": "stopped",
+                "status": "stopping" if still else "stopped",
                 "rig_id": rig_id,
-                "forced": forced,
+                "forced": True,
                 "still_running": still,
             }
-        finally:
-            with self._lock:
-                self._stopping_by_rig[rig_id] = False
 
+        try:
+            proc.terminate()
+        except Exception as exc:
+            self.log(
+                f"⚠️ RIG {rig_id} — Graceful STOP signal failed: {exc}",
+                "error",
+                "trigger",
+            )
+
+        # Crucial P0 contract: never impose a wall-clock timeout on an atomic
+        # PHOTO. The supervisor owns final cleanup when the child exits. The
+        # operator can explicitly press FORCE STOP if aborting the group is
+        # preferable to waiting for a safe boundary.
+        still = proc.poll() is None
+        self.log(
+            (
+                f"■ RIG {rig_id} — Graceful STOP requested; waiting for the "
+                "current atomic PHOTO to finish."
+                if still
+                else f"■ RIG {rig_id} — Graceful STOP completed."
+            ),
+            "warning",
+            "trigger",
+        )
+        return {
+            "status": "stopping" if still else "stopped",
+            "rig_id": rig_id,
+            "forced": False,
+            "still_running": still,
+        }

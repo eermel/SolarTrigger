@@ -270,3 +270,57 @@ def test_capture_mode_dependency_invalidates_only_characterized_settings():
         ("capturemode", "Bracket 3"),
         ("shutterspeed", "1/500"),
     ]
+
+
+
+def test_direct_preflight_stale_readback_settles_without_repeating_set(monkeypatch):
+    data = profile("bracket")
+    logs = []
+    plugin = ProfilePlugin(None, log_fn=logs.append, profile=data)
+
+    reads = iter([
+        "Bracket 3",                 # GET-first mismatch
+        "Bracket 3",                 # immediate post-SET stale value
+        "Unknown value 0000",        # transient Sony placeholder
+        "Single Shot",               # settled authoritative value
+    ])
+    monkeypatch.setattr(plugin, "_preflight_read", lambda _key: next(reads))
+    monkeypatch.setattr(plugin, "_prime_single_spec", lambda _spec: None)
+
+    sets = []
+    monkeypatch.setattr(
+        plugin,
+        "_direct_set_spec",
+        lambda _spec, target: sets.append(target),
+    )
+    sleeps = []
+    monkeypatch.setattr("plugins.camera.profile.time.sleep", sleeps.append)
+
+    assert plugin._ensure("capture_mode") is True
+    assert sets == ["Single Shot"]
+    assert sleeps == [0.10, 0.25]
+    assert plugin._known_settings["capture_mode"] == "Single Shot"
+    assert any("SET camera capture_mode='Single Shot'" in line for line in logs)
+    assert any("confirmed after settling" in line for line in logs)
+
+
+def test_direct_preflight_persistent_mismatch_fails_after_bounded_readback_only(monkeypatch):
+    data = profile("bracket")
+    plugin = ProfilePlugin(None, log_fn=lambda _message: None, profile=data)
+
+    monkeypatch.setattr(plugin, "_preflight_read", lambda _key: "Bracket 3")
+    monkeypatch.setattr(plugin, "_prime_single_spec", lambda _spec: None)
+    sets = []
+    monkeypatch.setattr(
+        plugin,
+        "_direct_set_spec",
+        lambda _spec, target: sets.append(target),
+    )
+    sleeps = []
+    monkeypatch.setattr("plugins.camera.profile.time.sleep", sleeps.append)
+
+    with pytest.raises(CameraPreflightError, match="readback mismatch after settling"):
+        plugin._ensure("capture_mode")
+
+    assert sets == ["Single Shot"]
+    assert sleeps == [0.10, 0.25, 0.50, 1.00]

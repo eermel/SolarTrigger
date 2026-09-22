@@ -809,7 +809,7 @@ def main() -> int:
             if not camera_initialized:
                 log(
                     "TRIGGER_CONFIG "
-                    f"SET camera initialize aperture={aperture} ISO={iso}"
+                    f"Camera initialization/preflight: aperture={aperture} ISO={iso}"
                 )
                 camera.initialize(aperture=aperture, iso=iso)
                 camera_initialized = True
@@ -822,7 +822,7 @@ def main() -> int:
             if not camera_initialized:
                 log(
                     "TRIGGER_CONFIG "
-                    f"SET camera initialize aperture={aperture} ISO={iso}"
+                    f"Camera initialization/preflight: aperture={aperture} ISO={iso}"
                 )
                 camera.initialize(aperture=aperture, iso=iso)
                 camera_initialized = True
