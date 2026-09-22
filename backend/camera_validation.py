@@ -1,7 +1,7 @@
 """End-to-end validation of one characterized camera profile.
 
-The validation deliberately exercises the real execution-plan runtime, local
-camera IPC, CameraWorker, CameraService and ProfilePlugin.  It does not use EXIF
+The validation deliberately exercises local Camera IPC, CameraWorker, CameraService
+and ProfilePlugin through a direct in-memory diagnostic scheduler. It does not use EXIF
 metadata and therefore reports software dispatch timing, not physical shutter
 opening time.
 """
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import deque
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import json
 import math
 import os
@@ -30,9 +30,11 @@ from backend.camera_timing_contract import (
     validate_timing_contract_v3,
 )
 from backend.camera_worker_runtime import CameraWorkerRuntime, get_camera_worker_runtime
-from backend.execution_plan_runtime import ExecutionPlanRuntime, load_execution_plan
+from backend.camera_validation_scheduler import (
+    CameraValidationScheduleCancelled,
+    run_validation_recipe,
+)
 from backend.rig_runtime import load_rig_configuration
-from backend.trigger_runtime import RuntimeClock
 from scripts.camera_ipc_client import CameraIpcClient
 
 
@@ -334,7 +336,7 @@ def _resolved_readback(profile: dict[str, Any], semantic: str, requested: Any) -
 
 
 def build_validation_recipe(profile: dict[str, Any]) -> dict[str, Any]:
-    """Build a short deterministic relative execution plan recipe.
+    """Build a short deterministic relative camera-validation recipe.
 
     One run validates four singles, every characterized native bracket size,
     real ISO/shutter/capture-mode transitions and aperture transitions where
@@ -587,79 +589,6 @@ def build_validation_recipe(profile: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def materialize_validation_plan(
-    recipe: dict[str, Any],
-    *,
-    rig_id: int,
-    first_command_utc: datetime,
-    profile_filename: str,
-    timing_filename: str,
-) -> tuple[dict[str, Any], str]:
-    if not isinstance(rig_id, int) or isinstance(rig_id, bool) or not 1 <= rig_id <= 4:
-        raise CameraValidationError("rig_id must be in 1..4")
-    if first_command_utc.tzinfo is None:
-        first_command_utc = first_command_utc.replace(tzinfo=timezone.utc)
-    first_command_utc = first_command_utc.astimezone(timezone.utc)
-
-    commands = []
-    phases = []
-    for item in recipe["commands"]:
-        target = first_command_utc + timedelta(milliseconds=float(item["offset_ms"]))
-        params = deepcopy(item["params"])
-        if item["action"] == "PHOTO":
-            params["validation_target_utc"] = _utc_text(target)
-        commands.append(
-            {
-                "time_utc": _utc_text(target),
-                "rig_id": rig_id,
-                "action": item["action"],
-                "params": params,
-            }
-        )
-        phases.append("camera_validation")
-
-    sequence_start = first_command_utc
-    sequence_end = first_command_utc + timedelta(seconds=float(recipe["sequence_duration_s"]))
-    plan = {
-        "schema_version": 2,
-        "config_type": "execution_plan",
-        "sources": {
-            "camera_profile": profile_filename,
-            "camera_timing_file": timing_filename,
-            "validation_recipe": "camera_validation_v1",
-        },
-        "sequence_start_utc": _utc_text(sequence_start),
-        "sequence_end_utc": _utc_text(sequence_end),
-        "initial_state_required": {str(rig_id): {}},
-        "commands": commands,
-        "command_phases": phases,
-    }
-
-    lines = [
-        "# =============================================================================",
-        "# SolarTrigger Camera Validation Plan",
-        "# =============================================================================",
-        "# plan.format_version=1",
-        f"# plan.generated_at_utc={json.dumps(_utc_text(_utc_now()))}",
-        '# plan.time_reference="UTC"',
-        f"# plan.rig_id={rig_id}",
-        f"# plan.sequence_start_utc={json.dumps(plan['sequence_start_utc'])}",
-        f"# plan.sequence_end_utc={json.dumps(plan['sequence_end_utc'])}",
-        f"# source.camera_profile={json.dumps(profile_filename)}",
-        f"# source.camera_timing_file={json.dumps(timing_filename)}",
-        '# source.validation_recipe="camera_validation_v1"',
-        "# initial_state={}",
-        '# @phase="camera_validation"',
-    ]
-    for command in commands:
-        lines.append(
-            f"{command['time_utc']} | RIG{rig_id} | {command['action']} | "
-            + json.dumps(command["params"], ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-        )
-    lines.append("")
-    return plan, "\n".join(lines)
-
-
 def _same_physical_camera(left: dict[str, Any], right: dict[str, Any]) -> bool:
     for key in ("serial", "fallback_physical_path"):
         a = str(left.get(key) or "").strip()
@@ -897,7 +826,7 @@ def _timing_statistics(photo_events: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     if not samples:
         return {
-            "measurement": "software_dispatch_start_vs_plan_target",
+            "measurement": "software_dispatch_start_vs_validation_target",
             "physical_shutter_time_measured": False,
             "count": 0,
             "samples_ms": [],
@@ -905,7 +834,7 @@ def _timing_statistics(photo_events: list[dict[str, Any]]) -> dict[str, Any]:
     abs_samples = [abs(value) for value in samples]
     max_abs_index = max(range(len(samples)), key=lambda index: abs_samples[index])
     return {
-        "measurement": "software_dispatch_start_vs_plan_target",
+        "measurement": "software_dispatch_start_vs_validation_target",
         "physical_shutter_time_measured": False,
         "threshold_ms": None,
         "count": len(samples),
@@ -1086,20 +1015,6 @@ def analyse_validation(
                     "camera file event arrived after the characterized PHOTO "
                     "budget but inside the validation-only observation grace"
                 ),
-            }
-        )
-
-    skip_lines = [
-        line for line in runtime_logs
-        if "skip_past index=" in line or "skip_elapsed_after_recovery index=" in line
-    ]
-    if skip_lines:
-        errors.append(
-            {
-                "type": "UNEXPECTED_EVENT",
-                "severity": "FAIL",
-                "message": "execution-plan command skipped because its absolute slot elapsed",
-                "raw_lines": skip_lines,
             }
         )
 
@@ -1419,7 +1334,6 @@ class CameraValidationJob:
         recorder: RecordingCameraClient | None = None
         readbacks: list[dict[str, Any]] = []
         fatal_error: dict[str, Any] | None = None
-        plan_path: Path | None = None
 
         entry = deepcopy(prepared["entry"])
         recipe = deepcopy(prepared["recipe"])
@@ -1448,39 +1362,21 @@ class CameraValidationJob:
                 set_budget_ms=float(recipe["set_overhead_ms"]),
             )
 
-            first_command = _utc_now() + timedelta(seconds=float(recipe["preflight_reserve_s"]))
-            _plan_document, plan_text = materialize_validation_plan(
+            self.phase = "running"
+            run_validation_recipe(
                 recipe,
                 rig_id=rig_id,
-                first_command_utc=first_command,
-                profile_filename=prepared["profile_path"].name,
-                timing_filename=prepared["timing_path"].name,
-            )
-            plan_path = run_dir / "validation.plan"
-            plan_path.write_text(plan_text, encoding="utf-8")
-
-            # Re-parse the exact text file that will be executed.  This is part
-            # of the validation: no special in-memory plan bypass exists.
-            plan = load_execution_plan(plan_path)
-            execution = ExecutionPlanRuntime(
-                clock=RuntimeClock(),
                 camera_client=recorder,
                 log_fn=self.log,
                 stop_event=self.cancel_event,
             )
-            execution.prepare_for_execution(plan)
-            if self.cancel_event.is_set():
-                raise CameraValidationCancelled("validation cancelled after preflight")
-
-            self.phase = "running"
-            execution.run(plan)
             if self.cancel_event.is_set():
                 raise CameraValidationCancelled("validation cancelled")
 
             self.phase = "readback"
             readbacks = self._read_final_state(delegate, rig_id, recipe)
 
-        except CameraValidationCancelled as exc:
+        except (CameraValidationCancelled, CameraValidationScheduleCancelled) as exc:
             fatal_error = self._exception_payload(exc)
             self.log(f"CANCELLED: {exc}")
         except Exception as exc:
@@ -1553,7 +1449,6 @@ class CameraValidationJob:
             "artifacts": {
                 "camera_profile_path": _safe_relative(prepared["profile_path"], root),
                 "camera_timing_path": _safe_relative(prepared["timing_path"], root),
-                "plan_path": _safe_relative(plan_path, root) if plan_path else None,
                 "run_log_path": _safe_relative(self.log_path, root) if self.log_path else None,
                 "report_path": _safe_relative(self.report_path, root) if self.report_path else None,
             },
@@ -1633,6 +1528,6 @@ __all__ = [
     "JOB",
     "analyse_validation",
     "build_validation_recipe",
-    "materialize_validation_plan",
+    "run_validation_recipe",
     "validation_candidates",
 ]

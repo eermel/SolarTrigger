@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 import inspect
 
 import pytest
@@ -8,9 +7,7 @@ from backend.camera_validation import (
     CameraValidationJob,
     analyse_validation,
     build_validation_recipe,
-    materialize_validation_plan,
 )
-from backend.execution_plan_runtime import load_execution_plan
 
 
 def _profile():
@@ -84,7 +81,7 @@ def test_first_photo_uses_session_cold_start_floor_not_steady_state_budget():
     """Reproduces the observed FAIL: a fresh camera worker's very first PHOTO
     is a session cold-start, not a steady-state capture. Without a dedicated
     floor, budget_overrun_ms on that first PHOTO makes the scheduler skip the
-    next scheduled command (see EXECUTION_PLAN skip_past in the field log).
+    next scheduled command (the direct validation scheduler must reserve that cold-start cost).
     """
     profile = _profile()
     profile["timing_contract"]["single_overhead_ms"] = 1250
@@ -161,27 +158,6 @@ def test_recipe_is_deterministic_and_covers_all_brackets():
     assert first["estimated_duration_s"] > first["sequence_duration_s"]
 
 
-def test_materialized_text_plan_round_trips_through_runtime_parser(tmp_path):
-    recipe = build_validation_recipe(_profile())
-    plan, text = materialize_validation_plan(
-        recipe,
-        rig_id=2,
-        first_command_utc=datetime(2026, 9, 7, 9, 0, tzinfo=timezone.utc),
-        profile_filename="test_profile.json",
-        timing_filename="test_timing.json",
-    )
-    path = tmp_path / "validation.plan"
-    path.write_text(text, encoding="utf-8")
-    loaded = load_execution_plan(path)
-
-    assert loaded["schema_version"] == 2
-    assert len(loaded["commands"]) == len(plan["commands"])
-    assert {command["rig_id"] for command in loaded["commands"]} == {2}
-    assert sum(
-        int(command["params"].get("expected_frames", 0))
-        for command in loaded["commands"]
-        if command["action"] == "PHOTO"
-    ) == 28
 
 
 def test_missing_bracket_is_reported_as_exact_missing_photo_count():

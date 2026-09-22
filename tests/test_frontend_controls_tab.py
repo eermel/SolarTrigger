@@ -65,7 +65,6 @@ def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
         "ECLIPSE",
         "PHOTO SETUP",
         "EXPO. OPT.",
-        "SEQUENCER",
         "CAMERA",
         "CONTROLS",
         "TRIGGER",
@@ -78,16 +77,16 @@ def test_controls_tab_and_panel_are_in_the_eight_item_navigation_order():
         "page-1",
         "page-2",
         "page-exposure-opt",
-        "sequencer-panel",
+        "retired-page-5",
         "page-3",
         "controls-panel",
         "page-4",
         "debug-panel",
     ]
 
-    controls = parser.tabs[8]
-    trigger = parser.tabs[9]
-    debug = parser.tabs[10]
+    controls = parser.tabs[7]
+    trigger = parser.tabs[8]
+    debug = parser.tabs[9]
     assert controls["id"] == "controls-tab"
     assert controls["onclick"] == "showTab(7)"
     assert trigger["onclick"] == "showTab(8)"

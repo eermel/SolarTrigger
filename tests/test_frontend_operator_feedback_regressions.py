@@ -63,20 +63,6 @@ def test_add_camera_long_actions_disable_before_network_work():
     assert "select.disabled = true" in characterize
 
 
-def test_sequence_generation_logs_success_after_completion():
-    assert (
-        "`RIG ${rigId}: sequence generated successfully`"
-        in JS
-    )
-    assert (
-        "appendSequencerLog(\n"
-        "      `RIG ${rigId}: sequence generated successfully`,\n"
-        "      'success'\n"
-        "    );"
-        in JS
-    )
-
-
 
 def test_camera_validation_ui_does_not_describe_plan_runtime():
     assert (
@@ -87,7 +73,7 @@ def test_camera_validation_ui_does_not_describe_plan_runtime():
     assert "End-to-end real run · .plan" not in HTML
 
     validation_js = _between(
-        "// CAMERA VALIDATION — end-to-end real execution-plan run",
+        "// CAMERA VALIDATION — end-to-end real camera run",
         "// DEBUG TAB — UI adapter over the existing Trigger functionality",
     )
     assert "The validation report, .plan and run log" not in validation_js

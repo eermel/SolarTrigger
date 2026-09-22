@@ -12,7 +12,6 @@ from backend.camera_timing_contract import (
     photo_budget_ms,
     validate_timing_contract_v3,
 )
-from backend.execution_plan_runtime import ExecutionPlanRuntime
 from backend.camera_worker import CameraWorker
 from backend.generic_worker import BusyDeviceError, ExpiredJobError
 
@@ -85,40 +84,8 @@ def commands(clock):
     return result
 
 
-def test_usb_failure_skips_photo_but_resumes_future_complete_preparation():
-    clock, calls, logs = Clock(), [], []
-    class Camera:
-        def set_parameter(self, rig, parameter, value, **kwargs):
-            calls.append(("SET", parameter, clock.now().second))
-            assert kwargs["scheduled"] is True
-            if parameter == "iso" and clock.now().second == 1:
-                raise RuntimeError("USB unavailable")
-        def execute_photo(self, rig, params, **kwargs):
-            calls.append(("PHOTO", clock.now().second))
-    runtime = ExecutionPlanRuntime(clock=clock, camera_client=Camera(), log_fn=logs.append)
-    runtime._run_rig(1, commands(clock))
-    # The failed SET is retried ASAP. If it recovers, the first PHOTO remains
-    # eligible; no PHOTO is ever replayed after its timestamp.
-    assert [c for c in calls if c[0] == "PHOTO"] == [("PHOTO", 3), ("PHOTO", 7), ("PHOTO", 11)]
-    # Retry cadence is deliberately implementation-private; the contract is
-    # that recovery is attempted ASAP and future photos remain eligible.
-    assert sum(c[:2] == ("SET", "iso") for c in calls) >= 4
-    assert any("retry_asap=1" in line for line in logs)
 
 
-def test_slow_capture_drops_elapsed_group_without_stopping_rig():
-    clock, calls = Clock(), []
-    class Camera:
-        def set_parameter(self, rig, parameter, value, **kwargs):
-            calls.append((parameter, clock.now().second))
-        def execute_photo(self, rig, params, **kwargs):
-            calls.append(("PHOTO", clock.now().second))
-            if clock.now().second == 3:
-                clock.sleep(4.5)
-    runtime = ExecutionPlanRuntime(clock=clock, camera_client=Camera(), log_fn=lambda _: None)
-    runtime._run_rig(1, commands(clock))
-    assert calls == [("iso", 1), ("capture_setup", 2), ("PHOTO", 3),
-                     ("iso", 9), ("capture_setup", 10), ("PHOTO", 11)]
 
 
 def test_busy_worker_does_not_queue_missed_photos():

@@ -170,37 +170,6 @@ def test_independent_instances(profile):
     assert b.profile["strategy"] == "sequential"
 
 
-def test_compile_profile_audit_to_photo_units(monkeypatch, profile):
-    from datetime import datetime, timezone
-    from backend import camera_profiles
-    from backend.sequencer_compiler import (
-        audit_materialized_capture, _split_totality_single_photos,
-        schedule_audited_capture, CameraTimingProfile,
-    )
-    profile["strategy"] = "bracket"
-    monkeypatch.setattr(camera_profiles, "discover_profiles", lambda: {profile["backend"]: profile})
-    target = SimpleNamespace(phase="TOTALITY", target_time=datetime.now(timezone.utc),
-                             deadline=None, phase_window="phase_2", sequence_index=0)
-    capture = SimpleNamespace(
-        backend=profile["backend"],
-        rig_id=1,
-        target=target,
-        aperture=None,
-        final_exposure_plan=tuple(intent(profile).exposure_plan),
-        mechanical_vibration_enabled=False,
-        mechanical_vibration_delay_s=2,
-    )
-    audited = audit_materialized_capture(capture)
-    units = _split_totality_single_photos(audited)
-    assert sum(u.planned_count for u in units) == 9
-    timing = CameraTimingProfile(backend=profile["backend"], set_iso_ms=100,
-                                 set_capturemode_ms=100, set_shutter_ms=100,
-                                 trigger_single_duration_ms=500,
-                                 bracket_atomic_ms_by_frames={3: 1000, 5: 1000})
-    for unit in units:
-        scheduled = schedule_audited_capture(unit, timing)
-        assert all(s.command_time is not None for s in scheduled)
-        assert scheduled[-1].duration_ms > 0
 
 
 class SimulatedWidget:
@@ -524,26 +493,6 @@ def test_runtime_capture_never_uses_characterization_pause(monkeypatch, profile)
     assert result.frames == 1
 
 
-def test_budgeted_plan_has_self_contained_groups_and_exact_reservations(profile):
-    from backend.camera_timing_contract import POLICY
-    from backend.sequencer_compiler import _set_operation_duration_ms, CameraTimingProfile
-    profile['brackets'] = {}
-    profile['timing_contract'] = {
-        'version': 2, 'policy': POLICY, 'iso_ms': 400,
-        'single': {'setup_ms': 700, 'duration_ms': 1000, 'reference_exposure_s': .002},
-        'brackets': {}, 'sustained': {'status': 'validated'},
-    }
-    plan = SimpleNamespace(exposure_plan=[{'shutter': '1/500', 'iso': 100}] * 2)
-    prepared = ProfilePlugin(None, profile=profile).prepare_capture(plan)
-    ops = prepared.token[1]
-    assert [o.get('parameter', o['action']) for o in ops] == [
-        'iso', 'capture_setup', 'trigger_capture', 'iso', 'capture_setup', 'trigger_capture']
-    assert prepared.estimated_total_s == pytest.approx(sum(o['duration_ms'] for o in ops)/1000)
-    assert ops[2]['duration_ms'] == 1000  # The reference exposure is included once.
-    assert _set_operation_duration_ms(ops[1], CameraTimingProfile(backend='profile-example')) == 700
-    profile['timing_contract']['sustained']['status'] = 'pending'
-    with pytest.raises(ValueError, match='qualification'):
-        ProfilePlugin(None, profile=profile)
 
 
 def test_bracket_failure_prunes_primitive_from_larger_sizes_and_matrix_stays_sorted(

@@ -6,12 +6,29 @@ documents remain readable for migration, but are never rewritten implicitly.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 import math
 from pathlib import Path
 from typing import Any
 
-from backend.sequencer_compiler import CameraTimingProfile
 from backend.camera_timing_contract import validate_timing_contract_v3
+
+
+@dataclass(frozen=True)
+class CameraTimingProfile:
+    """Measured/guarded camera timing values used by persistent timing loaders."""
+
+    backend: str
+    set_iso_ms: float = 0.0
+    set_capturemode_ms: float = 0.0
+    set_shutter_ms: float = 0.0
+    trigger_single_lead_ms: float = 0.0
+    trigger_single_duration_ms: float = 0.0
+    bracket_press_lead_ms: float = 0.0
+    bracket_release_ms: float = 0.0
+    settle_idle_ms: float = 0.0
+    bracket_atomic_ms_by_frames: dict[int, float] | None = None
+    session_first_photo_overhead_ms: float = 0.0
 
 
 _TIMING_FIELDS = (

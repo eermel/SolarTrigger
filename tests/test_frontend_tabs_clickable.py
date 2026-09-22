@@ -59,13 +59,12 @@ def test_tabs_have_one_parent_click_handler_and_no_child_click_handler():
         "ECLIPSE",
         "PHOTO SETUP",
         "EXPO. OPT.",
-        "SEQUENCER",
         "CAMERA",
         "CONTROLS",
         "TRIGGER",
     "DEBUG",
     ]
     assert [tab["onclick_attributes"] for tab in parser.tabs] == [
-        [f"showTab({index})"] for index in [9, *range(9), 10]
+        [f"showTab({index})"] for index in [9, 0, 1, 2, 3, 4, 6, 7, 8, 10]
     ]
     assert all(not tab["direct_children_with_onclick"] for tab in parser.tabs)

@@ -243,9 +243,7 @@ def test_main_tabs_show_non_blocking_numbered_workflow():
     add_camera_end = html.index("</button>", add_camera_start)
     assert "workflow-step-number" not in html[add_camera_start:add_camera_end]
 
-    sequencer_start = html.index('id="sequencer-tab"')
-    sequencer_end = html.index("</button>", sequencer_start)
-    assert "workflow-step-number" not in html[sequencer_start:sequencer_end]
+    assert 'id="sequencer-tab"' not in html
 
 
 def test_workflow_tabs_have_visual_arrows_only():

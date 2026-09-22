@@ -19,14 +19,6 @@ def test_profile_init_settings_complete():
     assert "white_balance" in src
     assert "characterized RAW acquisition" in src
 
-def test_production_dispatch_profile_only():
-    from backend.sequencer_compiler import audit_materialized_capture
-    src = inspect.getsource(audit_materialized_capture)
-    assert 'capture.backend == "sony"' not in src
-    assert '"nikon-dslr"' not in src
-    assert "audit_materialized_sony_capture(capture)" not in src
-    assert "audit_materialized_nikon_capture(capture)" not in src
-    assert 'capture.backend.startswith("profile-")' in src
 
 def test_characterization_selection_evidence():
     import backend.camera_characterization as cc
