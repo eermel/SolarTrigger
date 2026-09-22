@@ -1,20 +1,25 @@
 from pathlib import Path
 import os,tempfile
 from flask import jsonify,request
+from backend.runtime_interlock import TriggerActiveError,start_maintenance_if_trigger_idle
 from backend.system_maintenance import JOB,SYSTEM_HELPER,RELEASE_HELPER,ethernet_status,internet_available,validate_release_zip
-def register_system_maintenance_routes(app,trigger_snapshot):
+
+def register_system_maintenance_routes(app,trigger_snapshot,trigger_busy=None):
  def busy():
+  if trigger_busy is not None:return bool(trigger_busy())
   s=trigger_snapshot() or {};return bool(s.get('running') or any((r or {}).get('running') for r in (s.get('rigs') or {}).values()))
+ def start_job(kind,cmd):
+  try:start_maintenance_if_trigger_idle(busy,lambda:JOB.start(kind,cmd))
+  except TriggerActiveError:return jsonify(error='Trigger is running or starting'),409
+  except RuntimeError as e:return jsonify(error=str(e)),409
+  return jsonify(status='started'),202
  @app.get('/api/system/maintenance/status')
  def status():
   e=ethernet_status();d=JOB.snapshot();d['ethernet']=e;d['internet']=internet_available() if e['connected'] else False;return jsonify(d)
  def apt(kind,action):
-  if busy():return jsonify(error='Trigger is running'),409
   if not ethernet_status()['connected']:return jsonify(error='Physical Ethernet link is required'),409
   if not internet_available():return jsonify(error='Internet is unavailable through Ethernet'),409
-  try:JOB.start(kind,['sudo','-n',SYSTEM_HELPER,action])
-  except RuntimeError as e:return jsonify(error=str(e)),409
-  return jsonify(status='started'),202
+  return start_job(kind,['sudo','-n',SYSTEM_HELPER,action])
  @app.post('/api/system/maintenance/check-updates')
  def check():return apt('apt-check','check')
  @app.post('/api/system/maintenance/update-system')
@@ -30,16 +35,11 @@ def register_system_maintenance_routes(app,trigger_snapshot):
   except ValueError as e:p.unlink(missing_ok=True);return jsonify(error=str(e)),400
  @app.post('/api/system/maintenance/install-release')
  def install():
-  if busy():return jsonify(error='Trigger is running'),409
   token=str((request.get_json(silent=True) or {}).get('upload_token') or '')
   if not token or Path(token).name!=token:return jsonify(error='Invalid upload token'),400
   p=Path('/tmp')/token
-  try:validate_release_zip(p);JOB.start('release-install',['sudo','-n',RELEASE_HELPER,'install',str(p)])
-  except (ValueError,RuntimeError) as e:return jsonify(error=str(e)),400
-  return jsonify(status='started'),202
+  try:validate_release_zip(p)
+  except ValueError as e:return jsonify(error=str(e)),400
+  return start_job('release-install',['sudo','-n',RELEASE_HELPER,'install',str(p)])
  @app.post('/api/system/maintenance/rollback-release')
- def rollback():
-  if busy():return jsonify(error='Trigger is running'),409
-  try:JOB.start('release-rollback',['sudo','-n',RELEASE_HELPER,'rollback'])
-  except RuntimeError as e:return jsonify(error=str(e)),409
-  return jsonify(status='started'),202
+ def rollback():return start_job('release-rollback',['sudo','-n',RELEASE_HELPER,'rollback'])
