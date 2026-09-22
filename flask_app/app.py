@@ -2606,6 +2606,17 @@ def api_gps_state_set():
     return jsonify({"status": "ok"})
 
 def _camera_trigger_conflict(rig_id=None):
+    # RIG 1 always participates, but secondary RIGs are opt-in. A disabled
+    # secondary RIG cannot own a Trigger, so stale/published state for it must
+    # not mask the route's normal DEVICE_NOT_CONFIGURED result.
+    if rig_id is not None and rig_id != 1:
+        try:
+            configured_rig = get_rig_manager().get_rig(rig_id)
+        except ValueError:
+            configured_rig = None
+        if configured_rig is not None and configured_rig.enabled is not True:
+            return None
+
     # Published trigger state and TriggerService's private "starting" window
     # are complementary. The StateStore remains authoritative for a run already
     # published as active, while the service closes the START->Popen race before
