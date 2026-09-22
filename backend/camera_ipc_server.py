@@ -331,6 +331,33 @@ class CameraIpcServer:
                 for rig_id in allowed:
                     self._rig_iso_targets.pop(rig_id, None)
 
+        # Initialization/recovery snapshots are scoped to exactly this lease.
+        # Clear them before prepared-token cleanup so a dead child is never
+        # respawned merely to restore state from the run that just ended.
+        affected_rig_ids = (
+            self._runtime.active_camera_rig_ids()
+            if allowed is None
+            else tuple(sorted(allowed))
+        )
+        for rig_id in affected_rig_ids:
+            try:
+                worker = self._runtime.get_for_rig(rig_id)
+                clear_recovery = getattr(
+                    worker,
+                    "clear_runtime_recovery_state",
+                    None,
+                )
+                if callable(clear_recovery):
+                    clear_recovery()
+            except Exception as exc:
+                # Revocation remains authoritative.  Parent-side recovery state
+                # is cleared before any child RPC, and an unresponsive child is
+                # expendable at a run boundary.
+                self._safe_log(
+                    f"camera IPC recovery-state cleanup failed for RIG {rig_id}",
+                    exc,
+                )
+
         # ProcessCameraWorker keeps a second, child-local prepared-token table.
         # Releasing only the IPC-server token would otherwise retain opaque
         # PreparedCapture/plugin state until that camera process is restarted.
