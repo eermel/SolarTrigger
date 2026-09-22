@@ -116,7 +116,11 @@ class CameraWorker:
                     recover_connection
                     and not getattr(service, "connected", True)
                 ):
-                    service.connect()
+                    recover = getattr(service, "recover_runtime_connection", None)
+                    if callable(recover):
+                        recover()
+                    else:
+                        service.connect()
 
                 if worker_deadline is not None and time.monotonic() >= worker_deadline:
                     raise ExpiredJobError()
@@ -206,7 +210,10 @@ class CameraWorker:
 
     def prepare_capture(self, intent):
         return self._call(
-            "prepare_capture", intent, priority=PRIORITY_SEQUENCER
+            "prepare_capture",
+            intent,
+            priority=PRIORITY_SEQUENCER,
+            recover_connection=True,
         )
 
     def trigger_prepared(
@@ -225,6 +232,7 @@ class CameraWorker:
             monotonic_deadline=monotonic_deadline,
             priority=PRIORITY_SEQUENCER,
             worker_deadline=monotonic_deadline,
+            recover_connection=True,
         )
 
     def shoot_speed_list(
