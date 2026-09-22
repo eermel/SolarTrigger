@@ -352,8 +352,10 @@ class CameraWorker:
         """Fire one atomic PHOTO for the Camera-tab diagnostic button.
 
         This deliberately bypasses exposure/capture-mode SET operations.
-        It remains a normal manual worker job: it does not acquire sequencer
-        priority and therefore cannot jump ahead of trigger operations.
+        It is diagnostic work and must fail fast if the camera is already
+        executing work or if higher-priority Trigger work is queued.  Never
+        let a Camera-tab click sit in the worker queue and become a late
+        exposure during an eclipse sequence.
         """
         return self._call(
             "execute_photo",
@@ -361,7 +363,9 @@ class CameraWorker:
                 "shutter": str(speed),
                 "expected_frames": 1,
             },
+            priority=PRIORITY_DIAGNOSTIC,
             recover_connection=True,
+            reject_if_busy=True,
         )
 
     def test_photo_diagnostic(

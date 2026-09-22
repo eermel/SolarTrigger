@@ -2575,15 +2575,52 @@ def api_gps_sync_time():
 def api_gps_get_location():
     return _start_gps_sync("location_only")
 
+def _trigger_active_or_starting(rig_id=None):
+    """Return authoritative Trigger activity, including the pre-Popen window."""
+    trigger_state = _state_store.snapshot("trigger") or {}
+    rigs = trigger_state.get("rigs") or {}
+    active = (
+        any((rig or {}).get("running") for rig in rigs.values())
+        if rig_id is None
+        else bool((rigs.get(str(rig_id)) or {}).get("running"))
+    )
+
+    service = globals().get("_trigger_service")
+    if not active and service is not None:
+        active = (
+            service.any_active_or_starting()
+            if rig_id is None
+            else service.is_active_or_starting(rig_id)
+        )
+    return bool(active)
+
+
 def _start_gps_sync(mode):
     inactive = require_device_active("gps")
     if inactive is not None:
         return inactive
-    trigger_state = _state_store.snapshot("trigger") or {}
-    rigs = trigger_state.get("rigs") or {}
-    if any((rig or {}).get("running") for rig in rigs.values()):
-        return jsonify({"error": "GPS synchronization is forbidden while a trigger is active.", "code": "TRIGGER_RUNNING"}), 409
-    if not _gps_controller.start(timeout_s=60.0, mode=mode):
+
+    # Use the same admission lock as Trigger START.  GpsController.start()
+    # publishes gps_sync_running synchronously before returning, so once this
+    # section releases the lock a competing Trigger START will fail closed in
+    # validate_start() instead of racing a system-clock adjustment.
+    from backend.runtime_interlock import (
+        TriggerActiveError,
+        start_maintenance_if_trigger_idle,
+    )
+
+    try:
+        started = start_maintenance_if_trigger_idle(
+            _trigger_active_or_starting,
+            lambda: _gps_controller.start(timeout_s=60.0, mode=mode),
+        )
+    except TriggerActiveError:
+        return jsonify({
+            "error": "GPS synchronization is forbidden while a trigger is active or starting.",
+            "code": "TRIGGER_RUNNING",
+        }), 409
+
+    if not started:
         return jsonify({"error": "GPS synchronization is already in progress."}), 409
     return jsonify({"status": "started"})
 
@@ -2617,28 +2654,7 @@ def _camera_trigger_conflict(rig_id=None):
         if configured_rig is not None and configured_rig.enabled is not True:
             return None
 
-    # Published trigger state and TriggerService's private "starting" window
-    # are complementary. The StateStore remains authoritative for a run already
-    # published as active, while the service closes the START->Popen race before
-    # that state is visible. Never let one source mask a positive result from
-    # the other.
-    trigger_state = _state_store.snapshot("trigger") or {}
-    rigs = trigger_state.get("rigs") or {}
-    active = (
-        any((rig or {}).get("running") for rig in rigs.values())
-        if rig_id is None
-        else bool((rigs.get(str(rig_id)) or {}).get("running"))
-    )
-
-    service = globals().get("_trigger_service")
-    if not active and service is not None:
-        active = (
-            service.any_active_or_starting()
-            if rig_id is None
-            else service.is_active_or_starting(rig_id)
-        )
-
-    if not active:
+    if not _trigger_active_or_starting(rig_id):
         return None
     return jsonify({
         "error": "Camera diagnostics are forbidden while a trigger is active or starting.",
@@ -3210,18 +3226,9 @@ def api_system_erase_persistent_data_and_reboot():
             "code": "CONFIRMATION_REQUIRED",
         }), 400
 
-    trigger_state = _state_store.snapshot("trigger") or {}
-    rigs = trigger_state.get("rigs") or {}
-    if any((rig or {}).get("running") for rig in rigs.values()):
-        return jsonify({
-            "error": "Persistent data cannot be erased while a trigger is running.",
-            "code": "TRIGGER_RUNNING",
-        }), 409
-
     def erase_and_reboot():
         import os
         import subprocess
-        import threading
         import time
 
         # Allow the HTTP response to reach the browser first.
@@ -3241,19 +3248,38 @@ def api_system_erase_persistent_data_and_reboot():
 
             subprocess.run(
                 ["sudo", "-n", "/usr/bin/systemctl", "reboot"],
-                check=False,
+                check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
         except Exception:
             log.exception("Unable to erase persistent data and reboot")
+            raise
 
-    import threading
-    threading.Thread(
-        target=erase_and_reboot,
-        name="erase-persistent-data-and-reboot",
-        daemon=True,
-    ).start()
+    # Treat erase+reboot as maintenance from admission until the destructive
+    # callable completes.  JOB.running is therefore visible to Trigger START,
+    # while the shared runtime interlock closes the inverse START/reboot race.
+    from backend.runtime_interlock import (
+        TriggerActiveError,
+        start_maintenance_if_trigger_idle,
+    )
+    from backend.system_maintenance import JOB
+
+    try:
+        start_maintenance_if_trigger_idle(
+            _trigger_active_or_starting,
+            lambda: JOB.start_callable("erase-reboot", erase_and_reboot),
+        )
+    except TriggerActiveError:
+        return jsonify({
+            "error": "Persistent data cannot be erased while a trigger is active or starting.",
+            "code": "TRIGGER_RUNNING",
+        }), 409
+    except RuntimeError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": "SYSTEM_MAINTENANCE_RUNNING",
+        }), 409
 
     return jsonify({
         "status": "rebooting",

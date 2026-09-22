@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+import threading
 
 import pytest
 
 from backend.camera_worker import CameraWorker
 from backend.camera_process_worker import ProcessCameraWorker
+from backend.generic_worker import BusyDeviceError
 from backend.runtime_interlock import (
     MaintenanceActiveError,
     TriggerActiveError,
@@ -115,6 +117,85 @@ def test_real_prepare_trigger_path_recovers_after_usb_failure():
         assert worker.trigger_prepared(prepared) == {"ok": True}
     finally:
         worker.stop(timeout=1.0)
+
+
+class _BlockingDiagnosticService:
+    def __init__(self):
+        self.connected = True
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def execute_photo(self, _params):
+        self.started.set()
+        if not self.release.wait(1.0):
+            raise RuntimeError("test diagnostic was not released")
+        return {"ok": True}
+
+    def invalidate_connection(self):
+        self.connected = False
+
+    def close(self):
+        return None
+
+
+def test_fast_test_photo_fails_fast_when_camera_worker_is_busy():
+    service = _BlockingDiagnosticService()
+    worker = CameraWorker(
+        rig_id=1,
+        service_factory=lambda: service,
+        log_fn=lambda _message: None,
+        call_timeout_s=2.0,
+    )
+    worker.start()
+    first_error = []
+
+    def first_photo():
+        try:
+            worker.test_photo_fast("1/500")
+        except Exception as exc:
+            first_error.append(exc)
+
+    thread = threading.Thread(target=first_photo)
+    thread.start()
+    try:
+        assert service.started.wait(0.5)
+        with pytest.raises(BusyDeviceError):
+            worker.test_photo_fast("1/500")
+    finally:
+        service.release.set()
+        thread.join(timeout=1.0)
+        worker.stop(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert first_error == []
+
+
+def test_process_camera_diagnostics_fail_fast_while_parent_ipc_is_busy():
+    worker = ProcessCameraWorker(
+        rig_id=1,
+        log_fn=lambda _message: None,
+    )
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_parent_ipc_lock():
+        with worker._lock:
+            entered.set()
+            release.wait(1.0)
+
+    thread = threading.Thread(target=hold_parent_ipc_lock)
+    thread.start()
+    try:
+        assert entered.wait(0.5)
+        with pytest.raises(BusyDeviceError):
+            worker.read_info()
+        with pytest.raises(BusyDeviceError):
+            worker.test_photo_fast("1/500")
+    finally:
+        release.set()
+        thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
 
 
 def _restoring_child(conn, rig_id, camera_entry, clock_spec, call_timeout_s):

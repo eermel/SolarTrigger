@@ -892,6 +892,9 @@ class TriggerService:
         totality_only=False,
     ):
         proc=None
+        stdout_stream = None
+        stdout_read_fd = None
+        stdout_write_fd = None
         try:
             # STOP may arrive immediately after start() released its lock but
             # before this supervisor thread has created the subprocess.
@@ -936,15 +939,46 @@ class TriggerService:
 
             env=self._subprocess_env(ipc_session)
             env["SET_TRIGGER_RIG_ID"] = str(rig_id)
-            proc=subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                cwd=str(self.project_dir),
-                env=env,
-            )
+
+            # The real-time scheduler must never wait for the web portal to
+            # consume logs.  Make only the child's pipe writer non-blocking:
+            # eclipse_trigger.log() already treats BlockingIOError/OSError as
+            # best-effort observability failures.  Camera scheduling therefore
+            # keeps running even if this supervisor is temporarily unable to
+            # drain stdout fast enough.
+            stdout_read_fd, stdout_write_fd = os.pipe()
+            os.set_blocking(stdout_write_fd, False)
+            try:
+                proc=subprocess.Popen(
+                    cmd,
+                    stdout=stdout_write_fd,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    cwd=str(self.project_dir),
+                    env=env,
+                )
+            finally:
+                if stdout_write_fd is not None:
+                    os.close(stdout_write_fd)
+                    stdout_write_fd = None
+
+            # Test doubles historically expose their own .stdout even when the
+            # supplied descriptor is not subprocess.PIPE. Preserve that
+            # contract; real Popen objects use the non-blocking pipe above.
+            if getattr(proc, "stdout", None) is not None:
+                os.close(stdout_read_fd)
+                stdout_read_fd = None
+                stdout_stream = proc.stdout
+            else:
+                stdout_stream = os.fdopen(
+                    stdout_read_fd,
+                    "r",
+                    encoding="utf-8",
+                    errors="replace",
+                    buffering=1,
+                )
+                stdout_read_fd = None
             with self._lock:
                 cancel_start = self._cancel_start_requested_by_rig[rig_id]
                 if not cancel_start:
@@ -1011,7 +1045,7 @@ class TriggerService:
                 else "► Trigger started."
             )
             self._log_rig(rig_id, label, "success")
-            for raw in iter(proc.stdout.readline, ""):
+            for raw in iter(stdout_stream.readline, ""):
                 if not raw and proc.poll() is not None:
                     break
                 raw_line = raw.rstrip()
@@ -1105,6 +1139,20 @@ class TriggerService:
                     except Exception:
                         pass
         finally:
+            if stdout_stream is not None:
+                try:
+                    stdout_stream.close()
+                except Exception:
+                    pass
+                stdout_stream = None
+            for fd_name in ("stdout_read_fd", "stdout_write_fd"):
+                fd = locals().get(fd_name)
+                if fd is not None:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+
             if ipc_session is not None:
                 try:
                     self.camera_runtime.close_ipc_session(ipc_session.session_id)

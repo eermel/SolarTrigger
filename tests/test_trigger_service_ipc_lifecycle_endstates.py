@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import subprocess
 import threading
 import time
@@ -261,6 +262,8 @@ def test_start_passes_session_after_server_start_and_restart_keeps_clock(
 
     def popen(_cmd, **kwargs):
         events.append("popen")
+        assert isinstance(kwargs["stdout"], int)
+        assert os.get_blocking(kwargs["stdout"]) is False
         socket_path = Path(kwargs["env"]["SET_CAMERA_IPC_SOCKET"])
         launches.append(
             (

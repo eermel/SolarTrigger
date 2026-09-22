@@ -81,16 +81,28 @@ class Job:
  def __init__(self): self.lock=threading.RLock();self.running=False;self.kind=None;self.status='idle';self.error=None;self.logs=deque(maxlen=1000)
  def snapshot(self):
   with self.lock:return deepcopy({'running':self.running,'kind':self.kind,'status':self.status,'error':self.error,'logs':list(self.logs)})
- def start(self,kind,cmd):
+ def _claim(self,kind):
   with self.lock:
    if self.running:raise RuntimeError('Maintenance operation already running')
    self.running=True;self.kind=kind;self.status='running';self.error=None;self.logs.clear()
+ def start(self,kind,cmd):
+  self._claim(kind)
   threading.Thread(target=self._run,args=(cmd,),daemon=True).start()
+ def start_callable(self,kind,fn):
+  """Run in-process maintenance while keeping the shared busy state authoritative."""
+  self._claim(kind)
+  threading.Thread(target=self._run_callable,args=(fn,),daemon=True).start()
  def _run(self,cmd):
   try:
    p=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
    for line in p.stdout or (): self.logs.append(line.rstrip())
    if p.wait(): raise RuntimeError('Maintenance helper failed')
+   self.status='success'
+  except Exception as e:self.status='failed';self.error=str(e);self.logs.append('FAILED: '+str(e))
+  finally:self.running=False
+ def _run_callable(self,fn):
+  try:
+   fn()
    self.status='success'
   except Exception as e:self.status='failed';self.error=str(e);self.logs.append('FAILED: '+str(e))
   finally:self.running=False

@@ -763,6 +763,39 @@ class ProcessCameraWorker:
                 pass
             return prepared
 
+    def _diagnostic_remote_call(self, operation: str, *args, **kwargs):
+        """Fail fast before crossing the process boundary when camera is busy.
+
+        The parent proxy serializes complete IPC round trips with _lock.
+        Child-side GenericWorker.reject_if_busy therefore cannot help a second
+        caller while another parent request already owns that lock. Diagnostic
+        UI work must never wait behind real-time camera work.
+        """
+        if not self._lock.acquire(blocking=False):
+            raise BusyDeviceError(
+                f"camera worker for rig {self.rig_id} is busy"
+            )
+        try:
+            return self._remote_call(operation, *args, **kwargs)
+        finally:
+            self._lock.release()
+
+    def read_info(self):
+        return self._diagnostic_remote_call("read_info")
+
+    def probe_info(self):
+        return self._diagnostic_remote_call("probe_info")
+
+    def test_photo_fast(self, speed):
+        return self._diagnostic_remote_call("test_photo_fast", speed)
+
+    def test_photo_diagnostic(self, *args, **kwargs):
+        return self._diagnostic_remote_call(
+            "test_photo_diagnostic",
+            *args,
+            **kwargs,
+        )
+
     def trigger_prepared(self, prepared, *args, **kwargs):
         expected_generation = getattr(
             prepared,
