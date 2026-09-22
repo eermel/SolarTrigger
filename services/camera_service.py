@@ -318,12 +318,24 @@ class CameraService:
             except Exception:
                 pass
 
+    def clear_runtime_recovery_state(self):
+        """Forget Trigger recovery state without touching the USB connection.
+
+        A CameraService process is intentionally persistent across Trigger runs.
+        Initialization snapshots are run-scoped: carrying them into a later run
+        could resurrect stale ISO/aperture/direct-writer state after a USB
+        reconnect.  Clearing the snapshots at IPC-session revocation preserves
+        the warm camera connection while making the next run initialize from an
+        explicitly unknown state.
+        """
+        self._last_phase_settings.clear()
+        self._last_init_settings = None
+
     def close(self):
         self.release()
         self.camera = None
         self.plugin = None
-        self._last_phase_settings = {}
-        self._last_init_settings = None
+        self.clear_runtime_recovery_state()
 
     def init_settings(self, aperture=None, iso=None, image_format="RAW",
                       white_balance="Daylight"):
