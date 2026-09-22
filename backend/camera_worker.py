@@ -176,6 +176,9 @@ class CameraWorker:
     def connect(self):
         return self._call("connect")
 
+    def clear_runtime_recovery_state(self):
+        return self._call("clear_runtime_recovery_state")
+
     def init_settings(
         self,
         aperture=None,
