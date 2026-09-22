@@ -2,7 +2,7 @@
 """One-shot, idempotent removal of the obsolete execution-plan architecture.
 
 This script is intentionally mechanical: it refuses partial/ambiguous source
-matches instead of silently producing a mixed architecture.  It is used on the
+matches instead of silently producing a mixed architecture. It is used on the
 cleanup branch, tested there, and is not part of the SolarTrigger runtime.
 """
 
@@ -32,15 +32,6 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     if count != 1:
         raise RuntimeError(f"{label}: expected one source fragment, found {count}")
     return text.replace(old, new, 1)
-
-
-def regex_once(text: str, pattern: str, replacement: str, label: str) -> str:
-    updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
-    if count == 0:
-        if replacement and replacement in text:
-            return text
-        raise RuntimeError(f"{label}: expected source block not found")
-    return updated
 
 
 def remove_python_ranges(path: str, ranges: list[tuple[int, int]]) -> None:
@@ -107,10 +98,7 @@ def refactor_camera_validation() -> None:
         "from backend.execution_plan_runtime import ExecutionPlanRuntime, load_execution_plan\n",
         "",
     )
-    text = text.replace(
-        "from backend.trigger_runtime import RuntimeClock\n",
-        "",
-    )
+    text = text.replace("from backend.trigger_runtime import RuntimeClock\n", "")
     scheduler_import = (
         "from backend.camera_validation_scheduler import (\n"
         "    CameraValidationScheduleCancelled,\n"
@@ -126,14 +114,14 @@ def refactor_camera_validation() -> None:
         '"""Build a short deterministic relative camera-validation recipe.\n',
     )
 
-    text = re.sub(
+    text, count = re.subn(
         r"\n\ndef materialize_validation_plan\(.*?\n\ndef _same_physical_camera",
         "\n\ndef _same_physical_camera",
         text,
         count=1,
         flags=re.S,
     )
-    if "def materialize_validation_plan(" in text:
+    if count == 0 and "def materialize_validation_plan(" in text:
         raise RuntimeError("materialize_validation_plan removal failed")
 
     text = text.replace(
@@ -151,8 +139,42 @@ def refactor_camera_validation() -> None:
 
     text = text.replace("        plan_path: Path | None = None\n", "")
 
-    old_run = '''            first_command = _utc_now() + timedelta(seconds=float(recipe["preflight_reserve_s"]))\n            _plan_document, plan_text = materialize_validation_plan(\n                recipe,\n                rig_id=rig_id,\n                first_command_utc=first_command,\n                profile_filename=prepared["profile_path"].name,\n                timing_filename=prepared["timing_path"].name,\n            )\n            plan_path = run_dir / "validation.plan"\n            plan_path.write_text(plan_text, encoding="utf-8")\n\n            # Re-parse the exact text file that will be executed.  This is part\n            # of the validation: no special in-memory plan bypass exists.\n            plan = load_execution_plan(plan_path)\n            execution = ExecutionPlanRuntime(\n                clock=RuntimeClock(),\n                camera_client=recorder,\n                log_fn=self.log,\n                stop_event=self.cancel_event,\n            )\n            execution.prepare_for_execution(plan)\n            if self.cancel_event.is_set():\n                raise CameraValidationCancelled("validation cancelled after preflight")\n\n            self.phase = "running"\n            execution.run(plan)\n'''
-    new_run = '''            self.phase = "running"\n            run_validation_recipe(\n                recipe,\n                rig_id=rig_id,\n                camera_client=recorder,\n                log_fn=self.log,\n                stop_event=self.cancel_event,\n            )\n'''
+    old_run = '''            first_command = _utc_now() + timedelta(seconds=float(recipe["preflight_reserve_s"]))
+            _plan_document, plan_text = materialize_validation_plan(
+                recipe,
+                rig_id=rig_id,
+                first_command_utc=first_command,
+                profile_filename=prepared["profile_path"].name,
+                timing_filename=prepared["timing_path"].name,
+            )
+            plan_path = run_dir / "validation.plan"
+            plan_path.write_text(plan_text, encoding="utf-8")
+
+            # Re-parse the exact text file that will be executed.  This is part
+            # of the validation: no special in-memory plan bypass exists.
+            plan = load_execution_plan(plan_path)
+            execution = ExecutionPlanRuntime(
+                clock=RuntimeClock(),
+                camera_client=recorder,
+                log_fn=self.log,
+                stop_event=self.cancel_event,
+            )
+            execution.prepare_for_execution(plan)
+            if self.cancel_event.is_set():
+                raise CameraValidationCancelled("validation cancelled after preflight")
+
+            self.phase = "running"
+            execution.run(plan)
+'''
+    new_run = '''            self.phase = "running"
+            run_validation_recipe(
+                recipe,
+                rig_id=rig_id,
+                camera_client=recorder,
+                log_fn=self.log,
+                stop_event=self.cancel_event,
+            )
+'''
     text = replace_once(text, old_run, new_run, "camera validation runtime replacement")
 
     text = text.replace(
@@ -269,8 +291,8 @@ def refactor_frontend() -> None:
 
 def rewrite_resilience_doc() -> None:
     path = ROOT / "docs/TRIGGER_RUNTIME_RESILIENCE.md"
-    path.write_text(
-        """# Trigger runtime resilience contract\n\n"
+    content = (
+        "# Trigger runtime resilience contract\n\n"
         "## START / preflight\n\n"
         "Before a RIG enters timed capture, the characterized camera is connected "
         "and checked. Characterized commands carry independent `get` and `set` "
@@ -298,9 +320,9 @@ def rewrite_resilience_doc() -> None:
         "preflights the real camera endpoint first, then dispatches SET/PHOTO "
         "operations through Camera IPC and the real camera worker from a monotonic "
         "anchor. Validation artifacts are the run log and JSON report; there is no "
-        "intermediate scheduler file.\n",
-        encoding="utf-8",
+        "intermediate scheduler file.\n"
     )
+    path.write_text(content, encoding="utf-8")
 
 
 def delete_legacy_files() -> None:
@@ -339,18 +361,20 @@ def delete_legacy_files() -> None:
 
 
 def assert_no_runtime_legacy() -> None:
-    forbidden_modules = (
+    forbidden = (
         "backend.execution_plan_runtime",
         "backend.execution_plan_text",
         "backend.sequencer_plan_service",
         "backend.sequencer_compiler",
         "backend.anchor_sequencer",
-    )
-    forbidden_symbols = (
         "ExecutionPlanRuntime",
         "load_execution_plan",
         "materialize_validation_plan",
         "validation.plan",
+        "compile_execution_plan_from_files",
+        "compile_rig_execution_plan_from_files",
+        "render_execution_plan_text",
+        "build_execution_plan_filename",
     )
     ignored_parts = {".git", "__pycache__"}
     offenders = []
@@ -365,7 +389,7 @@ def assert_no_runtime_legacy() -> None:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        for token in forbidden_modules + forbidden_symbols:
+        for token in forbidden:
             if token in text:
                 offenders.append(f"{path.relative_to(ROOT)}: {token}")
     if offenders:
