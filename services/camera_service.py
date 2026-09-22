@@ -103,6 +103,7 @@ class CameraService:
         self.plugin = None
         self.model = ""
         self._last_phase_settings = {}
+        self._last_init_settings = None
 
     @staticmethod
     def _config_value(config, *names):
@@ -270,6 +271,27 @@ class CameraService:
         self.invalidate_connection()
         return self.connect()
 
+    def recover_runtime_connection(self):
+        """Reconnect and restore the last successful Trigger initialization.
+
+        A failed PHOTO may poison the libgphoto2/PTP handle without killing the
+        camera worker process. Reconnecting alone is insufficient for profile
+        backends because direct ``single_config`` writers are primed during
+        initialization. Restore only configuration state; never replay a PHOTO.
+        """
+        if self.connected:
+            return self.plugin
+
+        self.connect()
+        settings = (
+            dict(self._last_init_settings)
+            if isinstance(self._last_init_settings, dict)
+            else None
+        )
+        if settings is not None:
+            self.init_settings(**settings)
+        return self.plugin
+
     def invalidate_connection(self):
         """Forget a stale camera transport after an I/O/device failure.
 
@@ -301,6 +323,7 @@ class CameraService:
         self.camera = None
         self.plugin = None
         self._last_phase_settings = {}
+        self._last_init_settings = None
 
     def init_settings(self, aperture=None, iso=None, image_format="RAW",
                       white_balance="Daylight"):
@@ -319,6 +342,12 @@ class CameraService:
             self._last_phase_settings["aperture"] = aperture
         if iso is not None:
             self._last_phase_settings["iso"] = iso
+        self._last_init_settings = {
+            "aperture": aperture,
+            "iso": iso,
+            "image_format": image_format,
+            "white_balance": white_balance,
+        }
         return result
 
     def set_exposure_settings(self, aperture=None, iso=None):
@@ -339,6 +368,8 @@ class CameraService:
             return None
         result = self.plugin.set_exposure_settings(**settings)
         self._last_phase_settings.update(settings)
+        if isinstance(self._last_init_settings, dict):
+            self._last_init_settings.update(settings)
         return result
 
     def prepare_capture(self, intent):
