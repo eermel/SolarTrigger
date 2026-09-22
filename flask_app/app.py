@@ -275,6 +275,7 @@ from backend.focuser_worker_runtime import get_focuser_worker_runtime
 from backend.generic_worker import BusyDeviceError
 from backend.mount_worker_runtime import get_mount_worker_runtime
 from backend.trigger_service import TriggerService, TriggerValidationError
+from backend.runtime_rpc import RemoteTriggerService, runtime_client_enabled
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
 from services.camera_service import _normalized_speed_plan
 from services.focuser_service import FocuserService
@@ -1627,13 +1628,21 @@ def api_rig_device_inventory_refresh():
     return jsonify(refresh_inventory())
 
 
+def _authoritative_trigger_snapshot():
+    service = globals().get("_trigger_service")
+    sync_state = getattr(service, "sync_state", None)
+    if callable(sync_state):
+        sync_state(best_effort=True)
+    return _state_store.snapshot("trigger")
+
+
 from backend.camera_characterization_routes import register_characterization_routes
-register_characterization_routes(app, lambda: _state_store.snapshot("trigger"))
+register_characterization_routes(app, _authoritative_trigger_snapshot)
 
 from backend.camera_validation_routes import register_camera_validation_routes
 register_camera_validation_routes(
     app,
-    lambda: _state_store.snapshot("trigger"),
+    _authoritative_trigger_snapshot,
     root=TRIGGER_DIR,
 )
 
@@ -5346,11 +5355,20 @@ def api_trigger_select_camera():
     return jsonify({"status": "ok", "filename": filename, "capture": capture})
 
 def _trigger_start_guarded(callback):
+    from backend.camera_characterization import JOB as CHARACTERIZATION_JOB
+    from backend.camera_validation import JOB as VALIDATION_JOB
     from backend.runtime_interlock import MaintenanceActiveError, trigger_start_section
     from backend.system_maintenance import JOB
 
+    def maintenance_running():
+        return bool(
+            JOB.snapshot().get("running")
+            or CHARACTERIZATION_JOB.running
+            or VALIDATION_JOB.running
+        )
+
     try:
-        with trigger_start_section(lambda: bool(JOB.snapshot().get("running"))):
+        with trigger_start_section(maintenance_running):
             return callback()
     except MaintenanceActiveError as exc:
         raise TriggerValidationError(
@@ -5393,17 +5411,25 @@ def api_trigger_totality_only():
 def _emit_trigger(event, payload):
     socketio.emit(event, payload, namespace="/")
 
-_trigger_service = TriggerService(
-    _state_store,
-    TRIGGER_SCRIPT,
-    JSON_FILE,
-    CONFIGS_DIR,
-    log_fn=_append_log,
-    emit_fn=_emit_trigger,
-    line_level_fn=_ansi_to_level,
-    line_clean_fn=_clean,
-    product_configs_dir=PRODUCT_CONFIGS_DIR,
-)
+if runtime_client_enabled():
+    # Production: TriggerService and the camera runtime live in the dedicated
+    # systemd process. Gunicorn is only an HTTP/Socket.IO adapter and can be
+    # restarted without changing trigger/camera ownership.
+    _trigger_service = RemoteTriggerService(_state_store)
+else:
+    # Development/tests retain the in-process service unless explicitly opted
+    # into the standalone runtime.
+    _trigger_service = TriggerService(
+        _state_store,
+        TRIGGER_SCRIPT,
+        JSON_FILE,
+        CONFIGS_DIR,
+        log_fn=_append_log,
+        emit_fn=_emit_trigger,
+        line_level_fn=_ansi_to_level,
+        line_clean_fn=_clean,
+        product_configs_dir=PRODUCT_CONFIGS_DIR,
+    )
 
 @app.route("/api/trigger/start", methods=["POST"])
 def api_trigger_start():
@@ -5727,6 +5753,11 @@ def _thread_status_broadcast():
     """Diffuse heure locale + UTC + état système toutes les secondes."""
     while True:
         try:
+            sync_state = getattr(_trigger_service, "sync_state", None)
+            if callable(sync_state):
+                # Reattach after a portal restart: the autonomous runtime is
+                # authoritative, never the portal's boot-reset trigger state.
+                sync_state(best_effort=True)
             with _state_lock:
                 gps     = dict(_state["gps"])
                 trigger = dict(_state["trigger"])
@@ -5816,6 +5847,21 @@ _state = _load_state()
 _load_log_buffer()
 _state_store.reset_boot_sensitive()
 _restore_persisted_trigger_selections()
+
+# A fresh Gunicorn process starts with boot-sensitive local state cleared. In
+# standalone-runtime mode immediately replace only the Trigger section with
+# the live runtime snapshot; an in-flight eclipse therefore reappears in the
+# UI instead of being reported as idle until the next operator action.
+if runtime_client_enabled():
+    try:
+        # A validation job is portal-owned. If the previous Gunicorn process
+        # died mid-validation its RPC-created camera lease cannot have a live
+        # owner anymore; revoke only those portal leases. Trigger leases are
+        # daemon-local and are deliberately untouched.
+        get_camera_worker_runtime(log_fn=log.info).revoke_portal_sessions()
+    except Exception as exc:
+        log.warning("Unable to revoke stale portal camera leases: %s", exc)
+    _trigger_service.sync_state(best_effort=True)
 
 _append_log("🚀 SolarEclipse Portal started.", "success", "system")
 _append_log(f"🐍 Python: {sys.executable}", "info", "system")

@@ -1,7 +1,23 @@
 """Thin HTTP adapter; live debug messages deliberately never enter disk logs."""
 from flask import jsonify, request
 from backend.camera_characterization import JOB
+from backend.camera_worker_runtime import get_camera_worker_runtime
 from backend.device_inventory import get_cached_inventory, refresh_inventory
+from backend.runtime_interlock import TriggerActiveError, start_maintenance_if_trigger_idle
+
+
+def _trigger_running(snapshot) -> bool:
+    state = snapshot() or {}
+    if state.get("running"):
+        return True
+    rigs = state.get("rigs") or {}
+    return (
+        isinstance(rigs, dict)
+        and any(
+            isinstance(value, dict) and value.get("running")
+            for value in rigs.values()
+        )
+    )
 
 
 def register_characterization_routes(app, trigger_snapshot):
@@ -37,9 +53,6 @@ def register_characterization_routes(app, trigger_snapshot):
         with JOB.lock:
             if JOB.running:
                 return jsonify(error="Characterization already running"), 409
-            state = trigger_snapshot() or {}
-            if state.get("running") or any((r or {}).get("running") for r in (state.get("rigs") or {}).values()):
-                return jsonify(error="Trigger is running"), 409
             # Resolve the selected physical device server-side; never accept
             # caller-supplied profile paths, model names or arbitrary locators.
             candidates = refresh_inventory()["camera"]
@@ -47,7 +60,21 @@ def register_characterization_routes(app, trigger_snapshot):
                        and e.get("present") and not e.get("pilotable")]
             if len(matches) != 1:
                 return jsonify(error="Unknown or already characterized camera; refresh Devices"), 400
-            JOB.start(matches[0])
+
+            def admit_characterization():
+                runtime = get_camera_worker_runtime()
+                runtime.release_idle_workers()
+                JOB.start(matches[0])
+
+            try:
+                start_maintenance_if_trigger_idle(
+                    lambda: _trigger_running(trigger_snapshot),
+                    admit_characterization,
+                )
+            except TriggerActiveError:
+                return jsonify(error="Trigger is running"), 409
+            except RuntimeError as exc:
+                return jsonify(error=str(exc)), 409
         return jsonify(status="started"), 202
 
     @app.post("/api/camera-characterization/recharacterize")
@@ -58,16 +85,27 @@ def register_characterization_routes(app, trigger_snapshot):
         with JOB.lock:
             if JOB.running:
                 return jsonify(error="Characterization already running"), 409
-            state = trigger_snapshot() or {}
-            if state.get("running") or any((r or {}).get("running") for r in (state.get("rigs") or {}).values()):
-                return jsonify(error="Trigger is running"), 409
             matches = [e for e in refresh_inventory()["camera"] if e.get("transport_locator") == payload["locator"] and e.get("present") and e.get("pilotable")]
             if len(matches) != 1:
                 return jsonify(error="Unknown or uncharacterized camera; refresh Devices"), 400
-            JOB.start(
-                matches[0],
-                replace_existing=True,
-            )
+
+            def admit_recharacterization():
+                runtime = get_camera_worker_runtime()
+                runtime.release_idle_workers()
+                JOB.start(
+                    matches[0],
+                    replace_existing=True,
+                )
+
+            try:
+                start_maintenance_if_trigger_idle(
+                    lambda: _trigger_running(trigger_snapshot),
+                    admit_recharacterization,
+                )
+            except TriggerActiveError:
+                return jsonify(error="Trigger is running"), 409
+            except RuntimeError as exc:
+                return jsonify(error=str(exc)), 409
         return jsonify(status="started", mode="recharacterize"), 202
 
     @app.post("/api/camera-characterization/answer")

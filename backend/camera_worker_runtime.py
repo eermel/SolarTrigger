@@ -429,6 +429,28 @@ class CameraWorkerRuntime:
         if revoke_error is not None:
             raise revoke_error
 
+    def release_idle_workers(self) -> None:
+        """Release camera USB ownership when no Trigger IPC lease exists.
+
+        Characterization deliberately opens gphoto2 directly. Before doing so,
+        the authoritative runtime must relinquish every persistent camera
+        process. An active Trigger lease makes that unsafe and is rejected.
+        """
+
+        with self._lock:
+            if self._ipc_session_ids or self._ipc_closing_session_ids:
+                raise RuntimeError(
+                    "camera runtime cannot be released while a trigger IPC session is active"
+                )
+            workers = tuple(self._registry.values())
+            self._registry.clear()
+            self._camera_entries.clear()
+            self._leased_policy_configs.clear()
+            self._config = None
+
+        for worker in workers:
+            _stop_worker(worker, timeout=2.0)
+
     def shutdown(self) -> None:
         """Stop IPC and workers without waiting under the runtime lock."""
 
@@ -451,8 +473,21 @@ _camera_worker_runtime: CameraWorkerRuntime | None = None
 _camera_worker_runtime_lock = threading.Lock()
 
 
-def get_camera_worker_runtime(log_fn=print) -> CameraWorkerRuntime:
-    """Return the process-wide camera worker runtime singleton."""
+def get_camera_worker_runtime(log_fn=print):
+    """Return the authoritative camera runtime for this process role.
+
+    The systemd runtime service owns the real CameraWorkerRuntime.  Portal
+    processes opt into the RPC facade with SOLARTRIGGER_RUNTIME_CLIENT=1, which
+    prevents Gunicorn restarts from ever creating a second USB camera owner.
+    """
+
+    from backend.runtime_rpc import (
+        get_remote_camera_worker_runtime,
+        runtime_client_enabled,
+    )
+
+    if runtime_client_enabled():
+        return get_remote_camera_worker_runtime()
 
     global _camera_worker_runtime
 

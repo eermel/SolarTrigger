@@ -1,7 +1,33 @@
 #!/bin/sh
 set -eu
-BASE=/home/airone/solartrigger; RELEASES=$BASE/releases; CURRENT=$BASE/current; PREVIOUS=$BASE/previous; SERVICE=solareclipse.service
+BASE=/home/airone/solartrigger
+RELEASES=$BASE/releases
+CURRENT=$BASE/current
+PREVIOUS=$BASE/previous
+PORTAL_SERVICE=solareclipse.service
+RUNTIME_SERVICE=solartrigger-runtime.service
+
 alink(){ t=$1;l=$2;x=${l}.new.$$;ln -s "$t" "$x";mv -Tf "$x" "$l"; }
+
+runtime_unit_exists(){
+  systemctl cat "$RUNTIME_SERVICE" >/dev/null 2>&1
+}
+
+restart_stack(){
+  # Runtime first so the portal always reconnects to the authoritative owner.
+  if runtime_unit_exists; then
+    systemctl restart "$RUNTIME_SERVICE"
+  fi
+  systemctl restart "$PORTAL_SERVICE"
+}
+
+stack_is_active(){
+  systemctl is-active --quiet "$PORTAL_SERVICE" || return 1
+  if runtime_unit_exists; then
+    systemctl is-active --quiet "$RUNTIME_SERVICE" || return 1
+  fi
+}
+
 case "${1:-}" in
  install)
   Z=${2:?}; V=$(/usr/bin/python3 - "$Z" <<'PY2'
@@ -19,10 +45,23 @@ for i in z.infolist():
  if m:o.chmod(m)
 PY2
   test -f "$D/flask_app/app.py" || { rm -rf "$D";exit 66; }
+  test -f "$D/backend/runtime_daemon.py" || { rm -rf "$D";exit 66; }
   if test -L "$CURRENT";then O=$(readlink -f "$CURRENT");alink "$O" "$PREVIOUS";fi
-  alink "$D" "$CURRENT";systemctl restart "$SERVICE";sleep 3
-  if ! systemctl is-active --quiet "$SERVICE";then test -L "$PREVIOUS" && alink "$(readlink -f "$PREVIOUS")" "$CURRENT";systemctl restart "$SERVICE";exit 70;fi
+  alink "$D" "$CURRENT";restart_stack;sleep 3
+  if ! stack_is_active;then
+    if test -L "$PREVIOUS";then
+      alink "$(readlink -f "$PREVIOUS")" "$CURRENT"
+      restart_stack
+    fi
+    exit 70
+  fi
   rm -f "$Z";;
- rollback) test -L "$PREVIOUS";O=$(readlink -f "$CURRENT");P=$(readlink -f "$PREVIOUS");alink "$P" "$CURRENT";alink "$O" "$PREVIOUS";systemctl restart "$SERVICE";;
+ rollback)
+  test -L "$PREVIOUS"
+  O=$(readlink -f "$CURRENT")
+  P=$(readlink -f "$PREVIOUS")
+  alink "$P" "$CURRENT"
+  alink "$O" "$PREVIOUS"
+  restart_stack;;
  *) exit 64;;
 esac

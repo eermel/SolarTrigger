@@ -809,8 +809,9 @@ fi
 success "Nginx configured → HTTPS portal + HTTP CA bootstrap"
 
 # Résoudre les chemins CAMLIBS / IOLIBS réels de la libgphoto2 compilée.
-# Le trigger étant désormais lancé par le portail, cet environnement doit
-# appartenir au service principal solareclipse.service.
+# L'accès caméra appartient au runtime autonome. Le portail reçoit les mêmes
+# chemins par compatibilité avec les diagnostics/imports qui ne touchent pas
+# directement le périphérique USB.
 CAMLIBS_DIR=$(find /usr/local/lib/libgphoto2 \
     -maxdepth 1 -mindepth 1 -type d 2>/dev/null \
     | sort -V | tail -1)
@@ -831,12 +832,51 @@ else
     IOLIBS_ENV_LINE="# IOLIBS not defined (using system libgphoto2)"
 fi
 
-# Service systemd principal.
+# Runtime autonome : propriétaire unique du Trigger, des workers caméra et
+# du CameraIpcServer. Un restart de Gunicorn ne touche pas ce cgroup.
+cat > /etc/systemd/system/solartrigger-runtime.service <<EOL
+[Unit]
+Description=SolarTrigger Autonomous Runtime
+After=network.target local-fs.target indiserver-eqmod.service
+Wants=network.target indiserver-eqmod.service
+
+[Service]
+Type=simple
+User=$CURRENT_USER
+Group=$CURRENT_USER
+WorkingDirectory=$APP_DIR
+RuntimeDirectory=solartrigger
+RuntimeDirectoryMode=0770
+Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONPATH=$APP_DIR"
+Environment="LD_LIBRARY_PATH=/usr/local/lib"
+Environment="SOLARTRIGGER_ROOT=$APP_DIR"
+Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
+${CAMLIBS_ENV_LINE}
+${IOLIBS_ENV_LINE}
+ExecStart=$VENV_DIR/bin/python -m backend.runtime_daemon \
+    --root $APP_DIR \
+    --socket /run/solartrigger/runtime.sock
+
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=45
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=solartrigger-runtime
+
+[Install]
+WantedBy=multi-user.target
+EOL
+
+# Portail web : client du runtime, jamais propriétaire du matériel caméra.
 cat > /etc/systemd/system/solareclipse.service <<EOL
 [Unit]
 Description=SolarEclipse Portal
-After=network.target local-fs.target indiserver-eqmod.service
+After=network.target local-fs.target indiserver-eqmod.service solartrigger-runtime.service
 Wants=network.target indiserver-eqmod.service
+Requires=solartrigger-runtime.service
 
 [Service]
 Type=simple
@@ -847,6 +887,9 @@ Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bi
 Environment="PYTHONUNBUFFERED=1"
 Environment="PYTHONPATH=$APP_DIR"
 Environment="LD_LIBRARY_PATH=/usr/local/lib"
+Environment="SOLARTRIGGER_RUNTIME_CLIENT=1"
+Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
+Environment="SOLARTRIGGER_ADMISSION_LOCK=/run/solartrigger/admission.lock"
 ${CAMLIBS_ENV_LINE}
 ${IOLIBS_ENV_LINE}
 ExecStart=$VENV_DIR/bin/gunicorn \
@@ -867,8 +910,7 @@ SyslogIdentifier=solareclipse-portal
 WantedBy=multi-user.target
 EOL
 
-# L'ancien service trigger autonome n'existe plus dans l'architecture actuelle.
-# Ces commandes rendent aussi une réinstallation propre sur une ancienne Pi.
+# Nettoyage de l'ancien nom de service trigger s'il existe encore.
 systemctl disable --now solareclipse-trigger.service 2>/dev/null || true
 rm -f /etc/systemd/system/solareclipse-trigger.service
 
@@ -894,10 +936,19 @@ systemctl daemon-reload
 systemctl enable indiserver-eqmod.service
 systemctl start indiserver-eqmod.service
 success "indiserver-eqmod service started and enabled at boot."
+
+systemctl enable solartrigger-runtime.service
+if systemctl restart solartrigger-runtime.service; then
+    success "solartrigger-runtime service started/reloaded and enabled at boot."
+else
+    error "solartrigger-runtime service did not start — trigger/camera ownership unavailable."
+fi
+
 systemctl enable solareclipse.service
 systemctl restart solareclipse.service && success "solareclipse service started/reloaded and enabled at boot." \
     || warning "solareclipse service did not start — check app.py in $APP_DIR"
-# Le déclenchement photo est géré par le portail via TriggerService.
+# Le déclenchement photo continue dans solartrigger-runtime.service même si le
+# portail Gunicorn redémarre ou disparaît.
 # Override systemd nginx : démarrer après gunicorn
 mkdir -p /etc/systemd/system/nginx.service.d
 cat > /etc/systemd/system/nginx.service.d/after-solareclipse.conf <<EOF

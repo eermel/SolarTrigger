@@ -13,6 +13,7 @@ from backend.camera_validation import (
     validation_candidates,
 )
 from backend.device_inventory import get_cached_inventory, refresh_inventory
+from backend.runtime_interlock import TriggerActiveError, start_maintenance_if_trigger_idle
 
 
 def _trigger_is_running(snapshot) -> bool:
@@ -65,8 +66,6 @@ def register_camera_validation_routes(app, trigger_snapshot, root=ROOT):
             return jsonify(error="Camera validation already running"), 409
         if CHARACTERIZATION_JOB.running:
             return jsonify(error="Camera characterization is running"), 409
-        if _trigger_is_running(trigger_snapshot):
-            return jsonify(error="Trigger is running"), 409
 
         inventory = refresh_inventory()
         matches = [
@@ -81,7 +80,12 @@ def register_camera_validation_routes(app, trigger_snapshot, root=ROOT):
             return jsonify(error="Unknown or unavailable characterized camera; refresh Devices"), 400
 
         try:
-            prepared = JOB.prepare(matches[0], root)
+            prepared = start_maintenance_if_trigger_idle(
+                lambda: _trigger_is_running(trigger_snapshot),
+                lambda: JOB.prepare(matches[0], root),
+            )
+        except TriggerActiveError:
+            return jsonify(error="Trigger is running"), 409
         except CameraValidationError as exc:
             return jsonify(error=str(exc)), 400
         except Exception as exc:
@@ -105,10 +109,13 @@ def register_camera_validation_routes(app, trigger_snapshot, root=ROOT):
             return jsonify(error="Validation authorization token is required"), 400
         if CHARACTERIZATION_JOB.running:
             return jsonify(error="Camera characterization is running"), 409
-        if _trigger_is_running(trigger_snapshot):
-            return jsonify(error="Trigger is running"), 409
         try:
-            JOB.start(token, root)
+            start_maintenance_if_trigger_idle(
+                lambda: _trigger_is_running(trigger_snapshot),
+                lambda: JOB.start(token, root),
+            )
+        except TriggerActiveError:
+            return jsonify(error="Trigger is running"), 409
         except CameraValidationError as exc:
             return jsonify(error=str(exc)), 409
         return jsonify(status="started"), 202
