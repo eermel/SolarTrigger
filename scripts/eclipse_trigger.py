@@ -474,18 +474,24 @@ def run_emergency_totality(
         "wall-clock/GPS/circumstances bypassed"
     )
 
-    # Camera setup is best effort in the last-resort path.  If a SET fails,
-    # still attempt PHOTO using the camera's current state.
+    # Camera setup is best effort in the last-resort path.  The first PHOTO is
+    # never withheld merely because a SET failed: the camera's current state may
+    # still be usable.  However, a failed setup or PHOTO makes the next cycle
+    # retry a *full* initialization so a respawned process/direct writer is not
+    # left permanently unprimed for the rest of totality.
+    camera_configured = False
     try:
         if camera_already_initialized:
             camera.apply_phase_settings(aperture=aperture, iso=iso)
         else:
             camera.initialize(aperture=aperture, iso=iso)
+        camera_configured = True
     except Exception as exc:
         log_fn(
             "WARNING Emergency Totality camera settings failed; "
             f"capture will still be attempted: {type(exc).__name__}: {exc}"
         )
+    retry_full_initialize = False
 
     plan = normalize_intent_plan({
         "speeds": config.get("speeds"),
@@ -517,6 +523,26 @@ def run_emergency_totality(
             if wait_s > 0:
                 stopped.wait(wait_s)
             continue
+
+        # Do not immediately repeat a failed initial SET before the first
+        # emergency PHOTO.  After that first attempt, or after any later PHOTO
+        # failure, retry initialization before every following capture until it
+        # succeeds.  Even a failed retry never suppresses the PHOTO attempt.
+        if retry_full_initialize:
+            try:
+                camera.initialize(aperture=aperture, iso=iso)
+                camera_configured = True
+                retry_full_initialize = False
+                log_fn(
+                    "TRIGGER_CONFIG Emergency Totality camera reinitialized "
+                    f"aperture={aperture} ISO={iso}"
+                )
+            except Exception as exc:
+                camera_configured = False
+                log_fn(
+                    "WARNING Emergency Totality camera reinitialization failed; "
+                    f"capture will still be attempted: {type(exc).__name__}: {exc}"
+                )
 
         cycle_started_monotonic = time.monotonic()
         intent = CaptureIntent(
@@ -555,14 +581,19 @@ def run_emergency_totality(
                 f'phase="Totality" PHOTO frames={frames}'
                 + (f" {exposure_text}" if exposure_text else "")
             )
+            if not camera_configured:
+                retry_full_initialize = True
         except Exception as exc:
             stats["errors"] += 1
+            camera_configured = False
+            retry_full_initialize = True
             log_fn(
                 "ERROR phase=totality_override stage=photo "
                 f"error={type(exc).__name__}: {exc}"
             )
             # Avoid an IPC failure storm, while keeping the retry independent
-            # of CLOCK_REALTIME and eclipse timing.
+            # of CLOCK_REALTIME and eclipse timing.  The next cycle performs a
+            # full camera.initialize() before attempting another PHOTO.
             stopped.wait(0.1)
 
         if interval_s > 0:
