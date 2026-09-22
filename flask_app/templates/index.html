@@ -43,7 +43,10 @@
   <!-- TABS -->
   <div id="tabs">
     <button class="tab" id="add-camera-tab" data-page-index="9" onclick="showTab(9)">
-      <svg viewBox="0 0 24 24" stroke-width="1.5"><path d="M20 13v6H3V7h4l2-3h6l2 3h3M19 2v8M15 6h8"/><circle cx="10" cy="13" r="4"/></svg>
+      <svg viewBox="0 0 24 24" stroke-width="1.5">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.37 1.08V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-.6A1.65 1.65 0 0 0 10.29 2.3V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20 7.92c.12.37.34.71.63 1 .29.29.63.51 1 .63H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
       <span>SYSTEM</span>
     </button>
     <button class="tab active" data-workflow-step="1" data-page-index="0" id="devices-tab" onclick="showTab(0)">
@@ -197,9 +200,7 @@
         <div class="card system-maintenance-card system-maintenance-card--blue">
           <div class="card-title">Update Solar Eclipse Trigger</div>
 
-          <div id="solartrigger-update-status">
-            Select an offline release ZIP.
-          </div>
+          <div id="solartrigger-update-status"></div>
 
           <input
             type="file"

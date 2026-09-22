@@ -357,6 +357,10 @@ header {
   padding-right: 8px;
 }
 
+#solartrigger-update-status:empty {
+  display: none;
+}
+
 #solartrigger-update-file {
   width: 100%;
 }
@@ -599,11 +603,6 @@ header {
   opacity: .55;
 }
 
-/* Camera operational buttons: 25% shorter than the global 30 px buttons. */
-.cam-rig-button {
-  height: 22.5px;
-  min-height: 22.5px;
-}
 .rig-mode-switch { margin-left: auto; }
 .rig-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rig-body { display: flex; flex-direction: column; gap: 8px; transition: opacity .2s; }
@@ -859,7 +858,6 @@ header {
 #btn-focuser-home,
 #btn-focuser-go,
 #btn-mount-home,
-.cam-rig-button,
 [id^="btn-run-sequencer-rig-"],
 [id^="btn-clean-execution-plans-rig-"],
 #btn-run-all-sequencers {
@@ -992,6 +990,8 @@ header {
 }
 
 .cam-rig-button {
+  height: calc(var(--btn-h) * 1.5);
+  min-height: calc(var(--btn-h) * 1.5);
   padding: 0 10px;
   font-size: 11px;
 }

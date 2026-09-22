@@ -1464,7 +1464,9 @@ function updateRigs(rigs) {
     ...(cachedById.get(Number(rig.rig_id)) || {}),
     ...rig,
   }));
-  const byId = new Map(updatedRigs.map(rig => [Number(rig.rig_id), rig]));
+  const byId = new Map(
+    rigDevicesState.rigs.map(rig => [Number(rig.rig_id), rig])
+  );
   DEFAULT_RIGS.forEach(defaultRig => {
     const rig = byId.get(defaultRig.rig_id) || defaultRig;
     const rigName = (
@@ -2044,6 +2046,11 @@ async function _reanchorClockFromStatus() {
       renderDevices(payload.devices || {});
       if (status.gps) updateGPS(status.gps);
       updateRigs(payload.rigs || DEFAULT_RIGS);
+
+      // /api/status exposes configuration-only RIG summaries. Reload the
+      // persisted device bindings after a full browser reload so Camera and
+      // Trigger labels keep the assigned hardware.
+      await loadRigDevices();
     }
   } catch (e) {
     console.warn('Unable to re-anchor time from status:', e);
@@ -2062,6 +2069,10 @@ socket.on('connect', async () => {
       renderDevices(payload.devices || {});
       if (status.gps) updateGPS(status.gps);
       updateRigs(payload.rigs || DEFAULT_RIGS);
+
+      // A new browser document has no cached device bindings. Rehydrate them
+      // once from the persisted RIG configuration after Socket.IO attaches.
+      await loadRigDevices();
     }
   } catch (e) {
     console.warn('Unable to re-anchor time after connection:', e);
@@ -3689,6 +3700,47 @@ async function loadTriggerConfigList() {
 let _activeTriggerInputsRestoreKey = '';
 
 
+function _clearRuntimeActiveTriggerOptions() {
+  [
+    'trigger-circumstances-select',
+    'trigger-photo-select',
+    'trigger-exposure-opt-select'
+  ].forEach(selectId => {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+
+    select
+      .querySelectorAll('option[data-runtime-active="true"]')
+      .forEach(option => option.remove());
+  });
+}
+
+
+function _selectRuntimeActiveTriggerInput(selectId, filename) {
+  const select = document.getElementById(selectId);
+  if (!select || !filename) return false;
+
+  let option = Array.from(select.options).find(
+    candidate => candidate.value === filename
+  );
+
+  if (!option) {
+    // Generated DEBUG circumstances are deliberately absent from list_eclipse.
+    // During a live run the autonomous runtime owns the exact input filename,
+    // so expose that file as a transient selected option after reconnect.
+    option = document.createElement('option');
+    option.value = filename;
+    option.textContent = filename;
+    option.dataset.runtimeActive = 'true';
+    select.appendChild(option);
+  }
+
+  const changed = select.value !== filename;
+  select.value = filename;
+  return changed;
+}
+
+
 async function restoreActiveTriggerInputs() {
   const rigState = state.triggerRigs[String(selectedTriggerRigId)] || {};
   const inputs = rigState.inputs;
@@ -3707,6 +3759,7 @@ async function restoreActiveTriggerInputs() {
     && !inputs.photo_file
     && !inputs.exposure_opt_file
   ) {
+    _clearRuntimeActiveTriggerOptions();
     _activeTriggerInputsRestoreKey = '';
     return false;
   }
@@ -3718,34 +3771,16 @@ async function restoreActiveTriggerInputs() {
   ];
 
   let restored = false;
-  let allAvailable = true;
 
   for (const [field, selectId] of mappings) {
     const filename = inputs[field];
     if (!filename) continue;
 
-    const select = document.getElementById(selectId);
-    if (!select) {
-      allAvailable = false;
-      continue;
-    }
-
-    const exists = Array.from(select.options).some(
-      option => option.value === filename
+    restored = (
+      _selectRuntimeActiveTriggerInput(selectId, filename)
+      || restored
     );
-
-    if (!exists) {
-      allAvailable = false;
-      continue;
-    }
-
-    if (select.value !== filename) {
-      select.value = filename;
-      restored = true;
-    }
   }
-
-  if (!allAvailable) return false;
 
   const diamondMissing = (
     Boolean(inputs.photo_file)

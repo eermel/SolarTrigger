@@ -81,10 +81,10 @@ def test_iso_max_is_populated_from_real_camera_profile_full_ev_values():
     assert 'populateRigIsoMaxSelect' in JS
 
 
-def test_camera_rig_buttons_are_twenty_five_percent_shorter():
+def test_camera_rig_buttons_match_trigger_action_height():
     assert '.cam-rig-button {' in CSS
-    assert 'height: 22.5px' in CSS
-    assert 'min-height: 22.5px' in CSS
+    assert 'height: calc(var(--btn-h) * 1.5);' in CSS
+    assert 'min-height: calc(var(--btn-h) * 1.5);' in CSS
 
 
 def test_mechanical_vibration_unavailable_section_is_fully_disabled_visually():

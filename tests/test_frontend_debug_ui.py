@@ -220,3 +220,63 @@ def test_active_runtime_inputs_restore_photo_setup_and_diamond_duration():
     assert "await loadTriggerDiamondDuration();" in INDEX
     assert "state.triggerCircumstances || state.eclipse" in INDEX
     assert "await restoreActiveTriggerInputs();" in INDEX
+
+
+def test_reconnect_restores_runtime_inputs_and_rig_devices():
+    restore_start = INDEX.index("async function restoreActiveTriggerInputs()")
+    restore_end = INDEX.index("\nasync function loadTriggerCircumstances", restore_start)
+    restore = INDEX[restore_start:restore_end]
+
+    assert "allAvailable" not in restore
+    assert "_selectRuntimeActiveTriggerInput(selectId, filename)" in restore
+    assert "await loadTriggerDiamondDuration();" in restore
+    assert "option.dataset.runtimeActive = 'true';" in INDEX
+
+    connect_start = INDEX.index("socket.on('connect', async () => {")
+    connect_end = INDEX.index("\n});", connect_start) + 4
+    connect = INDEX[connect_start:connect_end]
+    assert "await loadRigDevices();" in connect
+
+    assert (
+        "const byId = new Map(\n"
+        "    rigDevicesState.rigs.map(rig => [Number(rig.rig_id), rig])\n"
+        "  );"
+    ) in INDEX
+
+
+def test_system_tab_uses_settings_icon_and_hides_empty_release_prompt():
+    system_start = HTML.index('id="add-camera-tab"')
+    system_start = HTML.rfind("<button", 0, system_start)
+    system_end = HTML.index("</button>", system_start)
+    system_button = HTML[system_start:system_end]
+
+    assert '<circle cx="12" cy="12" r="3"/>' in system_button
+    assert "M20 13v6H3V7" not in system_button
+
+    assert "Select an offline release ZIP." not in HTML
+    assert '<div id="solartrigger-update-status"></div>' in HTML
+    assert "#solartrigger-update-status:empty" in CSS
+
+
+def test_camera_buttons_match_trigger_start_height():
+    large_start = CSS.index("#btn-focuser-home,")
+    large_end = CSS.index("}", large_start)
+    large_controls = CSS[large_start:large_end]
+
+    assert ".cam-rig-button" not in large_controls
+
+    cam_start = CSS.index(".cam-rig-button {")
+    cam_end = CSS.index("}", cam_start)
+    cam_button = CSS[cam_start:cam_end]
+
+    trigger_start = CSS.index(".trigger-action-stack > .trigger-action-button {")
+    trigger_end = CSS.index("}", trigger_start)
+    trigger_button = CSS[trigger_start:trigger_end]
+
+    expected = "height: calc(var(--btn-h) * 1.5);"
+    expected_min = "min-height: calc(var(--btn-h) * 1.5);"
+
+    assert expected in cam_button
+    assert expected_min in cam_button
+    assert expected in trigger_button
+    assert expected_min in trigger_button

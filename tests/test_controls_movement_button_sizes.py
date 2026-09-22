@@ -73,7 +73,6 @@ def test_operator_action_buttons_match_mount_movement_height():
         r'#btn-focuser-home\s*,\s*'
         r'#btn-focuser-go\s*,\s*'
         r'#btn-mount-home\s*,\s*'
-        r'\.cam-rig-button\s*,\s*'
         r'\[id\^="btn-run-sequencer-rig-"\]\s*,\s*'
         r'\[id\^="btn-clean-execution-plans-rig-"\]\s*,\s*'
         r'#btn-run-all-sequencers\s*\{(?P<body>.*?)\}',
