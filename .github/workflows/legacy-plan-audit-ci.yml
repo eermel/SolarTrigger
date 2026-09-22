@@ -1,0 +1,28 @@
+name: legacy-plan-audit-ci
+
+on:
+  push:
+    branches:
+      - refactor/remove-execution-plan-legacy-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/remove-execution-plan-legacy-20260923
+      - name: Reject residual execution-plan architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          pattern='\.plan([^A-Za-z0-9_]|$)|ExecutionPlanRuntime|execution_plan_runtime|execution_plan_text|sequencer_compiler|sequencer_plan_service|anchor_sequencer|/api/sequencer/|configs/execution_plan|execution_plan|Execution Plan'
+          if git grep -n -E "$pattern" -- . ':!.github/workflows/legacy-plan-audit-ci.yml' > /tmp/legacy-plan-hits.txt; then
+            echo 'Residual execution-plan legacy found:'
+            cat /tmp/legacy-plan-hits.txt
+            exit 1
+          fi
+          echo 'No residual execution-plan legacy found.'
