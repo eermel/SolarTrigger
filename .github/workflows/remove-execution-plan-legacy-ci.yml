@@ -21,7 +21,9 @@ jobs:
         with:
           python-version: "3.13"
       - name: Apply deterministic refactor
-        run: python tools/refactor_remove_execution_plan_legacy.py
+        run: |
+          python tools/refactor_remove_execution_plan_legacy.py
+          python tools/refactor_remove_execution_plan_frontend_fix.py
       - name: Install native dependencies
         run: |
           sudo apt-get update
@@ -40,7 +42,7 @@ jobs:
         run: python -m pytest -q
       - name: Commit refactor output
         run: |
-          if git diff --quiet -- . ':!.github/workflows/remove-execution-plan-legacy-ci.yml' ':!tools/refactor_remove_execution_plan_legacy.py'; then
+          if git diff --quiet -- . ':!.github/workflows/remove-execution-plan-legacy-ci.yml' ':!tools/refactor_remove_execution_plan_legacy.py' ':!tools/refactor_remove_execution_plan_frontend_fix.py'; then
             echo "No generated changes to commit"
             exit 0
           fi
