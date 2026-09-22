@@ -271,6 +271,10 @@ class TriggerService:
             rig_id: False
             for rig_id in range(1, 5)
         }
+        self._stopping_by_rig = {
+            rig_id: False
+            for rig_id in range(1, 5)
+        }
         self._supervisor_threads = {
             rig_id: None
             for rig_id in range(1, 5)
@@ -1421,6 +1425,22 @@ class TriggerService:
             }
 
         with self._lock:
+            stopping_map = getattr(self, "_stopping_by_rig", None)
+            if not isinstance(stopping_map, dict):
+                stopping_map = {
+                    item_rig_id: False
+                    for item_rig_id in range(1, 5)
+                }
+                self._stopping_by_rig = stopping_map
+
+            if stopping_map.get(rig_id, False):
+                return {
+                    "status": "stopping",
+                    "rig_id": rig_id,
+                    "forced": False,
+                    "still_running": True,
+                }
+
             proc = self._procs[rig_id]
             starting_map = getattr(self, "_starting_by_rig", None)
             supervisor_map = getattr(self, "_supervisor_threads", None)
@@ -1439,7 +1459,7 @@ class TriggerService:
 
             if starting:
                 # A start request can have released start() while _run() has
-                # not yet published its Popen object.  Make STOP authoritative
+                # not yet published its Popen object. Make STOP authoritative
                 # across that gap instead of returning a false not_running.
                 if isinstance(cancel_map, dict):
                     cancel_map[rig_id] = True
@@ -1475,74 +1495,82 @@ class TriggerService:
             }
 
         with self._lock:
+            if self._stopping_by_rig.get(rig_id, False):
+                return {
+                    "status": "stopping",
+                    "rig_id": rig_id,
+                    "forced": False,
+                    "still_running": True,
+                }
+            self._stopping_by_rig[rig_id] = True
             self._analysis_suppressed_by_rig[rig_id] = True
             self._manual_stop_requested_by_rig[rig_id] = True
 
         try:
-            proc.terminate()
-        except Exception:
-            pass
-
-        forced = False
-
-        # SIGTERM only sets the trigger stop flag. An atomic camera PHOTO
-        # group already in progress must be allowed to return before the
-        # process can observe that flag and exit cleanly.
-        try:
-            proc.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            forced = True
-        else:
-            # Defensive check: subprocess.Popen.wait() normally cannot return
-            # while the child is still running, but injected/test process
-            # implementations may do so.
-            forced = proc.poll() is None
-
-        if forced:
             try:
-                proc.kill()
-                proc.wait(timeout=2)
+                proc.terminate()
             except Exception:
                 pass
 
+            forced = False
+
+            # SIGTERM only sets the trigger stop flag. An atomic camera PHOTO
+            # group already in progress may finish before the process observes
+            # that flag. Keep the existing 30 s emergency bound, but coalesce
+            # duplicate STOP requests so only one terminate/kill sequence owns
+            # the process.
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                forced = True
+            else:
+                forced = proc.poll() is None
+
+            if forced:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                except Exception:
+                    pass
+
+                self.log(
+                    f"■ RIG {rig_id} — Trigger killed (SIGKILL) after 30 s graceful-stop timeout.",
+                    "warning",
+                    "trigger",
+                )
+
+            with self._lock:
+                supervisor_map = getattr(self, "_supervisor_threads", None)
+                supervisor = (
+                    supervisor_map.get(rig_id)
+                    if isinstance(supervisor_map, dict)
+                    else None
+                )
+            if (
+                supervisor is not None
+                and supervisor is not threading.current_thread()
+            ):
+                supervisor.join(timeout=5.0)
+
+            still = proc.poll() is None
+
             self.log(
-                f"■ RIG {rig_id} — Trigger killed (SIGKILL) after 30 s graceful-stop timeout.",
-                "warning",
+                (
+                    f"⚠️ RIG {rig_id} — process still active after SIGKILL."
+                    if still
+                    else f"■ RIG {rig_id} — Trigger stopped manually."
+                ),
+                "error" if still else "warning",
                 "trigger",
             )
 
-        # The subprocess may be gone while its supervisor is still draining
-        # EOF and releasing the IPC session in _run()'s finally block.  Join
-        # that supervisor briefly so an immediate restart cannot collide with
-        # the previous camera lease or stale running state.
-        with self._lock:
-            supervisor_map = getattr(self, "_supervisor_threads", None)
-            supervisor = (
-                supervisor_map.get(rig_id)
-                if isinstance(supervisor_map, dict)
-                else None
-            )
-        if (
-            supervisor is not None
-            and supervisor is not threading.current_thread()
-        ):
-            supervisor.join(timeout=5.0)
+            return {
+                "status": "stopped",
+                "rig_id": rig_id,
+                "forced": forced,
+                "still_running": still,
+            }
+        finally:
+            with self._lock:
+                self._stopping_by_rig[rig_id] = False
 
-        still = proc.poll() is None
-
-        self.log(
-            (
-                f"⚠️ RIG {rig_id} — process still active after SIGKILL."
-                if still
-                else f"■ RIG {rig_id} — Trigger stopped manually."
-            ),
-            "error" if still else "warning",
-            "trigger",
-        )
-
-        return {
-            "status": "stopped",
-            "rig_id": rig_id,
-            "forced": forced,
-            "still_running": still,
-        }

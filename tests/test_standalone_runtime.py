@@ -26,6 +26,14 @@ from backend.state_store import StateStore
 
 class _StaticController:
     def __init__(self):
+        self.gps = {
+            "connected": True,
+            "synced": True,
+            "lat": 48.0,
+            "lon": 2.0,
+            "sync_time": "2026-09-22T20:30:46+00:00",
+            "timezone": "UTC+2.0",
+        }
         self.trigger = {
             "running": True,
             "phase": "totality",
@@ -59,7 +67,11 @@ class _StaticController:
 
     def dispatch(self, operation, payload):
         if operation == "trigger.status":
-            return {"pid": 4242, "trigger": self.trigger}
+            return {
+                "pid": 4242,
+                "trigger": self.trigger,
+                "gps": self.gps,
+            }
         if operation == "trigger.is_active_or_starting":
             rig = self.trigger["rigs"].get(str(payload["rig_id"]), {})
             return bool(rig.get("running"))
@@ -127,6 +139,10 @@ def test_portal_restart_reattaches_to_live_trigger(runtime_server, tmp_path):
     }
     assert second.any_active_or_starting() is True
     assert second.is_active_or_starting(1) is True
+    assert second_state.snapshot("gps") == first._client.call(
+        "trigger.status"
+    )["gps"]
+    assert second_state.snapshot("gps")["synced"] is True
 
 
 def test_runtime_client_ping(runtime_server):
@@ -376,3 +392,43 @@ def test_runtime_migration_upgrades_legacy_wsgi_entrypoint():
     assert 'cat > "$APP_DIR/wsgi.py"' in script
     assert "from app import app, socketio, start_background_threads" in script
     assert "start_background_threads()" in script
+
+
+def test_runtime_status_refreshes_and_exposes_current_runtime_gps(tmp_path):
+    controller = RuntimeController.__new__(RuntimeController)
+    controller.state_file = tmp_path / "state.json"
+    controller.started_utc = datetime(2026, 9, 22, 20, 0, tzinfo=timezone.utc)
+    controller.state = StateStore(controller.state_file)
+
+    controller.state.update_section(
+        "gps",
+        {
+            "connected": False,
+            "synced": False,
+            "sync_time": None,
+        },
+        persist=True,
+    )
+
+    persisted = StateStore(controller.state_file)
+    persisted.update_section(
+        "gps",
+        {
+            "connected": True,
+            "synced": True,
+            "lat": 48.0,
+            "lon": 2.0,
+            "sync_time": "2026-09-22T20:30:46+00:00",
+            "timezone": "UTC+2.0",
+        },
+        persist=True,
+    )
+
+    controller.trigger = SimpleNamespace(
+        is_active_or_starting=lambda _rig_id: False,
+    )
+
+    result = controller.dispatch("trigger.status", {})
+
+    assert result["gps"]["synced"] is True
+    assert result["gps"]["sync_time"] == "2026-09-22T20:30:46+00:00"

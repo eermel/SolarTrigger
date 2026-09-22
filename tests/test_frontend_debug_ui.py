@@ -168,3 +168,15 @@ def test_diamond_ring_trigger_label_cannot_wrap():
     block = CSS.split(".trigger-contact-label {", 1)[1].split("}", 1)[0]
     assert "white-space: nowrap" in block
     assert "min-width: 100px" in block
+
+
+def test_debug_stop_state_tracks_trigger_stop_attribute_changes():
+    observer_start = INDEX.index(
+        "const observer = new MutationObserver(() => {"
+    )
+    observer_end = INDEX.index("});", observer_start)
+    observer = INDEX[observer_start:observer_end]
+
+    assert "syncDebugActionState();" in observer
+    assert "window._triggerStopPendingRigs" in INDEX
+    assert "btn-debug-stop" in INDEX

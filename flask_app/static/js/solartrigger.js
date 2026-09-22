@@ -3010,7 +3010,11 @@ function updatePhase(phase) {
     );
 
   if (btnStop) {
-    btnStop.disabled = !selectedRigRunning;
+    const stopPending = Boolean(
+      window._triggerStopPendingRigs &&
+      window._triggerStopPendingRigs.has(selectedTriggerRigId)
+    );
+    btnStop.disabled = !selectedRigRunning || stopPending;
   }
 
   if (btnTot) {
@@ -3979,25 +3983,51 @@ async function startDryRun() {
 }
 
 async function stopTrigger() {
+  const rigId = selectedTriggerRigId;
   const btn = document.getElementById('btn-stop');
+  const debugBtn = document.getElementById('btn-debug-stop');
+  const pending = window._triggerStopPendingRigs || new Set();
+  window._triggerStopPendingRigs = pending;
+
+  if (pending.has(rigId)) {
+    flash('Trigger stop already in progress', 'yellow');
+    return;
+  }
   if (!confirm('⚠️ Stop / force-stop the trigger?')) return;
-  btn.textContent = '⏳ Stopping…';
+
+  pending.add(rigId);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Stopping…';
+  }
+  if (debugBtn) {
+    debugBtn.disabled = true;
+    debugBtn.textContent = '⏳ Stopping…';
+  }
+
   try {
     const r = await fetch('/api/trigger/stop', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({rig_id: selectedTriggerRigId})
+      body: JSON.stringify({rig_id: rigId})
     });
     const d = await r.json();
     if (d.status === 'not_running') {
       flash('Trigger not active', 'yellow');
+    } else if (d.status === 'stopping') {
+      flash('Trigger stop already in progress', 'yellow');
     } else {
       flash('■ Trigger stopped', 'yellow');
     }
   } catch(e) {
     flash('Network error while stopping', 'red');
+  } finally {
+    pending.delete(rigId);
+    if (btn) btn.textContent = '■ STOP';
+    if (debugBtn) debugBtn.textContent = '■ STOP';
+    updateSelectedTriggerPhase();
+    syncDebugActionState();
   }
-  btn.textContent = '■ STOP';
 }
 
 async function startTotalityOnly() {
@@ -7827,6 +7857,7 @@ function installDebugUiMirror() {
     syncDebugCircumstances();
     syncDebugRigSelection();
     syncDebugLog();
+    syncDebugActionState();
   });
 
   watchedIds.forEach(id => {

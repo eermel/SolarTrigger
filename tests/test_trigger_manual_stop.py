@@ -67,3 +67,22 @@ def test_manual_stop_kills_only_after_graceful_timeout():
     assert result['forced'] is True
     assert result['still_running'] is False
     assert any('30 s graceful-stop timeout' in text for text, _, _ in svc.log_lines)
+
+
+def test_duplicate_stop_request_is_coalesced():
+    proc = FakeProc(returncode=0)
+    svc = make_service(proc)
+    svc._stopping_by_rig = {1: True, 2: False, 3: False, 4: False}
+
+    result = svc.stop(1)
+
+    assert result == {
+        "status": "stopping",
+        "rig_id": 1,
+        "forced": False,
+        "still_running": True,
+    }
+    assert proc.terminated is False
+    assert proc.killed is False
+    assert proc.wait_timeouts == []
+    assert svc.log_lines == []

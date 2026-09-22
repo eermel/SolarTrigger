@@ -317,9 +317,16 @@ class RuntimeController:
             }
 
         if operation == "trigger.status":
+            # A portal may restart independently from this runtime. Refresh
+            # persisted operator-owned state here so a GPS sync performed
+            # during this runtime lifetime is restored after Gunicorn restart.
+            # _refresh_persisted_state() preserves live Trigger state and
+            # rejects GPS sync timestamps from an older runtime/boot.
+            self._refresh_persisted_state()
             return {
                 "pid": os.getpid(),
                 "trigger": self._trigger_snapshot(),
+                "gps": self.state.snapshot("gps"),
             }
 
         if operation == "logs.read":

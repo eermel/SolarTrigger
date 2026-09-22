@@ -405,6 +405,11 @@ class RemoteTriggerService:
             if not isinstance(trigger, dict):
                 return False
             self.state.set("trigger", trigger, persist=False)
+
+            gps = status.get("gps")
+            if isinstance(gps, dict):
+                self.state.set("gps", gps, persist=False)
+
             return True
         except RuntimeRpcError:
             if best_effort:
