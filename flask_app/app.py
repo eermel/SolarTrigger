@@ -2606,21 +2606,27 @@ def api_gps_state_set():
     return jsonify({"status": "ok"})
 
 def _camera_trigger_conflict(rig_id=None):
+    # Published trigger state and TriggerService's private "starting" window
+    # are complementary. The StateStore remains authoritative for a run already
+    # published as active, while the service closes the START->Popen race before
+    # that state is visible. Never let one source mask a positive result from
+    # the other.
+    trigger_state = _state_store.snapshot("trigger") or {}
+    rigs = trigger_state.get("rigs") or {}
+    active = (
+        any((rig or {}).get("running") for rig in rigs.values())
+        if rig_id is None
+        else bool((rigs.get(str(rig_id)) or {}).get("running"))
+    )
+
     service = globals().get("_trigger_service")
-    if service is not None:
+    if not active and service is not None:
         active = (
             service.any_active_or_starting()
             if rig_id is None
             else service.is_active_or_starting(rig_id)
         )
-    else:
-        trigger_state = _state_store.snapshot("trigger") or {}
-        rigs = trigger_state.get("rigs") or {}
-        active = (
-            any((rig or {}).get("running") for rig in rigs.values())
-            if rig_id is None
-            else bool((rigs.get(str(rig_id)) or {}).get("running"))
-        )
+
     if not active:
         return None
     return jsonify({
