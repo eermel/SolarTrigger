@@ -283,6 +283,9 @@ class ProcessCameraWorker:
         self._lock = threading.RLock()
         self._generation = 0
         self._last_failure: str | None = None
+        # Parent-owned state survives a killed camera child generation.
+        # It contains configuration only; PHOTO commands are never replayed.
+        self._runtime_init_settings: dict[str, Any] | None = None
 
     @property
     def running(self) -> bool:
@@ -439,6 +442,23 @@ class ProcessCameraWorker:
 
             if message.get("kind") == "ready":
                 self._last_failure = None
+                restore = (
+                    dict(self._runtime_init_settings)
+                    if isinstance(self._runtime_init_settings, dict)
+                    else None
+                )
+                if restore is not None:
+                    try:
+                        # Recreate invariants and re-prime direct profile writers
+                        # before exposing the new generation. No PHOTO is replayed.
+                        self._remote_call("init_settings", **restore)
+                    except Exception as exc:
+                        self._last_failure = (
+                            f"camera child runtime-state restore failed: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+                        self._kill_current_locked()
+                        raise WorkerUnavailableError(self._last_failure) from exc
                 return
 
         self._last_failure = "camera child startup timed out"
@@ -657,6 +677,49 @@ class ProcessCameraWorker:
                 conn.close()
             except OSError:
                 pass
+
+    def clear_runtime_recovery_state(self) -> None:
+        """Forget Trigger initialization without touching the camera process."""
+        with self._lock:
+            self._runtime_init_settings = None
+
+    def init_settings(
+        self,
+        aperture=None,
+        iso=None,
+        image_format="RAW",
+        white_balance="Daylight",
+    ):
+        settings = {
+            "aperture": aperture,
+            "iso": iso,
+            "image_format": image_format,
+            "white_balance": white_balance,
+        }
+        with self._lock:
+            # Explicit initialization begins a new authoritative state. Avoid
+            # restoring an older run before applying the new settings.
+            previous = self._runtime_init_settings
+            self._runtime_init_settings = None
+            try:
+                result = self._remote_call("init_settings", **settings)
+            except Exception:
+                self._runtime_init_settings = previous
+                raise
+            self._runtime_init_settings = dict(settings)
+            return result
+
+    def apply_phase_settings(self, aperture=None, iso=None):
+        with self._lock:
+            result = self._remote_call(
+                "apply_phase_settings", aperture=aperture, iso=iso
+            )
+            if isinstance(self._runtime_init_settings, dict):
+                if aperture is not None:
+                    self._runtime_init_settings["aperture"] = aperture
+                if iso is not None:
+                    self._runtime_init_settings["iso"] = iso
+            return result
 
     def prepare_capture(self, *args, **kwargs):
         # Bind the opaque child token to the exact process generation which
