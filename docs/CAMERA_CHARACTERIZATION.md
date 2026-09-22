@@ -97,30 +97,26 @@ strictly a **test separation pause**:
 
 - it is outside the measured PHOTO duration;
 - it is absent from the compact timing JSON;
-- it is absent from the generated `.plan`;
 - it is never executed by Trigger.
 
 File confirmation and any required shutter release remain part of the measured
 capture operation.
 
-## Sequencer and `.plan`
+## Runtime consumption
 
-Contract v3 emits explicit physical SET commands rather than the old
-`capture_setup` macro. Every SET receives `set_overhead_ms`.
+Contract v3 provides guarded timing values to the phase-driven Trigger and to
+Camera Validation. The live Trigger schedules phase capture operations directly;
+Camera Validation uses its own relative in-memory diagnostic recipe. Neither path
+materializes an intermediate scheduler file.
 
-PHOTO reservations are computed from the actual exposure list requested by the
-Sequencer using the single or bracket formula above. The existing execution-plan
-transport guard (`timing_contract_version=2`) is retained only as an envelope
-understood by the current Trigger/runtime; `camera_timing_model_version=3` marks
-the new camera timing model. No v2 reference-exposure arithmetic is used.
+Each optimized camera capture remains self-contained (ISO, capture mode if needed,
+shutter, bracket mode if needed, PHOTO). If a USB operation fails, a future
+complete capture can reconcile the camera state; past photographs are never
+blindly replayed.
 
-Each optimized group is self-contained (ISO, capture mode if needed, shutter,
-bracket mode if needed, PHOTO). If a USB operation fails or a command is missed,
-the next complete group is the recovery point; past photographs are never replayed.
-
-Legacy Sony/Nikon timing files and contract-v2 profiles remain readable. They are
-not silently converted. A camera must be recharacterized and its `.plan`
-regenerated to use contract v3.
+Legacy timing/profile formats remain readable where compatibility is explicitly
+implemented. A camera must be recharacterized to obtain the current timing
+contract v3 measurements.
 
 ## Physical shutter latency
 

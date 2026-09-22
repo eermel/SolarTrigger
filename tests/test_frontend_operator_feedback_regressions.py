@@ -70,11 +70,9 @@ def test_camera_validation_ui_does_not_describe_plan_runtime():
         "RAW files remain on the card."
         in HTML
     )
-    assert "End-to-end real run · .plan" not in HTML
 
     validation_js = _between(
         "// CAMERA VALIDATION — end-to-end real camera run",
         "// DEBUG TAB — UI adapter over the existing Trigger functionality",
     )
-    assert "The validation report, .plan and run log" not in validation_js
     assert "The validation report and run log will be kept for debugging." in validation_js

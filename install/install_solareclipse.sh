@@ -480,7 +480,7 @@ mkdir -p "$APP_DIR/static/sounds" "$APP_DIR/static/js" "$APP_DIR/static/css"
 # Données mutables SolarTrigger.
 # Une installation neuve doit démarrer même si var/ n'existe pas.
 # Une réinstallation ne détruit jamais un var/ existant.
-mkdir -p     "$VAR_DIR/state"     "$VAR_DIR/logs"     "$VAR_DIR/generated/rig"     "$VAR_DIR/generated/camera_cfg"     "$VAR_DIR/generated/circumstances"     "$VAR_DIR/generated/photo_cfg"     "$VAR_DIR/generated/exposure_opt"     "$VAR_DIR/generated/sequence"     "$VAR_DIR/generated/execution_plan"
+mkdir -p     "$VAR_DIR/state"     "$VAR_DIR/logs"     "$VAR_DIR/generated/rig"     "$VAR_DIR/generated/camera_cfg"     "$VAR_DIR/generated/circumstances"     "$VAR_DIR/generated/photo_cfg"     "$VAR_DIR/generated/exposure_opt"     "$VAR_DIR/generated/sequence"
 
 # Scripts strictement nécessaires au runtime.
 RUNTIME_SCRIPTS=(

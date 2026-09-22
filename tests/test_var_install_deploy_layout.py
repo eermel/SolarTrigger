@@ -24,7 +24,6 @@ def test_installer_creates_complete_var_layout():
         '$VAR_DIR/generated/photo_cfg',
         '$VAR_DIR/generated/exposure_opt',
         '$VAR_DIR/generated/sequence',
-        '$VAR_DIR/generated/execution_plan',
     )
 
     for path in expected:

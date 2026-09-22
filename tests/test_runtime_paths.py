@@ -8,12 +8,6 @@ def test_runtime_paths_are_project_local():
     assert runtime_paths.STATE_FILE == (
         runtime_paths.PROJECT_ROOT / "var" / "state" / "state.json"
     )
-    assert runtime_paths.EXECUTION_PLAN_DIR == (
-        runtime_paths.PROJECT_ROOT
-        / "var"
-        / "generated"
-        / "execution_plan"
-    )
 
 
 def test_ensure_var_layout_recreates_every_directory(tmp_path):
@@ -32,7 +26,6 @@ def test_ensure_var_layout_recreates_every_directory(tmp_path):
         "generated/photo_cfg",
         "generated/exposure_opt",
         "generated/sequence",
-        "generated/execution_plan",
         "logs",
     )
 

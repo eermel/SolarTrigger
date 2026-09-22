@@ -53,7 +53,7 @@ def _service(tmp_path):
     return service
 
 
-def test_three_selected_files_replace_execution_plan(tmp_path, monkeypatch):
+def test_three_selected_files_drive_phase_trigger(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "backend.trigger_service._utc_today",
         lambda: datetime(2027, 8, 2, tzinfo=timezone.utc).date(),
@@ -72,7 +72,7 @@ def test_three_selected_files_replace_execution_plan(tmp_path, monkeypatch):
     assert service._active_exposure_opt_paths[1].name == "expo.json"
 
 
-def test_runtime_command_uses_three_sources_and_no_execution_plan(tmp_path, monkeypatch):
+def test_runtime_command_uses_three_selected_sources(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "backend.trigger_service._utc_today",
         lambda: datetime(2027, 8, 2, tzinfo=timezone.utc).date(),
@@ -101,7 +101,6 @@ def test_runtime_command_uses_three_sources_and_no_execution_plan(tmp_path, monk
     monkeypatch.setattr("backend.trigger_service.subprocess.Popen", popen)
     service._run(simulate=True, rig_id=1)
 
-    assert "--execution-plan" not in seen["command"]
     assert "--camera" in seen["command"]
     assert "--exposure-opt" in seen["command"]
     assert seen["env"]["SET_TRIGGER_RIG_ID"] == "1"

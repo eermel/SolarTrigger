@@ -79,10 +79,9 @@ Cette redondance est volontaire : après une erreur USB, un groupe futur complet
 peut repartir sans reconstruire l'historique des anciens SET. Le Trigger continue
 sur ses horaires absolus et ne rejoue jamais une photo passée.
 
-Le format `.plan` conserve l'enveloppe de garde existante
-`timing_contract_version=2` pour le transport IPC et le rejet des commandes
-périmées. Cette valeur est un détail du protocole d'exécution ; les durées qu'elle
-transporte proviennent du modèle caméra v3.
+Le Trigger consomme directement les valeurs du contrat caméra v3 pendant
+l'exécution des phases. Camera Validation utilise les mêmes budgets pour sa
+recette diagnostique en mémoire et passe par Camera IPC / CameraWorker.
 
 ## Pause de 2 secondes
 
@@ -91,7 +90,6 @@ essais de caractérisation. Elles :
 
 - ne font pas partie des mesures ;
 - ne sont pas ajoutées aux budgets ;
-- ne sont pas écrites dans le `.plan` ;
 - ne sont jamais exécutées par le Trigger.
 
 La confirmation des fichiers reste, elle, incluse dans la mesure de PHOTO.

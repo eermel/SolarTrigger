@@ -622,7 +622,6 @@ FORBIDDEN_BY_FILE = {
         "intervalles inchangés",
         "delta DRY-RUN NOW non initialisé",
         "même delta que la timeline — ",
-        "source .plan inchangé",
         "date UTC remplacée par aujourd'hui, ",
         "heures inchangées",
         "champ astronomy inconnu :",

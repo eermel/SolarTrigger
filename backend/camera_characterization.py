@@ -1662,8 +1662,7 @@ def characterize(camera, entry, job):
     # session" was therefore never characterized or budgeted. When a worker
     # really starts cold (notably a temporary Validation worker, or a Trigger
     # worker created after restart), that missing budget can make the scheduler
-    # skip a later command
-    # (see execution_plan budget_overrun_ms handling).
+    # make a later operation exceed its characterized timing budget.
     #
     # Fix: measure it once, explicitly, before any candidate competes, using
     # the first candidate as a neutral reference. This trial is excluded

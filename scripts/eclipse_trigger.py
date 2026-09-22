@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Real-time, phase-driven eclipse trigger.
 
-The trigger never consumes an Execution Plan and never schedules individual
-camera SET commands. One camera plugin owns each complete capture operation.
+The trigger is phase-driven. It schedules phase capture operations directly,
+while one camera plugin owns each complete camera capture operation.
 """
 
 from __future__ import annotations

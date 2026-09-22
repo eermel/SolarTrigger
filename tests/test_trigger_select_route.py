@@ -114,26 +114,6 @@ def _configure_trigger_route(
         encoding="utf-8",
     )
 
-    execution_plan_dir = configs_dir / "execution_plan"
-    execution_plan_dir.mkdir(parents=True)
-    execution_plan_name = "test_execution_plan.json"
-    (execution_plan_dir / execution_plan_name).write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "config_type": "execution_plan",
-                "sequence_start_utc": "2027-08-02T10:00:00.000Z",
-                "sequence_end_utc": "2027-08-02T10:40:00.000Z",
-                "initial_state_required": {},
-                "sources": {
-                    "circumstances_file": circumstances_filename,
-                },
-                "commands": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    state_store.set("execution_plan_file_rig_1", execution_plan_name)
 
     state_store.update_section(
         "gps", {"synced": True, "sync_time": datetime.now().astimezone().isoformat()}
@@ -169,7 +149,7 @@ def _configure_trigger_route(
     return flask_module.app.test_client()
 
 
-def test_trigger_start_rejects_missing_execution_plan_circumstances(
+def test_trigger_start_rejects_missing_selected_circumstances(
     tmp_path, monkeypatch
 ):
     client = _configure_trigger_route(
