@@ -229,6 +229,7 @@ class ProcessCameraWorker:
     _REMOTE_METHODS = frozenset(
         {
             "connect",
+            "clear_runtime_recovery_state",
             "init_settings",
             "set_exposure_settings",
             "apply_phase_settings",
@@ -470,6 +471,7 @@ class ProcessCameraWorker:
         operation: str,
         *args,
         _expected_generation: int | None = None,
+        _timeout_s: float | None = None,
         **kwargs,
     ):
         with self._lock:
@@ -508,11 +510,15 @@ class ProcessCameraWorker:
                 self._kill_current_locked()
                 raise WorkerUnavailableError(self._last_failure) from exc
 
-            operation_timeout_s = camera_operation_timeout_s(
-                operation,
-                args,
-                kwargs,
-                self._call_timeout_s,
+            operation_timeout_s = (
+                camera_operation_timeout_s(
+                    operation,
+                    args,
+                    kwargs,
+                    self._call_timeout_s,
+                )
+                if _timeout_s is None
+                else max(0.001, float(_timeout_s))
             )
             response_timeout_s = (
                 operation_timeout_s + self._transport_grace_s
@@ -679,9 +685,28 @@ class ProcessCameraWorker:
                 pass
 
     def clear_runtime_recovery_state(self) -> None:
-        """Forget Trigger initialization without touching the camera process."""
+        """Forget parent and child Trigger state without respawning a child.
+
+        Session teardown must not carry the previous run's initialization into
+        the next run.  Clear the parent snapshot first so even a hung/dead child
+        cannot resurrect it.  If the current child is responsive, clear its
+        CameraService cache as well; a timeout makes that generation
+        disposable rather than blocking session teardown indefinitely.
+        """
         with self._lock:
             self._runtime_init_settings = None
+            process = self._process
+            if (
+                not self._started
+                or process is None
+                or not process.is_alive()
+                or self._conn is None
+            ):
+                return
+            self._remote_call(
+                "clear_runtime_recovery_state",
+                _timeout_s=0.5,
+            )
 
     def init_settings(
         self,
