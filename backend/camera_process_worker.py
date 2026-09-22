@@ -336,6 +336,10 @@ class ProcessCameraWorker:
 
         with self._lock:
             self._started = False
+            # Explicit worker shutdown is a lifecycle boundary.  Watchdog
+            # respawns use _kill_current_locked() and deliberately retain this
+            # snapshot, but stop()/start() must never resurrect a previous run.
+            self._runtime_init_settings = None
             process = self._process
             conn = self._conn
 
