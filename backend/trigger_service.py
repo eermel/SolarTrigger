@@ -315,6 +315,30 @@ class TriggerService:
     def _starting(self, value):
         self._starting_by_rig[1] = bool(value)
 
+    def is_active_or_starting(self, rig_id: int) -> bool:
+        if (
+            not isinstance(rig_id, int)
+            or isinstance(rig_id, bool)
+            or not 1 <= rig_id <= 4
+        ):
+            return False
+        with self._lock:
+            proc = self._procs[rig_id]
+            return bool(
+                self._starting_by_rig[rig_id]
+                or (proc is not None and proc.poll() is None)
+            )
+
+    def any_active_or_starting(self) -> bool:
+        with self._lock:
+            for rig_id in range(1, 5):
+                proc = self._procs[rig_id]
+                if self._starting_by_rig[rig_id]:
+                    return True
+                if proc is not None and proc.poll() is None:
+                    return True
+        return False
+
     def _subprocess_env(self, ipc_session=None):
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
