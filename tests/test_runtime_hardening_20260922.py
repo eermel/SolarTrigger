@@ -129,6 +129,10 @@ def _restoring_child(conn, rig_id, camera_entry, clock_spec, call_timeout_s):
             initialized = True
             conn.send({"kind": "result", "value": {"initialized": True}})
             continue
+        if operation == "clear_runtime_recovery_state":
+            initialized = False
+            conn.send({"kind": "result", "value": None})
+            continue
         if operation == "prepare_capture":
             if not initialized:
                 conn.send({
@@ -159,6 +163,30 @@ def _restoring_child(conn, rig_id, camera_entry, clock_spec, call_timeout_s):
             "code": None,
             "message": f"unsupported {operation}",
         })
+
+
+def test_process_camera_clear_forgets_parent_and_live_child_state():
+    worker = ProcessCameraWorker(
+        rig_id=1,
+        call_timeout_s=0.05,
+        process_target=_restoring_child,
+        log_fn=lambda _message: None,
+    )
+    worker.configure_camera({"backend": "gphoto2", "model": "FAKE"})
+    worker.start()
+    try:
+        worker.init_settings(aperture="f/8", iso="100")
+        generation = worker.generation
+
+        worker.clear_runtime_recovery_state()
+
+        assert worker._runtime_init_settings is None
+        assert worker.generation == generation
+        with pytest.raises(RuntimeError, match="not initialized"):
+            worker.prepare_capture(SimpleNamespace())
+        assert worker.generation == generation
+    finally:
+        worker.stop(timeout=1.0)
 
 
 def test_process_camera_respawn_replays_configuration_not_photo():
