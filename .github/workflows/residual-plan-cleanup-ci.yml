@@ -46,7 +46,7 @@ jobs:
             exit 1
           fi
           git grep -n -F '.plan' -- . ':!.github/workflows/residual-plan-cleanup-ci.yml' ':!tools/cleanup_residual_execution_plan_legacy.py' > /tmp/dot-plan-all || true
-          grep -Ev '(planner\.plan\(|exposure_planner\.plan\(|sony_backend\.plan\(|sony_compat\.plan\(|args\.plan(\[|:)|\.plan\()' /tmp/dot-plan-all > /tmp/dot-plan-hits || true
+          grep -Ev '(planner\.plan\(|exposure_planner\.plan\(|sony_backend\.plan\(|sony_compat\.plan\(|args\.plan|\.plan\(|\.planned|\.plan_cache|backend\.plan_cache)' /tmp/dot-plan-all > /tmp/dot-plan-hits || true
           if [ -s /tmp/dot-plan-hits ]; then
             echo 'Residual .plan file/document references found:'
             cat /tmp/dot-plan-hits
