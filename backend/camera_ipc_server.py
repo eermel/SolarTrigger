@@ -334,8 +334,12 @@ class CameraIpcServer:
         # Initialization/recovery snapshots are scoped to exactly this lease.
         # Clear them before prepared-token cleanup so a dead child is never
         # respawned merely to restore state from the run that just ended.
+        # An unrestricted session may belong to any of the four supported
+        # RIGs. Do not require injected/runtime test doubles to implement an
+        # auxiliary active_camera_rig_ids() API: get_for_rig() is the actual
+        # worker lookup contract used below.
         affected_rig_ids = (
-            self._runtime.active_camera_rig_ids()
+            tuple(range(1, 5))
             if allowed is None
             else tuple(sorted(allowed))
         )
