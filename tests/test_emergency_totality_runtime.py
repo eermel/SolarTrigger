@@ -114,6 +114,86 @@ def test_emergency_settings_failure_does_not_block_photo():
     assert any("capture will still be attempted" in message for message in messages)
 
 
+
+def test_emergency_initial_setup_failure_retries_before_following_photo():
+    stopped = threading.Event()
+
+    class RecoveringSetupCamera(DummyEmergencyCamera):
+        def __init__(self, stopped):
+            super().__init__(stopped)
+            self.initialize_attempts = 0
+            self.photo_attempts = 0
+
+        def initialize(self, **settings):
+            self.initialize_attempts += 1
+            self.initialized.append(settings)
+            if self.initialize_attempts == 1:
+                raise RuntimeError("initial SET failed")
+
+        def trigger_prepared(self, prepared, deadline=None):
+            del prepared
+            self.deadlines.append(deadline)
+            self.photo_attempts += 1
+            if self.photo_attempts >= 2:
+                self.stopped.set()
+            return CaptureResult(frames=2, planned=2)
+
+    camera = RecoveringSetupCamera(stopped)
+    messages = []
+
+    stats = trigger.run_emergency_totality(
+        camera,
+        emergency_config(),
+        {"rig_id": 1, "photo": {}},
+        stopped,
+        log_fn=messages.append,
+    )
+
+    assert stats == {"photos": 4, "errors": 0}
+    assert camera.photo_attempts == 2
+    assert camera.initialize_attempts == 2
+    assert any(
+        "camera reinitialized" in message
+        for message in messages
+    )
+
+
+def test_emergency_photo_failure_forces_full_reinitialize_before_retry():
+    stopped = threading.Event()
+
+    class RecoveringPhotoCamera(DummyEmergencyCamera):
+        def __init__(self, stopped):
+            super().__init__(stopped)
+            self.initialize_attempts = 0
+            self.photo_attempts = 0
+
+        def initialize(self, **settings):
+            self.initialize_attempts += 1
+            self.initialized.append(settings)
+
+        def trigger_prepared(self, prepared, deadline=None):
+            del prepared
+            self.deadlines.append(deadline)
+            self.photo_attempts += 1
+            if self.photo_attempts == 1:
+                raise RuntimeError("USB transport disappeared")
+            self.stopped.set()
+            return CaptureResult(frames=2, planned=2)
+
+    camera = RecoveringPhotoCamera(stopped)
+
+    stats = trigger.run_emergency_totality(
+        camera,
+        emergency_config(),
+        {"rig_id": 1, "photo": {}},
+        stopped,
+        log_fn=lambda _message: None,
+    )
+
+    assert stats == {"photos": 2, "errors": 1}
+    assert camera.photo_attempts == 2
+    assert camera.initialize_attempts == 2
+
 def test_sigusr1_control_flow_abandons_phase_runtime():
     assert issubclass(trigger.EmergencyTotalityRequested, RuntimeError)
     assert not hasattr(trigger, "_build_totality_only_schedule")
