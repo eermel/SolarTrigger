@@ -50,7 +50,12 @@ EMERGENCY_PHOTO_CONFIG = (
 
 
 def log(message: str) -> None:
-    print(message, flush=True)
+    try:
+        print(message, flush=True)
+    except (BrokenPipeError, BlockingIOError, OSError):
+        # Observability is best-effort. Never terminate the photographic
+        # scheduler merely because its parent-side stdout reader disappeared.
+        pass
 
 
 def load_json(path: str, label: str) -> dict:
