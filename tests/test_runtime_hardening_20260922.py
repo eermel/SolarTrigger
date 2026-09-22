@@ -189,6 +189,28 @@ def test_process_camera_clear_forgets_parent_and_live_child_state():
         worker.stop(timeout=1.0)
 
 
+def test_process_camera_stop_start_does_not_restore_previous_run():
+    worker = ProcessCameraWorker(
+        rig_id=1,
+        call_timeout_s=0.05,
+        process_target=_restoring_child,
+        log_fn=lambda _message: None,
+    )
+    worker.configure_camera({"backend": "gphoto2", "model": "FAKE"})
+    worker.start()
+    worker.init_settings(aperture="f/8", iso="100")
+
+    assert worker.stop(timeout=1.0) is True
+    assert worker._runtime_init_settings is None
+
+    worker.start()
+    try:
+        with pytest.raises(RuntimeError, match="not initialized"):
+            worker.prepare_capture(SimpleNamespace())
+    finally:
+        worker.stop(timeout=1.0)
+
+
 def test_process_camera_respawn_replays_configuration_not_photo():
     worker = ProcessCameraWorker(
         rig_id=1,
