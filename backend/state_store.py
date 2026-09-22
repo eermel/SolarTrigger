@@ -50,11 +50,6 @@ class StateStore:
         "capture",
         "devices",
         "focuser_settings",
-        "execution_plan_file",
-        "execution_plan_file_rig_1",
-        "execution_plan_file_rig_2",
-        "execution_plan_file_rig_3",
-        "execution_plan_file_rig_4",
     )
     DEVICE_NAMES = ("camera", "gps", "focuser", "mount")
 
@@ -118,62 +113,51 @@ class StateStore:
         if persist:
             self.save()
 
-    def update_section(self, section: str, values: dict, persist: bool = False):
+    def update(self, key: str, values: dict, persist: bool = False):
         with self.lock:
-            self._state.setdefault(section, {}).update(values)
-            snap = copy.deepcopy(self._state[section])
+            current = self._state.setdefault(key, {})
+            if not isinstance(current, dict):
+                current = {}
+                self._state[key] = current
+            current.update(copy.deepcopy(values))
         if persist:
             self.save()
-        return snap
 
-    def update_trigger_rig(self, rig_id: int, values: dict):
-        """Atomically update runtime trigger state for one RIG."""
-        key = str(rig_id)
-
+    def update_trigger_rig(self, rig_id: int, values: dict) -> None:
+        rig_key = str(int(rig_id))
         with self.lock:
-            trigger = self._state.setdefault(
-                "trigger",
-                {"running": False, "phase": "idle"},
-            )
+            trigger = self._state.setdefault("trigger", {})
             rigs = trigger.setdefault("rigs", {})
-            rig_state = rigs.setdefault(
-                key,
-                {
-                    "running": False,
-                    "phase": "idle",
-                    "mode": None,
-                    "speed": None,
-                },
+            current = rigs.setdefault(
+                rig_key,
+                {"running": False, "phase": "idle", "mode": None, "speed": None},
             )
-            rig_state.update(values)
+            current.update(copy.deepcopy(values))
+            if rig_id == 1:
+                for key in ("running", "phase", "mode", "speed"):
+                    if key in values:
+                        trigger[key] = copy.deepcopy(values[key])
 
-            return copy.deepcopy(rig_state)
-
-    def reset_boot_sensitive(self):
+    def reset_boot_sensitive(self) -> None:
         with self.lock:
-            gps = self._state.setdefault("gps", {})
-            gps.update({"connected": False, "synced": False, "lat": None, "lon": None,
-                        "alt": None, "date": None, "satellites": 0, "hdop": None,
-                        "sync_time": None, "timezone": None, "gps_sync_running": False})
+            self._state["trigger"] = copy.deepcopy(self._defaults["trigger"])
             self._state["gps_sync_running"] = False
-            self._state["trigger"] = copy.deepcopy(
-                self._defaults["trigger"]
-            )
+            self._state["calc_running"] = False
+            gps = self._state.setdefault("gps", {})
+            gps["gps_sync_running"] = False
+            gps["connected"] = False
+            gps["synced"] = False
+            gps["sync_time"] = None
+            gps["date"] = None
 
-    def save(self):
-        # Serialize the complete persistence transaction.  Atomic replace alone
-        # is not sufficient when several application threads save concurrently:
-        # they would otherwise share the same .tmp path and an older snapshot
-        # could overwrite a newer one after the lock had already been released.
+    def save(self) -> None:
         with self.lock:
-            snap = {k: copy.deepcopy(self._state.get(k)) for k in self.PERSISTED_KEYS
-                    if k in self._state}
-            if "devices" in snap:
-                snap["devices"] = self._persistable_devices(snap["devices"])
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-            tmp.write_text(
-                json.dumps(snap, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            tmp.replace(self.path)
+            payload = {
+                key: copy.deepcopy(self._state[key])
+                for key in self.PERSISTED_KEYS
+                if key in self._state
+            }
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(self.path)
