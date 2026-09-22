@@ -83,6 +83,20 @@ SyslogIdentifier=solartrigger-runtime
 WantedBy=multi-user.target
 EOF
 
+# Existing installations may still have a legacy WSGI entrypoint that only
+# imports the Flask app. The autonomous runtime relay depends on the portal
+# background threads, so keep the production WSGI entrypoint canonical.
+cat > "$APP_DIR/wsgi.py" <<'EOF'
+from app import app, socketio, start_background_threads
+
+start_background_threads()
+
+if __name__ == "__main__":
+    socketio.run(app)
+EOF
+chown "$CURRENT_USER:$CURRENT_GROUP" "$APP_DIR/wsgi.py"
+chmod 644 "$APP_DIR/wsgi.py"
+
 mkdir -p /etc/systemd/system/solareclipse.service.d
 cat > /etc/systemd/system/solareclipse.service.d/standalone-runtime.conf <<'EOF'
 [Unit]

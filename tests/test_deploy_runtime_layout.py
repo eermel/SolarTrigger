@@ -56,3 +56,17 @@ def test_deploy_does_not_enable_global_rsync_delete():
     rsync_options = SCRIPT[start:end]
 
     assert "--delete" not in rsync_options
+
+
+def test_deploy_includes_production_wsgi_entrypoint():
+    assert '"$SRC/flask_app/wsgi.py"' in SCRIPT
+    assert '"$DST_HOST:$DST/wsgi.py"' in SCRIPT
+
+    wsgi = (
+        ROOT
+        / "flask_app"
+        / "wsgi.py"
+    ).read_text(encoding="utf-8")
+
+    assert "from app import app, socketio, start_background_threads" in wsgi
+    assert "start_background_threads()" in wsgi

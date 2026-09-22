@@ -363,3 +363,16 @@ def test_portal_runtime_relay_skips_stale_audio_on_first_attachment():
     assert "def _thread_runtime_relay():" in source
     assert "if initial or first_attachment or event_gap:" in source
     assert "socketio.emit(event, payload, namespace=\"/\")" in source
+
+
+def test_runtime_migration_upgrades_legacy_wsgi_entrypoint():
+    root = Path(__file__).resolve().parents[1]
+    script = (
+        root
+        / "install"
+        / "install_standalone_runtime_service.sh"
+    ).read_text(encoding="utf-8")
+
+    assert 'cat > "$APP_DIR/wsgi.py"' in script
+    assert "from app import app, socketio, start_background_threads" in script
+    assert "start_background_threads()" in script

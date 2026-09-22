@@ -41,6 +41,7 @@ required=(
     "$SRC/plugins"
     "$SRC/scripts"
     "$SRC/flask_app/app.py"
+    "$SRC/flask_app/wsgi.py"
     "$SRC/flask_app/templates/index.html"
     "$SRC/flask_app/static/js"
     "$SRC/flask_app/static/css"
@@ -119,6 +120,12 @@ echo "=== app.py : VM layout -> PROD layout ==="
 rsync "${RSYNC_OPTS[@]}" \
     "$SRC/flask_app/app.py" \
     "$DST_HOST:$DST/app.py"
+
+echo
+echo "=== wsgi.py : production entrypoint ==="
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/flask_app/wsgi.py" \
+    "$DST_HOST:$DST/wsgi.py"
 
 echo
 echo "=== index.html : VM layout -> PROD layout ==="
