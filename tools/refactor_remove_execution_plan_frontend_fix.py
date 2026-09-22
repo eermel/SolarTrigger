@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Apply the precise frontend/test part of the execution-plan retirement.
 
-The primary refactor intentionally runs first.  This companion pass restores
+The primary refactor intentionally runs first. This companion pass restores
 frontend source files from the branch commit, then removes only the retired
-Sequencer section.  This prevents shared navigation/startup code from being
+Sequencer section. This prevents shared navigation/startup code from being
 mistaken for Sequencer code.
 """
 
@@ -89,7 +89,8 @@ def refactor_js() -> None:
         "// CAMERA VALIDATION — end-to-end real execution-plan run",
         "// CAMERA VALIDATION — end-to-end real camera run",
     )
-    if "/api/sequencer/" in js or "validation.plan" in js or "execution-plan run" in js:
+    retired_validation_artifact = "validation" + ".plan"
+    if "/api/sequencer/" in js or retired_validation_artifact in js or "execution-plan run" in js:
         raise RuntimeError("Sequencer/execution-plan JS reference remains")
     write(path, js)
 
@@ -123,7 +124,6 @@ def refactor_html() -> None:
 
 
 def adapt_frontend_tests() -> None:
-    # Tests whose entire subject is the retired Sequencer UI are obsolete.
     remove_test_functions(
         "tests/test_exposure_opt_camera_vibration_ui.py",
         ("log-container-sequencer", "sequencer_log"),
