@@ -21,7 +21,20 @@ jobs:
         with:
           python-version: "3.13"
       - name: Apply residual cleanup
-        run: python tools/cleanup_residual_execution_plan_legacy.py
+        run: |
+          python - <<'PY'
+          from tools.cleanup_residual_execution_plan_legacy import (
+              clean_backend,
+              clean_docs,
+              clean_install,
+              clean_tests,
+          )
+          clean_backend()
+          clean_docs()
+          clean_install()
+          clean_tests()
+          print("residual execution-plan cleanup applied")
+          PY
       - name: Global legacy audit
         shell: bash
         run: |
