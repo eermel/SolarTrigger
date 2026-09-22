@@ -2605,8 +2605,36 @@ def api_gps_state_set():
     socketio.emit("gps_update", snap)
     return jsonify({"status": "ok"})
 
+def _camera_trigger_conflict(rig_id=None):
+    service = globals().get("_trigger_service")
+    if service is not None:
+        active = (
+            service.any_active_or_starting()
+            if rig_id is None
+            else service.is_active_or_starting(rig_id)
+        )
+    else:
+        trigger_state = _state_store.snapshot("trigger") or {}
+        rigs = trigger_state.get("rigs") or {}
+        active = (
+            any((rig or {}).get("running") for rig in rigs.values())
+            if rig_id is None
+            else bool((rigs.get(str(rig_id)) or {}).get("running"))
+        )
+    if not active:
+        return None
+    return jsonify({
+        "error": "Camera diagnostics are forbidden while a trigger is active or starting.",
+        "code": "TRIGGER_RUNNING",
+        "rig_id": rig_id,
+    }), 409
+
+
 @app.route("/api/camera/probe", methods=["POST"])
 def api_camera_probe():
+    guarded = _camera_trigger_conflict()
+    if guarded is not None:
+        return guarded
     """
     Teste la connexion USB, lit marque/modèle/batterie, coupe immédiatement la connexion.
     N'enregistre pas de connexion persistante pour économiser la batterie.
@@ -2639,6 +2667,9 @@ def api_camera_probe():
 @app.route("/api/rigs/<int:rig_id>/camera/probe", methods=["POST"])
 def api_rig_camera_probe(rig_id):
     """Probe the camera worker belonging to one enabled rig."""
+    guarded = _camera_trigger_conflict(rig_id)
+    if guarded is not None:
+        return guarded
     try:
         rig = get_rig_manager().get_rig(rig_id)
     except ValueError as exc:
@@ -2670,6 +2701,9 @@ def api_rig_camera_probe(rig_id):
 @app.route("/api/rigs/<int:rig_id>/camera/read_info", methods=["POST"])
 def api_rig_camera_read_info(rig_id):
     """Read and cache camera information for one enabled rig."""
+    guarded = _camera_trigger_conflict(rig_id)
+    if guarded is not None:
+        return guarded
     try:
         rig = get_rig_manager().get_rig(rig_id)
     except ValueError as exc:
@@ -2765,6 +2799,9 @@ def api_rig_camera_read_info(rig_id):
 @app.route("/api/rigs/<int:rig_id>/camera/test_photo", methods=["POST"])
 def api_rig_camera_test_photo(rig_id):
     """Capture one diagnostic photo with the camera for an enabled rig."""
+    guarded = _camera_trigger_conflict(rig_id)
+    if guarded is not None:
+        return guarded
     payload = request.get_json(silent=True)
     speed = payload.get("speed") if isinstance(payload, dict) else None
     if not isinstance(speed, str) or not speed.strip():
@@ -2883,14 +2920,9 @@ def api_rig_camera_sync_time(rig_id):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    trigger_state = _state_store.snapshot("trigger") or {}
-    rigs = trigger_state.get("rigs") or {}
-    if (rigs.get(str(rig_id)) or {}).get("running"):
-        return jsonify({
-            "error": "Camera synchronization is forbidden while a trigger is active.",
-            "code": "TRIGGER_RUNNING",
-            "rig_id": rig_id,
-        }), 409
+    guarded = _camera_trigger_conflict(rig_id)
+    if guarded is not None:
+        return guarded
 
     gps_state = _state_store.snapshot("gps") or {}
     utc_offset_minutes = gps_state.get("utc_offset_minutes")
@@ -2932,14 +2964,9 @@ def api_camera_sync_time():
     the persistent RIG worker could already own the same USB device.  All
     camera I/O must instead pass through that single serialized worker.
     """
-    trigger_state = _state_store.snapshot("trigger") or {}
-    rigs = trigger_state.get("rigs") or {}
-    if (rigs.get("1") or {}).get("running"):
-        return jsonify({
-            "error": "Camera synchronization is forbidden while a trigger is active.",
-            "code": "TRIGGER_RUNNING",
-            "rig_id": 1,
-        }), 409
+    guarded = _camera_trigger_conflict(1)
+    if guarded is not None:
+        return guarded
 
     if not _camera_sync_lock.acquire(blocking=False):
         return jsonify({"error": "Camera synchronization is already in progress."}), 409
@@ -5275,6 +5302,20 @@ def api_trigger_select_camera():
     _append_log(f"📷 Camera configuration: {filename}", "info", "trigger")
     return jsonify({"status": "ok", "filename": filename, "capture": capture})
 
+def _trigger_start_guarded(callback):
+    from backend.runtime_interlock import MaintenanceActiveError, trigger_start_section
+    from backend.system_maintenance import JOB
+
+    try:
+        with trigger_start_section(lambda: bool(JOB.snapshot().get("running"))):
+            return callback()
+    except MaintenanceActiveError as exc:
+        raise TriggerValidationError(
+            "System maintenance is running.",
+            "SYSTEM_MAINTENANCE_RUNNING",
+        ) from exc
+
+
 @app.route("/api/trigger/totality_only", methods=["POST"])
 def api_trigger_totality_only():
     """Emergency Totality: preempt active photos or start immediately."""
@@ -5282,13 +5323,15 @@ def api_trigger_totality_only():
     rig_id = payload.get("rig_id", 1)
 
     try:
-        action = _trigger_service.start_totality_only(rig_id=rig_id)
+        action = _trigger_start_guarded(
+            lambda: _trigger_service.start_totality_only(rig_id=rig_id)
+        )
     except TriggerValidationError as exc:
         return jsonify({
             "error": str(exc),
             "code": exc.code,
             "rig_id": rig_id,
-        }), 400
+        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
     if not action:
         return jsonify({
             "error": f"Totality sequence for RIG {rig_id} is already starting.",
@@ -5326,11 +5369,11 @@ def api_trigger_start():
     rig_id = payload.get("rig_id", 1)
 
     try:
-        if not _trigger_service.start(
+        if not _trigger_start_guarded(lambda: _trigger_service.start(
             rig_id=rig_id,
             simulate=False,
             selected=payload,
-        ):
+        )):
             return jsonify({
                 "error": f"Trigger RIG {rig_id} is already running.",
                 "rig_id": rig_id,
@@ -5347,7 +5390,7 @@ def api_trigger_start():
             "error": str(exc),
             "code": exc.code,
             "rig_id": rig_id,
-        }), 400
+        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
 
     except Exception:
         app.logger.exception(
@@ -5367,18 +5410,20 @@ def api_trigger_simulate():
     rig_id = payload.get("rig_id", 1)
     speed = payload.get("speed", 60.0)
     try:
-        if not _trigger_service.start(
+        if not _trigger_start_guarded(lambda: _trigger_service.start(
             rig_id=rig_id,
             simulate=True,
             speed=speed,
             selected=payload,
-        ):
+        )):
             return jsonify({"error": "Trigger is already running."}), 409
         return jsonify({"status": "started", "mode": "simulation", "speed": float(speed)})
     except TriggerValidationError as exc:
         if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
             return jsonify({"error": exc.code, "message": str(exc)}), 409
-        return jsonify({"error": str(exc), "code": exc.code}), 400
+        return jsonify({"error": str(exc), "code": exc.code}), (
+            409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+        )
     except Exception:
         app.logger.exception("Trigger simulation failed for RIG %s", rig_id)
         return jsonify({
@@ -5446,11 +5491,11 @@ def api_trigger_dryrun():
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
     try:
-        if not _trigger_service.start(
+        if not _trigger_start_guarded(lambda: _trigger_service.start(
             rig_id=rig_id,
             dry_run=True,
             selected=payload,
-        ):
+        )):
             return jsonify({
                 "error": f"Trigger RIG {rig_id} is already running.",
                 "rig_id": rig_id,
@@ -5468,7 +5513,7 @@ def api_trigger_dryrun():
             "error": str(exc),
             "code": exc.code,
             "rig_id": rig_id,
-        }), 400
+        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
 
     except Exception:
         app.logger.exception("Trigger dry-run failed for RIG %s", rig_id)
@@ -5541,7 +5586,11 @@ def api_trigger_debug():
         destination_path = destination_dir / filename
         destination_path.write_text(json.dumps(generated, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         selected = {"circumstances_file": filename, "photo_file": photo_name, "exposure_opt_file": exposure_name}
-        if not _trigger_service.start(rig_id=rig_id, dry_run=True, selected=selected):
+        if not _trigger_start_guarded(
+            lambda: _trigger_service.start(
+                rig_id=rig_id, dry_run=True, selected=selected
+            )
+        ):
             destination_path.unlink(missing_ok=True)
             return jsonify({"error": f"Trigger RIG {rig_id} is already running.", "code": "TRIGGER_ALREADY_RUNNING", "rig_id": rig_id}), 409
         with _state_lock:
@@ -5554,7 +5603,9 @@ def api_trigger_debug():
         return jsonify({"status": "started", "mode": "debug", "rig_id": rig_id, "filename": filename, "circumstances": generated})
     except TriggerValidationError as exc:
         if destination_path is not None: destination_path.unlink(missing_ok=True)
-        return jsonify({"error": str(exc), "code": exc.code, "rig_id": rig_id}), 400
+        return jsonify({"error": str(exc), "code": exc.code, "rig_id": rig_id}), (
+            409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+        )
     except Exception:
         if destination_path is not None:
             try:
@@ -5583,7 +5634,11 @@ def api_trigger_status():
 
 # ══════════════════════════════════════════════════════════════════════════════
 from backend.system_maintenance_routes import register_system_maintenance_routes
-register_system_maintenance_routes(app, lambda: _state_store.snapshot('trigger'))
+register_system_maintenance_routes(
+    app,
+    lambda: _state_store.snapshot('trigger'),
+    trigger_busy=_trigger_service.any_active_or_starting,
+)
 
 # SOCKETIO — CONNEXION CLIENT
 # ══════════════════════════════════════════════════════════════════════════════
