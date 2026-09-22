@@ -14,12 +14,16 @@ class FakeWorker:
         self.log_fn = log_fn
         self.started = False
         self.stopped = False
+        self.recovery_clears = 0
 
     def start(self):
         self.started = True
 
     def stop(self):
         self.stopped = True
+
+    def clear_runtime_recovery_state(self):
+        self.recovery_clears += 1
 
 
 def _rig(rig_id=1):
@@ -121,3 +125,23 @@ def test_shutdown_stops_ipc_before_workers_and_clears_runtime(tmp_path):
     assert runtime.active_camera_rig_ids() == ()
     with pytest.raises(ValueError, match="not active"):
         runtime.close_ipc_session(session.session_id)
+
+
+def test_session_close_clears_only_its_rig_recovery_state(tmp_path):
+    runtime, _servers = _runtime(tmp_path)
+    runtime.reconcile({"rigs": [_rig(1), _rig(2)]})
+    worker1 = runtime.get_for_rig(1)
+    worker2 = runtime.get_for_rig(2)
+
+    session1 = runtime.open_ipc_session(rig_ids=(1,))
+    session2 = runtime.open_ipc_session(rig_ids=(2,))
+
+    runtime.close_ipc_session(session1.session_id)
+
+    assert worker1.recovery_clears == 1
+    assert worker2.recovery_clears == 0
+
+    runtime.close_ipc_session(session2.session_id)
+
+    assert worker1.recovery_clears == 1
+    assert worker2.recovery_clears == 1
