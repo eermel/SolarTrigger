@@ -343,6 +343,26 @@ class TriggerService:
                     return True
         return False
 
+    def active_inputs_snapshot(self) -> dict:
+        """Return the exact input filenames owned by each live/startup RIG."""
+        with self._lock:
+            snapshot = {}
+            for rig_id in range(1, 5):
+                key = str(rig_id)
+                circumstances = self._active_circumstances_paths.get(rig_id)
+                photo = self._active_photo_paths.get(rig_id)
+                exposure_opt = self._active_exposure_opt_paths.get(rig_id)
+                snapshot[key] = {
+                    "circumstances_file": (
+                        circumstances.name if circumstances is not None else None
+                    ),
+                    "photo_file": photo.name if photo is not None else None,
+                    "exposure_opt_file": (
+                        exposure_opt.name if exposure_opt is not None else None
+                    ),
+                }
+            return snapshot
+
     def _subprocess_env(self, ipc_session=None):
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"

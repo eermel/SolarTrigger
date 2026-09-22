@@ -171,12 +171,52 @@ def test_diamond_ring_trigger_label_cannot_wrap():
 
 
 def test_debug_stop_state_tracks_trigger_stop_attribute_changes():
-    observer_start = INDEX.index(
-        "const observer = new MutationObserver(() => {"
-    )
-    observer_end = INDEX.index("});", observer_start)
-    observer = INDEX[observer_start:observer_end]
-
-    assert "syncDebugActionState();" in observer
+    assert "_observeDebugMirror('btn-stop', syncDebugActionState);" in INDEX
     assert "window._triggerStopPendingRigs" in INDEX
     assert "btn-debug-stop" in INDEX
+
+
+def test_debug_log_mirror_does_not_rewrite_log_on_unrelated_ui_mutations():
+    install_start = INDEX.index("function installDebugUiMirror()")
+    install_end = INDEX.index("\n}\n", install_start) + 2
+    install = INDEX[install_start:install_end]
+
+    assert "_observeDebugMirror(" in install
+    assert "'log-container-trigger'," in install
+    assert "syncDebugLog," in install
+    assert "_observeDebugMirror('btn-stop', syncDebugActionState);" in install
+
+    broad_callback = (
+        "syncDebugCircumstances();\n"
+        "    syncDebugRigSelection();\n"
+        "    syncDebugLog();\n"
+        "    syncDebugActionState();"
+    )
+    assert broad_callback not in install
+
+
+def test_trigger_and_debug_logs_preserve_manual_scroll_position():
+    assert "function _logNearBottom(container, thresholdPx = 32)" in INDEX
+
+    append_start = INDEX.index("function appendTriggerRigLog(entry)")
+    append_end = INDEX.index("\n}\n", append_start) + 2
+    append = INDEX[append_start:append_end]
+    assert "const followTail = _logNearBottom(container);" in append
+    assert "if (followTail)" in append
+
+    mirror_start = INDEX.index("function syncDebugLog()")
+    mirror_end = INDEX.index("\n}\n", mirror_start) + 2
+    mirror = INDEX[mirror_start:mirror_end]
+    assert "const followTail = _logNearBottom(target);" in mirror
+    assert "const previousScrollTop = target.scrollTop;" in mirror
+    assert "target.scrollTop = Math.min(" in mirror
+
+
+def test_active_runtime_inputs_restore_photo_setup_and_diamond_duration():
+    assert "async function restoreActiveTriggerInputs()" in INDEX
+    assert "rigState.inputs" in INDEX
+    assert "['photo_file', 'trigger-photo-select']" in INDEX
+    assert "['exposure_opt_file', 'trigger-exposure-opt-select']" in INDEX
+    assert "await loadTriggerDiamondDuration();" in INDEX
+    assert "state.triggerCircumstances || state.eclipse" in INDEX
+    assert "await restoreActiveTriggerInputs();" in INDEX

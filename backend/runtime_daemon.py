@@ -268,6 +268,9 @@ class RuntimeController:
         rigs = trigger.setdefault("rigs", {})
         any_active = False
 
+        active_inputs_fn = getattr(self.trigger, "active_inputs_snapshot", None)
+        active_inputs = active_inputs_fn() if callable(active_inputs_fn) else {}
+
         for rig_id in range(1, 5):
             key = str(rig_id)
             rig_state = rigs.setdefault(
@@ -279,6 +282,7 @@ class RuntimeController:
                     "speed": None,
                 },
             )
+            rig_state["inputs"] = active_inputs.get(key, {})
             active = self.trigger.is_active_or_starting(rig_id)
             if active:
                 any_active = True

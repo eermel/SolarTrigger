@@ -747,6 +747,16 @@ function clearTriggerRigLog(rigId = selectedTriggerRigId) {
 }
 
 
+function _logNearBottom(container, thresholdPx = 32) {
+  if (!container) return true;
+  return (
+    container.scrollHeight
+    - container.scrollTop
+    - container.clientHeight
+  ) <= thresholdPx;
+}
+
+
 function appendTriggerRigLog(entry) {
   if (_logPaused || !entry) return;
 
@@ -759,8 +769,12 @@ function appendTriggerRigLog(entry) {
   const container = document.getElementById('log-container-trigger');
   if (!container) return;
 
+  const followTail = _logNearBottom(container);
   container.appendChild(triggerLogLineElement(entry, rigId));
-  container.scrollTop = container.scrollHeight;
+
+  if (followTail) {
+    container.scrollTop = container.scrollHeight;
+  }
 }
 
 
@@ -2101,6 +2115,9 @@ socket.on('status_update', payload => {
   if (d.trigger && d.trigger.rigs) {
     state.triggerRigs = d.trigger.rigs;
     updateSelectedTriggerPhase();
+    restoreActiveTriggerInputs().catch(error => {
+      console.warn('Unable to restore active Trigger inputs:', error);
+    });
   }
   if (d.eclipse) updateEclipseSaveFilename(d.eclipse);
   // Restaurer le fichier config caméra sélectionné depuis l'état backend
@@ -3662,9 +3679,100 @@ async function loadTriggerConfigList() {
         select.value = previous;
       }
     });
+
+    await restoreActiveTriggerInputs();
   } catch (e) {
     flash(`Trigger input list: ${e.message}`, 'red');
   }
+}
+
+let _activeTriggerInputsRestoreKey = '';
+
+
+async function restoreActiveTriggerInputs() {
+  const rigState = state.triggerRigs[String(selectedTriggerRigId)] || {};
+  const inputs = rigState.inputs;
+
+  if (!inputs || typeof inputs !== 'object') return false;
+
+  const signature = [
+    selectedTriggerRigId,
+    inputs.circumstances_file || '',
+    inputs.photo_file || '',
+    inputs.exposure_opt_file || ''
+  ].join('|');
+
+  if (
+    !inputs.circumstances_file
+    && !inputs.photo_file
+    && !inputs.exposure_opt_file
+  ) {
+    _activeTriggerInputsRestoreKey = '';
+    return false;
+  }
+
+  const mappings = [
+    ['circumstances_file', 'trigger-circumstances-select'],
+    ['photo_file', 'trigger-photo-select'],
+    ['exposure_opt_file', 'trigger-exposure-opt-select']
+  ];
+
+  let restored = false;
+  let allAvailable = true;
+
+  for (const [field, selectId] of mappings) {
+    const filename = inputs[field];
+    if (!filename) continue;
+
+    const select = document.getElementById(selectId);
+    if (!select) {
+      allAvailable = false;
+      continue;
+    }
+
+    const exists = Array.from(select.options).some(
+      option => option.value === filename
+    );
+
+    if (!exists) {
+      allAvailable = false;
+      continue;
+    }
+
+    if (select.value !== filename) {
+      select.value = filename;
+      restored = true;
+    }
+  }
+
+  if (!allAvailable) return false;
+
+  const diamondMissing = (
+    Boolean(inputs.photo_file)
+    && !Number.isFinite(state.triggerDiamondDurationS)
+  );
+
+  if (
+    _activeTriggerInputsRestoreKey === signature
+    && !restored
+    && !diamondMissing
+  ) {
+    return false;
+  }
+
+  if (inputs.photo_file) {
+    await loadTriggerDiamondDuration();
+  }
+
+  const circumstances = state.triggerCircumstances || state.eclipse;
+  if (circumstances) {
+    state.triggerCircumstances = circumstances;
+    renderContacts(circumstances);
+  }
+
+  _activeTriggerInputsRestoreKey = signature;
+  syncDebugUiFromTrigger();
+  return true;
 }
 
 async function loadTriggerCircumstances(filename) {
@@ -7636,10 +7744,26 @@ function syncDebugLog() {
   const target = document.getElementById('log-container-debug');
 
   if (source && target) {
+    const followTail = _logNearBottom(target);
+    const previousScrollTop = target.scrollTop;
+
     target.innerHTML = source.innerHTML;
-    target.scrollTop = target.scrollHeight;
+
+    if (followTail) {
+      target.scrollTop = target.scrollHeight;
+    } else {
+      target.scrollTop = Math.min(
+        previousScrollTop,
+        Math.max(0, target.scrollHeight - target.clientHeight)
+      );
+    }
   }
 
+  syncDebugLogTitle();
+}
+
+
+function syncDebugLogTitle() {
   const sourceTitle = document.getElementById('trigger-log-title');
   const targetTitle = document.getElementById('debug-log-title');
 
@@ -7840,37 +7964,38 @@ async function cleanDebugGeneratedFiles() {
 }
 
 
+function _observeDebugMirror(id, callback, options = {}) {
+  const node = document.getElementById(id);
+  if (!node) return;
+
+  const observer = new MutationObserver(callback);
+  observer.observe(node, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    ...options
+  });
+}
+
+
 function installDebugUiMirror() {
-  const watchedIds = [
-    'trigger-contacts',
+  _observeDebugMirror('trigger-contacts', syncDebugCircumstances);
+  _observeDebugMirror('trig-eclipse-type2', syncDebugCircumstances);
+  _observeDebugMirror('trig-eclipse-type-gps', syncDebugCircumstances);
+
+  _observeDebugMirror('trigger-target-label', syncDebugRigSelection);
+  _observeDebugMirror('trigger-log-title', syncDebugLogTitle);
+
+  _observeDebugMirror(
     'log-container-trigger',
-    'trigger-log-title',
-    'trigger-target-label',
-    'trig-eclipse-type2',
-    'trig-eclipse-type-gps',
-    'btn-start',
-    'btn-totality-only',
-    'btn-stop'
-  ];
+    syncDebugLog,
+    {attributes: false}
+  );
 
-  const observer = new MutationObserver(() => {
-    syncDebugCircumstances();
-    syncDebugRigSelection();
-    syncDebugLog();
-    syncDebugActionState();
-  });
-
-  watchedIds.forEach(id => {
-    const node = document.getElementById(id);
-    if (!node) return;
-
-    observer.observe(node, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      attributes: true
-    });
-  });
+  _observeDebugMirror('btn-start', syncDebugActionState);
+  _observeDebugMirror('btn-totality-only', syncDebugActionState);
+  _observeDebugMirror('btn-stop', syncDebugActionState);
 
   syncDebugUiFromTrigger();
 }

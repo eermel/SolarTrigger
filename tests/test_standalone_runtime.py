@@ -432,3 +432,28 @@ def test_runtime_status_refreshes_and_exposes_current_runtime_gps(tmp_path):
 
     assert result["gps"]["synced"] is True
     assert result["gps"]["sync_time"] == "2026-09-22T20:30:46+00:00"
+
+
+def test_runtime_trigger_snapshot_exposes_active_input_filenames(tmp_path):
+    controller = RuntimeController.__new__(RuntimeController)
+    controller.state = StateStore(tmp_path / "runtime-state.json")
+    controller.trigger = SimpleNamespace(
+        active_inputs_snapshot=lambda: {
+            "1": {
+                "circumstances_file": "debug_rig_1.json",
+                "photo_file": "photo_setup.json",
+                "exposure_opt_file": "expo.json",
+            }
+        },
+        is_active_or_starting=lambda rig_id: rig_id == 1,
+    )
+
+    snapshot = controller._trigger_snapshot()
+
+    assert snapshot["rigs"]["1"]["running"] is True
+    assert snapshot["rigs"]["1"]["inputs"] == {
+        "circumstances_file": "debug_rig_1.json",
+        "photo_file": "photo_setup.json",
+        "exposure_opt_file": "expo.json",
+    }
+    assert snapshot["rigs"]["2"]["inputs"] == {}
