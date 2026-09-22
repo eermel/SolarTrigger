@@ -33,7 +33,11 @@ class EventLog:
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
             except Exception: pass
         if self.emit_fn:
-            self.emit_fn("log_line", entry)
+            try:
+                self.emit_fn("log_line", entry)
+            except Exception:
+                # Logging/UI observability is never authoritative for capture.
+                pass
         return entry
 
     def snapshot(self):
