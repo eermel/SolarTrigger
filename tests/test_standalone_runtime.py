@@ -8,7 +8,12 @@ from types import SimpleNamespace
 import pytest
 
 from backend.camera_worker_runtime import CameraWorkerRuntime
-from backend.runtime_daemon import RuntimeController, RuntimeUnixServer
+from backend.runtime_daemon import (
+    RuntimeController,
+    RuntimeEventJournal,
+    RuntimeLogJournal,
+    RuntimeUnixServer,
+)
 from backend.runtime_rpc import (
     RemoteCameraWorkerRuntime,
     RemoteTriggerService,
@@ -279,3 +284,82 @@ def test_portal_session_cleanup_only_revokes_rpc_owned_leases():
         "validation-b",
     }
     assert controller._portal_camera_sessions == set()
+
+
+def test_runtime_log_journal_is_sequenced_and_cursor_based():
+    journal = RuntimeLogJournal(size=3)
+    journal.append("one", "info", "trigger", rig_id=1)
+    journal.append("two", "warning", "trigger", rig_id=1)
+    journal.append("three", "info", "camera", rig_id=1)
+    journal.append("four", "error", "trigger", rig_id=1)
+
+    result = journal.read(after_seq=2, limit=10)
+
+    assert [entry["seq"] for entry in result["entries"]] == [3, 4]
+    assert [entry["text"] for entry in result["entries"]] == ["three", "four"]
+    assert result["latest_seq"] == 4
+    assert result["oldest_seq"] == 2
+
+
+def test_runtime_event_journal_preserves_audio_event_order():
+    journal = RuntimeEventJournal(size=10)
+    journal.append(
+        "audio_play",
+        {"filename": "human_wav/first_contact_minus_1m.wav", "rig_id": 1},
+    )
+    journal.append(
+        "trigger_phase",
+        {"phase": "partial", "rig_id": 1},
+    )
+
+    result = journal.read(after_seq=0, limit=10)
+
+    assert [entry["seq"] for entry in result["entries"]] == [1, 2]
+    assert result["entries"][0]["event"] == "audio_play"
+    assert result["entries"][0]["payload"]["rig_id"] == 1
+    assert result["entries"][1]["event"] == "trigger_phase"
+
+
+def test_runtime_controller_exposes_logs_and_ui_events_without_portal():
+    controller = RuntimeController.__new__(RuntimeController)
+    controller.runtime_id = "runtime-test"
+    controller.log_journal = RuntimeLogJournal()
+    controller.event_journal = RuntimeEventJournal()
+
+    controller._runtime_log("capture continues", "warning", "trigger", rig_id=1)
+    controller._runtime_emit(
+        "audio_play",
+        {"filename": "human_wav/totality_minus_1m.wav", "source": "trigger", "rig_id": 1},
+    )
+
+    logs = controller.dispatch("logs.read", {"after_seq": 0, "limit": 10})
+    events = controller.dispatch("events.read", {"after_seq": 0, "limit": 10})
+    relay = controller.dispatch(
+        "relay.read",
+        {"log_after_seq": 0, "event_after_seq": 0, "limit": 10},
+    )
+
+    assert logs["runtime_id"] == "runtime-test"
+    assert logs["entries"][0]["text"] == "capture continues"
+    assert events["runtime_id"] == "runtime-test"
+    assert events["entries"][0]["event"] == "audio_play"
+    assert relay["runtime_id"] == "runtime-test"
+    assert relay["logs"]["entries"][0]["seq"] == 1
+    assert relay["events"]["entries"][0]["payload"]["source"] == "trigger"
+
+
+def test_standalone_runtime_does_not_discard_trigger_ui_events():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "backend" / "runtime_daemon.py").read_text(encoding="utf-8")
+
+    assert "emit_fn=self._runtime_emit" in source
+    assert "emit_fn=lambda event, payload: None" not in source
+
+
+def test_portal_runtime_relay_skips_stale_audio_on_first_attachment():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "flask_app" / "app.py").read_text(encoding="utf-8")
+
+    assert "def _thread_runtime_relay():" in source
+    assert "if initial or first_attachment or event_gap:" in source
+    assert "socketio.emit(event, payload, namespace=\"/\")" in source

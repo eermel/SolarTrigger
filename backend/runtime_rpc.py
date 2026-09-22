@@ -365,6 +365,39 @@ class RemoteTriggerService:
         result = self._client.call("trigger.status", timeout=5.0)
         return result if isinstance(result, dict) else {}
 
+    def read_logs(self, after_seq: int = 0, limit: int = 500) -> dict:
+        result = self._client.call(
+            "logs.read",
+            {"after_seq": int(after_seq), "limit": int(limit)},
+            timeout=10.0,
+        )
+        return result if isinstance(result, dict) else {}
+
+    def read_events(self, after_seq: int = 0, limit: int = 500) -> dict:
+        result = self._client.call(
+            "events.read",
+            {"after_seq": int(after_seq), "limit": int(limit)},
+            timeout=10.0,
+        )
+        return result if isinstance(result, dict) else {}
+
+    def read_relay(
+        self,
+        log_after_seq: int = 0,
+        event_after_seq: int = 0,
+        limit: int = 500,
+    ) -> dict:
+        result = self._client.call(
+            "relay.read",
+            {
+                "log_after_seq": int(log_after_seq),
+                "event_after_seq": int(event_after_seq),
+                "limit": int(limit),
+            },
+            timeout=10.0,
+        )
+        return result if isinstance(result, dict) else {}
+
     def sync_state(self, *, best_effort: bool = False) -> bool:
         try:
             status = self.status()

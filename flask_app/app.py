@@ -382,6 +382,10 @@ _event_log = EventLog(LOGS_BUFFER_FILE, LOG_BUFFER_SIZE,
                       emit_fn=lambda event, payload: socketio.emit(event, payload))
 _log_buffer = _event_log.buffer
 _log_lock = _event_log.lock
+_runtime_relay_lock = threading.RLock()
+_runtime_relay_id = None
+_runtime_log_cursor = 0
+_runtime_event_cursor = 0
 _calc_proc = None
 _camera_sync_lock = threading.Lock()
 _device_detection_lock = threading.Lock()
@@ -401,6 +405,121 @@ def _load_log_buffer(): _event_log.reset()
 def _append_log(text, level="info", source="system", rig_id=None):
     return _event_log.append(text, level, source, rig_id=rig_id)
 def _trim_log_file(): _event_log.trim_forever()
+
+def _sync_runtime_relay(*, initial=False):
+    """Mirror autonomous-runtime logs/events into the current portal process.
+
+    Runtime logs are replayable so a restarted Gunicorn recovers the lines it
+    missed. Runtime UI events are not replayed on first attachment: in
+    particular, an audio_play that occurred while the portal/browser was down
+    must never be played late after reconnection.
+    """
+    global _runtime_relay_id, _runtime_log_cursor, _runtime_event_cursor
+
+    if not runtime_client_enabled():
+        return False
+
+    reader = getattr(_trigger_service, "read_relay", None)
+    if not callable(reader):
+        return False
+
+    with _runtime_relay_lock:
+        result = reader(
+            _runtime_log_cursor,
+            _runtime_event_cursor,
+            LOG_BUFFER_SIZE,
+        )
+        if not isinstance(result, dict):
+            return False
+
+        runtime_id = str(result.get("runtime_id") or "")
+        runtime_changed = bool(
+            runtime_id
+            and _runtime_relay_id
+            and runtime_id != _runtime_relay_id
+        )
+
+        if runtime_changed:
+            # Sequence numbers restart with a new runtime process.
+            result = reader(0, 0, LOG_BUFFER_SIZE)
+            runtime_id = str(result.get("runtime_id") or "")
+            _runtime_log_cursor = 0
+            _runtime_event_cursor = 0
+
+        first_attachment = _runtime_relay_id is None or runtime_changed
+        if runtime_id:
+            _runtime_relay_id = runtime_id
+
+        logs = result.get("logs") or {}
+        if isinstance(logs, dict):
+            entries = logs.get("entries") or []
+            if isinstance(entries, list):
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    seq = entry.get("seq")
+                    try:
+                        seq = int(seq)
+                    except (TypeError, ValueError):
+                        continue
+                    if seq <= _runtime_log_cursor:
+                        continue
+                    _event_log.append(
+                        entry.get("text", ""),
+                        entry.get("level", "info"),
+                        entry.get("source", "runtime"),
+                        rig_id=entry.get("rig_id"),
+                        timestamp=entry.get("timestamp"),
+                    )
+                    _runtime_log_cursor = seq
+
+        events = result.get("events") or {}
+        if isinstance(events, dict):
+            latest_seq = events.get("latest_seq", _runtime_event_cursor)
+            entries = events.get("entries") or []
+            event_gap = bool(events.get("gap"))
+
+            if initial or first_attachment or event_gap:
+                # Do not replay browser-side audio/phase events that happened
+                # while no portal was present, nor stale events after an
+                # overrun. State is recovered separately and future audio
+                # resumes from the current runtime cursor.
+                try:
+                    _runtime_event_cursor = max(
+                        _runtime_event_cursor,
+                        int(latest_seq),
+                    )
+                except (TypeError, ValueError):
+                    pass
+            elif isinstance(entries, list):
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    try:
+                        seq = int(entry.get("seq"))
+                    except (TypeError, ValueError):
+                        continue
+                    if seq <= _runtime_event_cursor:
+                        continue
+                    event = entry.get("event")
+                    payload = entry.get("payload")
+                    if isinstance(event, str) and event and isinstance(payload, dict):
+                        socketio.emit(event, payload, namespace="/")
+                    _runtime_event_cursor = seq
+
+        return True
+
+
+def _thread_runtime_relay():
+    """Relay live runtime observability without coupling capture to Gunicorn."""
+    while True:
+        try:
+            _sync_runtime_relay()
+        except Exception:
+            # Runtime observability remains best-effort. Trigger/camera
+            # execution must not depend on the portal relay thread.
+            pass
+        time.sleep(0.2)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ROUTES HTML
@@ -5714,6 +5833,11 @@ register_system_maintenance_routes(
 
 @socketio.on("connect")
 def on_connect(auth=None):
+    if runtime_client_enabled():
+        try:
+            _sync_runtime_relay()
+        except Exception:
+            pass
     """
     À chaque (re)connexion d'un client :
     1. Envoie l'état complet (GPS, éclipse, trigger, heure)
@@ -5836,6 +5960,12 @@ def start_background_threads():
 
         threading.Thread(target=_thread_status_broadcast, daemon=True).start()
         threading.Thread(target=_thread_camera_poll,      daemon=True).start()
+        if runtime_client_enabled():
+            threading.Thread(
+                target=_thread_runtime_relay,
+                daemon=True,
+                name="runtime-relay",
+            ).start()
         threading.Thread(target=_trim_log_file,           daemon=True).start()
         _background_threads_started = True
 
@@ -5862,6 +5992,10 @@ if runtime_client_enabled():
     except Exception as exc:
         log.warning("Unable to revoke stale portal camera leases: %s", exc)
     _trigger_service.sync_state(best_effort=True)
+    try:
+        _sync_runtime_relay(initial=True)
+    except Exception as exc:
+        log.warning("Unable to recover runtime logs: %s", exc)
 
 _append_log("🚀 SolarEclipse Portal started.", "success", "system")
 _append_log(f"🐍 Python: {sys.executable}", "info", "system")

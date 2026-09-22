@@ -20,9 +20,17 @@ class EventLog:
             except Exception:
                 pass
 
-    def append(self, text, level="info", source="system", rig_id=None):
-        entry = {"text": str(text), "level": level, "source": source,
-                 "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S")}
+    def append(self, text, level="info", source="system", rig_id=None, timestamp=None):
+        entry = {
+            "text": str(text),
+            "level": level,
+            "source": source,
+            "timestamp": (
+                str(timestamp)
+                if timestamp is not None
+                else datetime.now(timezone.utc).strftime("%H:%M:%S")
+            ),
+        }
         if rig_id is not None:
             entry["rig_id"] = int(rig_id)
         with self.lock:

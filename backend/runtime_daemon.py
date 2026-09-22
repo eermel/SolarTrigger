@@ -8,6 +8,7 @@ interrupt an in-flight eclipse sequence.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from datetime import datetime, timezone
 import json
 import logging
@@ -17,6 +18,7 @@ import signal
 import socketserver
 import threading
 from typing import Any
+import uuid
 
 from backend.camera_worker_runtime import CameraWorkerRuntime
 from backend.generic_worker import BusyDeviceError
@@ -51,19 +53,109 @@ _ALLOWED_WORKER_METHODS = frozenset({
 })
 
 
-def _runtime_log(text, level="info", source="runtime", rig_id=None):
-    numeric = {
-        "debug": logging.DEBUG,
-        "info": logging.INFO,
-        "success": logging.INFO,
-        "warning": logging.WARNING,
-        "error": logging.ERROR,
-        "critical": logging.CRITICAL,
-    }.get(str(level).lower(), logging.INFO)
-    prefix = f"[{source}]"
-    if rig_id is not None:
-        prefix += f"[RIG {rig_id}]"
-    LOG.log(numeric, "%s %s", prefix, text)
+class RuntimeLogJournal:
+    """Bounded, sequenced log journal owned by the autonomous runtime."""
+
+    def __init__(self, size: int = 2000):
+        self._entries = deque(maxlen=max(1, int(size)))
+        self._lock = threading.RLock()
+        self._next_seq = 1
+
+    def append(self, text, level="info", source="runtime", rig_id=None) -> dict:
+        with self._lock:
+            entry = {
+                "seq": self._next_seq,
+                "text": str(text),
+                "level": str(level),
+                "source": str(source),
+                "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+            }
+            if rig_id is not None:
+                entry["rig_id"] = int(rig_id)
+            self._entries.append(entry)
+            self._next_seq += 1
+            return dict(entry)
+
+    def read(self, after_seq: int = 0, limit: int = 500) -> dict:
+        try:
+            after_seq = int(after_seq)
+            limit = int(limit)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid runtime log cursor") from exc
+        if after_seq < 0:
+            raise ValueError("runtime log cursor must be >= 0")
+        if not 1 <= limit <= 2000:
+            raise ValueError("runtime log limit must be between 1 and 2000")
+
+        with self._lock:
+            entries = list(self._entries)
+            latest_seq = self._next_seq - 1
+            oldest_seq = entries[0]["seq"] if entries else self._next_seq
+            gap = bool(entries and after_seq and after_seq < oldest_seq - 1)
+            selected = [
+                dict(entry)
+                for entry in entries
+                if entry["seq"] > after_seq
+            ][:limit]
+        return {
+            "entries": selected,
+            "latest_seq": latest_seq,
+            "oldest_seq": oldest_seq,
+            "gap": gap,
+        }
+
+
+class RuntimeEventJournal:
+    """Bounded, sequenced Socket.IO event journal owned by the runtime."""
+
+    def __init__(self, size: int = 2000):
+        self._entries = deque(maxlen=max(1, int(size)))
+        self._lock = threading.RLock()
+        self._next_seq = 1
+
+    def append(self, event: str, payload: dict) -> dict:
+        if not isinstance(event, str) or not event:
+            raise ValueError("runtime event name is required")
+        if not isinstance(payload, dict):
+            raise ValueError("runtime event payload must be an object")
+        with self._lock:
+            entry = {
+                "seq": self._next_seq,
+                "event": event,
+                "payload": dict(payload),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            self._entries.append(entry)
+            self._next_seq += 1
+            return dict(entry)
+
+    def read(self, after_seq: int = 0, limit: int = 500) -> dict:
+        try:
+            after_seq = int(after_seq)
+            limit = int(limit)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid runtime event cursor") from exc
+        if after_seq < 0:
+            raise ValueError("runtime event cursor must be >= 0")
+        if not 1 <= limit <= 2000:
+            raise ValueError("runtime event limit must be between 1 and 2000")
+
+        with self._lock:
+            entries = list(self._entries)
+            latest_seq = self._next_seq - 1
+            oldest_seq = entries[0]["seq"] if entries else self._next_seq
+            gap = bool(entries and after_seq and after_seq < oldest_seq - 1)
+            selected = [
+                dict(entry)
+                for entry in entries
+                if entry["seq"] > after_seq
+            ][:limit]
+        return {
+            "entries": selected,
+            "latest_seq": latest_seq,
+            "oldest_seq": oldest_seq,
+            "gap": gap,
+        }
 
 
 class RuntimeController:
@@ -79,6 +171,9 @@ class RuntimeController:
 
         self.state_file = self.project_root / "var" / "state" / "state.json"
         self.started_utc = datetime.now(timezone.utc)
+        self.runtime_id = uuid.uuid4().hex
+        self.log_journal = RuntimeLogJournal()
+        self.event_journal = RuntimeEventJournal()
         self.state = StateStore(self.state_file)
         # A real runtime-service start corresponds to a new execution owner
         # (including machine boot). Never inherit a persisted "GPS synced"
@@ -86,14 +181,14 @@ class RuntimeController:
         # accepted from state.json only when its timestamp belongs to this
         # runtime lifetime.
         self.state.reset_boot_sensitive()
-        self.camera_runtime = CameraWorkerRuntime(log_fn=_runtime_log)
+        self.camera_runtime = CameraWorkerRuntime(log_fn=self._runtime_log)
         self.trigger = TriggerService(
             self.state,
             self.project_root / "scripts" / "eclipse_trigger.py",
             self.project_root / "var" / "generated" / "todayeclipse.json",
             self.project_root / "var" / "generated",
-            log_fn=_runtime_log,
-            emit_fn=lambda event, payload: None,
+            log_fn=self._runtime_log,
+            emit_fn=self._runtime_emit,
             product_configs_dir=self.project_root / "configs",
             camera_runtime=self.camera_runtime,
             rig_config_loader=load_rig_configuration,
@@ -104,6 +199,28 @@ class RuntimeController:
         # TriggerService opens its own local leases and is never included here.
         self._portal_camera_sessions: set[str] = set()
         self._portal_camera_sessions_lock = threading.RLock()
+
+    def _runtime_log(self, text, level="info", source="runtime", rig_id=None):
+        self.log_journal.append(text, level, source, rig_id)
+        numeric = {
+            "debug": logging.DEBUG,
+            "info": logging.INFO,
+            "success": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+            "critical": logging.CRITICAL,
+        }.get(str(level).lower(), logging.INFO)
+        prefix = f"[{source}]"
+        if rig_id is not None:
+            prefix += f"[RIG {rig_id}]"
+        LOG.log(numeric, "%s %s", prefix, text)
+
+    def _runtime_emit(self, event, payload):
+        """Record UI events without making capture depend on the portal."""
+        try:
+            self.event_journal.append(str(event), dict(payload or {}))
+        except Exception:
+            LOG.exception("Unable to journal runtime event %r", event)
 
     def _refresh_persisted_state(self) -> None:
         """Refresh portal-owned persisted inputs without touching live Trigger state.
@@ -203,6 +320,36 @@ class RuntimeController:
             return {
                 "pid": os.getpid(),
                 "trigger": self._trigger_snapshot(),
+            }
+
+        if operation == "logs.read":
+            result = self.log_journal.read(
+                payload.get("after_seq", 0),
+                payload.get("limit", 500),
+            )
+            result["runtime_id"] = self.runtime_id
+            return result
+
+        if operation == "events.read":
+            result = self.event_journal.read(
+                payload.get("after_seq", 0),
+                payload.get("limit", 500),
+            )
+            result["runtime_id"] = self.runtime_id
+            return result
+
+        if operation == "relay.read":
+            limit = payload.get("limit", 500)
+            return {
+                "runtime_id": self.runtime_id,
+                "logs": self.log_journal.read(
+                    payload.get("log_after_seq", 0),
+                    limit,
+                ),
+                "events": self.event_journal.read(
+                    payload.get("event_after_seq", 0),
+                    limit,
+                ),
             }
 
         if operation == "trigger.is_active_or_starting":
