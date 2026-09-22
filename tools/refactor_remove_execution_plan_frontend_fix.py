@@ -89,8 +89,16 @@ def refactor_js() -> None:
         "// CAMERA VALIDATION — end-to-end real execution-plan run",
         "// CAMERA VALIDATION — end-to-end real camera run",
     )
+    js = js.replace(
+        "The real execution-plan runtime and camera workers will be used.",
+        "The real camera scheduler, IPC and camera workers will be used.",
+    )
     retired_validation_artifact = "validation" + ".plan"
-    if "/api/sequencer/" in js or retired_validation_artifact in js or "execution-plan run" in js:
+    if (
+        "/api/sequencer/" in js
+        or retired_validation_artifact in js
+        or "execution-plan" in js
+    ):
         raise RuntimeError("Sequencer/execution-plan JS reference remains")
     write(path, js)
 
