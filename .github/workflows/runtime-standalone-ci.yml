@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - hardening/standalone-runtime-20260922
-      - feature/update-installer-devices-ui
   workflow_dispatch:
 
 jobs:
