@@ -564,6 +564,33 @@ def api_audio_enabled():
     })
 
 
+@app.route("/api/audio/volume", methods=["GET", "POST"])
+def api_audio_volume():
+    if request.method == "GET":
+        return jsonify({"volume": audio_service.get_volume()})
+
+    payload = request.get_json(silent=True) or {}
+    volume = payload.get("volume")
+    if isinstance(volume, bool) or not isinstance(volume, (int, float)):
+        return jsonify({"error": "volume must be a number between 0 and 1"}), 400
+
+    try:
+        audio_service.set_volume(volume)
+    except (TypeError, ValueError, OSError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    normalized = audio_service.get_volume()
+    socketio.emit(
+        "audio_volume",
+        {"volume": normalized},
+        namespace="/",
+    )
+    return jsonify({
+        "status": "ok",
+        "volume": normalized,
+    })
+
+
 @app.route("/api/audio/test", methods=["POST"])
 def api_audio_test():
     # Deliberately fixed: this endpoint is a contact.wav hardware/browser test,
