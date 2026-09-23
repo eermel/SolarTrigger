@@ -86,9 +86,9 @@ def test_partial_first_slot_is_aligned_to_tmax():
     assert aligned_partial_slot(tmax, 180, BASE + timedelta(minutes=1, seconds=1)) == BASE + timedelta(minutes=4)
 
 
-def test_rejects_overlap_below_five_seconds():
+def test_rejects_overlap_below_two_seconds():
     photo = _photo()
-    photo["phases"]["diamond_ring"]["totality_overlap_s"] = 4.9
+    photo["phases"]["diamond_ring"]["totality_overlap_s"] = 1.9
 
     with pytest.raises(ValueError, match="must be >= 5"):
         build_phase_schedule(_timeline(), photo)
