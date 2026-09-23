@@ -69,11 +69,16 @@ migrate_legacy_layout() {
         log "Migrating legacy installation to $destination"
         mv "$ACTIVE" "$destination"
 
-        if [ -e "$destination/var" ]; then
+        # Restore the production pathname immediately. The running portal and
+        # runtime may still resolve absolute paths while the legacy var/venv
+        # directories are moved to shared storage.
+        alink "$destination" "$ACTIVE"
+
+        if [ -e "$destination/var" ] && [ ! -L "$destination/var" ]; then
             test ! -e "$SHARED_VAR"
             mv "$destination/var" "$SHARED_VAR"
         fi
-        if [ -e "$destination/venv" ]; then
+        if [ -e "$destination/venv" ] && [ ! -L "$destination/venv" ]; then
             test ! -e "$SHARED_VENV"
             mv "$destination/venv" "$SHARED_VENV"
         fi
@@ -81,10 +86,13 @@ migrate_legacy_layout() {
         mkdir -p "$SHARED_VAR"
         test -d "$SHARED_VENV"
 
-        ln -s "$SHARED_VAR" "$destination/var"
-        ln -s "$SHARED_VENV" "$destination/venv"
+        if [ ! -L "$destination/var" ]; then
+            ln -s "$SHARED_VAR" "$destination/var"
+        fi
+        if [ ! -L "$destination/venv" ]; then
+            ln -s "$SHARED_VENV" "$destination/venv"
+        fi
         manifest_for_legacy "$version" "$destination"
-        alink "$destination" "$ACTIVE"
     fi
 }
 
