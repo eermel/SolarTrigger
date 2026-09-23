@@ -19,6 +19,13 @@ def test_existing_trigger_bootstrap_installs_root_helpers_and_sudoers():
     assert 'visudo -cf "$SUDOERS_FILE"' in BOOTSTRAP
 
 
+def test_existing_trigger_bootstrap_configures_release_upload_limit():
+    assert '/etc/nginx/conf.d/solartrigger-upload.conf' in BOOTSTRAP
+    assert 'client_max_body_size 300m;' in BOOTSTRAP
+    assert 'nginx -t' in BOOTSTRAP
+    assert 'systemctl reload nginx' in BOOTSTRAP
+
+
 def test_web_api_explains_when_existing_trigger_needs_bootstrap():
     assert 'release_helper_available' in ROUTES
     assert 'Release updater is not bootstrapped.' in ROUTES
