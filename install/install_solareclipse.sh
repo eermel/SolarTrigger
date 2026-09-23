@@ -493,19 +493,27 @@ step "STEP 4 — Install SolarEclipse runtime"
 mkdir -p "$INSTALL_BASE" "$RELEASES_DIR"
 
 if [ -e "$ACTIVE_LINK" ] || [ -L "$ACTIVE_LINK" ]; then
-    error "An existing SolarTrigger installation is already present at $ACTIVE_LINK. Use the web update/rollback mechanism instead of the fresh installer."
-fi
-if [ -e "$RELEASE_DIR" ]; then
-    error "Initial release directory already exists: $RELEASE_DIR"
+    if [ ! -L "$ACTIVE_LINK" ] ||        [ "$(readlink -f "$ACTIVE_LINK")" != "$(readlink -m "$RELEASE_DIR")" ]; then
+        error "An existing SolarTrigger installation is already present at $ACTIVE_LINK. Use the web update/rollback mechanism instead of the fresh installer."
+    fi
+    info "Resuming bootstrap installation in $RELEASE_DIR"
+else
+    mkdir -p "$RELEASE_DIR"
+    ln -s "$RELEASE_DIR" "$ACTIVE_LINK"
 fi
 
-mkdir -p "$RELEASE_DIR"
-ln -s "$RELEASE_DIR" "$ACTIVE_LINK"
+mkdir -p "$RELEASE_DIR" "$VAR_DIR"
 
-mkdir -p "$VAR_DIR"
-ln -s "$VAR_DIR" "$RELEASE_DIR/var"
-# venv is created in STEP 5. The release already points to its persistent path.
-ln -s "$VENV_DIR" "$RELEASE_DIR/venv"
+if [ ! -L "$RELEASE_DIR/var" ]; then
+    rm -rf "$RELEASE_DIR/var"
+    ln -s "$VAR_DIR" "$RELEASE_DIR/var"
+fi
+
+# venv is created in STEP 5. The release always points to its persistent path.
+if [ ! -L "$RELEASE_DIR/venv" ]; then
+    rm -rf "$RELEASE_DIR/venv"
+    ln -s "$VENV_DIR" "$RELEASE_DIR/venv"
+fi
 
 mkdir -p "$SOUNDS_DIR"
 mkdir -p "$APP_DIR/templates"
