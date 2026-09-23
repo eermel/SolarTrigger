@@ -1974,6 +1974,12 @@ socket.on('audio_enabled', data => {
   }
 });
 
+socket.on('audio_volume', data => {
+  if (data && Number.isFinite(Number(data.volume))) {
+    applyVolume(Number(data.volume) * 100);
+  }
+});
+
 let _eclipseSavePrefix = null;
 function updateEclipseSaveFilename(eclipseData) {
   if (!eclipseData) return;
@@ -4318,28 +4324,64 @@ async function toggleSounds() {
   }
 }
 
-function setVolume(v) {
-  state.volume = parseFloat(v) / 100;
-  const lbl = document.getElementById('volume-label');
-  if (lbl) lbl.textContent = `${Math.round(v)}%`;
+let audioVolumeSyncTimer = null;
+
+function applyVolume(v) {
+  const percent = Math.max(0, Math.min(100, Number(v) || 0));
+  state.volume = percent / 100;
+
+  const slider = document.getElementById('volume-slider');
+  if (slider && Number(slider.value) !== Math.round(percent)) {
+    slider.value = Math.round(percent);
+  }
+
+  const label = document.getElementById('volume-label');
+  if (label) label.textContent = `${Math.round(percent)}%`;
 }
 
-// Initialiser le switch et le slider à leur état par défaut au chargement
+function setVolume(v) {
+  applyVolume(v);
+
+  if (audioVolumeSyncTimer) clearTimeout(audioVolumeSyncTimer);
+  audioVolumeSyncTimer = setTimeout(async () => {
+    audioVolumeSyncTimer = null;
+    try {
+      const response = await fetch('/api/audio/volume', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({volume: state.volume}),
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+      applyVolume(Number(data.volume) * 100);
+    } catch (error) {
+      flash(`Pi audio volume: ${error.message}`, 'red');
+    }
+  }, 120);
+}
+
+// Initialiser le switch et le slider depuis l'état partagé de la Pi.
 document.addEventListener('DOMContentLoaded', () => {
   const sw = document.getElementById('toggle-sounds');
   if (sw) sw.classList.toggle('on', state.soundsEnabled);
-
-  const sl = document.getElementById('volume-slider');
-  if (sl) {
-    sl.value = Math.round(state.volume * 100);
-    setVolume(sl.value);
-  }
+  applyVolume(state.volume * 100);
 
   fetch('/api/audio/enabled')
     .then(response => response.json())
     .then(data => {
       if (typeof data.enabled === 'boolean') {
         applySoundsEnabled(data.enabled);
+      }
+    })
+    .catch(() => {});
+
+  fetch('/api/audio/volume')
+    .then(response => response.json())
+    .then(data => {
+      if (Number.isFinite(Number(data.volume))) {
+        applyVolume(Number(data.volume) * 100);
       }
     })
     .catch(() => {});
