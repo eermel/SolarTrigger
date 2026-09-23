@@ -340,6 +340,11 @@ class TriggerService:
                 "error",
             )
 
+    def _clear_published_failure(self, rig_id):
+        clear_fn = getattr(self.state, "clear_trigger_failure", None)
+        if callable(clear_fn):
+            clear_fn(rig_id)
+
     def publish_external_failure(self, rig_id, code, detail, *, exit_code=None):
         failure_state = {
             "running": False,
@@ -934,6 +939,7 @@ class TriggerService:
                 self._run_ids_by_rig[rig_id] = run_id
             published_phase = "recovering" if _recovery else "starting"
             try:
+                self._clear_published_failure(rig_id)
                 self.state.update_trigger_rig(
                     rig_id,
                     {
@@ -941,9 +947,6 @@ class TriggerService:
                         "phase": published_phase,
                         "mode": mode,
                         "speed": speed if simulate else 1.0,
-                        "failure_code": None,
-                        "failure_detail": None,
-                        "exit_code": None,
                     },
                 )
                 self.emit(
@@ -1477,6 +1480,7 @@ class TriggerService:
                     )
 
             if can_recover:
+                self._clear_published_failure(rig_id)
                 self.state.update_trigger_rig(
                     rig_id,
                     {
@@ -1484,9 +1488,6 @@ class TriggerService:
                         "phase": "recovering",
                         "mode": "totality_override" if totality_only else "real",
                         "speed": 1.0,
-                        "failure_code": None,
-                        "failure_detail": None,
-                        "exit_code": None,
                     },
                 )
                 self.emit(
@@ -1719,6 +1720,7 @@ class TriggerService:
             if run_id is not None:
                 self._run_ids_by_rig[rig_id] = run_id
             published_phase = "recovering" if _recovery else "totality_override"
+            self._clear_published_failure(rig_id)
             self.state.update_trigger_rig(
                 rig_id,
                 {
@@ -1726,9 +1728,6 @@ class TriggerService:
                     "phase": published_phase,
                     "mode": "totality_override",
                     "speed": 1.0,
-                    "failure_code": None,
-                    "failure_detail": None,
-                    "exit_code": None,
                 },
             )
             self.emit(
