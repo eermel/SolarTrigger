@@ -1,67 +1,327 @@
 #!/bin/sh
 set -eu
-BASE=/home/airone/solartrigger
-RELEASES=$BASE/releases
-CURRENT=$BASE/current
-PREVIOUS=$BASE/previous
-PORTAL_SERVICE=solareclipse.service
-RUNTIME_SERVICE=solartrigger-runtime.service
 
-alink(){ t=$1;l=$2;x=${l}.new.$$;ln -s "$t" "$x";mv -Tf "$x" "$l"; }
+APP_USER="${SOLARTRIGGER_USER:-${SUDO_USER:-airone}}"
+USER_HOME="$(getent passwd "$APP_USER" | cut -d: -f6)"
+test -n "$USER_HOME"
 
-runtime_unit_exists(){
-  systemctl cat "$RUNTIME_SERVICE" >/dev/null 2>&1
+BASE="$USER_HOME/solartrigger"
+RELEASES="$BASE/releases"
+SHARED_VAR="$BASE/var"
+SHARED_VENV="$BASE/venv"
+ACTIVE="$USER_HOME/solar-eclipse-trigger-prod"
+PORTAL_SERVICE="solareclipse.service"
+RUNTIME_SERVICE="solartrigger-runtime.service"
+
+log() {
+    printf '%s\n' "$*"
 }
 
-restart_stack(){
-  # Runtime first so the portal always reconnects to the authoritative owner.
-  if runtime_unit_exists; then
-    systemctl restart "$RUNTIME_SERVICE"
-  fi
-  systemctl restart "$PORTAL_SERVICE"
+alink() {
+    target=$1
+    link=$2
+    tmp="${link}.new.$$"
+    rm -f "$tmp"
+    ln -s "$target" "$tmp"
+    mv -Tf "$tmp" "$link"
 }
 
-stack_is_active(){
-  systemctl is-active --quiet "$PORTAL_SERVICE" || return 1
-  if runtime_unit_exists; then
-    systemctl is-active --quiet "$RUNTIME_SERVICE" || return 1
-  fi
+manifest_for_legacy() {
+    version=$1
+    destination=$2
+    commit=""
+    if [ -f "$destination/BUILD_COMMIT" ]; then
+        commit=$(tr -d '[:space:]' < "$destination/BUILD_COMMIT")
+    fi
+    /usr/bin/python3 - "$destination/RELEASE_MANIFEST.json" "$version" "$commit" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+version = sys.argv[2]
+commit = sys.argv[3] or None
+path.write_text(
+    json.dumps(
+        {
+            "package_type": "solartrigger-release",
+            "schema_version": 2,
+            "version": version,
+            "build_commit": commit,
+            "migrated_legacy": True,
+            "files": {},
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+PY
+}
+
+migrate_legacy_layout() {
+    mkdir -p "$BASE" "$RELEASES"
+
+    if [ -e "$ACTIVE" ] && [ ! -L "$ACTIVE" ]; then
+        stamp=$(date -u +%Y%m%d-%H%M%S)
+        version="legacy-$stamp"
+        destination="$RELEASES/$version"
+        test ! -e "$destination"
+
+        log "Migrating legacy installation to $destination"
+        mv "$ACTIVE" "$destination"
+
+        if [ -e "$destination/var" ]; then
+            test ! -e "$SHARED_VAR"
+            mv "$destination/var" "$SHARED_VAR"
+        fi
+        if [ -e "$destination/venv" ]; then
+            test ! -e "$SHARED_VENV"
+            mv "$destination/venv" "$SHARED_VENV"
+        fi
+
+        mkdir -p "$SHARED_VAR"
+        test -d "$SHARED_VENV"
+
+        ln -s "$SHARED_VAR" "$destination/var"
+        ln -s "$SHARED_VENV" "$destination/venv"
+        manifest_for_legacy "$version" "$destination"
+        alink "$destination" "$ACTIVE"
+    fi
+}
+
+validate_and_extract() {
+    package=$1
+    destination=$2
+
+    /usr/bin/python3 - "$package" "$destination" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import stat
+import sys
+import zipfile
+
+package = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+version_re = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
+required = {
+    "app.py",
+    "wsgi.py",
+    "backend/runtime_daemon.py",
+    "scripts/eclipse_trigger.py",
+    "templates/index.html",
+    "static/js/solartrigger.js",
+    "Sounds/contact.wav",
+    "configs/photo_cfg/photo_default.json",
+    "install/solartrigger-release-update",
+}
+
+def safe(name):
+    if not isinstance(name, str) or not name or "\\" in name:
+        raise RuntimeError("unsafe ZIP path")
+    path = PurePosixPath(name)
+    if path.is_absolute() or ".." in path.parts:
+        raise RuntimeError("unsafe ZIP path")
+    return path
+
+with zipfile.ZipFile(package) as archive:
+    infos = archive.infolist()
+    names = [item.filename for item in infos]
+    if len(names) != len(set(names)):
+        raise RuntimeError("duplicate ZIP entries")
+    if sum(item.file_size for item in infos) > 768 * 1024 * 1024:
+        raise RuntimeError("release is too large")
+
+    for item in infos:
+        safe(item.filename)
+        mode = (item.external_attr >> 16) & 0xFFFF
+        if stat.S_IFMT(mode) == stat.S_IFLNK:
+            raise RuntimeError("ZIP symlink rejected")
+
+    manifest = json.loads(archive.read("manifest.json"))
+    if manifest.get("package_type") != "solartrigger-release":
+        raise RuntimeError("invalid package type")
+    if manifest.get("schema_version") != 2:
+        raise RuntimeError("unsupported package schema")
+
+    version = str(manifest.get("version") or "").strip()
+    if not version_re.fullmatch(version):
+        raise RuntimeError("invalid release version")
+
+    files = manifest.get("files")
+    if not isinstance(files, dict) or not files:
+        raise RuntimeError("missing release file hashes")
+    if not required.issubset(files):
+        raise RuntimeError("release payload is incomplete")
+
+    expected = {f"payload/{name}" for name in files}
+    actual = {
+        item.filename
+        for item in infos
+        if item.filename.startswith("payload/") and not item.is_dir()
+    }
+    if actual != expected:
+        raise RuntimeError("release payload does not match manifest")
+
+    by_name = {item.filename: item for item in infos}
+    for relative, metadata in files.items():
+        relative_path = safe(relative)
+        if str(relative_path).startswith("payload/"):
+            raise RuntimeError("invalid manifest path")
+        item = by_name[f"payload/{relative_path.as_posix()}"]
+        expected_size = int(metadata["size"])
+        expected_hash = str(metadata["sha256"]).lower()
+        if item.file_size != expected_size:
+            raise RuntimeError(f"size mismatch: {relative}")
+        digest = hashlib.sha256()
+        with archive.open(item, "r") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_hash:
+            raise RuntimeError(f"hash mismatch: {relative}")
+
+    destination.mkdir(parents=True, exist_ok=False)
+    try:
+        for relative, metadata in files.items():
+            relative_path = safe(relative)
+            target = destination.joinpath(*relative_path.parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            data = archive.read(f"payload/{relative_path.as_posix()}")
+            target.write_bytes(data)
+            mode_text = str(metadata.get("mode") or "0644")
+            try:
+                mode = int(mode_text, 8)
+            except ValueError:
+                mode = 0o644
+            target.chmod(mode & 0o777)
+
+        (destination / "RELEASE_MANIFEST.json").write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except BaseException:
+        import shutil
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
+
+print(version)
+PY
+}
+
+release_version() {
+    package=$1
+    /usr/bin/python3 - "$package" <<'PY'
+import json
+import re
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    manifest = json.loads(archive.read("manifest.json"))
+version = str(manifest.get("version") or "").strip()
+if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", version):
+    raise SystemExit(66)
+print(version)
+PY
+}
+
+prepare_release_links() {
+    destination=$1
+    test ! -e "$destination/var"
+    test ! -e "$destination/venv"
+    mkdir -p "$SHARED_VAR"
+    test -x "$SHARED_VENV/bin/python"
+    ln -s "$SHARED_VAR" "$destination/var"
+    ln -s "$SHARED_VENV" "$destination/venv"
+}
+
+validate_release_runtime() {
+    destination=$1
+    test -f "$destination/app.py"
+    test -f "$destination/wsgi.py"
+    test -f "$destination/backend/runtime_daemon.py"
+    test -f "$destination/scripts/eclipse_trigger.py"
+    test -f "$destination/templates/index.html"
+    test -f "$destination/static/js/solartrigger.js"
+
+    "$SHARED_VENV/bin/python" -m py_compile         "$destination/app.py"         "$destination/wsgi.py"         "$destination/backend/runtime_daemon.py"         "$destination/scripts/eclipse_trigger.py"
+}
+
+refresh_root_helpers() {
+    destination=$1
+    if [ -f "$destination/install/solartrigger-release-update" ]; then
+        install -o root -g root -m 0755             "$destination/install/solartrigger-release-update"             /usr/local/sbin/solartrigger-release-update.next
+        mv -f             /usr/local/sbin/solartrigger-release-update.next             /usr/local/sbin/solartrigger-release-update
+    fi
+    if [ -f "$destination/install/solartrigger-system-update" ]; then
+        install -o root -g root -m 0755             "$destination/install/solartrigger-system-update"             /usr/local/sbin/solartrigger-system-update
+    fi
+}
+
+request_reboot() {
+    sync
+    log "Release switch complete. Rebooting Raspberry Pi."
+    /usr/bin/systemctl reboot
 }
 
 case "${1:-}" in
- install)
-  Z=${2:?}; V=$(/usr/bin/python3 - "$Z" <<'PY2'
-import json,sys,zipfile
-with zipfile.ZipFile(sys.argv[1]) as z:print(json.loads(z.read('manifest.json'))['version'])
-PY2
-); D=$RELEASES/$V; mkdir -p "$RELEASES"; test ! -e "$D"; mkdir "$D"
-  /usr/bin/python3 - "$Z" "$D" <<'PY2'
-import sys,zipfile
-from pathlib import Path
-z=zipfile.ZipFile(sys.argv[1]);d=Path(sys.argv[2])
-for i in z.infolist():
- if not i.filename.startswith('payload/') or i.is_dir():continue
- r=Path(i.filename).relative_to('payload');o=d/r;o.parent.mkdir(parents=True,exist_ok=True);o.write_bytes(z.read(i));m=(i.external_attr>>16)&0o777
- if m:o.chmod(m)
-PY2
-  test -f "$D/flask_app/app.py" || { rm -rf "$D";exit 66; }
-  test -f "$D/backend/runtime_daemon.py" || { rm -rf "$D";exit 66; }
-  if test -L "$CURRENT";then O=$(readlink -f "$CURRENT");alink "$O" "$PREVIOUS";fi
-  alink "$D" "$CURRENT";restart_stack;sleep 3
-  if ! stack_is_active;then
-    if test -L "$PREVIOUS";then
-      alink "$(readlink -f "$PREVIOUS")" "$CURRENT"
-      restart_stack
-    fi
-    exit 70
-  fi
-  rm -f "$Z";;
- rollback)
-  test -L "$PREVIOUS"
-  O=$(readlink -f "$CURRENT")
-  P=$(readlink -f "$PREVIOUS")
-  alink "$P" "$CURRENT"
-  alink "$O" "$PREVIOUS"
-  restart_stack;;
- *) exit 64;;
+    install)
+        package=${2:?}
+        test -f "$package"
+        migrate_legacy_layout
+
+        version=$(release_version "$package")
+        destination="$RELEASES/$version"
+        test ! -e "$destination"
+
+        temporary="$RELEASES/.install-$version-$$"
+        rm -rf "$temporary"
+
+        extracted_version=$(validate_and_extract "$package" "$temporary")
+        test "$extracted_version" = "$version"
+        prepare_release_links "$temporary"
+        validate_release_runtime "$temporary"
+
+        chown -R "$APP_USER":"$(id -gn "$APP_USER")" "$temporary"
+        mv "$temporary" "$destination"
+        alink "$destination" "$ACTIVE"
+        refresh_root_helpers "$destination"
+        rm -f "$package"
+        log "Installed SolarTrigger release: $version"
+        request_reboot
+        ;;
+
+    rollback)
+        version=${2:?}
+        case "$version" in
+            *[!A-Za-z0-9._+-]*|"")
+                exit 64
+                ;;
+        esac
+
+        migrate_legacy_layout
+        destination="$RELEASES/$version"
+        test -d "$destination"
+        test -f "$destination/app.py"
+        test -f "$destination/RELEASE_MANIFEST.json"
+
+        current=""
+        if [ -L "$ACTIVE" ]; then
+            current=$(readlink -f "$ACTIVE")
+        fi
+        test "$current" != "$(readlink -f "$destination")"
+
+        alink "$destination" "$ACTIVE"
+        refresh_root_helpers "$destination"
+        log "Rolled back SolarTrigger to: $version"
+        request_reboot
+        ;;
+
+    *)
+        exit 64
+        ;;
 esac
