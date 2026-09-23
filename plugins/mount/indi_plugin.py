@@ -109,6 +109,8 @@ class IndiMount(MountPlugin):
             props = client.get_props([
                 "DEVICE_PORT.PORT",
                 "DRIVER_INFO.*",
+                "DEVICE_INFO.*",
+                "MOUNTINFORMATION.*",
             ])
         except Exception:
             return []
@@ -120,13 +122,47 @@ class IndiMount(MountPlugin):
         )
         stable_path = cls._stable_serial_path(serial_port)
 
-        return [{
+        device_info = props.get("DEVICE_INFO", {}) if isinstance(props, dict) else {}
+        mount_info = props.get("MOUNTINFORMATION", {}) if isinstance(props, dict) else {}
+
+        model = (
+            cls._first_text(mount_info, "MOUNT_MODEL", "MODEL")
+            or cls._first_text(device_info, "MODEL", "DEVICE_MODEL")
+            or device_name
+        )
+        manufacturer = (
+            cls._first_text(mount_info, "MANUFACTURER", "MOUNT_MANUFACTURER")
+            or cls._first_text(device_info, "MANUFACTURER", "DEVICE_MANUFACTURER")
+        )
+        serial = (
+            cls._first_text(
+                mount_info,
+                "MOUNT_SERIAL",
+                "SERIAL",
+                "SERIAL_NUMBER",
+                "SERIALNUMBER",
+            )
+            or cls._first_text(
+                device_info,
+                "SERIAL",
+                "SERIAL_NUMBER",
+                "SERIALNUMBER",
+                "DEVICE_SERIAL",
+            )
+        )
+
+        entry = {
             "category": "mount",
             "backend": cls.plugin_id,
-            "model": device_name,
+            "model": model,
             "device_name": device_name,
             "fallback_physical_path": stable_path,
-        }]
+        }
+        if manufacturer:
+            entry["manufacturer"] = manufacturer
+        if serial:
+            entry["serial"] = serial
+        return [entry]
 
     def connect(self):
         serial_port = (
