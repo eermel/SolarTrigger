@@ -215,10 +215,19 @@
               Install update
             </button>
 
+            <select
+              id="solartrigger-rollback-version"
+              class="config-file-select file-select-chevron"
+              aria-label="Installed SolarTrigger version for rollback">
+              <option value="">— Installed version —</option>
+            </select>
+
             <button
               class="btn"
+              id="solartrigger-rollback-release"
               type="button"
-              onclick="rollbackSolarTriggerRelease()">
+              onclick="rollbackSolarTriggerRelease()"
+              disabled>
               Rollback
             </button>
           </div>
@@ -450,7 +459,7 @@
 
       <!-- ── CARD 2 : Phase Partielle ── -->
       <div class="card">
-        <div class="card-title" style="color:var(--purple)">☀ PARTIAL PHASE</div>
+        <div class="card-title" style="color:var(--purple)">🌙 PARTIAL PHASE</div>
         <div class="grid2" style="margin-bottom:8px">
           <div class="field"><label>INTERVAL (S)</label>
             <input type="number" id="cfg-partial-interval" value="180" step="1" min="1">
@@ -458,23 +467,23 @@
         </div>
         <div class="grid2" style="margin-bottom:8px">
           <div class="field"><label>ISO</label>
-            <select id="cfg-partial-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+            <select id="cfg-partial-iso" class="file-select-chevron">
               <option selected>100</option><option>200</option><option>400</option><option>800</option>
               <option>1600</option><option>3200</option><option>6400</option>
             </select>
           </div>
           <div class="field"><label>Aperture</label>
-            <select id="cfg-partial-aperture">
+            <select id="cfg-partial-aperture" class="file-select-chevron">
               <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
             </select>
           </div>
         </div>
         <div class="grid2">
           <div class="field"><label>Minimum shutter speed (slowest)</label>
-            <select id="cfg-partial-shutter-min"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+            <select id="cfg-partial-shutter-min" class="file-select-chevron"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
           </div>
           <div class="field"><label>Maximum shutter speed (fastest)</label>
-            <select id="cfg-partial-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+            <select id="cfg-partial-shutter-max" class="file-select-chevron"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
           </div>
         </div>
         <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
@@ -493,31 +502,31 @@
         </div>
         <div class="grid2" style="margin-bottom:8px">
           <div class="field"><label>TOTALITY OVERLAP X (S)</label>
-            <input type="number" id="cfg-dr-overlap" value="5" step="0.1" min="5">
+            <input type="number" id="cfg-dr-overlap" value="5" step="0.1" min="2">
           </div>
         </div>
         <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">
-          Diamond Ring continues until C2 + X and starts at C3 − X. Minimum: 5 s.
+          Diamond Ring continues until C2 + X and starts at C3 − X. Minimum: 2 s.
         </div>
         <div class="grid2" style="margin-bottom:8px">
           <div class="field"><label>ISO</label>
-            <select id="cfg-dr-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+            <select id="cfg-dr-iso" class="file-select-chevron">
               <option selected>100</option><option>200</option><option>400</option><option>800</option>
               <option>1600</option><option>3200</option><option>6400</option>
             </select>
           </div>
           <div class="field"><label>Aperture</label>
-            <select id="cfg-dr-aperture">
+            <select id="cfg-dr-aperture" class="file-select-chevron">
               <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
             </select>
           </div>
         </div>
         <div class="grid2">
           <div class="field"><label>Minimum shutter speed (slowest)</label>
-            <select id="cfg-dr-shutter-min"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+            <select id="cfg-dr-shutter-min" class="file-select-chevron"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500" selected>1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
           </div>
           <div class="field"><label>Maximum shutter speed (fastest)</label>
-            <select id="cfg-dr-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000" selected>1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+            <select id="cfg-dr-shutter-max" class="file-select-chevron"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000" selected>1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
           </div>
         </div>
         <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
@@ -528,23 +537,23 @@
         <div class="card-title" style="color:var(--green)">🌑 TOTALITY</div>
         <div class="grid2" style="margin-bottom:8px">
           <div class="field"><label>ISO</label>
-            <select id="cfg-tot-iso" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px">
+            <select id="cfg-tot-iso" class="file-select-chevron">
               <option selected>100</option><option>200</option><option>400</option><option>800</option>
               <option>1600</option><option>3200</option><option>6400</option>
             </select>
           </div>
           <div class="field"><label>Aperture</label>
-            <select id="cfg-tot-aperture">
+            <select id="cfg-tot-aperture" class="file-select-chevron">
               <option>f/2.8</option><option>f/4</option><option>f/5.6</option><option selected>f/8</option>
             </select>
           </div>
         </div>
         <div class="grid2">
           <div class="field"><label>Minimum shutter speed (slowest)</label>
-            <select id="cfg-tot-shutter-min"><option value="8">8s</option><option value="4" selected>4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
+            <select id="cfg-tot-shutter-min" class="file-select-chevron"><option value="8">8s</option><option value="4" selected>4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000">1/4000</option><option value="1/8000">1/8000</option></select>
           </div>
           <div class="field"><label>Maximum shutter speed (fastest)</label>
-            <select id="cfg-tot-shutter-max"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000" selected>1/4000</option><option value="1/8000">1/8000</option></select>
+            <select id="cfg-tot-shutter-max" class="file-select-chevron"><option value="8">8s</option><option value="4">4s</option><option value="2">2s</option><option value="1">1s</option><option value="1/2">1/2</option><option value="1/4">1/4</option><option value="1/8">1/8</option><option value="1/15">1/15</option><option value="1/30">1/30</option><option value="1/60">1/60</option><option value="1/125">1/125</option><option value="1/250">1/250</option><option value="1/500">1/500</option><option value="1/1000">1/1000</option><option value="1/2000">1/2000</option><option value="1/4000" selected>1/4000</option><option value="1/8000">1/8000</option></select>
           </div>
         </div>
         <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Step: 1 EV</div>
