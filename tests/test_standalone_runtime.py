@@ -491,3 +491,15 @@ def test_legacy_migration_restores_active_path_before_shared_moves():
 
     assert move_active < relink_active < move_var
     assert move_active < relink_active < move_venv
+
+
+
+def test_web_release_install_does_not_replace_root_helpers():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "install" / "solartrigger-release-update").read_text(
+        encoding="utf-8"
+    )
+
+    assert "refresh_root_helpers" not in script
+    assert "/usr/local/sbin/solartrigger-release-update.next" not in script
+    assert "/usr/local/sbin/solartrigger-system-update" not in script
