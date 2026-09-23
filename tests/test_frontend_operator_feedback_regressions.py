@@ -76,3 +76,30 @@ def test_camera_validation_ui_does_not_describe_plan_runtime():
         "// DEBUG TAB — UI adapter over the existing Trigger functionality",
     )
     assert "The validation report and run log will be kept for debugging." in validation_js
+
+
+
+def test_characterization_and_validation_show_immediate_starting_feedback():
+    characterization = _between(
+        "async function startCameraCharacterization() {",
+        "async function cancelCameraCharacterization() {",
+    )
+    assert "cameraCharacterizationStarting = true;" in characterization
+    assert "Starting camera characterization…" in characterization
+    assert (
+        characterization.index("appendCameraAddLogLine(")
+        < characterization.index("await waitForBrowserPaint()")
+        < characterization.index("await characterizationRequest('start'")
+    )
+
+    validation = _between(
+        "async function prepareCameraValidation() {",
+        "async function cancelCameraValidation() {",
+    )
+    assert "cameraValidationStarting = true;" in validation
+    assert "Preparing camera validation…" in validation
+    assert (
+        validation.index("start.disabled = true")
+        < validation.index("await waitForBrowserPaint()")
+        < validation.index("fetch('/api/camera-validation/prepare'")
+    )
