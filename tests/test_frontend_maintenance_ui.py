@@ -141,3 +141,26 @@ def test_recharacterization_select_has_chevron():
     select = source[start:source.index(">", start)]
 
     assert "file-select-chevron" in select
+
+
+
+def test_release_rollback_can_select_any_installed_version():
+    source = frontend_source()
+
+    assert 'id="solartrigger-rollback-version"' in source
+    assert 'id="solartrigger-rollback-release"' in source
+    assert "renderInstalledSolarTriggerReleases" in source
+    assert "releaseState.releases" in source
+    assert "{version}" in source or "{version}" not in source
+    assert (
+        "maintenancePost(" in source
+        and "/api/system/maintenance/rollback-release" in source
+        and "{version}" in source
+    )
+
+
+def test_release_actions_warn_that_pi_reboots():
+    source = frontend_source()
+
+    assert "Raspberry Pi will reboot" in source
+    assert "Pi reboot requested" in source
