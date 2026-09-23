@@ -143,8 +143,8 @@ jobs:
           if pos < 0:
               raise SystemExit('trigger_phase handler not found')
 
-          helper = """function triggerPhaseRunningState(s, nextPhase) {
-            if (typeof s.running === 'boolean') return s.running;
+          helper = """function triggerPhaseRunningState(d, nextPhase) {
+            if (typeof d.running === 'boolean') return d.running;
             return nextPhase !== 'idle' && nextPhase !== 'failed';
           }
 
