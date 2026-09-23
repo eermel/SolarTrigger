@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import threading
 import uuid
@@ -17,6 +18,10 @@ import uuid
 SCHEMA_VERSION = 1
 ACTIVE_STATUS = "active"
 FINAL_STATUSES = frozenset({"completed", "stopped", "failed"})
+
+
+class TriggerRunJournalInvalid(RuntimeError):
+    """Recovery journal exists but cannot be trusted or decoded."""
 
 
 def utc_now_iso() -> str:
@@ -52,29 +57,72 @@ class TriggerRunJournal:
     def _empty(self) -> dict:
         return {"schema_version": SCHEMA_VERSION, "rigs": {}}
 
+    def _invalid(self, reason: str, exc: Exception | None = None):
+        error = TriggerRunJournalInvalid(
+            f"{self.path}: {reason}"
+        )
+        if exc is not None:
+            raise error from exc
+        raise error
+
     def _read_unlocked(self) -> dict:
         try:
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            text = self.path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return self._empty()
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
-            # Corrupt recovery metadata must never be interpreted as a live run.
-            return self._empty()
-        if not isinstance(raw, dict) or raw.get("schema_version") != SCHEMA_VERSION:
-            return self._empty()
+        except (OSError, UnicodeError) as exc:
+            self._invalid(
+                f"recovery journal is unreadable ({type(exc).__name__}: {exc})",
+                exc,
+            )
+
+        try:
+            raw = json.loads(text)
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            self._invalid(
+                f"recovery journal contains invalid JSON ({exc})",
+                exc,
+            )
+
+        if not isinstance(raw, dict):
+            self._invalid("recovery journal root must be an object")
+        if raw.get("schema_version") != SCHEMA_VERSION:
+            self._invalid(
+                "unsupported or missing recovery journal schema_version"
+            )
         rigs = raw.get("rigs")
         if not isinstance(rigs, dict):
-            return self._empty()
+            self._invalid("recovery journal rigs must be an object")
         return raw
 
     def _write_unlocked(self, payload: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True),
-            encoding="utf-8",
+        encoded = json.dumps(
+            payload,
+            indent=2,
+            ensure_ascii=False,
+            sort_keys=True,
         )
-        tmp.replace(self.path)
+        try:
+            with tmp.open("w", encoding="utf-8") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+
+            os.replace(tmp, self.path)
+
+            flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            directory_fd = os.open(self.path.parent, flags)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -110,14 +158,22 @@ class TriggerRunJournal:
             self._write_unlocked(payload)
         return copy.deepcopy(entry)
 
-    def active_entries(self) -> tuple[dict, ...]:
+    def _entries_with_status(self, status: str) -> tuple[dict, ...]:
         with self._lock:
             payload = self._read_unlocked()
             entries = []
             for value in payload["rigs"].values():
-                if isinstance(value, dict) and value.get("status") == ACTIVE_STATUS:
+                if isinstance(value, dict) and value.get("status") == status:
                     entries.append(copy.deepcopy(value))
-        return tuple(sorted(entries, key=lambda item: int(item.get("rig_id", 0))))
+        return tuple(
+            sorted(entries, key=lambda item: int(item.get("rig_id", 0)))
+        )
+
+    def active_entries(self) -> tuple[dict, ...]:
+        return self._entries_with_status(ACTIVE_STATUS)
+
+    def failed_entries(self) -> tuple[dict, ...]:
+        return self._entries_with_status("failed")
 
     def _mutate_active(self, rig_id: int, run_id: str, fn) -> dict | None:
         with self._lock:
