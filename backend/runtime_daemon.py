@@ -37,7 +37,10 @@ from backend.runtime_rpc import (
 )
 from backend.state_store import StateStore
 from backend.trigger_service import TriggerService, TriggerValidationError
-from backend.trigger_run_journal import TriggerRunJournal
+from backend.trigger_run_journal import (
+    TriggerRunJournal,
+    TriggerRunJournalInvalid,
+)
 
 
 LOG = logging.getLogger("solartrigger-runtime")
@@ -204,12 +207,60 @@ class RuntimeController:
         # TriggerService opens its own local leases and is never included here.
         self._portal_camera_sessions: set[str] = set()
         self._portal_camera_sessions_lock = threading.RLock()
+        self._restore_trigger_journal_state()
+
+    def _publish_recovery_journal_invalid(self, exc):
+        detail = (
+            "trigger recovery journal is invalid or unreadable; "
+            f"automatic recovery is disabled: {exc}"
+        )
+        self._runtime_log(
+            detail,
+            "critical",
+            "trigger",
+        )
+        for rig_id in range(1, 5):
+            self.trigger.publish_external_failure(
+                rig_id,
+                "RECOVERY_JOURNAL_INVALID",
+                detail,
+            )
+
+    def _restore_trigger_journal_state(self):
+        try:
+            failed_entries = self.run_journal.failed_entries()
+        except TriggerRunJournalInvalid as exc:
+            self._publish_recovery_journal_invalid(exc)
+            return
+
+        for entry in failed_entries:
+            try:
+                rig_id = int(entry.get("rig_id", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if not 1 <= rig_id <= 4:
+                continue
+            code = entry.get("failure_code") or "TRIGGER_FAILED"
+            detail = entry.get("detail") or "previous trigger run failed"
+            self.trigger.publish_external_failure(
+                rig_id,
+                code,
+                detail,
+                exit_code=entry.get("exit_code"),
+            )
+
         self._recover_active_trigger_runs()
 
     def _recover_active_trigger_runs(self):
         # Recover at most once, and only inside the same Linux boot.
         current_boot = self.run_journal.boot_id
-        for entry in self.run_journal.active_entries():
+        try:
+            active_entries = self.run_journal.active_entries()
+        except TriggerRunJournalInvalid as exc:
+            self._publish_recovery_journal_invalid(exc)
+            return
+
+        for entry in active_entries:
             rig_id = int(entry.get("rig_id", 0) or 0)
             run_id = entry.get("run_id")
             if not 1 <= rig_id <= 4 or not isinstance(run_id, str):
