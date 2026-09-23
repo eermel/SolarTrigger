@@ -35,6 +35,7 @@ def fake_pygame(get_busy=None, load_side_effect=None):
     music = SimpleNamespace(
         load=Mock(side_effect=load_side_effect),
         play=Mock(),
+        set_volume=Mock(),
         get_busy=Mock(side_effect=get_busy) if get_busy else Mock(return_value=False),
         stop=Mock(),
     )
@@ -142,3 +143,32 @@ def test_shutdown_joins_registered_play_thread_and_stops_mixer(
 
     assert not thread.is_alive()
     assert pygame.mixer.music.stop.called
+
+
+
+def test_shared_volume_is_applied_to_pi_mixer(monkeypatch, tmp_path):
+    pygame = fake_pygame()
+    monkeypatch.setitem(sys.modules, "pygame", pygame)
+    sound = tmp_path / "contact.wav"
+    sound.touch()
+    volume_state = tmp_path / "volume"
+    monkeypatch.setattr(audio_service, "AUDIO_VOLUME_STATE_FILE", str(volume_state))
+
+    audio_service.set_volume(0.35)
+    audio_service.init(lambda _message: None)
+    audio_service.set_sounds_dir(tmp_path)
+    audio_service.play(sound.name)
+
+    assert audio_service.get_volume() == pytest.approx(0.35)
+    pygame.mixer.music.set_volume.assert_called_once_with(pytest.approx(0.35))
+
+
+def test_shared_volume_rejects_out_of_range(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        audio_service,
+        "AUDIO_VOLUME_STATE_FILE",
+        str(tmp_path / "volume"),
+    )
+
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        audio_service.set_volume(1.1)
