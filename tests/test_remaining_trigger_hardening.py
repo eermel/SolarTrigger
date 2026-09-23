@@ -1,9 +1,7 @@
 import io
-import json
 import os
 import threading
 import time
-from datetime import datetime, timezone
 
 from backend.state_store import StateStore
 from backend.trigger_service import TriggerService
@@ -184,4 +182,4 @@ def test_frontend_has_failed_and_recovering_states_and_failure_alert():
     assert "recovering: '↻ RECOVERING'" in js
     assert "failed: '⚠ TRIGGER FAILED'" in js
     assert 'socket.on("trigger_failure"' in js
-    assert "typeof s.running === 'boolean'" in js
+    assert "typeof d.running === 'boolean'" in js
