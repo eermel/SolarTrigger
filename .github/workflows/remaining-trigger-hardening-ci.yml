@@ -25,6 +25,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           path = Path('tools/apply_remaining_trigger_hardening.py')
           text = path.read_text(encoding='utf-8')
           text = text.replace(
@@ -35,6 +36,21 @@ jobs:
               '        """Recover at most once, and only inside the same Linux boot."""',
               '        # Recover at most once, and only inside the same Linux boot.',
           )
+          text = text.replace('PHASE_NAMES', 'PHASE_LABELS')
+          text, count = re.subn(
+              r'    old = "nextState\.running = nextPhase !== \\"idle\\";".*?    text = text\.replace\(old, new, 1\)\n',
+              "    old = \"running: nextPhase !== 'idle',\"\n"
+              "    if old not in text:\n"
+              "        raise RuntimeError(\"trigger_phase running field not found\")\n"
+              "    new = (\"running: typeof d.running === 'boolean' \"\n"
+              "           \"? d.running : !['idle', 'failed'].includes(nextPhase),\")\n"
+              "    text = text.replace(old, new, 1)\n",
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('unable to adapt frontend running-state transform')
           path.write_text(text, encoding='utf-8')
           PY
           python tools/apply_remaining_trigger_hardening.py
