@@ -13,6 +13,11 @@ AUDIO_ENABLED_STATE_FILE = os.environ.get(
     "SET_AUDIO_ENABLED_STATE_FILE",
     "/tmp/solartrigger-audio-enabled",
 )
+AUDIO_VOLUME_STATE_FILE = os.environ.get(
+    "SET_AUDIO_VOLUME_STATE_FILE",
+    "/tmp/solartrigger-audio-volume",
+)
+DEFAULT_VOLUME = 0.8
 
 pygame = None
 _log_fn = None
@@ -119,6 +124,37 @@ def set_enabled(enabled):
             pass
 
 
+def get_volume():
+    """Return the shared Pi/browser volume in the normalized 0..1 range."""
+    try:
+        with open(AUDIO_VOLUME_STATE_FILE, encoding="utf-8") as handle:
+            value = float(handle.read().strip())
+    except (FileNotFoundError, OSError, TypeError, ValueError):
+        return DEFAULT_VOLUME
+    return min(1.0, max(0.0, value))
+
+
+def set_volume(volume):
+    """Persist the normalized volume atomically for every audio process."""
+    value = float(volume)
+    if not 0.0 <= value <= 1.0:
+        raise ValueError("volume must be between 0 and 1")
+
+    tmp_path = (
+        f"{AUDIO_VOLUME_STATE_FILE}."
+        f"{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            handle.write(f"{value:.6f}")
+        os.replace(tmp_path, AUDIO_VOLUME_STATE_FILE)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+
+
 def play(filename):
     """Play one WAV file synchronously, unless audio is disabled or stopped."""
     global _mixer_ready
@@ -135,6 +171,7 @@ def play(filename):
             if not _ensure_mixer():
                 return
             pygame.mixer.music.load(path)
+            pygame.mixer.music.set_volume(get_volume())
             pygame.mixer.music.play()
             _log(f"TRIGGER_AUDIO {filename}")
             while pygame.mixer.music.get_busy() and not _stop_event.is_set():
