@@ -87,11 +87,13 @@ jobs:
               '{"rig_id": rig_id, "phase": "idle"},',
           )
 
-          old = """                owns_process = (
-                      self._procs[rig_id] is proc
-                      if proc is not None
-                      else self._starting_by_rig[rig_id]
-                  )"""
+          start = text.find("                owns_process = (\n")
+          end = text.find(
+              "\n                if owns_process and not process_still_alive:",
+              start,
+          )
+          if start < 0 or end < 0:
+              raise SystemExit('generated owns_process block not found')
           new = """                owns_process = (
                       self._procs[rig_id] is proc
                       or (
@@ -104,9 +106,7 @@ jobs:
                           and self._starting_by_rig[rig_id]
                       )
                   )"""
-          if old not in text:
-              raise SystemExit('generated owns_process block not found')
-          text = text.replace(old, new, 1)
+          text = text[:start] + new + text[end:]
 
           marker = "        recovery_selection = None\n"
           init = (
