@@ -256,17 +256,6 @@ validate_release_runtime() {
     "$SHARED_VENV/bin/python" -m py_compile         "$destination/app.py"         "$destination/wsgi.py"         "$destination/backend/runtime_daemon.py"         "$destination/scripts/eclipse_trigger.py"
 }
 
-refresh_root_helpers() {
-    destination=$1
-    if [ -f "$destination/install/solartrigger-release-update" ]; then
-        install -o root -g root -m 0755             "$destination/install/solartrigger-release-update"             /usr/local/sbin/solartrigger-release-update.next
-        mv -f             /usr/local/sbin/solartrigger-release-update.next             /usr/local/sbin/solartrigger-release-update
-    fi
-    if [ -f "$destination/install/solartrigger-system-update" ]; then
-        install -o root -g root -m 0755             "$destination/install/solartrigger-system-update"             /usr/local/sbin/solartrigger-system-update
-    fi
-}
-
 request_reboot() {
     sync
     log "Release switch complete. Rebooting Raspberry Pi."
@@ -297,7 +286,6 @@ case "${1:-}" in
 
         mv "$temporary" "$destination"
         alink "$destination" "$ACTIVE"
-        refresh_root_helpers "$destination"
         rm -f "$package"
         log "Installed SolarTrigger release: $version"
         request_reboot
