@@ -144,6 +144,27 @@ class StateStore:
 
             return copy.deepcopy(rig_state)
 
+    def clear_trigger_failure(self, rig_id: int):
+        """Remove stale failure metadata before a new run starts."""
+        key = str(rig_id)
+        with self.lock:
+            trigger = self._state.setdefault(
+                "trigger",
+                {"running": False, "phase": "idle"},
+            )
+            rigs = trigger.setdefault("rigs", {})
+            rig_state = rigs.setdefault(
+                key,
+                {
+                    "running": False,
+                    "phase": "idle",
+                    "mode": None,
+                    "speed": None,
+                },
+            )
+            for field in ("failure_code", "failure_detail", "exit_code"):
+                rig_state.pop(field, None)
+
     def reset_boot_sensitive(self):
         with self.lock:
             gps = self._state.setdefault("gps", {})
