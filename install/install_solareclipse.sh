@@ -644,7 +644,8 @@ cat > "$RELEASE_DIR/RELEASE_MANIFEST.json" <<EOF
 }
 EOF
 
-chown -R "$CURRENT_USER:$CURRENT_USER" "$RELEASE_DIR" "$VAR_DIR"
+chown -hR "$CURRENT_USER:$CURRENT_USER" "$RELEASE_DIR"
+chown -R "$CURRENT_USER:$CURRENT_USER" "$VAR_DIR"
 chown -h "$CURRENT_USER:$CURRENT_USER" "$ACTIVE_LINK"
 
 # ════════════════════════════════════════════════════════════
