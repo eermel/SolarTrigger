@@ -48,9 +48,11 @@ def test_installer_uses_build_commit_not_manual_version():
     assert 'rm -f "$APP_DIR/VERSION"' in INSTALLER
 
 
-def test_installer_uses_one_application_root():
-    assert 'APP_DIR="$USER_HOME/solar-eclipse-trigger-prod"' in INSTALLER
-    assert 'VENV_DIR="$APP_DIR/venv"' in INSTALLER
+def test_installer_uses_active_symlink_as_application_root():
+    assert 'ACTIVE_LINK="$USER_HOME/solar-eclipse-trigger-prod"' in INSTALLER
+    assert 'APP_DIR="$ACTIVE_LINK"' in INSTALLER
+    assert 'RELEASES_DIR="$INSTALL_BASE/releases"' in INSTALLER
+    assert 'VENV_DIR="$INSTALL_BASE/venv"' in INSTALLER
     assert "python_solareclipsetrigger" not in INSTALLER
     assert "flaskapp_solareclipsetrigger" not in INSTALLER
 
