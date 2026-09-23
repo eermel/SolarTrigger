@@ -151,7 +151,6 @@ def test_release_rollback_can_select_any_installed_version():
     assert 'id="solartrigger-rollback-release"' in source
     assert "renderInstalledSolarTriggerReleases" in source
     assert "releaseState.releases" in source
-    assert "{version}" in source or "{version}" not in source
     assert (
         "maintenancePost(" in source
         and "/api/system/maintenance/rollback-release" in source
