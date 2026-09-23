@@ -151,3 +151,32 @@ def test_partial_trigger_config_keeps_missing_internal_contacts_null():
 
     assert data["C4_alt_deg"] == 0.0
     assert isinstance(data["C4_alt_deg"], float)
+
+
+def test_atomic_write_replaces_complete_json(tmp_path):
+    output = tmp_path / "todayeclipse.json"
+    output.write_text('{"old": true}\n', encoding="utf-8")
+
+    eclipse_calculator_py._write_json_atomic(output, {"new": True})
+
+    assert json.loads(output.read_text(encoding="utf-8")) == {"new": True}
+    assert list(tmp_path.glob(".todayeclipse.json.*.tmp")) == []
+
+
+def test_atomic_write_preserves_previous_json_when_replace_fails(
+    tmp_path, monkeypatch
+):
+    output = tmp_path / "todayeclipse.json"
+    previous = '{"old": true}\n'
+    output.write_text(previous, encoding="utf-8")
+
+    def fail_replace(_src, _dst):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(eclipse_calculator_py.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        eclipse_calculator_py._write_json_atomic(output, {"new": True})
+
+    assert output.read_text(encoding="utf-8") == previous
+    assert list(tmp_path.glob(".todayeclipse.json.*.tmp")) == []

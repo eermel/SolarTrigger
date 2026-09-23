@@ -568,8 +568,9 @@ def run_emergency_totality(
         )
 
         try:
-            heartbeat_fn("capture.begin")
+            heartbeat_fn("capture.prepare.begin")
             prepared = camera.prepare_capture(intent)
+            heartbeat_fn("capture.begin")
             result = camera.trigger_prepared(prepared, deadline=None)
             heartbeat_fn("capture.end")
             frames = max(0, int(getattr(result, "frames", 0) or 0))
@@ -897,9 +898,10 @@ def main() -> int:
                 origin="atmos" if atmos_added else window.photo_phase,
                 request_id=uuid.uuid4().hex,
             )
-            heartbeat.pulse("capture.begin")
+            heartbeat.pulse("capture.prepare.begin")
             try:
                 prepared = camera.prepare_capture(intent)
+                heartbeat.pulse("capture.begin")
                 result = camera.trigger_prepared(prepared, deadline=deadline)
             except Exception:
                 heartbeat.pulse("capture.error")

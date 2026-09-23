@@ -1,6 +1,7 @@
 import json
 import importlib.util
 import sys
+import threading
 from datetime import datetime as real_datetime, timezone
 from types import ModuleType
 
@@ -122,6 +123,7 @@ def _prepare_calculation(monkeypatch, tmp_path, captured_commands):
 
     monkeypatch.setattr(flask_module, "JSON_FILE", json_file)
     monkeypatch.setattr(flask_module, "_calc_proc", None)
+    monkeypatch.setattr(flask_module, "_calc_lock", threading.Lock())
     monkeypatch.setattr(flask_module, "_state", {})
     monkeypatch.setattr(flask_module, "_save_state", lambda: None)
     monkeypatch.setattr(flask_module, "_append_log", lambda *args, **kwargs: None)
@@ -254,3 +256,49 @@ def test_eclipse_calculate_auto_selects_supported_date(
     assert response.status_code == 200
     command = commands[0]
     assert command[command.index("--date") + 1] == expected
+
+
+def test_eclipse_calculate_rejects_second_request_before_worker_claims_proc(
+    tmp_path, monkeypatch
+):
+    json_file = tmp_path / "todayeclipse.json"
+    started = []
+
+    class DeferredThread:
+        def __init__(self, target, **_kwargs):
+            self.target = target
+
+        def start(self):
+            started.append(self.target)
+
+    monkeypatch.setattr(flask_module, "JSON_FILE", json_file)
+    monkeypatch.setattr(flask_module, "_calc_proc", None)
+    monkeypatch.setattr(flask_module, "_calc_lock", threading.Lock())
+    monkeypatch.setattr(flask_module, "_append_log", lambda *args, **kwargs: None)
+    monkeypatch.setattr(flask_module.threading, "Thread", DeferredThread)
+    monkeypatch.setattr(
+        flask_module,
+        "calculate_timezone_from_coords",
+        lambda _lat, _lon, eclipse_date=None: 2.0,
+    )
+
+    client = flask_module.app.test_client()
+    payload = {
+        "lat": 43.6,
+        "lon": 1.44,
+        "alt": 150,
+        "eclipse": "2027-08-02",
+    }
+
+    first = client.post("/api/eclipse/calculate", json=payload)
+    second = client.post("/api/eclipse/calculate", json=payload)
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.get_json() == {
+        "error": "Calculation is already in progress."
+    }
+    assert len(started) == 1
+
+    # Do not leave the module-global lock claimed after this deferred test.
+    flask_module._calc_lock.release()

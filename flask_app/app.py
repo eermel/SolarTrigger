@@ -371,6 +371,7 @@ _runtime_relay_id = None
 _runtime_log_cursor = 0
 _runtime_event_cursor = 0
 _calc_proc = None
+_calc_lock = threading.Lock()
 _camera_sync_lock = threading.Lock()
 _device_detection_lock = threading.Lock()
 _device_detection_cache = {}
@@ -3170,8 +3171,6 @@ def api_eclipse_supported():
 @app.route("/api/eclipse/calculate", methods=["POST"])
 def api_eclipse_calculate():
     global _calc_proc
-    if _calc_proc and _calc_proc.poll() is None:
-        return jsonify({"error": "Calculation is already in progress."}), 409
 
     data    = request.json or {}
     lat     = data.get("lat")
@@ -3211,20 +3210,29 @@ def api_eclipse_calculate():
         "info", "calculator"
     )
 
+    # Claim the calculator slot in the request thread, before the worker
+    # thread exists.  _calc_proc is assigned only after Popen(), so checking
+    # that variable alone leaves a double-click/two-client race window.
+    if not _calc_lock.acquire(blocking=False):
+        return jsonify({"error": "Calculation is already in progress."}), 409
+    if _calc_proc and _calc_proc.poll() is None:
+        _calc_lock.release()
+        return jsonify({"error": "Calculation is already in progress."}), 409
+
     def _run():
         global _calc_proc
 
-        _append_log(
-            f"▶ Python calculator: lat={lat} lon={lon} alt={alt} "
-            f"tz=+{tz_used} date={eclipse_date} (automatic timezone)",
-            "info",
-            "calculator",
-        )
-
-        with _state_lock:
-            _state["calc_running"] = True
-
         try:
+            _append_log(
+                f"▶ Python calculator: lat={lat} lon={lon} alt={alt} "
+                f"tz=+{tz_used} date={eclipse_date} (automatic timezone)",
+                "info",
+                "calculator",
+            )
+
+            with _state_lock:
+                _state["calc_running"] = True
+
             # Émettre la timezone calculée au client avant le calcul
             socketio.emit("state_update", {"timezone_override": tz_str_dst})
 
@@ -3314,8 +3322,13 @@ def api_eclipse_calculate():
             with _state_lock:
                 _state["calc_running"] = False
             _calc_proc = None
+            _calc_lock.release()
 
-    threading.Thread(target=_run, daemon=True).start()
+    try:
+        threading.Thread(target=_run, daemon=True).start()
+    except Exception:
+        _calc_lock.release()
+        raise
     return jsonify({"status": "started"})
 
 

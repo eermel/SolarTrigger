@@ -20,6 +20,7 @@ import threading
 from typing import Any
 import uuid
 
+from backend import audio_service
 from backend.camera_worker_runtime import CameraWorkerRuntime
 from backend.generic_worker import BusyDeviceError
 from backend.rig_runtime import load_rig_configuration
@@ -189,6 +190,7 @@ class RuntimeController:
             self.project_root / "var" / "state" / "trigger_state.json"
         )
         self.camera_runtime = CameraWorkerRuntime(log_fn=self._runtime_log)
+        self._failure_audio_lock = threading.Lock()
         self.trigger = TriggerService(
             self.state,
             self.project_root / "scripts" / "eclipse_trigger.py",
@@ -200,6 +202,7 @@ class RuntimeController:
             camera_runtime=self.camera_runtime,
             rig_config_loader=load_rig_configuration,
             run_journal=self.run_journal,
+            failure_alert_fn=self._trigger_failure_alert,
         )
         self._shutdown_lock = threading.Lock()
         self._shutdown = False
@@ -208,6 +211,31 @@ class RuntimeController:
         self._portal_camera_sessions: set[str] = set()
         self._portal_camera_sessions_lock = threading.RLock()
         self._restore_trigger_journal_state()
+
+    def _trigger_failure_alert(self, rig_id, code, detail):
+        """Play a local alarm for a live trigger failure without blocking supervision."""
+        def _play():
+            with self._failure_audio_lock:
+                audio_service.init(
+                    lambda message: self._runtime_log(
+                        message,
+                        "warning",
+                        "audio",
+                        rig_id=rig_id,
+                    ),
+                    driver="alsa",
+                )
+                audio_service.set_sounds_dir(self.project_root / "Sounds")
+                # Reuse the bundled neutral alert tone so the hardening does
+                # not depend on an extra generated media asset.
+                for _ in range(3):
+                    audio_service.play("contact.wav")
+
+        threading.Thread(
+            target=_play,
+            name=f"trigger-failure-audio-rig-{rig_id}",
+            daemon=True,
+        ).start()
 
     def _publish_recovery_journal_invalid(self, exc):
         detail = (

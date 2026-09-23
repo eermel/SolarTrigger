@@ -512,3 +512,29 @@ def test_simulation_bypasses_rig_camera_validation_and_runtime(tmp_path, monkeyp
     )
 
     assert service.start(simulate=True, selected=TRIGGER_SELECTION) is True
+
+
+def test_publish_external_failure_alerts_only_for_live_audible_failure(tmp_path):
+    runtime, _servers = _make_runtime(tmp_path)
+    service = _make_service(tmp_path, runtime)
+    alerts = []
+    service.failure_alert_fn = (
+        lambda rig_id, code, detail: alerts.append((rig_id, code, detail))
+    )
+
+    service.publish_external_failure(
+        1,
+        "RESTORED_FAILURE",
+        "historical failure restored at startup",
+    )
+    assert alerts == []
+
+    service.publish_external_failure(
+        1,
+        "HEARTBEAT_TIMEOUT",
+        "scheduler heartbeat timed out",
+        audible=True,
+    )
+    assert alerts == [
+        (1, "HEARTBEAT_TIMEOUT", "scheduler heartbeat timed out")
+    ]

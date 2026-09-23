@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
@@ -162,6 +164,33 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _write_json_atomic(output: Path, config: dict[str, Any]) -> None:
+    """Replace a JSON output atomically, preserving the previous file on error."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=output.parent,
+            prefix=f".{output.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            tmp_name = handle.name
+            handle.write(json.dumps(config, ensure_ascii=False, indent=4) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, output)
+        tmp_name = None
+    finally:
+        if tmp_name is not None:
+            try:
+                os.unlink(tmp_name)
+            except FileNotFoundError:
+                pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -175,11 +204,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(exc))
 
     output = args.output or default_output_path(args.date_iso, args.lat, args.lon)
-    output.parent.mkdir(parents=True, exist_ok=True)
     config = build_trigger_config(
         dataset, circumstances, args.date_iso, args.lat, args.lon, args.alt, args.tz
     )
-    output.write_text(json.dumps(config, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
+    _write_json_atomic(output, config)
     print(output)
     return 0
 

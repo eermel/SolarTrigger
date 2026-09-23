@@ -230,7 +230,8 @@ class TriggerService:
                  log_fn, emit_fn, line_level_fn=None, line_clean_fn=None,
                  camera_runtime=None, rig_config_loader=None,
                  product_configs_dir=None, run_journal=None,
-                 heartbeat_timeout_s=DEFAULT_HEARTBEAT_TIMEOUT_S):
+                 heartbeat_timeout_s=DEFAULT_HEARTBEAT_TIMEOUT_S,
+                 failure_alert_fn=None):
         self.state = state_store
         self.trigger_script = Path(trigger_script)
         self.json_file = Path(json_file)
@@ -288,6 +289,7 @@ class TriggerService:
         }
         self.run_journal = run_journal
         self.heartbeat_timeout_s = max(0.05, float(heartbeat_timeout_s))
+        self.failure_alert_fn = failure_alert_fn
         self._run_ids_by_rig = {rig_id: None for rig_id in range(1, 5)}
 
     def _active_selection(self, rig_id):
@@ -345,7 +347,9 @@ class TriggerService:
         if callable(clear_fn):
             clear_fn(rig_id)
 
-    def publish_external_failure(self, rig_id, code, detail, *, exit_code=None):
+    def publish_external_failure(
+        self, rig_id, code, detail, *, exit_code=None, audible=False
+    ):
         failure_state = {
             "running": False,
             "phase": "failed",
@@ -368,6 +372,15 @@ class TriggerService:
         self.emit("trigger_phase", payload)
         self.emit("trigger_failure", payload)
         self._log_rig(rig_id, f"TRIGGER FAILED [{code}] {detail}", "critical")
+        if audible and callable(self.failure_alert_fn):
+            try:
+                self.failure_alert_fn(rig_id, str(code), str(detail))
+            except Exception as exc:
+                self._log_rig(
+                    rig_id,
+                    f"Trigger failure audio alert failed: {exc}",
+                    "error",
+                )
 
     def _recovery_window_open(self, rig_id):
         path = self._active_circumstances_paths.get(rig_id)
@@ -1542,6 +1555,7 @@ class TriggerService:
                     "SUPERVISOR_CHILD_STILL_ALIVE",
                     detail,
                     exit_code=code,
+                    audible=True,
                 )
                 # Retain process ownership so STOP remains possible.
                 self.state.update_trigger_rig(rig_id, {"running": True})
@@ -1606,6 +1620,7 @@ class TriggerService:
                     failure_code,
                     detail,
                     exit_code=code,
+                    audible=True,
                 )
 
     def override_totality(self, rig_id=1):

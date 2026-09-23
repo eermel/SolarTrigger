@@ -11,6 +11,25 @@ import time
 HEARTBEAT_ENV = "SOLARTRIGGER_HEARTBEAT_FD"
 DEFAULT_HEARTBEAT_TIMEOUT_S = 180.0
 
+# Scheduler states that should never remain silent for the generic 180 s
+# fallback. Camera operations keep a larger budget because the IPC layer
+# legitimately permits long captures.
+DEFAULT_STAGE_TIMEOUTS_S = {
+    "startup": 30.0,
+    "ipc.ready": 20.0,
+    "runtime.begin": 20.0,
+    "wait": 20.0,
+    "phase.setup.begin": 40.0,
+    "phase.ready": 20.0,
+    "capture.prepare.begin": 40.0,
+    "capture.begin": 125.0,
+    "capture.error": 20.0,
+    "capture.end": 20.0,
+    "runtime.end": 20.0,
+    "runtime.error": 20.0,
+    "shutdown": 40.0,
+}
+
 
 class HeartbeatEmitter:
     """Best-effort child-side heartbeat writer.
@@ -71,8 +90,10 @@ class HeartbeatSupervisor:
         self.thread_factory = thread_factory
         self.last_seen = time.monotonic()
         self.last_stage = None
+        self.last_stage_timeout_s = None
         self.timed_out = False
         self._stop = threading.Event()
+        self._pulse_event = threading.Event()
         self._lock = threading.Lock()
         self._reader_thread = None
         self._watchdog_thread = None
@@ -106,10 +127,17 @@ class HeartbeatSupervisor:
                 buffer += chunk
                 while b"\n" in buffer:
                     raw, buffer = buffer.split(b"\n", 1)
-                    stage = raw.decode("utf-8", errors="replace").strip()
+                    stage = raw.decode("utf-8", errors="replace").strip() or "tick"
                     with self._lock:
                         self.last_seen = time.monotonic()
-                        self.last_stage = stage or "tick"
+                        self.last_stage = stage
+                        stage_timeout = DEFAULT_STAGE_TIMEOUTS_S.get(stage)
+                        self.last_stage_timeout_s = (
+                            None
+                            if stage_timeout is None
+                            else min(self.timeout_s, float(stage_timeout))
+                        )
+                    self._pulse_event.set()
         finally:
             try:
                 os.close(fd)
@@ -118,7 +146,28 @@ class HeartbeatSupervisor:
             self.read_fd = -1
 
     def _watchdog(self):
-        while not self._stop.wait(min(1.0, max(0.05, self.timeout_s / 4.0))):
+        while not self._stop.is_set():
+            with self._lock:
+                stage_timeout_s = self.last_stage_timeout_s
+            effective_timeout_s = (
+                self.timeout_s
+                if stage_timeout_s is None
+                else min(self.timeout_s, stage_timeout_s)
+            )
+            poll_interval_s = min(
+                1.0,
+                max(0.05, effective_timeout_s / 4.0),
+            )
+
+            # A newly received stage may have a much shorter timeout than the
+            # previous one. Wake immediately on heartbeat input so the watchdog
+            # recomputes its polling cadence instead of sleeping according to
+            # stale state.
+            self._pulse_event.wait(poll_interval_s)
+            self._pulse_event.clear()
+            if self._stop.is_set():
+                return
+
             try:
                 if self.proc.poll() is not None:
                     return
@@ -131,16 +180,24 @@ class HeartbeatSupervisor:
                     continue
             except Exception:
                 pass
+
             with self._lock:
                 age = time.monotonic() - self.last_seen
                 stage = self.last_stage
-            if age <= self.timeout_s:
+                stage_timeout_s = self.last_stage_timeout_s
+            effective_timeout_s = (
+                self.timeout_s
+                if stage_timeout_s is None
+                else min(self.timeout_s, stage_timeout_s)
+            )
+            if age <= effective_timeout_s:
                 continue
             self.timed_out = True
             try:
                 self.log_fn(
                     "Trigger scheduler heartbeat timeout "
-                    f"({age:.1f}s, last_stage={stage or 'none'})."
+                    f"({age:.1f}s > {effective_timeout_s:.1f}s, "
+                    f"last_stage={stage or 'none'})."
                 )
             except Exception:
                 pass
@@ -171,6 +228,7 @@ class HeartbeatSupervisor:
 
     def stop(self):
         self._stop.set()
+        self._pulse_event.set()
         for thread in (self._watchdog_thread, self._reader_thread):
             if thread is not None and thread is not threading.current_thread():
                 thread.join(timeout=1.0)
