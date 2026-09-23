@@ -57,25 +57,45 @@ class OnStepMount(MountPlugin):
         self.mount = OnStep(**kwargs)
 
     # -- detection optionnelle (non destructive) --------------------------- #
-    @staticmethod
-    def probe(config=None):
+    @classmethod
+    def _probe_identity(cls, config=None):
+        """Probe one controller and return protocol identity when available."""
         cfg = config or {}
         kwargs = {}
-        for k in ("port", "baudrate", "timeout"):
-            if k in cfg:
-                kwargs[k] = cfg[k]
-        m = OnStep(**kwargs)
+        for key in ("port", "baudrate", "timeout"):
+            if key in cfg:
+                kwargs[key] = cfg[key]
+        mount = OnStep(**kwargs)
         try:
-            m.connect()
-            res = m.ping()
-            return bool(res.get("ok"))
+            mount.connect()
+            result = mount.ping()
+            if not bool(result.get("ok")):
+                return None
+
+            try:
+                product = str(mount.get_product() or "").strip() or None
+            except Exception:
+                product = None
+            try:
+                firmware = str(mount.get_firmware() or "").strip() or None
+            except Exception:
+                firmware = None
+
+            return {
+                "product": product,
+                "firmware": firmware,
+            }
         except Exception:
-            return False
+            return None
         finally:
             try:
-                m.disconnect()
+                mount.disconnect()
             except Exception:
                 pass
+
+    @classmethod
+    def probe(cls, config=None):
+        return cls._probe_identity(config) is not None
 
     @classmethod
     def inventory(cls, config=None):
@@ -100,16 +120,21 @@ class OnStepMount(MountPlugin):
         for port in ports:
             probe_cfg = dict(cfg)
             probe_cfg["port"] = port
-            if not cls.probe(probe_cfg):
+            identity = cls._probe_identity(probe_cfg)
+            if identity is None:
                 continue
 
-            devices.append({
+            product = identity.get("product") or "OnStep"
+            entry = {
                 "category": "mount",
                 "backend": cls.plugin_id,
                 "manufacturer": "OnStep",
-                "model": "OnStep",
+                "model": product,
                 "fallback_physical_path": port,
-            })
+            }
+            if identity.get("firmware"):
+                entry["firmware"] = identity["firmware"]
+            devices.append(entry)
 
         return devices
 
