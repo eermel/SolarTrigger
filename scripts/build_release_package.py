@@ -51,9 +51,28 @@ def _git_commit(repo_root: Path) -> str | None:
     return value or None
 
 
-def _iter_tree(root: Path, prefix: PurePosixPath):
+def _git_tracked_files(repo_root: Path) -> set[str] | None:
+    """Return tracked repository paths, or None outside a Git checkout."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "-z"],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    return {
+        item.decode("utf-8", errors="surrogateescape")
+        for item in result.stdout.split(b"\0")
+        if item
+    }
+
+
+def _iter_tree(root: Path, prefix: PurePosixPath, include=lambda _path: True):
     for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.is_symlink():
+        if not path.is_file() or path.is_symlink() or not include(path):
             continue
         relative = path.relative_to(root)
         if any(part in SKIP_PARTS for part in relative.parts):
@@ -64,18 +83,29 @@ def _iter_tree(root: Path, prefix: PurePosixPath):
 
 
 def _runtime_files(repo_root: Path):
+    tracked = _git_tracked_files(repo_root)
+
+    def include(path: Path) -> bool:
+        if tracked is None:
+            return True
+        return path.relative_to(repo_root).as_posix() in tracked
+
     for tree_name in COPY_TREES:
         source = repo_root / tree_name
         if not source.is_dir():
             if tree_name == "jubier_files":
                 continue
             raise FileNotFoundError(f"Missing runtime tree: {source}")
-        yield from _iter_tree(source, PurePosixPath(tree_name))
+        yield from _iter_tree(
+            source,
+            PurePosixPath(tree_name),
+            include=include,
+        )
 
     flask_root = repo_root / "flask_app"
     app_py = flask_root / "app.py"
-    if not app_py.is_file():
-        raise FileNotFoundError(f"Missing runtime file: {app_py}")
+    if not app_py.is_file() or not include(app_py):
+        raise FileNotFoundError(f"Missing tracked runtime file: {app_py}")
     yield app_py, PurePosixPath("app.py")
 
     for source_name, target_name in (
@@ -85,11 +115,19 @@ def _runtime_files(repo_root: Path):
         source = flask_root / source_name
         if not source.is_dir():
             raise FileNotFoundError(f"Missing runtime tree: {source}")
-        yield from _iter_tree(source, PurePosixPath(target_name))
+        yield from _iter_tree(
+            source,
+            PurePosixPath(target_name),
+            include=include,
+        )
 
-    # The web UI serves the same WAV assets that the Pi runtime uses.
+    # The web UI serves the same tracked WAV assets that the Pi runtime uses.
     sounds = repo_root / "Sounds"
-    for path, relative in _iter_tree(sounds, PurePosixPath("static/sounds")):
+    for path, relative in _iter_tree(
+        sounds,
+        PurePosixPath("static/sounds"),
+        include=include,
+    ):
         yield path, relative
 
 
