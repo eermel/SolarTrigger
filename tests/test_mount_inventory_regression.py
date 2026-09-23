@@ -21,8 +21,17 @@ def test_onstep_inventory_uses_stable_serial_path(monkeypatch):
 
     monkeypatch.setattr(
         OnStepMount,
-        "probe",
-        classmethod(lambda cls, config=None: config.get("port") == port),
+        "_probe_identity",
+        classmethod(
+            lambda cls, config=None: (
+                {
+                    "product": "Tessek Mini 11",
+                    "firmware": "4.24",
+                }
+                if config.get("port") == port
+                else None
+            )
+        ),
     )
 
     devices = OnStepMount.inventory({"port": port})
@@ -31,7 +40,8 @@ def test_onstep_inventory_uses_stable_serial_path(monkeypatch):
         "category": "mount",
         "backend": "onstep",
         "manufacturer": "OnStep",
-        "model": "OnStep",
+        "model": "Tessek Mini 11",
+        "firmware": "4.24",
         "fallback_physical_path": port,
     }]
 
@@ -178,3 +188,47 @@ def test_mount_with_serial_by_id_fallback_is_bindable(monkeypatch):
     assert mount["fallback_physical_path"] == (
         "/dev/serial/by-id/usb-OnStep-controller"
     )
+
+
+
+def test_indi_inventory_prefers_exposed_model_and_serial(monkeypatch):
+    port = "/dev/serial/by-id/usb-FTDI_EQMOD"
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def ensure_device_present(self, device_name):
+            assert device_name == "EQMod Mount"
+
+        def get_props(self, patterns):
+            assert "DEVICE_INFO.*" in patterns
+            assert "MOUNTINFORMATION.*" in patterns
+            return {
+                "DEVICE_PORT": {"PORT": port},
+                "DRIVER_INFO": {"DRIVER_EXEC": "indi_eqmod_telescope"},
+                "DEVICE_INFO": {
+                    "MANUFACTURER": "Sky-Watcher",
+                    "SERIAL_NUMBER": "MOUNT12345678",
+                },
+                "MOUNTINFORMATION": {
+                    "MOUNT_MODEL": "EQ6-R Pro",
+                },
+            }
+
+    monkeypatch.setattr(indi_plugin, "IndiSubprocessClient", FakeClient)
+
+    devices = IndiMount.inventory({
+        "device": "EQMod Mount",
+        "client_timeout": 4.0,
+    })
+
+    assert devices == [{
+        "category": "mount",
+        "backend": "indi",
+        "manufacturer": "Sky-Watcher",
+        "model": "EQ6-R Pro",
+        "serial": "MOUNT12345678",
+        "device_name": "EQMod Mount",
+        "fallback_physical_path": port,
+    }]

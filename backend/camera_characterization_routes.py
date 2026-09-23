@@ -2,7 +2,7 @@
 from flask import jsonify, request
 from backend.camera_characterization import JOB
 from backend.camera_worker_runtime import get_camera_worker_runtime
-from backend.device_inventory import get_cached_inventory, refresh_inventory
+from backend.device_inventory import get_cached_inventory, reclassify_cached_cameras
 from backend.runtime_interlock import TriggerActiveError, start_maintenance_if_trigger_idle
 
 
@@ -20,7 +20,45 @@ def _trigger_running(snapshot) -> bool:
     )
 
 
-def register_characterization_routes(app, trigger_snapshot):
+def register_characterization_routes(app, trigger_snapshot, emit_fn=None):
+    reclassified_job_id = None
+
+    def status_snapshot():
+        nonlocal reclassified_job_id
+        snapshot = JOB.snapshot()
+        reclassified_now = False
+        result = snapshot.get("result")
+        job_id = snapshot.get("job_id")
+        if (
+            not snapshot.get("running")
+            and job_id
+            and job_id != reclassified_job_id
+            and isinstance(result, dict)
+            and result.get("status") in {"SUCCESS", "PARTIAL"}
+        ):
+            reclassify_cached_cameras()
+            reclassified_job_id = job_id
+            reclassified_now = True
+
+        cameras = get_cached_inventory()["camera"]
+        snapshot["candidates"] = [
+            entry
+            for entry in cameras
+            if entry.get("present") and not entry.get("pilotable")
+        ]
+        snapshot["recharacterization_candidates"] = [
+            entry
+            for entry in cameras
+            if entry.get("present") and entry.get("pilotable")
+        ]
+        snapshot["inventory_reclassified"] = reclassified_now
+        return snapshot
+
+    def notify_status():
+        if callable(emit_fn):
+            emit_fn("camera_characterization_status", status_snapshot())
+
+    JOB.set_notify_fn(notify_status)
     @app.before_request
     def characterization_exclusive_access():
         if not JOB.running:
@@ -39,11 +77,7 @@ def register_characterization_routes(app, trigger_snapshot):
 
     @app.get("/api/camera-characterization")
     def characterization_status():
-        snapshot = JOB.snapshot()
-        cameras = get_cached_inventory()["camera"]
-        snapshot["candidates"] = [e for e in cameras if e.get("present") and not e.get("pilotable")]
-        snapshot["recharacterization_candidates"] = [e for e in cameras if e.get("present") and e.get("pilotable")]
-        return jsonify(snapshot)
+        return jsonify(status_snapshot())
 
     @app.post("/api/camera-characterization/start")
     def characterization_start():
@@ -55,7 +89,7 @@ def register_characterization_routes(app, trigger_snapshot):
                 return jsonify(error="Characterization already running"), 409
             # Resolve the selected physical device server-side; never accept
             # caller-supplied profile paths, model names or arbitrary locators.
-            candidates = refresh_inventory()["camera"]
+            candidates = get_cached_inventory()["camera"]
             matches = [e for e in candidates if e.get("transport_locator") == payload.get("locator")
                        and e.get("present") and not e.get("pilotable")]
             if len(matches) != 1:
@@ -85,7 +119,7 @@ def register_characterization_routes(app, trigger_snapshot):
         with JOB.lock:
             if JOB.running:
                 return jsonify(error="Characterization already running"), 409
-            matches = [e for e in refresh_inventory()["camera"] if e.get("transport_locator") == payload["locator"] and e.get("present") and e.get("pilotable")]
+            matches = [e for e in get_cached_inventory()["camera"] if e.get("transport_locator") == payload["locator"] and e.get("present") and e.get("pilotable")]
             if len(matches) != 1:
                 return jsonify(error="Unknown or uncharacterized camera; refresh Devices"), 400
 
@@ -121,7 +155,5 @@ def register_characterization_routes(app, trigger_snapshot):
 
     @app.post("/api/camera-characterization/cancel")
     def characterization_cancel():
-        with JOB.condition:
-            JOB.cancelled = True
-            JOB.condition.notify_all()
+        JOB.cancel()
         return jsonify(status="cancelling")

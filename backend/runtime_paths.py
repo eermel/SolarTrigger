@@ -25,6 +25,9 @@ CIRCUMSTANCES_DIR = GENERATED_DIR / "circumstances"
 PHOTO_CONFIG_DIR = GENERATED_DIR / "photo_cfg"
 EXPOSURE_OPT_DIR = GENERATED_DIR / "exposure_opt"
 SEQUENCE_DIR = GENERATED_DIR / "sequence"
+CAMERA_PROFILE_DIR = GENERATED_DIR / "camera_profiles"
+CAMERA_TIMING_DIR = GENERATED_DIR / "camera_timing"
+CAMERA_CHARACTERIZATION_DIR = GENERATED_DIR / "camera_characterization"
 
 LOGS_BUFFER_FILE = LOGS_DIR / "logs_buffer.jsonl"
 RIG_TRACES_FILE = LOGS_DIR / "rig_traces.jsonl"
@@ -39,6 +42,9 @@ _VAR_DIRECTORIES = (
     PHOTO_CONFIG_DIR,
     EXPOSURE_OPT_DIR,
     SEQUENCE_DIR,
+    CAMERA_PROFILE_DIR,
+    CAMERA_TIMING_DIR,
+    CAMERA_CHARACTERIZATION_DIR,
     LOGS_DIR,
 )
 
@@ -56,6 +62,9 @@ def ensure_var_layout(var_dir: Path = VAR_DIR) -> None:
         "generated/photo_cfg",
         "generated/exposure_opt",
         "generated/sequence",
+        "generated/camera_profiles",
+        "generated/camera_timing",
+        "generated/camera_characterization",
         "logs",
     )
 

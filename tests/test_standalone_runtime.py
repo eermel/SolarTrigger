@@ -180,15 +180,17 @@ def test_install_script_defines_separate_runtime_and_portal_services():
     assert "Requires=solartrigger-runtime.service" in script
 
 
-def test_offline_update_restarts_runtime_before_portal():
+def test_offline_update_switches_release_then_reboots():
     root = Path(__file__).resolve().parents[1]
     script = (root / "install" / "solartrigger-release-update").read_text(
         encoding="utf-8"
     )
 
-    runtime_restart = script.index('systemctl restart "$RUNTIME_SERVICE"')
-    portal_restart = script.index('systemctl restart "$PORTAL_SERVICE"')
-    assert runtime_restart < portal_restart
+    switch = script.index('alink "$destination" "$ACTIVE"')
+    reboot = script.index('/usr/bin/systemctl reboot')
+    assert switch < reboot
+    assert 'systemctl restart "$RUNTIME_SERVICE"' not in script
+    assert 'systemctl restart "$PORTAL_SERVICE"' not in script
 
 
 class _CameraWorkerStub:
@@ -457,3 +459,49 @@ def test_runtime_trigger_snapshot_exposes_active_input_filenames(tmp_path):
         "exposure_opt_file": "expo.json",
     }
     assert snapshot["rigs"]["2"]["inputs"] == {}
+
+
+
+def test_rollback_does_not_downgrade_root_maintenance_helper():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "install" / "solartrigger-release-update").read_text(
+        encoding="utf-8"
+    )
+
+    rollback = script.split("rollback_release() {", 1)[1].split(
+        'case "${1:-}" in', 1
+    )[0]
+    assert 'alink "$rollback_destination" "$ACTIVE"' in rollback
+    assert "refresh_root_helpers" not in rollback
+
+
+
+def test_legacy_migration_restores_active_path_before_shared_moves():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "install" / "solartrigger-release-update").read_text(
+        encoding="utf-8"
+    )
+
+    migration = script.split("migrate_legacy_layout() {", 1)[1].split(
+        "validate_and_extract() {", 1
+    )[0]
+
+    move_active = migration.index('mv -- "$ACTIVE" "$destination"')
+    relink_active = migration.index('alink "$destination" "$ACTIVE"')
+    move_var = migration.index('mv -- "$destination/var" "$SHARED_VAR"')
+    move_venv = migration.index('mv -- "$destination/venv" "$SHARED_VENV"')
+
+    assert move_active < relink_active < move_var
+    assert move_active < relink_active < move_venv
+
+
+
+def test_web_release_install_does_not_replace_root_helpers():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "install" / "solartrigger-release-update").read_text(
+        encoding="utf-8"
+    )
+
+    assert "refresh_root_helpers" not in script
+    assert "/usr/local/sbin/solartrigger-release-update.next" not in script
+    assert "/usr/local/sbin/solartrigger-system-update" not in script

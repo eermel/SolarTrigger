@@ -14,6 +14,9 @@ def test_reset_removes_everything_under_var(tmp_path):
         var_dir / "generated" / "photo_cfg" / "photo.json",
         var_dir / "generated" / "exposure_opt" / "expo.json",
         var_dir / "generated" / "sequence" / "sequence.json",
+        var_dir / "generated" / "camera_profiles" / "profile.json",
+        var_dir / "generated" / "camera_timing" / "timing.json",
+        var_dir / "generated" / "camera_characterization" / "history.jsonl",
         var_dir / "unexpected" / "old-file.bin",
     )
 
@@ -35,6 +38,9 @@ def test_reset_removes_everything_under_var(tmp_path):
         "generated/photo_cfg",
         "generated/exposure_opt",
         "generated/sequence",
+        "generated/camera_profiles",
+        "generated/camera_timing",
+        "generated/camera_characterization",
         "logs",
     )
 

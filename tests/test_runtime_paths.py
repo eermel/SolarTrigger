@@ -26,6 +26,9 @@ def test_ensure_var_layout_recreates_every_directory(tmp_path):
         "generated/photo_cfg",
         "generated/exposure_opt",
         "generated/sequence",
+        "generated/camera_profiles",
+        "generated/camera_timing",
+        "generated/camera_characterization",
         "logs",
     )
 

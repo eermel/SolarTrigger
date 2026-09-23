@@ -29,3 +29,6 @@ configs/rig/default.json
 
 # Local persistent camera characterization history
 /configs/camera_characterization/history.jsonl
+
+# Locally built offline release packages
+/dist/

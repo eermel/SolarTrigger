@@ -27,14 +27,42 @@ def test_system_update_is_single_full_width_action():
     assert "/api/system/maintenance/update-system" in source
 
 
-def test_application_update_actions_share_one_row():
+def test_application_update_uses_one_validate_install_reboot_action():
     source = frontend_source()
 
-    assert 'class="system-release-actions"' in source
-    assert "Validate package" in source
-    assert "Install update" in source
-    assert "Rollback" in source
+    assert 'class="system-update-primary"' in source
     assert 'id="solartrigger-update-file"' in source
+    assert 'id="solartrigger-validate-install-release"' in source
+    assert "Validate &amp; Install Update &amp; Reboot" in source
+    assert "validateInstallSolarTriggerRelease()" in source
+    assert "uploadSolarTriggerRelease()" not in source
+    assert "installSolarTriggerRelease()" not in source
+    assert 'id="solartrigger-install-release"' not in source
+    assert "Validate package" not in source
+    assert ">Install update<" not in source
+    assert "Rollback" in source
+
+
+def test_application_update_validates_before_installing():
+    source = frontend_source()
+
+    function_start = source.index(
+        "async function validateInstallSolarTriggerRelease()"
+    )
+    rollback_start = source.index(
+        "async function rollbackSolarTriggerRelease()",
+        function_start,
+    )
+    function = source[function_start:rollback_start]
+
+    validate_pos = function.index("/api/system/maintenance/upload-release")
+    token_pos = function.index("const uploadToken = validation.upload_token")
+    install_pos = function.index("/api/system/maintenance/install-release")
+
+    assert validate_pos < token_pos < install_pos
+    assert "if (!validationResponse.ok)" in function
+    assert "{upload_token: uploadToken}" in function
+    assert "Raspberry Pi will reboot" in function
 
 
 def test_system_maintenance_cards_have_requested_colours():
@@ -141,3 +169,26 @@ def test_recharacterization_select_has_chevron():
     select = source[start:source.index(">", start)]
 
     assert "file-select-chevron" in select
+
+
+
+def test_release_rollback_can_select_any_installed_version():
+    source = frontend_source()
+
+    assert 'id="solartrigger-rollback-version"' in source
+    assert 'id="solartrigger-rollback-release"' in source
+    assert "renderInstalledSolarTriggerReleases" in source
+    assert "releaseState.releases" in source
+    assert "rollback_eligible !== false" in source
+    assert (
+        "maintenancePost(" in source
+        and "/api/system/maintenance/rollback-release" in source
+        and "{version}" in source
+    )
+
+
+def test_release_actions_warn_that_pi_reboots():
+    source = frontend_source()
+
+    assert "Raspberry Pi will reboot" in source
+    assert "Pi reboot requested" in source

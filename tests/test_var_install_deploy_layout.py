@@ -10,8 +10,9 @@ DEPLOY = (
 ).read_text(encoding="utf-8")
 
 
-def test_installer_defines_application_var():
-    assert 'VAR_DIR="$APP_DIR/var"' in INSTALLER
+def test_installer_defines_shared_persistent_var():
+    assert 'VAR_DIR="$INSTALL_BASE/var"' in INSTALLER
+    assert 'ln -s "$VAR_DIR" "$RELEASE_DIR/var"' in INSTALLER
 
 
 def test_installer_creates_complete_var_layout():
@@ -24,6 +25,9 @@ def test_installer_creates_complete_var_layout():
         '$VAR_DIR/generated/photo_cfg',
         '$VAR_DIR/generated/exposure_opt',
         '$VAR_DIR/generated/sequence',
+        '$VAR_DIR/generated/camera_profiles',
+        '$VAR_DIR/generated/camera_timing',
+        '$VAR_DIR/generated/camera_characterization',
     )
 
     for path in expected:
@@ -56,3 +60,16 @@ def test_deploy_documents_var_as_persistent():
         in DEPLOY
     )
     assert 'var/ is never synchronized or deleted.' in DEPLOY
+
+
+def test_installer_links_camera_characterization_to_shared_var():
+    assert 'for CAMERA_DATA_DIR in camera_profiles camera_timing camera_characterization; do' in INSTALLER
+    assert 'SHARED_CAMERA_DIR="$VAR_DIR/generated/$CAMERA_DATA_DIR"' in INSTALLER
+    assert 'ln -s "$SHARED_CAMERA_DIR" "$CONFIGS_DIR/$CAMERA_DATA_DIR"' in INSTALLER
+
+
+def test_installer_finalizes_hashed_bootstrap_manifest_and_seals_release():
+    assert '"files": files' in INSTALLER
+    assert 'bootstrap release incomplete' in INSTALLER
+    assert 'path.chmod(mode & ~0o222)' in INSTALLER
+    assert 'os.chown(path, 0, 0)' in INSTALLER

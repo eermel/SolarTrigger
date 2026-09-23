@@ -61,12 +61,25 @@ if [ -z "$BUILD_COMMIT" ] && [ -f "$PACKAGE_DIR/BUILD_COMMIT" ]; then
     BUILD_COMMIT=$(tr -d '[:space:]' < "$PACKAGE_DIR/BUILD_COMMIT")
 fi
 
-# ── Répertoire applicatif unique ─────────────────────────────────────────────
-APP_DIR="$USER_HOME/solar-eclipse-trigger-prod"
+# ── Layout versionné + données partagées ─────────────────────────────────────
+# solar-eclipse-trigger-prod est TOUJOURS le symlink actif. Les releases sont
+# immuables ; var/ et venv/ survivent aux updates et aux rollbacks.
+INSTALL_BASE="$USER_HOME/solartrigger"
+RELEASES_DIR="$INSTALL_BASE/releases"
+ACTIVE_LINK="$USER_HOME/solar-eclipse-trigger-prod"
+VAR_DIR="$INSTALL_BASE/var"
+VENV_DIR="$INSTALL_BASE/venv"
+
+if [ -n "$BUILD_COMMIT" ]; then
+    INITIAL_RELEASE_VERSION="bootstrap-${BUILD_COMMIT:0:12}"
+else
+    INITIAL_RELEASE_VERSION="bootstrap-$(date -u +%Y%m%d-%H%M%S)"
+fi
+
+RELEASE_DIR="$RELEASES_DIR/$INITIAL_RELEASE_VERSION"
+APP_DIR="$ACTIVE_LINK"
 SCRIPTS_DIR="$APP_DIR/scripts"
 CONFIGS_DIR="$APP_DIR/configs"
-VAR_DIR="$APP_DIR/var"
-VENV_DIR="$APP_DIR/venv"
 SOUNDS_DIR="$APP_DIR/Sounds"
 
 DOMAIN="eclipse.local"
@@ -263,14 +276,19 @@ apt install -y indi-bin indi-eqmod
 
 success "System dependencies installed."
 
-# L'utilisateur du service INDI doit pouvoir accéder aux périphériques série.
-if id -nG "$CURRENT_USER" | grep -qw dialout; then
-    success "User '$CURRENT_USER' is already a member of the dialout group."
-else
-    usermod -aG dialout "$CURRENT_USER"
-    success "User '$CURRENT_USER' added to the dialout group."
-    warning "Log out and back in to apply the new group to your session."
-fi
+# Droits matériels du compte de service : série/INDI, audio local et USB.
+for HARDWARE_GROUP in dialout audio video plugdev; do
+    if ! getent group "$HARDWARE_GROUP" >/dev/null 2>&1; then
+        continue
+    fi
+    if id -nG "$CURRENT_USER" | grep -qw "$HARDWARE_GROUP"; then
+        success "User '$CURRENT_USER' already belongs to $HARDWARE_GROUP."
+    else
+        usermod -aG "$HARDWARE_GROUP" "$CURRENT_USER"
+        success "User '$CURRENT_USER' added to $HARDWARE_GROUP."
+        REBOOT_NEEDED=true
+    fi
+done
 
 # ── Empêcher gvfsd de monter automatiquement la caméra (libère l'USB pour gphoto2)
 info "Disabling GVFS automatic camera mounting..."
@@ -472,15 +490,48 @@ fi
 # ════════════════════════════════════════════════════════════
 step "STEP 4 — Install SolarEclipse runtime"
 
-mkdir -p "$APP_DIR"
+mkdir -p "$INSTALL_BASE" "$RELEASES_DIR"
+
+if [ -e "$ACTIVE_LINK" ] || [ -L "$ACTIVE_LINK" ]; then
+    if [ ! -L "$ACTIVE_LINK" ] ||        [ "$(readlink -f "$ACTIVE_LINK")" != "$(readlink -m "$RELEASE_DIR")" ]; then
+        error "An existing SolarTrigger installation is already present at $ACTIVE_LINK. Use the web update/rollback mechanism instead of the fresh installer."
+    fi
+    info "Resuming bootstrap installation in $RELEASE_DIR"
+else
+    mkdir -p "$RELEASE_DIR"
+    ln -s "$RELEASE_DIR" "$ACTIVE_LINK"
+fi
+
+mkdir -p "$RELEASE_DIR" "$VAR_DIR"
+
+if [ ! -L "$RELEASE_DIR/var" ]; then
+    rm -rf "$RELEASE_DIR/var"
+    ln -s "$VAR_DIR" "$RELEASE_DIR/var"
+fi
+
+# venv is created in STEP 5. The release always points to its persistent path.
+if [ ! -L "$RELEASE_DIR/venv" ]; then
+    rm -rf "$RELEASE_DIR/venv"
+    ln -s "$VENV_DIR" "$RELEASE_DIR/venv"
+fi
+
 mkdir -p "$SOUNDS_DIR"
 mkdir -p "$APP_DIR/templates"
 mkdir -p "$APP_DIR/static/sounds" "$APP_DIR/static/js" "$APP_DIR/static/css"
 
-# Données mutables SolarTrigger.
-# Une installation neuve doit démarrer même si var/ n'existe pas.
-# Une réinstallation ne détruit jamais un var/ existant.
-mkdir -p     "$VAR_DIR/state"     "$VAR_DIR/logs"     "$VAR_DIR/generated/rig"     "$VAR_DIR/generated/camera_cfg"     "$VAR_DIR/generated/circumstances"     "$VAR_DIR/generated/photo_cfg"     "$VAR_DIR/generated/exposure_opt"     "$VAR_DIR/generated/sequence"
+# Données mutables SolarTrigger, communes à toutes les releases.
+mkdir -p \
+    "$VAR_DIR/state" \
+    "$VAR_DIR/logs" \
+    "$VAR_DIR/generated/rig" \
+    "$VAR_DIR/generated/camera_cfg" \
+    "$VAR_DIR/generated/circumstances" \
+    "$VAR_DIR/generated/photo_cfg" \
+    "$VAR_DIR/generated/exposure_opt" \
+    "$VAR_DIR/generated/sequence" \
+    "$VAR_DIR/generated/camera_profiles" \
+    "$VAR_DIR/generated/camera_timing" \
+    "$VAR_DIR/generated/camera_characterization"
 
 # Scripts strictement nécessaires au runtime.
 RUNTIME_SCRIPTS=(
@@ -535,16 +586,30 @@ else
     error "Sounds/ directory not found in $PACKAGE_DIR"
 fi
 
-# Configurations PRODUIT livrées avec le package.
-# configs/ ne contient aucune persistance : on peut donc le remplacer
-# entièrement et supprimer d'éventuelles reliques de l'ancien layout.
+# Configurations produit livrées avec le package.  Les caractérisations caméra
+# sont ensuite déplacées vers var/generated afin de survivre à toute release.
 if [ -d "$PACKAGE_DIR/configs" ]; then
     rm -rf "$CONFIGS_DIR"
     mkdir -p "$CONFIGS_DIR"
     cp -a "$PACKAGE_DIR/configs/." "$CONFIGS_DIR/"
-    chown -R "$CURRENT_USER:$CURRENT_USER" "$CONFIGS_DIR"
+
+    for CAMERA_DATA_DIR in camera_profiles camera_timing camera_characterization; do
+        SHARED_CAMERA_DIR="$VAR_DIR/generated/$CAMERA_DATA_DIR"
+        mkdir -p "$SHARED_CAMERA_DIR"
+        if [ -d "$CONFIGS_DIR/$CAMERA_DATA_DIR" ] && [ ! -L "$CONFIGS_DIR/$CAMERA_DATA_DIR" ]; then
+            cp -an "$CONFIGS_DIR/$CAMERA_DATA_DIR/." "$SHARED_CAMERA_DIR/" 2>/dev/null || true
+        fi
+        rm -rf "$CONFIGS_DIR/$CAMERA_DATA_DIR"
+        ln -s "$SHARED_CAMERA_DIR" "$CONFIGS_DIR/$CAMERA_DATA_DIR"
+    done
+
+    chown -hR "$CURRENT_USER:$CURRENT_USER" "$CONFIGS_DIR"
+    chown -R "$CURRENT_USER:$CURRENT_USER" \
+        "$VAR_DIR/generated/camera_profiles" \
+        "$VAR_DIR/generated/camera_timing" \
+        "$VAR_DIR/generated/camera_characterization"
     chmod 755 "$CONFIGS_DIR"
-    success "Product configurations → $CONFIGS_DIR"
+    success "Product configurations + persistent camera data → $CONFIGS_DIR"
 else
     error "configs/ directory not found in $PACKAGE_DIR"
 fi
@@ -580,14 +645,32 @@ else
     warning "Unable to determine build commit."
 fi
 
-chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"
+BUILD_COMMIT_JSON="null"
+if [ -n "$BUILD_COMMIT" ]; then
+    BUILD_COMMIT_JSON="\"$BUILD_COMMIT\""
+fi
+
+cat > "$RELEASE_DIR/RELEASE_MANIFEST.json" <<EOF
+{
+  "package_type": "solartrigger-release",
+  "schema_version": 2,
+  "version": "$INITIAL_RELEASE_VERSION",
+  "build_commit": $BUILD_COMMIT_JSON,
+  "bootstrap_install": true,
+  "files": {}
+}
+EOF
+
+chown -hR "$CURRENT_USER:$CURRENT_USER" "$RELEASE_DIR"
+chown -R "$CURRENT_USER:$CURRENT_USER" "$VAR_DIR"
+chown -h "$CURRENT_USER:$CURRENT_USER" "$ACTIVE_LINK"
 
 # ════════════════════════════════════════════════════════════
 # ÉTAPE 5 — Flask + Nginx + gunicorn/gthread
 # ════════════════════════════════════════════════════════════
 step "STEP 5 — Configure Flask / Nginx / gunicorn"
 
-chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"
+chown -R "$CURRENT_USER:$CURRENT_USER" "$RELEASE_DIR" "$VAR_DIR"
 chmod 644 "$APP_DIR/static/sounds/"*.wav 2>/dev/null || true
 chmod 755 "$APP_DIR/static/sounds" "$APP_DIR/static" 2>/dev/null || true
 # Nginx (www-data) doit pouvoir traverser le home directory
@@ -618,6 +701,95 @@ start_background_threads()
 if __name__ == "__main__":
     socketio.run(app)
 EOL
+
+# Finaliser le manifeste de la release bootstrap et sceller le code.  Les
+# répertoires caméra et var/venv sont des liens vers la persistance partagée et
+# ne font donc pas partie de l'intégrité immuable de la release.
+/usr/bin/python3 - "$RELEASE_DIR" "$INITIAL_RELEASE_VERSION" "$BUILD_COMMIT" <<'PY'
+import hashlib
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+version = sys.argv[2]
+commit = sys.argv[3] or None
+manifest_path = root / "RELEASE_MANIFEST.json"
+mutable_prefixes = (
+    "configs/camera_profiles/",
+    "configs/camera_timing/",
+    "configs/camera_characterization/",
+    "var/",
+    "venv/",
+)
+files = {}
+for path in sorted(root.rglob("*")):
+    relative = path.relative_to(root).as_posix()
+    if path.is_symlink() or not path.is_file():
+        continue
+    if any(relative.startswith(prefix) for prefix in mutable_prefixes):
+        continue
+    if path.name == "RELEASE_MANIFEST.json" or "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+        continue
+    data = path.read_bytes()
+    files[relative] = {
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "size": len(data),
+        "mode": f"{stat.S_IMODE(path.stat().st_mode):04o}",
+    }
+
+required = {
+    "app.py",
+    "wsgi.py",
+    "backend/runtime_daemon.py",
+    "scripts/eclipse_trigger.py",
+    "templates/index.html",
+    "static/js/solartrigger.js",
+}
+if not required.issubset(files):
+    missing = sorted(required - set(files))
+    raise RuntimeError("bootstrap release incomplete: " + ", ".join(missing))
+
+manifest_path.write_text(
+    json.dumps(
+        {
+            "package_type": "solartrigger-release",
+            "schema_version": 2,
+            "version": version,
+            "build_commit": commit,
+            "bootstrap_install": True,
+            "files": files,
+        },
+        indent=2,
+        sort_keys=True,
+    ) + "\n",
+    encoding="utf-8",
+)
+
+for current, dirs, names in os.walk(root, topdown=False, followlinks=False):
+    current_path = Path(current)
+    for name in names:
+        path = current_path / name
+        if path.is_symlink():
+            continue
+        mode = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(mode & ~0o222)
+        os.chown(path, 0, 0)
+    for name in dirs:
+        path = current_path / name
+        if path.is_symlink():
+            continue
+        mode = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(mode & ~0o222)
+        os.chown(path, 0, 0)
+mode = stat.S_IMODE(root.stat().st_mode)
+root.chmod(mode & ~0o222)
+os.chown(root, 0, 0)
+PY
+
+success "Bootstrap release manifest finalized and immutable code sealed."
 
 # TLS local SolarTrigger — CA persistante dans var/tls.
 # iPhone/iPad peuvent accepter manuellement l’avertissement Safari sans installer
@@ -1057,6 +1229,17 @@ success "Launch scripts created in $BIN_DIR"
 # - rebooter la machine après effacement des données persistantes
 step "STEP 7b — SolarEclipse sudoers configuration"
 
+# Root helpers used by the non-root portal maintenance API.
+for HELPER in solartrigger-system-update solartrigger-release-update; do
+    if [ ! -f "$PACKAGE_DIR/install/$HELPER" ]; then
+        error "Missing maintenance helper: $PACKAGE_DIR/install/$HELPER"
+    fi
+    install -o root -g root -m 0755 \
+        "$PACKAGE_DIR/install/$HELPER" \
+        "/usr/local/sbin/$HELPER"
+done
+success "SolarTrigger maintenance helpers installed in /usr/local/sbin."
+
 SUDOERS_FILE="/etc/sudoers.d/solareclipse"
 
 cat > "$SUDOERS_FILE" <<EOF
@@ -1070,8 +1253,10 @@ $CURRENT_USER ALL=(root) NOPASSWD: /usr/sbin/hwclock
 $CURRENT_USER ALL=(root) NOPASSWD: /usr/bin/tee /sys/bus/usb/devices/*/authorized
 $CURRENT_USER ALL=(root) NOPASSWD: /usr/bin/pkill
 
-# SolarEclipse — reboot demandé explicitement depuis l'IHM
+# SolarEclipse — maintenance contrôlée depuis l'IHM
 $CURRENT_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reboot
+$CURRENT_USER ALL=(root) NOPASSWD: /usr/local/sbin/solartrigger-system-update
+$CURRENT_USER ALL=(root) NOPASSWD: /usr/local/sbin/solartrigger-release-update *
 EOF
 
 chmod 440 "$SUDOERS_FILE"

@@ -343,9 +343,21 @@ header {
   color: var(--blue);
 }
 
+.system-update-primary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.system-update-primary .btn {
+  white-space: nowrap;
+}
+
 .system-release-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
   width: 100%;
 }
@@ -363,6 +375,7 @@ header {
 
 #solartrigger-update-file {
   width: 100%;
+  min-width: 0;
 }
 
 

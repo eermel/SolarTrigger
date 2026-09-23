@@ -128,7 +128,13 @@ def _atomic_json(path: Path, document: dict[str, Any]) -> None:
 
 
 def _safe_relative(path: Path, root: Path) -> str:
-    return str(path.resolve().relative_to(root.resolve()))
+    """Return the logical release-relative path without dereferencing shared links."""
+    path = Path(path)
+    root = Path(root)
+    try:
+        return str(path.absolute().relative_to(root.absolute()))
+    except ValueError as exc:
+        raise CameraValidationError(f"path escapes SolarTrigger root: {path}") from exc
 
 
 def _camera_files_for_entry(entry: dict[str, Any], root: Path = ROOT) -> dict[str, Any]:
@@ -1094,6 +1100,20 @@ class CameraValidationJob:
         self.prepared: dict[str, Any] | None = None
         self.log_path: Path | None = None
         self.report_path: Path | None = None
+        self._notify_fn = None
+
+    def set_notify_fn(self, notify_fn) -> None:
+        self._notify_fn = notify_fn
+
+    def _notify(self) -> None:
+        notify_fn = self._notify_fn
+        if not callable(notify_fn):
+            return
+        try:
+            notify_fn()
+        except Exception:
+            # UI notification must never affect camera validation.
+            pass
 
     def log(self, message: Any) -> None:
         line = f"{_utc_now().isoformat(timespec='milliseconds')} {message}"
@@ -1108,6 +1128,7 @@ class CameraValidationJob:
                     handle.flush()
             except OSError:
                 pass
+        self._notify()
 
     def snapshot(self) -> dict[str, Any]:
         with self.lock:
@@ -1178,6 +1199,7 @@ class CameraValidationJob:
             self.result = None
             self.question = None
             self.logs.clear()
+        self._notify()
         return public
 
     def start(self, token: str, root: Path = ROOT) -> None:
@@ -1210,11 +1232,13 @@ class CameraValidationJob:
                 name=f"camera-validation-{self.job_id[:8]}",
             )
             thread.start()
+        self._notify()
 
     def cancel(self) -> None:
         self.cancel_event.set()
         with self.condition:
             self.condition.notify_all()
+        self._notify()
 
     def respond(self, question_id: str, outcome: str) -> None:
         if outcome not in {"ok", "extra", "incorrect"}:
@@ -1224,6 +1248,7 @@ class CameraValidationJob:
                 raise ValueError("stale or invalid operator confirmation")
             self.answer = outcome
             self.condition.notify_all()
+        self._notify()
 
     def _ask_operator(self, automatic: dict[str, Any]) -> str:
         with self.condition:
@@ -1239,6 +1264,7 @@ class CameraValidationJob:
                 ),
             }
             self.answer = None
+            self._notify()
             self.log(
                 "AUTOMATIC VALIDATION COMPLETED - WAITING FOR OPERATOR CONFIRMATION "
                 f"confirmed={automatic['confirmed_photos']}/{automatic['expected_photos']}"
@@ -1254,6 +1280,7 @@ class CameraValidationJob:
             outcome = self.answer
             self.question = None
             self.answer = None
+            self._notify()
             return outcome
 
     @staticmethod
@@ -1468,6 +1495,7 @@ class CameraValidationJob:
             self.question = None
             self.answer = None
             self.condition.notify_all()
+        self._notify()
 
     def delete_generated_files(self, root: Path = ROOT) -> dict[str, Any]:
         root = Path(root)
@@ -1492,10 +1520,11 @@ class CameraValidationJob:
             raw = artifacts.get(key)
             if not isinstance(raw, str) or not raw:
                 raise CameraValidationError(f"validation report has no {key}")
-            path = (root / raw).resolve()
+            logical_path = root / raw
+            path = logical_path.resolve()
             if path.parent != parent or path.suffix != ".json":
                 raise CameraValidationError(f"unsafe generated camera path: {raw}")
-            targets.append(path)
+            targets.append(logical_path)
 
         deleted = []
         missing = []

@@ -128,9 +128,17 @@ def test_refresh_posts_once_then_rerenders_with_response(mocked_backend_response
     assert re.search(
         r"fetch\('/api/rigs/devices/refresh',\s*\{method:\s*'POST'\}\)", refresh
     )
+    assert len(re.findall(r"fetch\('/api/devices/detect'", refresh)) == 1
     assert re.search(
-        r"const\s+inventory\s*=\s*await\s+response\.json\(\).*?"
+        r"const\s+inventory\s*=\s*await\s+inventoryResponse\.json\(\).*?"
         r"await\s+loadRigDevices\(inventory\)",
+        refresh,
+        flags=re.DOTALL,
+    )
+    assert re.search(
+        r"const\s+devices\s*=\s*await\s+devicesResponse\.json\(\).*?"
+        r"renderDevices\(devices\).*?"
+        r"updateControlsVisibility\(devices\)",
         refresh,
         flags=re.DOTALL,
     )

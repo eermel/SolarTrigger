@@ -51,6 +51,20 @@ class CharacterizationJob:
         self.job_id = None
         self.measurement_path = None
         self.measurement_state = {}
+        self._notify_fn = None
+
+    def set_notify_fn(self, notify_fn):
+        self._notify_fn = notify_fn
+
+    def _notify(self):
+        notify_fn = self._notify_fn
+        if not callable(notify_fn):
+            return
+        try:
+            notify_fn()
+        except Exception:
+            # UI notification must never break camera qualification.
+            pass
 
     def checkpoint(self, **data):
         """Keep measured evidence even if qualification fails; never a plugin.
@@ -82,6 +96,7 @@ class CharacterizationJob:
     def log(self, message):
         with self.lock:
             self.logs.append(f"{datetime.now(timezone.utc).isoformat(timespec='seconds')} {message}")
+        self._notify()
 
     def check(self):
         if self.cancelled:
@@ -92,6 +107,7 @@ class CharacterizationJob:
             self.check()
             self.question = {"id": uuid.uuid4().hex, "message": message, "kind": kind}
             self.answer = None
+            self._notify()
             until = time.monotonic() + 600
             while self.answer is None:
                 self.check()
@@ -101,6 +117,7 @@ class CharacterizationJob:
                 self.condition.wait(min(1, remaining))
             answer = self.answer
             self.question = None
+            self._notify()
             return answer
 
     def respond(self, question_id, answer):
@@ -109,6 +126,7 @@ class CharacterizationJob:
                 raise ValueError("Stale or invalid operator confirmation")
             self.answer = answer
             self.condition.notify_all()
+        self._notify()
 
     def snapshot(self):
         with self.lock:
@@ -128,6 +146,13 @@ class CharacterizationJob:
                 args=(deepcopy(entry), Path(root), bool(replace_existing)),
                 daemon=True,
             ).start()
+        self._notify()
+
+    def cancel(self):
+        with self.condition:
+            self.cancelled = True
+            self.condition.notify_all()
+        self._notify()
 
     def _run(self, entry, root, replace_existing=False):
         camera = None
@@ -185,6 +210,7 @@ class CharacterizationJob:
                 self.running = False
                 self.question = None
                 self.condition.notify_all()
+            self._notify()
 
 
 def enumerate_widgets(camera):
@@ -324,13 +350,15 @@ def publish(profile, timing, root, *, replace_existing=False):
         # Build and validate both replacement files before touching active data.
         for path, document in files:
             path.parent.mkdir(parents=True, exist_ok=True)
-            if (
-                path.parent.resolve()
-                != root.resolve() / path.parent.relative_to(root)
-            ):
-                raise ValueError(
-                    "Camera configuration directories must not be symlinks"
-                )
+            logical_parent = root / "configs" / path.parent.name
+            if path.parent.is_symlink():
+                shared_parent = root / "var" / "generated" / path.parent.name
+                if path.parent.resolve() != shared_parent.resolve():
+                    raise ValueError(
+                        "Camera configuration symlink must target shared persistent data"
+                    )
+            elif path.parent.resolve() != logical_parent.resolve():
+                raise ValueError("Unsafe camera configuration directory")
 
             with tempfile.NamedTemporaryFile(
                 mode="w",

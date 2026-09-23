@@ -404,3 +404,11 @@ def test_global_sound_control_has_contact_test_button():
     assert 'id="btn-test-sound"' in html
     assert 'onclick="testSound(\'contact.wav\')"' in html
     assert 'id="toggle-sounds"' in html
+
+
+
+def test_controls_volume_syncs_browser_and_pi():
+    assert "function setVolume(v)" in INDEX
+    assert "function applyVolume(v)" in INDEX
+    assert "fetch('/api/audio/volume'" in INDEX
+    assert "socket.on('audio_volume'" in INDEX

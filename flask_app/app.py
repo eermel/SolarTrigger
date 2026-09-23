@@ -564,6 +564,33 @@ def api_audio_enabled():
     })
 
 
+@app.route("/api/audio/volume", methods=["GET", "POST"])
+def api_audio_volume():
+    if request.method == "GET":
+        return jsonify({"volume": audio_service.get_volume()})
+
+    payload = request.get_json(silent=True) or {}
+    volume = payload.get("volume")
+    if isinstance(volume, bool) or not isinstance(volume, (int, float)):
+        return jsonify({"error": "volume must be a number between 0 and 1"}), 400
+
+    try:
+        audio_service.set_volume(volume)
+    except (TypeError, ValueError, OSError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    normalized = audio_service.get_volume()
+    socketio.emit(
+        "audio_volume",
+        {"volume": normalized},
+        namespace="/",
+    )
+    return jsonify({
+        "status": "ok",
+        "volume": normalized,
+    })
+
+
 @app.route("/api/audio/test", methods=["POST"])
 def api_audio_test():
     # Deliberately fixed: this endpoint is a contact.wav hardware/browser test,
@@ -784,10 +811,8 @@ def _json_number(payload, name, required=True):
 
 @app.route("/api/devices", methods=["GET"])
 def api_devices_get():
-    devices = _state_store.snapshot("devices") or {}
-    if (ttl_expired(devices.get("updated_at"))
-            or _has_missing_device_selection(devices)):
-        return jsonify(_detect_devices())
+    # Read-only by design: hardware discovery is an explicit operator action
+    # through Refresh devices (/api/devices/detect and the RIG inventory refresh).
     return jsonify(_devices_snapshot())
 
 
@@ -1741,13 +1766,18 @@ def _authoritative_trigger_snapshot():
 
 
 from backend.camera_characterization_routes import register_characterization_routes
-register_characterization_routes(app, _authoritative_trigger_snapshot)
+register_characterization_routes(
+    app,
+    _authoritative_trigger_snapshot,
+    emit_fn=lambda event, payload: socketio.emit(event, payload, namespace="/"),
+)
 
 from backend.camera_validation_routes import register_camera_validation_routes
 register_camera_validation_routes(
     app,
     _authoritative_trigger_snapshot,
     root=TRIGGER_DIR,
+    emit_fn=lambda event, payload: socketio.emit(event, payload, namespace="/"),
 )
 
 # ══════════════════════════════════════════════════════════════════════════════

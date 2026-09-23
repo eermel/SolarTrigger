@@ -50,6 +50,33 @@ def refresh_inventory() -> dict[str, list[dict[str, Any]]]:
     return deepcopy(normalized)
 
 
+def reclassify_cached_cameras() -> dict[str, list[dict[str, Any]]]:
+    """Re-evaluate cached camera backends without probing hardware.
+
+    Characterization publishes a new profile while the physical inventory is
+    intentionally frozen.  Reclassifying the existing snapshot makes that
+    camera immediately eligible for validation without another USB discovery
+    pass.  No gphoto2/INDI/ZWO probe is performed here.
+    """
+
+    from backend.camera_profiles import profile_for_model
+
+    with _cache_lock:
+        updated = deepcopy(_cache)
+        cameras = updated.get("camera", [])
+        for entry in cameras:
+            if not isinstance(entry, dict):
+                continue
+            profile = profile_for_model(entry.get("model"))
+            backend = profile.get("backend") if isinstance(profile, dict) else None
+            entry["backend"] = backend or "gphoto2"
+            entry["pilotable"] = bool(backend)
+        build_display_labels(cameras)
+        _cache.clear()
+        _cache.update(deepcopy(updated))
+        return deepcopy(updated)
+
+
 def build_display_labels(
     entries: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -66,7 +93,7 @@ def build_display_labels(
         category = str(entry.get("category") or "")
         groups.setdefault((category, base), []).append(index)
 
-    for indices in groups.values():
+    for (category, _base), indices in groups.items():
         suffixes: dict[int, str] = {}
         serials = {
             index: serial
@@ -75,7 +102,9 @@ def build_display_labels(
         }
         distinct_serials = set(serials.values())
         distinct_entries = len(distinct_serials) + len(indices) - len(serials)
-        if distinct_entries > 1 and serials:
+        force_serial_label = category in {"mount", "focuser"}
+
+        if (distinct_entries > 1 or force_serial_label) and serials:
             width = 4
             longest = max(len(serial) for serial in distinct_serials)
             while width < longest:
@@ -87,10 +116,14 @@ def build_display_labels(
                 index: serial[-width:]
                 for index, serial in serials.items()
             }
+
+        separator = " - " if force_serial_label else " · "
         for index in indices:
             suffix = suffixes.get(index)
             entries[index]["display_label"] = (
-                f"{bases[index]} · {suffix}" if suffix else bases[index]
+                f"{bases[index]}{separator}{suffix}"
+                if suffix
+                else bases[index]
             )
     return entries
 
