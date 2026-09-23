@@ -468,9 +468,11 @@ def test_rollback_does_not_downgrade_root_maintenance_helper():
         encoding="utf-8"
     )
 
-    rollback = script.split('    rollback)', 1)[1]
-    assert 'alink "$destination" "$ACTIVE"' in rollback
-    assert 'refresh_root_helpers "$destination"' not in rollback
+    rollback = script.split("rollback_release() {", 1)[1].split(
+        'case "${1:-}" in', 1
+    )[0]
+    assert 'alink "$rollback_destination" "$ACTIVE"' in rollback
+    assert "refresh_root_helpers" not in rollback
 
 
 
@@ -484,10 +486,10 @@ def test_legacy_migration_restores_active_path_before_shared_moves():
         "validate_and_extract() {", 1
     )[0]
 
-    move_active = migration.index('mv "$ACTIVE" "$destination"')
+    move_active = migration.index('mv -- "$ACTIVE" "$destination"')
     relink_active = migration.index('alink "$destination" "$ACTIVE"')
-    move_var = migration.index('mv "$destination/var" "$SHARED_VAR"')
-    move_venv = migration.index('mv "$destination/venv" "$SHARED_VENV"')
+    move_var = migration.index('mv -- "$destination/var" "$SHARED_VAR"')
+    move_venv = migration.index('mv -- "$destination/venv" "$SHARED_VENV"')
 
     assert move_active < relink_active < move_var
     assert move_active < relink_active < move_venv
