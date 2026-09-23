@@ -341,10 +341,16 @@ class TriggerService:
             )
 
     def publish_external_failure(self, rig_id, code, detail, *, exit_code=None):
-        self.state.update_trigger_rig(
-            rig_id,
-            {"running": False, "phase": "failed", "mode": None, "speed": None},
-        )
+        failure_state = {
+            "running": False,
+            "phase": "failed",
+            "mode": None,
+            "speed": None,
+            "failure_code": str(code),
+            "failure_detail": str(detail),
+            "exit_code": exit_code,
+        }
+        self.state.update_trigger_rig(rig_id, failure_state)
         payload = {
             "rig_id": rig_id,
             "phase": "failed",
@@ -935,6 +941,9 @@ class TriggerService:
                         "phase": published_phase,
                         "mode": mode,
                         "speed": speed if simulate else 1.0,
+                        "failure_code": None,
+                        "failure_detail": None,
+                        "exit_code": None,
                     },
                 )
                 self.emit(
@@ -1475,6 +1484,9 @@ class TriggerService:
                         "phase": "recovering",
                         "mode": "totality_override" if totality_only else "real",
                         "speed": 1.0,
+                        "failure_code": None,
+                        "failure_detail": None,
+                        "exit_code": None,
                     },
                 )
                 self.emit(
@@ -1714,6 +1726,9 @@ class TriggerService:
                     "phase": published_phase,
                     "mode": "totality_override",
                     "speed": 1.0,
+                    "failure_code": None,
+                    "failure_detail": None,
+                    "exit_code": None,
                 },
             )
             self.emit(
