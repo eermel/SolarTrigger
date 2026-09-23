@@ -10,6 +10,7 @@ from backend.runtime_interlock import (
 )
 from backend.system_maintenance import (
     JOB,
+    MAX,
     RELEASE_HELPER,
     SYSTEM_HELPER,
     ethernet_status,
@@ -90,6 +91,8 @@ def register_system_maintenance_routes(
     def upload():
         if busy() or JOB.snapshot()["running"]:
             return jsonify(error="System is busy"), 409
+        if request.content_length is not None and request.content_length > MAX:
+            return jsonify(error="Update package is too large"), 413
 
         uploaded = request.files.get("file")
         if (
