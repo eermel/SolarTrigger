@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - hardening/standalone-runtime-20260922
-      - feature/update-installer-devices-ui
   workflow_dispatch:
 
 jobs:
@@ -29,6 +28,6 @@ jobs:
           python -m py_compile backend/runtime_rpc.py backend/runtime_daemon.py flask_app/app.py
           bash -n install/install_solareclipse.sh
           bash -n install/install_standalone_runtime_service.sh
-          bash -n install/solartrigger-release-update
+          sh -n install/solartrigger-release-update
       - name: Full test suite
         run: python -m pytest -q
