@@ -459,3 +459,15 @@ def test_runtime_trigger_snapshot_exposes_active_input_filenames(tmp_path):
         "exposure_opt_file": "expo.json",
     }
     assert snapshot["rigs"]["2"]["inputs"] == {}
+
+
+
+def test_rollback_does_not_downgrade_root_maintenance_helper():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "install" / "solartrigger-release-update").read_text(
+        encoding="utf-8"
+    )
+
+    rollback = script.split('    rollback)', 1)[1]
+    assert 'alink "$destination" "$ACTIVE"' in rollback
+    assert 'refresh_root_helpers "$destination"' not in rollback
