@@ -1786,6 +1786,7 @@ let cameraCharacterizationQuestion = null;
 let cameraCharacterizationWasRunning = false;
 let cameraCharacterizationPolling = false;
 let cameraCharacterizationStarting = false;
+let cameraCharacterizationStartingMessage = '';
 async function pollCameraCharacterization() {
   if (cameraCharacterizationPolling) return;
   cameraCharacterizationPolling = true;
@@ -1823,7 +1824,21 @@ async function pollCameraCharacterization() {
         !recharacterizationSelect ||
         !recharacterizationSelect.value;
     }
-    updateCameraAddLog('characterization', status.logs, status.result);
+    const characterizationLogs = Array.isArray(status.logs)
+      ? status.logs.slice()
+      : [];
+    if (
+      cameraCharacterizationStarting
+      && cameraCharacterizationStartingMessage
+      && !characterizationLogs.includes(cameraCharacterizationStartingMessage)
+    ) {
+      characterizationLogs.unshift(cameraCharacterizationStartingMessage);
+    }
+    updateCameraAddLog(
+      'characterization',
+      characterizationLogs,
+      status.result
+    );
     cameraCharacterizationQuestion = status.question?.id || null;
     document.getElementById('camera-characterization-question').hidden = !status.question;
     document.getElementById('camera-characterization-prompt').textContent = status.question?.message || '';
@@ -1867,11 +1882,13 @@ async function startCameraCharacterization() {
 
   // Immediate operator feedback, before USB/backend work starts.
   cameraCharacterizationStarting = true;
+  cameraCharacterizationStartingMessage =
+    'Starting camera characterization…';
   if (button) button.disabled = true;
   if (select) select.disabled = true;
   appendCameraAddLogLine(
     'characterization',
-    'Starting camera characterization…'
+    cameraCharacterizationStartingMessage
   );
 
   await waitForBrowserPaint();
@@ -1880,12 +1897,14 @@ async function startCameraCharacterization() {
     await characterizationRequest('start', {locator});
   } catch (error) {
     cameraCharacterizationStarting = false;
+    cameraCharacterizationStartingMessage = '';
     if (select) select.disabled = false;
     if (button) button.disabled = !locator;
     flash(error.message, 'red');
     return;
   }
   cameraCharacterizationStarting = false;
+  cameraCharacterizationStartingMessage = '';
 }
 async function cancelCameraCharacterization() {
   try { await characterizationRequest('cancel'); } catch (error) { flash(error.message, 'red'); }
@@ -6151,6 +6170,7 @@ let cameraValidationTimer = null;
 let cameraValidationQuestionId = null;
 let cameraValidationLastResultId = null;
 let cameraValidationStarting = false;
+let cameraValidationStartingMessage = '';
 
 function formatValidationDuration(seconds) {
   const total = Math.max(0, Math.round(Number(seconds) || 0));
@@ -6186,7 +6206,17 @@ function renderCameraValidationStatus(status) {
   start.disabled = validationBusy || !select.value;
   select.disabled = validationBusy;
   cancel.disabled = !status.running;
-  updateCameraAddLog('validation', status.logs);
+  const validationLogs = Array.isArray(status.logs)
+    ? status.logs.slice()
+    : [];
+  if (
+    cameraValidationStarting
+    && cameraValidationStartingMessage
+    && !validationLogs.includes(cameraValidationStartingMessage)
+  ) {
+    validationLogs.unshift(cameraValidationStartingMessage);
+  }
+  updateCameraAddLog('validation', validationLogs);
 
   const prepared = status.prepared;
   const result = status.result;
@@ -6243,11 +6273,12 @@ async function prepareCameraValidation() {
   }
 
   cameraValidationStarting = true;
+  cameraValidationStartingMessage = 'Preparing camera validation…';
   select.disabled = true;
   if (start) start.disabled = true;
   appendCameraAddLogLine(
     'validation',
-    'Preparing camera validation…'
+    cameraValidationStartingMessage
   );
   await waitForBrowserPaint();
 
@@ -6276,6 +6307,7 @@ async function prepareCameraValidation() {
 
     if (!authorized) {
       cameraValidationStarting = false;
+      cameraValidationStartingMessage = '';
       await pollCameraValidation();
       return;
     }
@@ -6290,8 +6322,10 @@ async function prepareCameraValidation() {
     flash(`Camera validation started — ${prepared.expected_photos} photos expected`, 'green');
     await pollCameraValidation();
     cameraValidationStarting = false;
+    cameraValidationStartingMessage = '';
   } catch (error) {
     cameraValidationStarting = false;
+    cameraValidationStartingMessage = '';
     await pollCameraValidation();
     flash(`Camera validation: ${error.message}`, 'red');
   }
@@ -6741,11 +6775,13 @@ async function startCameraRecharacterization() {
   renderCameraAddLog();
 
   cameraCharacterizationStarting = true;
+  cameraCharacterizationStartingMessage =
+    'Starting camera re-characterization…';
   if (select) select.disabled = true;
   if (button) button.disabled = true;
   appendCameraAddLogLine(
     'characterization',
-    'Starting camera re-characterization…'
+    cameraCharacterizationStartingMessage
   );
   await waitForBrowserPaint();
 
@@ -6768,9 +6804,11 @@ async function startCameraRecharacterization() {
     cameraCharacterizationWasRunning = true;
     await pollCameraCharacterization();
     cameraCharacterizationStarting = false;
+    cameraCharacterizationStartingMessage = '';
     flash('Camera re-characterization started', 'green');
   } catch (error) {
     cameraCharacterizationStarting = false;
+    cameraCharacterizationStartingMessage = '';
     if (select) select.disabled = false;
     if (button) button.disabled = !locator;
     flash(error.message || 'Re-characterization failed to start', 'red');
