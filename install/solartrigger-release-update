@@ -427,6 +427,7 @@ verify_release_integrity() {
     /usr/bin/python3 - "$destination" <<'PYVERIFY'
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path, PurePosixPath
 
@@ -478,6 +479,31 @@ for relative, metadata in files.items():
         raise RuntimeError(f"release integrity size mismatch: {relative}")
     if hashlib.sha256(data).hexdigest() != expected_hash:
         raise RuntimeError(f"release integrity hash mismatch: {relative}")
+
+allowed_symlinks = {
+    "var",
+    "venv",
+    "configs/camera_profiles",
+    "configs/camera_timing",
+    "configs/camera_characterization",
+}
+allowed_extra_files = {"RELEASE_MANIFEST.json"}
+
+for current, dirs, names in os.walk(root, topdown=True, followlinks=False):
+    current_path = Path(current)
+    for name in [*dirs, *names]:
+        path = current_path / name
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            if relative not in allowed_symlinks:
+                raise RuntimeError(f"undeclared release symlink: {relative}")
+            continue
+        if (
+            path.is_file()
+            and relative not in files
+            and relative not in allowed_extra_files
+        ):
+            raise RuntimeError(f"undeclared release file: {relative}")
 
 build_commit = manifest.get("build_commit")
 if build_commit:
@@ -533,11 +559,33 @@ validate_release_runtime() {
     [[ -f "$destination/templates/index.html" ]]
     [[ -f "$destination/static/js/solartrigger.js" ]]
 
-    "$SHARED_VENV/bin/python" -m py_compile \
-        "$destination/app.py" \
-        "$destination/wsgi.py" \
-        "$destination/backend/runtime_daemon.py" \
-        "$destination/scripts/eclipse_trigger.py"
+    # Compile source in memory. `python -m py_compile` writes __pycache__ into
+    # the release and would make an immutable release differ from its manifest.
+    "$SHARED_VENV/bin/python" - "$destination" <<'PYRUNTIME'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+for relative in (
+    "app.py",
+    "wsgi.py",
+    "backend/runtime_daemon.py",
+    "scripts/eclipse_trigger.py",
+):
+    path = root / relative
+    source = path.read_text(encoding="utf-8")
+    compile(source, str(path), "exec")
+PYRUNTIME
+}
+
+cleanup_release_runtime_artifacts() {
+    local destination=$1
+
+    # Older installers used py_compile and could leave interpreter artefacts
+    # outside the manifest. Remove only those known generated artefacts before
+    # strict integrity verification.
+    find "$destination" -type d -name '__pycache__' -prune -exec rm -rf -- {} +
+    find "$destination" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 }
 
 cleanup_stale_temporary() {
@@ -588,6 +636,7 @@ install_release() {
 
     prepare_release_links "$temporary"
     validate_release_runtime "$temporary"
+    cleanup_release_runtime_artifacts "$temporary"
     verify_release_integrity "$temporary"
     seal_release "$temporary"
 
@@ -621,6 +670,7 @@ rollback_release() {
     fi
 
     prepare_release_links "$rollback_destination"
+    cleanup_release_runtime_artifacts "$rollback_destination"
     verify_release_integrity "$rollback_destination"
     seal_release "$rollback_destination"
 

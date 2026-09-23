@@ -14,6 +14,21 @@ elif [[ $# -gt 0 ]]; then
     exit 2
 fi
 
+# Legacy rsync deployment is only safe against the historical mutable
+# production directory. Versioned releases are immutable and must only be
+# installed through the release-package/update mechanism.
+ACTIVE_TARGET="$(ssh "$DST_HOST" "if [ -L '$DST' ]; then readlink -f '$DST' 2>/dev/null || printf '__SYMLINK__'; fi")" || {
+    echo "ERROR: unable to inspect production target $DST_HOST:$DST" >&2
+    exit 1
+}
+
+if [[ -n "$ACTIVE_TARGET" ]]; then
+    echo "ERROR: refusing legacy rsync deployment into versioned/linked production target:" >&2
+    echo "  $DST_HOST:$DST -> $ACTIVE_TARGET" >&2
+    echo "Build a release with scripts/build_release_package.py and install it with solartrigger-release-update." >&2
+    exit 1
+fi
+
 RSYNC_OPTS=(
     -av
     --exclude='__pycache__/'
