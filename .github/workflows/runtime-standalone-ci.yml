@@ -1,5 +1,7 @@
 name: standalone-runtime-ci
 
+# Feature validation workflow.
+
 on:
   push:
     branches:
