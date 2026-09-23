@@ -180,15 +180,17 @@ def test_install_script_defines_separate_runtime_and_portal_services():
     assert "Requires=solartrigger-runtime.service" in script
 
 
-def test_offline_update_restarts_runtime_before_portal():
+def test_offline_update_switches_release_then_reboots():
     root = Path(__file__).resolve().parents[1]
     script = (root / "install" / "solartrigger-release-update").read_text(
         encoding="utf-8"
     )
 
-    runtime_restart = script.index('systemctl restart "$RUNTIME_SERVICE"')
-    portal_restart = script.index('systemctl restart "$PORTAL_SERVICE"')
-    assert runtime_restart < portal_restart
+    switch = script.index('alink "$destination" "$ACTIVE"')
+    reboot = script.index('/usr/bin/systemctl reboot')
+    assert switch < reboot
+    assert 'systemctl restart "$RUNTIME_SERVICE"' not in script
+    assert 'systemctl restart "$PORTAL_SERVICE"' not in script
 
 
 class _CameraWorkerStub:
