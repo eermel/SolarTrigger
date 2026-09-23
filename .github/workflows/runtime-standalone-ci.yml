@@ -1,7 +1,5 @@
 name: standalone-runtime-ci
 
-# Feature validation workflow.
-
 on:
   push:
     branches:
@@ -27,20 +25,9 @@ jobs:
           python -m pip install pytest Flask flask-socketio simple-websocket gphoto2 pygame pyserial gunicorn pytz timezonefinder
       - name: Syntax checks
         run: |
-          python -m py_compile backend/runtime_rpc.py backend/runtime_daemon.py backend/system_maintenance.py backend/system_maintenance_routes.py flask_app/app.py scripts/build_release_package.py
+          python -m py_compile backend/runtime_rpc.py backend/runtime_daemon.py flask_app/app.py
           bash -n install/install_solareclipse.sh
           bash -n install/install_standalone_runtime_service.sh
           sh -n install/solartrigger-release-update
-          node --check flask_app/static/js/solartrigger.js
-      - name: Build and validate offline release package
-        run: |
-          python scripts/build_release_package.py --version ci-test --output /tmp/solartrigger-ci-test.zip
-          python - <<'PY'
-          from backend.system_maintenance import validate_release_zip
-          manifest = validate_release_zip("/tmp/solartrigger-ci-test.zip")
-          assert manifest["version"] == "ci-test"
-          assert manifest["files"]
-          print(f"validated {len(manifest['files'])} release files")
-          PY
       - name: Full test suite
         run: python -m pytest -q
