@@ -23,13 +23,19 @@ COPY_TREES = (
     "backend",
     "services",
     "plugins",
-    "scripts",
     "configs",
     "data",
     "Sounds",
     "vendor",
     "install",
-    "jubier_files",
+)
+RUNTIME_SCRIPTS = (
+    "__init__.py",
+    "camera_ipc_client.py",
+    "eclipse_calculator_py.py",
+    "eclipse_trigger.py",
+    "fanout_camera_adapter.py",
+    "gps_sync.py",
 )
 SKIP_PARTS = {"__pycache__", ".pytest_cache", ".git"}
 SKIP_SUFFIXES = {".pyc", ".pyo"}
@@ -101,6 +107,15 @@ def _runtime_files(repo_root: Path):
             PurePosixPath(tree_name),
             include=include,
         )
+
+    scripts_root = repo_root / "scripts"
+    for script_name in RUNTIME_SCRIPTS:
+        source = scripts_root / script_name
+        if not source.is_file() or not include(source):
+            raise FileNotFoundError(
+                f"Missing tracked runtime script: {source}"
+            )
+        yield source, PurePosixPath("scripts") / script_name
 
     flask_root = repo_root / "flask_app"
     app_py = flask_root / "app.py"
