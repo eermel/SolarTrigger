@@ -6776,7 +6776,57 @@ async function startCameraRecharacterization() {
     flash(error.message || 'Re-characterization failed to start', 'red');
   }
 }
-async function maintenancePost(u,b){let r=await fetch(u,{method:'POST',headers:b?{'Content-Type':'application/json'}:{},body:b?JSON.stringify(b):undefined}),d=await r.json();if(!r.ok)throw Error(d.error||`HTTP ${r.status}`);return d}
+async function maintenancePost(url, body) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: body ? {'Content-Type': 'application/json'} : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+  return data;
+}
+
+function renderInstalledSolarTriggerReleases(releaseState) {
+  const select = document.getElementById('solartrigger-rollback-version');
+  const button = document.getElementById('solartrigger-rollback-release');
+  if (!select || !button) return;
+
+  const previous = select.value;
+  const active = releaseState && releaseState.active;
+  const releases = Array.isArray(releaseState && releaseState.releases)
+    ? releaseState.releases
+    : [];
+
+  select.innerHTML = '<option value="">— Installed version —</option>';
+  releases
+    .filter(item => item && !item.active)
+    .forEach(item => {
+      const option = document.createElement('option');
+      option.value = String(item.version || '');
+      option.textContent =
+        `${item.version || item.directory}${item.build_commit ? ' · ' + String(item.build_commit).slice(0, 8) : ''}`;
+      select.appendChild(option);
+    });
+
+  if ([...select.options].some(option => option.value === previous)) {
+    select.value = previous;
+  }
+  select.disabled = releases.length <= 1;
+  button.disabled = !select.value;
+
+  const status = document.getElementById('solartrigger-update-status');
+  if (status && active) {
+    status.textContent = `Active release: ${active}`;
+  }
+
+  select.onchange = () => {
+    button.disabled = !select.value;
+  };
+}
+
 async function loadMaintenanceStatus(){
   const button = document.getElementById('system-check-update');
   if (!button) return;
@@ -6809,6 +6859,8 @@ async function loadMaintenanceStatus(){
     } else if (data.kind) {
       updateCameraAddLog('solarTriggerUpdate', lines);
     }
+
+    renderInstalledSolarTriggerReleases(data.release_state || {});
   } catch (error) {
     console.warn(
       'Unable to load maintenance status:',
@@ -6841,7 +6893,104 @@ async function checkAndUpdateSystem(){
     flash(e.message,'red');
   }
 }
-async function uploadSolarTriggerRelease(){let i=document.getElementById('solartrigger-update-file'),f=i&&i.files[0];if(!f)return;let q=new FormData();q.append('file',f);let r=await fetch('/api/system/maintenance/upload-release',{method:'POST',body:q}),d=await r.json();if(!r.ok)return flash(d.error||'Invalid package','red');solarTriggerUploadToken=d.upload_token;document.getElementById('solartrigger-install-release').disabled=false;document.getElementById('solartrigger-update-status').textContent=`Validated release: ${d.version}`}
-async function installSolarTriggerRelease(){if(!solarTriggerUploadToken||!confirm('Install release and restart service?'))return;try{await maintenancePost('/api/system/maintenance/install-release',{upload_token:solarTriggerUploadToken})}catch(e){flash(e.message,'red')}}
-async function rollbackSolarTriggerRelease(){if(!confirm('Rollback to previous release?'))return;try{await maintenancePost('/api/system/maintenance/rollback-release')}catch(e){flash(e.message,'red')}}
+async function uploadSolarTriggerRelease() {
+  const input = document.getElementById('solartrigger-update-file');
+  const file = input && input.files[0];
+  if (!file) {
+    flash('Select a SolarTrigger ZIP package first.', 'red');
+    return;
+  }
+
+  appendCameraAddLogLine(
+    'solarTriggerUpdate',
+    `Validating package: ${file.name}`
+  );
+
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const response = await fetch(
+      '/api/system/maintenance/upload-release',
+      {method: 'POST', body: form}
+    );
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Invalid package');
+    }
+    solarTriggerUploadToken = data.upload_token;
+    document.getElementById('solartrigger-install-release').disabled = false;
+    document.getElementById('solartrigger-update-status').textContent =
+      `Validated release: ${data.version} · ${data.file_count} files`;
+    appendCameraAddLogLine(
+      'solarTriggerUpdate',
+      `Package validated: ${data.version}`
+    );
+  } catch (error) {
+    solarTriggerUploadToken = null;
+    document.getElementById('solartrigger-install-release').disabled = true;
+    appendCameraAddLogLine(
+      'solarTriggerUpdate',
+      `ERROR: ${error.message}`
+    );
+    flash(error.message, 'red');
+  }
+}
+
+async function installSolarTriggerRelease() {
+  if (!solarTriggerUploadToken) return;
+  if (!confirm(
+    'Install this SolarTrigger release?\n\n' +
+    'The active symlink will switch to the new version and the Raspberry Pi will reboot.'
+  )) return;
+
+  appendCameraAddLogLine(
+    'solarTriggerUpdate',
+    'Installing validated SolarTrigger release…'
+  );
+  try {
+    await maintenancePost(
+      '/api/system/maintenance/install-release',
+      {upload_token: solarTriggerUploadToken}
+    );
+    flash('Release installation accepted — Pi reboot requested', 'green');
+  } catch (error) {
+    appendCameraAddLogLine(
+      'solarTriggerUpdate',
+      `ERROR: ${error.message}`
+    );
+    flash(error.message, 'red');
+  }
+}
+
+async function rollbackSolarTriggerRelease() {
+  const select = document.getElementById('solartrigger-rollback-version');
+  const version = select && select.value;
+  if (!version) {
+    flash('Select an installed rollback version.', 'red');
+    return;
+  }
+
+  if (!confirm(
+    `Rollback SolarTrigger to ${version}?\n\n` +
+    'Only the active symlink will change; persistent data are shared. The Raspberry Pi will reboot.'
+  )) return;
+
+  appendCameraAddLogLine(
+    'solarTriggerUpdate',
+    `Rolling back to ${version}…`
+  );
+  try {
+    await maintenancePost(
+      '/api/system/maintenance/rollback-release',
+      {version}
+    );
+    flash(`Rollback to ${version} accepted — Pi reboot requested`, 'green');
+  } catch (error) {
+    appendCameraAddLogLine(
+      'solarTriggerUpdate',
+      `ERROR: ${error.message}`
+    );
+    flash(error.message, 'red');
+  }
+}
 setInterval(refreshRecharacterizationCandidates,3000);setInterval(loadMaintenanceStatus,2000);setTimeout(refreshRecharacterizationCandidates,250);setTimeout(loadMaintenanceStatus,250);
