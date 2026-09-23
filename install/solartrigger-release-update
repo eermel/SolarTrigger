@@ -1,35 +1,38 @@
-#!/bin/sh
-set -eu
+#!/bin/bash
+set -euo pipefail
 
 APP_USER="${SOLARTRIGGER_USER:-${SUDO_USER:-airone}}"
 USER_HOME="$(getent passwd "$APP_USER" | cut -d: -f6)"
-test -n "$USER_HOME"
+[[ -n "$USER_HOME" ]]
 
 BASE="$USER_HOME/solartrigger"
 RELEASES="$BASE/releases"
 SHARED_VAR="$BASE/var"
 SHARED_VENV="$BASE/venv"
 ACTIVE="$USER_HOME/solar-eclipse-trigger-prod"
+
 log() {
     printf '%s\n' "$*"
 }
 
 alink() {
-    target=$1
-    link=$2
-    tmp="${link}.new.$$"
-    rm -f "$tmp"
-    ln -s "$target" "$tmp"
-    mv -Tf "$tmp" "$link"
+    local target=$1
+    local link=$2
+    local tmp="${link}.new.$$"
+    rm -f -- "$tmp"
+    ln -s -- "$target" "$tmp"
+    mv -Tf -- "$tmp" "$link"
 }
 
 manifest_for_legacy() {
-    version=$1
-    destination=$2
-    commit=""
-    if [ -f "$destination/BUILD_COMMIT" ]; then
+    local version=$1
+    local destination=$2
+    local commit=""
+
+    if [[ -f "$destination/BUILD_COMMIT" ]]; then
         commit=$(tr -d '[:space:]' < "$destination/BUILD_COMMIT")
     fi
+
     /usr/bin/python3 - "$destination/RELEASE_MANIFEST.json" "$version" "$commit" <<'PY'
 import json
 import sys
@@ -58,52 +61,55 @@ PY
 }
 
 migrate_legacy_layout() {
-    mkdir -p "$BASE" "$RELEASES"
+    local stamp
+    local version
+    local destination
 
-    if [ -e "$ACTIVE" ] && [ ! -L "$ACTIVE" ]; then
+    mkdir -p -- "$BASE" "$RELEASES"
+
+    if [[ -e "$ACTIVE" && ! -L "$ACTIVE" ]]; then
         stamp=$(date -u +%Y%m%d-%H%M%S)
         version="legacy-$stamp"
         destination="$RELEASES/$version"
-        test ! -e "$destination"
+        [[ ! -e "$destination" ]]
 
         log "Migrating legacy installation to $destination"
-        mv "$ACTIVE" "$destination"
+        mv -- "$ACTIVE" "$destination"
 
-        # Restore the production pathname immediately. The running portal and
-        # runtime may still resolve absolute paths while the legacy var/venv
-        # directories are moved to shared storage.
+        # Restore the production pathname immediately. Running services may
+        # still resolve absolute paths while var/venv move to shared storage.
         alink "$destination" "$ACTIVE"
 
-        if [ -e "$destination/var" ] && [ ! -L "$destination/var" ]; then
-            test ! -e "$SHARED_VAR"
-            mv "$destination/var" "$SHARED_VAR"
+        if [[ -e "$destination/var" && ! -L "$destination/var" ]]; then
+            [[ ! -e "$SHARED_VAR" ]]
+            mv -- "$destination/var" "$SHARED_VAR"
         fi
-        if [ -e "$destination/venv" ] && [ ! -L "$destination/venv" ]; then
-            test ! -e "$SHARED_VENV"
-            mv "$destination/venv" "$SHARED_VENV"
+        if [[ -e "$destination/venv" && ! -L "$destination/venv" ]]; then
+            [[ ! -e "$SHARED_VENV" ]]
+            mv -- "$destination/venv" "$SHARED_VENV"
         fi
 
-        mkdir -p "$SHARED_VAR"
-        test -d "$SHARED_VENV"
+        mkdir -p -- "$SHARED_VAR"
+        [[ -d "$SHARED_VENV" ]]
 
-        if [ ! -L "$destination/var" ]; then
-            ln -s "$SHARED_VAR" "$destination/var"
+        if [[ ! -L "$destination/var" ]]; then
+            ln -s -- "$SHARED_VAR" "$destination/var"
         fi
-        if [ ! -L "$destination/venv" ]; then
-            ln -s "$SHARED_VENV" "$destination/venv"
+        if [[ ! -L "$destination/venv" ]]; then
+            ln -s -- "$SHARED_VENV" "$destination/venv"
         fi
+
         manifest_for_legacy "$version" "$destination"
     fi
 }
 
 validate_and_extract() {
-    package=$1
-    destination=$2
+    local package=$1
+    local destination=$2
 
     /usr/bin/python3 - "$package" "$destination" <<'PY'
 import hashlib
 import json
-import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
@@ -125,6 +131,7 @@ required = {
     "install/solartrigger-release-update",
 }
 
+
 def safe(name):
     if not isinstance(name, str) or not name or "\\" in name:
         raise RuntimeError("unsafe ZIP path")
@@ -132,6 +139,7 @@ def safe(name):
     if path.is_absolute() or ".." in path.parts:
         raise RuntimeError("unsafe ZIP path")
     return path
+
 
 with zipfile.ZipFile(package) as archive:
     infos = archive.infolist()
@@ -218,7 +226,8 @@ PY
 }
 
 release_version() {
-    package=$1
+    local package=$1
+
     /usr/bin/python3 - "$package" <<'PY'
 import json
 import re
@@ -235,25 +244,43 @@ PY
 }
 
 prepare_release_links() {
-    destination=$1
-    test ! -e "$destination/var"
-    test ! -e "$destination/venv"
-    mkdir -p "$SHARED_VAR"
-    test -x "$SHARED_VENV/bin/python"
-    ln -s "$SHARED_VAR" "$destination/var"
-    ln -s "$SHARED_VENV" "$destination/venv"
+    local destination=$1
+
+    [[ ! -e "$destination/var" ]]
+    [[ ! -e "$destination/venv" ]]
+    mkdir -p -- "$SHARED_VAR"
+    [[ -x "$SHARED_VENV/bin/python" ]]
+    ln -s -- "$SHARED_VAR" "$destination/var"
+    ln -s -- "$SHARED_VENV" "$destination/venv"
 }
 
 validate_release_runtime() {
-    destination=$1
-    test -f "$destination/app.py"
-    test -f "$destination/wsgi.py"
-    test -f "$destination/backend/runtime_daemon.py"
-    test -f "$destination/scripts/eclipse_trigger.py"
-    test -f "$destination/templates/index.html"
-    test -f "$destination/static/js/solartrigger.js"
+    local destination=$1
 
-    "$SHARED_VENV/bin/python" -m py_compile         "$destination/app.py"         "$destination/wsgi.py"         "$destination/backend/runtime_daemon.py"         "$destination/scripts/eclipse_trigger.py"
+    [[ -f "$destination/app.py" ]]
+    [[ -f "$destination/wsgi.py" ]]
+    [[ -f "$destination/backend/runtime_daemon.py" ]]
+    [[ -f "$destination/scripts/eclipse_trigger.py" ]]
+    [[ -f "$destination/templates/index.html" ]]
+    [[ -f "$destination/static/js/solartrigger.js" ]]
+
+    "$SHARED_VENV/bin/python" -m py_compile \
+        "$destination/app.py" \
+        "$destination/wsgi.py" \
+        "$destination/backend/runtime_daemon.py" \
+        "$destination/scripts/eclipse_trigger.py"
+}
+
+cleanup_stale_temporary() {
+    local entry
+
+    shopt -s nullglob
+    for entry in "$RELEASES"/.install-*; do
+        [[ -d "$entry" ]] || continue
+        log "Removing stale temporary release: $entry"
+        rm -rf -- "$entry"
+    done
+    shopt -u nullglob
 }
 
 request_reboot() {
@@ -262,63 +289,71 @@ request_reboot() {
     /usr/bin/systemctl reboot
 }
 
+install_release() {
+    local install_package=$1
+    local install_version
+    local final_destination
+    local temporary
+    local extracted_version
+
+    [[ -f "$install_package" ]]
+    migrate_legacy_layout
+
+    install_version=$(release_version "$install_package")
+    final_destination="$RELEASES/$install_version"
+    [[ ! -e "$final_destination" ]]
+
+    cleanup_stale_temporary
+    temporary="$RELEASES/.install-$install_version-$$"
+
+    extracted_version=$(validate_and_extract "$install_package" "$temporary")
+    [[ "$extracted_version" == "$install_version" ]]
+
+    # Chown only extracted immutable release files. Shared var/venv links are
+    # created afterwards so recursive ownership can never cross them.
+    chown -R "$APP_USER":"$(id -gn "$APP_USER")" "$temporary"
+    prepare_release_links "$temporary"
+    validate_release_runtime "$temporary"
+
+    mv -- "$temporary" "$final_destination"
+    alink "$final_destination" "$ACTIVE"
+    rm -f -- "$install_package"
+    log "Installed SolarTrigger release: $install_version"
+    request_reboot
+}
+
+rollback_release() {
+    local rollback_version=$1
+    local rollback_destination
+    local current=""
+
+    [[ "$rollback_version" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$ ]]
+
+    migrate_legacy_layout
+    rollback_destination="$RELEASES/$rollback_version"
+    [[ -d "$rollback_destination" ]]
+    [[ -f "$rollback_destination/app.py" ]]
+    [[ -f "$rollback_destination/RELEASE_MANIFEST.json" ]]
+
+    if [[ -L "$ACTIVE" ]]; then
+        current=$(readlink -f "$ACTIVE")
+    fi
+    [[ "$current" != "$(readlink -f "$rollback_destination")" ]]
+
+    alink "$rollback_destination" "$ACTIVE"
+    # Keep the newest privileged helper. Rolling application code back must
+    # never downgrade the recovery mechanism.
+    log "Rolled back SolarTrigger to: $rollback_version"
+    request_reboot
+}
+
 case "${1:-}" in
     install)
-        package=${2:?}
-        test -f "$package"
-        migrate_legacy_layout
-
-        version=$(release_version "$package")
-        destination="$RELEASES/$version"
-        test ! -e "$destination"
-
-        temporary="$RELEASES/.install-$version-$$"
-        rm -rf "$temporary"
-
-        extracted_version=$(validate_and_extract "$package" "$temporary")
-        test "$extracted_version" = "$version"
-
-        # Chown only extracted immutable release files. Shared var/venv links
-        # are created afterwards so recursive ownership can never cross them.
-        chown -R "$APP_USER":"$(id -gn "$APP_USER")" "$temporary"
-        prepare_release_links "$temporary"
-        validate_release_runtime "$temporary"
-
-        mv "$temporary" "$destination"
-        alink "$destination" "$ACTIVE"
-        rm -f "$package"
-        log "Installed SolarTrigger release: $version"
-        request_reboot
+        install_release "${2:?}"
         ;;
-
     rollback)
-        version=${2:?}
-        case "$version" in
-            *[!A-Za-z0-9._+-]*|"")
-                exit 64
-                ;;
-        esac
-
-        migrate_legacy_layout
-        destination="$RELEASES/$version"
-        test -d "$destination"
-        test -f "$destination/app.py"
-        test -f "$destination/RELEASE_MANIFEST.json"
-
-        current=""
-        if [ -L "$ACTIVE" ]; then
-            current=$(readlink -f "$ACTIVE")
-        fi
-        test "$current" != "$(readlink -f "$destination")"
-
-        alink "$destination" "$ACTIVE"
-        # Keep the newest root maintenance helper installed by the most recent
-        # update. Rolling application code back must not downgrade the recovery
-        # mechanism itself.
-        log "Rolled back SolarTrigger to: $version"
-        request_reboot
+        rollback_release "${2:?}"
         ;;
-
     *)
         exit 64
         ;;
