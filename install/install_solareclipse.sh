@@ -620,21 +620,21 @@ else
     warning "Unable to determine build commit."
 fi
 
+BUILD_COMMIT_JSON="null"
+if [ -n "$BUILD_COMMIT" ]; then
+    BUILD_COMMIT_JSON="\"$BUILD_COMMIT\""
+fi
+
 cat > "$RELEASE_DIR/RELEASE_MANIFEST.json" <<EOF
 {
   "package_type": "solartrigger-release",
   "schema_version": 2,
   "version": "$INITIAL_RELEASE_VERSION",
-  "build_commit": ${BUILD_COMMIT:+"\"$BUILD_COMMIT\""},
+  "build_commit": $BUILD_COMMIT_JSON,
   "bootstrap_install": true,
   "files": {}
 }
 EOF
-
-# JSON null when no commit is available.
-if [ -z "$BUILD_COMMIT" ]; then
-    sed -i 's/"build_commit": ,/"build_commit": null,/' "$RELEASE_DIR/RELEASE_MANIFEST.json"
-fi
 
 chown -R "$CURRENT_USER:$CURRENT_USER" "$RELEASE_DIR" "$VAR_DIR"
 chown -h "$CURRENT_USER:$CURRENT_USER" "$ACTIVE_LINK"
