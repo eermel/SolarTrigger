@@ -34,5 +34,20 @@ if command -v visudo >/dev/null 2>&1; then
     visudo -cf "$SUDOERS_FILE" >/dev/null
 fi
 
+# Nginx defaults to a 1 MiB request body, which is too small for an offline
+# SolarTrigger release ZIP. Keep transport headroom above the application
+# validator's 256 MiB package limit.
+if command -v nginx >/dev/null 2>&1; then
+    NGINX_UPLOAD_CONF="/etc/nginx/conf.d/solartrigger-upload.conf"
+    install -d -o root -g root -m 0755 /etc/nginx/conf.d
+    cat > "$NGINX_UPLOAD_CONF" <<'EOF'
+client_max_body_size 300m;
+EOF
+    chmod 0644 "$NGINX_UPLOAD_CONF"
+    nginx -t
+    systemctl reload nginx
+fi
+
 echo "SolarTrigger web-update bootstrap installed for $APP_USER."
+echo "Web upload limit configured for SolarTrigger release packages."
 echo "No release was switched. The first web update will migrate the legacy layout safely."
