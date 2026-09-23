@@ -21,8 +21,17 @@ def test_onstep_inventory_uses_stable_serial_path(monkeypatch):
 
     monkeypatch.setattr(
         OnStepMount,
-        "probe",
-        classmethod(lambda cls, config=None: config.get("port") == port),
+        "_probe_identity",
+        classmethod(
+            lambda cls, config=None: (
+                {
+                    "product": "Tessek Mini 11",
+                    "firmware": "4.24",
+                }
+                if config.get("port") == port
+                else None
+            )
+        ),
     )
 
     devices = OnStepMount.inventory({"port": port})
@@ -31,7 +40,8 @@ def test_onstep_inventory_uses_stable_serial_path(monkeypatch):
         "category": "mount",
         "backend": "onstep",
         "manufacturer": "OnStep",
-        "model": "OnStep",
+        "model": "Tessek Mini 11",
+        "firmware": "4.24",
         "fallback_physical_path": port,
     }]
 
