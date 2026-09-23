@@ -18,8 +18,14 @@ def _fake_repo(tmp_path):
     )
     (root / "services" / "__init__.py").write_text("", encoding="utf-8")
     (root / "plugins" / "__init__.py").write_text("", encoding="utf-8")
-    (root / "scripts" / "eclipse_trigger.py").write_text(
-        "print('trigger')\n",
+    (root / "scripts").mkdir()
+    for script_name in build_release_package.RUNTIME_SCRIPTS:
+        (root / "scripts" / script_name).write_text(
+            "print('runtime')\n",
+            encoding="utf-8",
+        )
+    (root / "scripts" / "measure_camera_wakeup.py").write_text(
+        "print('dev only')\n",
         encoding="utf-8",
     )
     (root / "configs" / "photo_cfg").mkdir()
@@ -80,6 +86,8 @@ def test_build_release_package_matches_runtime_layout(tmp_path):
         assert "payload/static/sounds/contact.wav" in names
         assert "payload/BUILD_COMMIT" in names
         assert "payload/flask_app/app.py" not in names
+        assert "payload/scripts/measure_camera_wakeup.py" not in names
+        assert "payload/jubier_files/" not in names
 
         stored = json.loads(archive.read("manifest.json"))
         assert stored["schema_version"] == 2
