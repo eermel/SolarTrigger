@@ -11,12 +11,12 @@ def devices_panel():
     return HTML[start:end]
 
 
-def test_gps_selector_is_loaded_at_application_startup():
+def test_device_discovery_waits_for_operator_refresh():
     init = HTML[HTML.rindex("// Init") :]
     assert "renderDevices({" in init
     assert "plugin: 'none'" in init
-    assert "fetchDevices();" in init
-    assert "refreshRigDevices(true);" in init
+    assert "fetchDevices();" not in init
+    assert "refreshRigDevices(true);" not in init
 
 
 def test_devices_refresh_also_reload_gps_state():
@@ -25,7 +25,10 @@ def test_devices_refresh_also_reload_gps_state():
     function = HTML[start:end]
 
     assert "/api/rigs/devices/refresh" in function
-    assert "await fetchDevices();" in function
+    assert "/api/devices/detect" in function
+    assert "await fetchDevices();" not in function
+    assert "await pollCameraCharacterization();" in function
+    assert "await pollCameraValidation();" in function
 
 
 def test_refresh_button_is_directly_below_gps_before_rigs():
@@ -114,7 +117,7 @@ def test_all_rig_device_fields_are_rendered_immediately_at_startup():
     assert "focuser: []" in init
     assert "mount: []" in init
 
-    assert init.index("renderRigDevices({") < init.index("refreshRigDevices(true);")
+    assert "refreshRigDevices(true);" not in init
 
 
 def test_disabled_rig_remains_visible_and_configurable():
@@ -123,3 +126,22 @@ def test_disabled_rig_remains_visible_and_configurable():
         HTML.index(".rig-column {") :
         HTML.index("/* ── CONTACTS TABLE", HTML.index(".rig-column {"))
     ]
+
+
+def test_system_camera_status_is_event_driven_without_periodic_http_polling():
+    assert "setInterval(pollCameraCharacterization" not in HTML
+    assert "setInterval(pollCameraValidation" not in HTML
+    assert "setInterval(refreshRecharacterizationCandidates" not in HTML
+    assert "startCameraValidationPolling" not in HTML
+    assert "socket.on('camera_characterization_status'" in HTML
+    assert "socket.on('camera_validation_status'" in HTML
+
+
+def test_operator_refresh_updates_characterization_and_validation_from_cache_once():
+    start = HTML.index("async function refreshRigDevices(silent = false)")
+    end = HTML.index("let cameraCharacterizationQuestion = null;", start)
+    refresh = HTML[start:end]
+
+    assert "fetch('/api/rigs/devices/refresh'" in refresh
+    assert "await pollCameraCharacterization();" in refresh
+    assert "await pollCameraValidation();" in refresh

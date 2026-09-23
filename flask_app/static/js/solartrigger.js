@@ -1651,12 +1651,23 @@ async function refreshRigDevices(silent = false) {
   await waitForBrowserPaint();
 
   try {
-    const response = await fetch('/api/rigs/devices/refresh', {method: 'POST'});
-    const inventory = await response.json();
-    if (!response.ok) throw new Error(inventory.error || `HTTP error ${response.status}`);
+    const [inventoryResponse, devicesResponse] = await Promise.all([
+      fetch('/api/rigs/devices/refresh', {method: 'POST'}),
+      fetch('/api/devices/detect', {method: 'POST'}),
+    ]);
+    const inventory = await inventoryResponse.json();
+    const devices = await devicesResponse.json();
+    if (!inventoryResponse.ok) {
+      throw new Error(inventory.error || `HTTP error ${inventoryResponse.status}`);
+    }
+    if (!devicesResponse.ok) {
+      throw new Error(devices.error || `HTTP error ${devicesResponse.status}`);
+    }
     await loadRigDevices(inventory);
-    await fetchDevices();
+    renderDevices(devices);
+    updateControlsVisibility(devices);
     await pollCameraCharacterization();
+    await pollCameraValidation();
     if (!silent) flash('Device inventory refreshed', 'green');
   } catch (error) {
     flash(`Detection: ${error.message}`, 'red');
@@ -1783,19 +1794,15 @@ function clearCameraAddLog() {
 }
 
 let cameraCharacterizationQuestion = null;
-let cameraCharacterizationWasRunning = false;
 let cameraCharacterizationPolling = false;
 let cameraCharacterizationStarting = false;
 let cameraCharacterizationStartingMessage = '';
-async function pollCameraCharacterization() {
-  if (cameraCharacterizationPolling) return;
-  cameraCharacterizationPolling = true;
-  try {
-    const response = await fetch('/api/camera-characterization');
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const status = await response.json();
-    const select = document.getElementById('camera-characterization-select');
-    if (!select) return;
+
+function renderCameraCharacterizationStatus(status) {
+  const select = document.getElementById('camera-characterization-select');
+  if (!select) return;
+
+  if (Array.isArray(status.candidates)) {
     const selected = select.value;
     select.replaceChildren();
     for (const entry of status.candidates) {
@@ -1804,59 +1811,92 @@ async function pollCameraCharacterization() {
       option.textContent = `${entry.model}${entry.serial ? ' · ' + entry.serial : ''}`;
       select.appendChild(option);
     }
-    if ([...select.options].some(o => o.value === selected)) select.value = selected;
-    const characterizationBusy =
-      Boolean(status.running) || cameraCharacterizationStarting;
-    select.disabled = characterizationBusy;
-    document.getElementById('camera-characterization-start').disabled =
-      characterizationBusy || !select.options.length;
-    document.getElementById('camera-characterization-cancel').disabled = !status.running;
-    const recharacterizationSelect =
-      document.getElementById('camera-recharacterization-select');
-    const recharacterizationButton =
-      document.getElementById('camera-recharacterization-start');
-    if (recharacterizationSelect) {
-      recharacterizationSelect.disabled = characterizationBusy;
+    if ([...select.options].some(option => option.value === selected)) {
+      select.value = selected;
     }
-    if (recharacterizationButton) {
-      recharacterizationButton.disabled =
-        characterizationBusy ||
-        !recharacterizationSelect ||
-        !recharacterizationSelect.value;
-    }
-    const characterizationLogs = Array.isArray(status.logs)
-      ? status.logs.slice()
-      : [];
-    if (
-      cameraCharacterizationStarting
-      && cameraCharacterizationStartingMessage
-      && !characterizationLogs.includes(cameraCharacterizationStartingMessage)
-    ) {
-      characterizationLogs.unshift(cameraCharacterizationStartingMessage);
-    }
-    updateCameraAddLog(
-      'characterization',
-      characterizationLogs,
-      status.result
-    );
-    cameraCharacterizationQuestion = status.question?.id || null;
-    document.getElementById('camera-characterization-question').hidden = !status.question;
-    document.getElementById('camera-characterization-prompt').textContent = status.question?.message || '';
-    const confirmationButtons = document.querySelectorAll('#camera-characterization-question button');
-    const beforeTest = status.question?.kind === 'start';
-    confirmationButtons[0].textContent = beforeTest ? 'GO' : 'OUI';
-    confirmationButtons[0].style.backgroundColor = '#198754';
-    confirmationButtons[0].style.color = '#fff';
-    confirmationButtons[1].textContent = 'NON';
-    confirmationButtons[1].hidden = beforeTest;
-    const questionPanel = document.getElementById('camera-characterization-question');
-    questionPanel.style.display = status.question ? 'grid' : 'none';
-    questionPanel.style.gridTemplateColumns = beforeTest ? '1fr' : '1fr 1fr';
-    questionPanel.style.gap = '8px';
-    document.getElementById('camera-characterization-prompt').style.gridColumn = '1 / -1';
-    const completed = cameraCharacterizationWasRunning && !status.running;
-    cameraCharacterizationWasRunning = status.running;
-    if (completed) setTimeout(() => refreshRigDevices(true), 0);
+  }
+
+  const characterizationBusy =
+    Boolean(status.running) || cameraCharacterizationStarting;
+  select.disabled = characterizationBusy;
+  document.getElementById('camera-characterization-start').disabled =
+    characterizationBusy || !select.options.length;
+  document.getElementById('camera-characterization-cancel').disabled =
+    !status.running;
+
+  const recharacterizationSelect =
+    document.getElementById('camera-recharacterization-select');
+  const recharacterizationButton =
+    document.getElementById('camera-recharacterization-start');
+  if (recharacterizationSelect && Array.isArray(status.recharacterization_candidates)) {
+    const previous = recharacterizationSelect.value;
+    recharacterizationSelect.innerHTML =
+      '<option value="">— Characterized camera —</option>';
+    status.recharacterization_candidates.forEach(camera => {
+      const option = document.createElement('option');
+      option.value = camera.transport_locator || '';
+      option.textContent =
+        camera.display_label || camera.model || option.value;
+      option.selected = option.value === previous;
+      recharacterizationSelect.appendChild(option);
+    });
+  }
+  if (recharacterizationSelect) {
+    recharacterizationSelect.disabled = characterizationBusy;
+  }
+  if (recharacterizationButton) {
+    recharacterizationButton.disabled =
+      characterizationBusy ||
+      !recharacterizationSelect ||
+      !recharacterizationSelect.value;
+  }
+
+  const characterizationLogs = Array.isArray(status.logs)
+    ? status.logs.slice()
+    : [];
+  if (
+    cameraCharacterizationStarting
+    && cameraCharacterizationStartingMessage
+    && !characterizationLogs.includes(cameraCharacterizationStartingMessage)
+  ) {
+    characterizationLogs.unshift(cameraCharacterizationStartingMessage);
+  }
+  updateCameraAddLog(
+    'characterization',
+    characterizationLogs,
+    status.result
+  );
+
+  cameraCharacterizationQuestion = status.question?.id || null;
+  document.getElementById('camera-characterization-question').hidden = !status.question;
+  document.getElementById('camera-characterization-prompt').textContent = status.question?.message || '';
+  const confirmationButtons = document.querySelectorAll('#camera-characterization-question button');
+  const beforeTest = status.question?.kind === 'start';
+  confirmationButtons[0].textContent = beforeTest ? 'GO' : 'OUI';
+  confirmationButtons[0].style.backgroundColor = '#198754';
+  confirmationButtons[0].style.color = '#fff';
+  confirmationButtons[1].textContent = 'NON';
+  confirmationButtons[1].hidden = beforeTest;
+  const questionPanel = document.getElementById('camera-characterization-question');
+  questionPanel.style.display = status.question ? 'grid' : 'none';
+  questionPanel.style.gridTemplateColumns = beforeTest ? '1fr' : '1fr 1fr';
+  questionPanel.style.gap = '8px';
+  document.getElementById('camera-characterization-prompt').style.gridColumn = '1 / -1';
+
+  if (status.inventory_reclassified) {
+    // Profile publication only reclassifies the existing cache.  Refresh the
+    // validation selector once, without performing another hardware discovery.
+    void pollCameraValidation();
+  }
+}
+
+async function pollCameraCharacterization() {
+  if (cameraCharacterizationPolling) return;
+  cameraCharacterizationPolling = true;
+  try {
+    const response = await fetch('/api/camera-characterization');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    renderCameraCharacterizationStatus(await response.json());
   } catch (error) {
     updateCameraAddLog(
       'characterization',
@@ -1869,18 +1909,20 @@ async function pollCameraCharacterization() {
 
 async function characterizationRequest(action, payload = {}) {
   const response = await fetch(`/api/camera-characterization/${action}`, {
-    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-  await pollCameraCharacterization();
+  return data;
 }
+
 async function startCameraCharacterization() {
   const button = document.getElementById('camera-characterization-start');
   const select = document.getElementById('camera-characterization-select');
   const locator = select ? select.value : '';
 
-  // Immediate operator feedback, before USB/backend work starts.
   cameraCharacterizationStarting = true;
   cameraCharacterizationStartingMessage =
     'Starting camera characterization…';
@@ -1906,14 +1948,25 @@ async function startCameraCharacterization() {
   cameraCharacterizationStarting = false;
   cameraCharacterizationStartingMessage = '';
 }
+
 async function cancelCameraCharacterization() {
-  try { await characterizationRequest('cancel'); } catch (error) { flash(error.message, 'red'); }
+  try {
+    await characterizationRequest('cancel');
+  } catch (error) {
+    flash(error.message, 'red');
+  }
 }
+
 async function answerCameraCharacterization(answer) {
-  try { await characterizationRequest('answer', {question_id: cameraCharacterizationQuestion, answer}); }
-  catch (error) { flash(error.message, 'red'); }
+  try {
+    await characterizationRequest('answer', {
+      question_id: cameraCharacterizationQuestion,
+      answer
+    });
+  } catch (error) {
+    flash(error.message, 'red');
+  }
 }
-setInterval(pollCameraCharacterization, 1500);
 
 // ── AUDIO iOS-compatible ─────────────────────────────────────────────────────
 // iOS Safari exige que l'AudioContext soit créé ET resume() dans un geste direct.
@@ -1995,6 +2048,18 @@ async function playSound(filename) {
 // SOCKETIO
 // ════════════════════════════════════════════════════════════════
 const socket = io({ transports: ['websocket'] });
+
+socket.on('camera_characterization_status', status => {
+  if (status && typeof status === 'object') {
+    renderCameraCharacterizationStatus(status);
+  }
+});
+
+socket.on('camera_validation_status', status => {
+  if (status && typeof status === 'object') {
+    renderCameraValidationStatus(status);
+  }
+});
 
 socket.on('audio_play', data => {
   const filename = data && data.filename;
@@ -6156,8 +6221,6 @@ renderDevices({
   },
 });
 
-fetchDevices();
-refreshRigDevices(true);
 loadSupportedEclipses();
 loadEclipseData();
 loadCameraStatus();
@@ -6166,7 +6229,6 @@ loadCameraStatus();
 // CAMERA VALIDATION — end-to-end real camera run
 // ════════════════════════════════════════════════════════════════
 let cameraValidationPolling = false;
-let cameraValidationTimer = null;
 let cameraValidationQuestionId = null;
 let cameraValidationLastResultId = null;
 let cameraValidationStarting = false;
@@ -6190,16 +6252,17 @@ function renderCameraValidationStatus(status) {
 
   if (!select || !start || !cancel || !summary || !question || !prompt || !deleteButton) return;
 
-  const current = select.value;
-  const candidates = Array.isArray(status.candidates) ? status.candidates : [];
-  select.innerHTML = '<option value="">— Characterized camera —</option>';
-  candidates.forEach(camera => {
-    const option = document.createElement('option');
-    option.value = camera.transport_locator || '';
-    option.textContent = camera.display_label || camera.model || camera.backend || 'Camera';
-    if (option.value === current) option.selected = true;
-    select.appendChild(option);
-  });
+  if (Array.isArray(status.candidates)) {
+    const current = select.value;
+    select.innerHTML = '<option value="">— Characterized camera —</option>';
+    status.candidates.forEach(camera => {
+      const option = document.createElement('option');
+      option.value = camera.transport_locator || '';
+      option.textContent = camera.display_label || camera.model || camera.backend || 'Camera';
+      if (option.value === current) option.selected = true;
+      select.appendChild(option);
+    });
+  }
 
   const validationBusy =
     Boolean(status.running) || cameraValidationStarting;
@@ -6378,23 +6441,12 @@ async function deleteFailedCameraValidationFiles() {
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     flash(`Deleted ${Array.isArray(data.deleted) ? data.deleted.length : 0} generated camera file(s)`, 'yellow');
     await pollCameraValidation();
-    setTimeout(() => refreshRigDevices(true), 0);
+    await pollCameraCharacterization();
   } catch (error) {
     flash(`Camera validation delete: ${error.message}`, 'red');
   }
 }
 
-function startCameraValidationPolling() {
-  pollCameraValidation();
-  if (cameraValidationTimer) clearInterval(cameraValidationTimer);
-  cameraValidationTimer = setInterval(pollCameraValidation, 1000);
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', startCameraValidationPolling);
-} else {
-  startCameraValidationPolling();
-}
 // END CAMERA VALIDATION
 
 
@@ -6721,38 +6773,6 @@ if (document.readyState === 'loading') {
 // ════════════════════════════════════════════════════════════════
 // CAMERA RE-CHARACTERIZATION / SYSTEM MAINTENANCE
 // ════════════════════════════════════════════════════════════════
-let solarTriggerUploadToken=null;
-async function refreshRecharacterizationCandidates() {
-  const select = document.getElementById('camera-recharacterization-select');
-  const button = document.getElementById('camera-recharacterization-start');
-  if (!select) return;
-
-  try {
-    const response = await fetch('/api/camera-characterization');
-    const status = await response.json();
-    const previous = select.value;
-
-    select.innerHTML =
-      '<option value="">— Characterized camera —</option>';
-
-    (status.recharacterization_candidates || []).forEach(camera => {
-      const option = document.createElement('option');
-      option.value = camera.transport_locator || '';
-      option.textContent =
-        camera.display_label || camera.model || option.value;
-      option.selected = option.value === previous;
-      select.appendChild(option);
-    });
-
-    const characterizationBusy =
-      Boolean(status.running) || cameraCharacterizationStarting;
-    select.disabled = characterizationBusy;
-    if (button) {
-      button.disabled = characterizationBusy || !select.value;
-    }
-  } catch (_) {}
-}
-
 async function startCameraRecharacterization() {
   const select = document.getElementById('camera-recharacterization-select');
   const button = document.getElementById('camera-recharacterization-start');
@@ -6801,8 +6821,6 @@ async function startCameraRecharacterization() {
       );
     }
 
-    cameraCharacterizationWasRunning = true;
-    await pollCameraCharacterization();
     cameraCharacterizationStarting = false;
     cameraCharacterizationStartingMessage = '';
     flash('Camera re-characterization started', 'green');
@@ -6840,7 +6858,7 @@ function renderInstalledSolarTriggerReleases(releaseState) {
 
   select.innerHTML = '<option value="">— Installed version —</option>';
   releases
-    .filter(item => item && !item.active)
+    .filter(item => item && !item.active && item.rollback_eligible !== false)
     .forEach(item => {
       const option = document.createElement('option');
       option.value = String(item.version || '');
@@ -6931,64 +6949,60 @@ async function checkAndUpdateSystem(){
     flash(e.message,'red');
   }
 }
-async function uploadSolarTriggerRelease() {
+async function validateInstallSolarTriggerRelease() {
   const input = document.getElementById('solartrigger-update-file');
+  const button = document.getElementById('solartrigger-validate-install-release');
   const file = input && input.files[0];
   if (!file) {
     flash('Select a SolarTrigger ZIP package first.', 'red');
     return;
   }
 
+  if (!confirm(
+    `Validate, install and reboot with ${file.name}?\n\n` +
+    'The package will be validated first. Installation will run only if validation succeeds. ' +
+    'After a successful installation, the Raspberry Pi will reboot.'
+  )) return;
+
+  if (button) button.disabled = true;
+  if (input) input.disabled = true;
+
   appendCameraAddLogLine(
     'solarTriggerUpdate',
     `Validating package: ${file.name}`
   );
 
-  const form = new FormData();
-  form.append('file', file);
   try {
-    const response = await fetch(
+    const form = new FormData();
+    form.append('file', file);
+    const validationResponse = await fetch(
       '/api/system/maintenance/upload-release',
       {method: 'POST', body: form}
     );
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Invalid package');
+    const validation = await validationResponse.json();
+    if (!validationResponse.ok) {
+      throw new Error(validation.error || 'Invalid package');
     }
-    solarTriggerUploadToken = data.upload_token;
-    document.getElementById('solartrigger-install-release').disabled = false;
+
+    const uploadToken = validation.upload_token;
+    if (!uploadToken) {
+      throw new Error('Validated package did not return an installation token');
+    }
+
     document.getElementById('solartrigger-update-status').textContent =
-      `Validated release: ${data.version} · ${data.file_count} files`;
+      `Validated release: ${validation.version} · ${validation.file_count} files`;
     appendCameraAddLogLine(
       'solarTriggerUpdate',
-      `Package validated: ${data.version}`
+      `Package validated: ${validation.version}`
     );
-  } catch (error) {
-    solarTriggerUploadToken = null;
-    document.getElementById('solartrigger-install-release').disabled = true;
     appendCameraAddLogLine(
       'solarTriggerUpdate',
-      `ERROR: ${error.message}`
+      'Installing validated SolarTrigger release…'
     );
-    flash(error.message, 'red');
-  }
-}
 
-async function installSolarTriggerRelease() {
-  if (!solarTriggerUploadToken) return;
-  if (!confirm(
-    'Install this SolarTrigger release?\n\n' +
-    'The active symlink will switch to the new version and the Raspberry Pi will reboot.'
-  )) return;
-
-  appendCameraAddLogLine(
-    'solarTriggerUpdate',
-    'Installing validated SolarTrigger release…'
-  );
-  try {
     await maintenancePost(
       '/api/system/maintenance/install-release',
-      {upload_token: solarTriggerUploadToken}
+      {upload_token: uploadToken}
     );
     flash('Release installation accepted — Pi reboot requested', 'green');
   } catch (error) {
@@ -6997,6 +7011,8 @@ async function installSolarTriggerRelease() {
       `ERROR: ${error.message}`
     );
     flash(error.message, 'red');
+    if (button) button.disabled = false;
+    if (input) input.disabled = false;
   }
 }
 
@@ -7031,4 +7047,4 @@ async function rollbackSolarTriggerRelease() {
     flash(error.message, 'red');
   }
 }
-setInterval(refreshRecharacterizationCandidates,3000);setInterval(loadMaintenanceStatus,2000);setTimeout(refreshRecharacterizationCandidates,250);setTimeout(loadMaintenanceStatus,250);
+setInterval(loadMaintenanceStatus,2000);setTimeout(loadMaintenanceStatus,250);

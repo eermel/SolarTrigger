@@ -12,7 +12,7 @@ from backend.camera_validation import (
     ROOT,
     validation_candidates,
 )
-from backend.device_inventory import get_cached_inventory, refresh_inventory
+from backend.device_inventory import get_cached_inventory, reclassify_cached_cameras
 from backend.runtime_interlock import TriggerActiveError, start_maintenance_if_trigger_idle
 
 
@@ -26,8 +26,25 @@ def _trigger_is_running(snapshot) -> bool:
     return False
 
 
-def register_camera_validation_routes(app, trigger_snapshot, root=ROOT):
+def register_camera_validation_routes(app, trigger_snapshot, root=ROOT, emit_fn=None):
     root = Path(root)
+
+    def status_snapshot(*, include_candidates=True):
+        snapshot = JOB.snapshot()
+        if include_candidates:
+            candidates, rejected = validation_candidates(get_cached_inventory(), root)
+            snapshot["candidates"] = candidates
+            snapshot["rejected_candidates"] = rejected
+        return snapshot
+
+    def notify_status():
+        if callable(emit_fn):
+            emit_fn(
+                "camera_validation_status",
+                status_snapshot(include_candidates=False),
+            )
+
+    JOB.set_notify_fn(notify_status)
 
     @app.before_request
     def camera_validation_exclusive_access():
@@ -49,11 +66,7 @@ def register_camera_validation_routes(app, trigger_snapshot, root=ROOT):
 
     @app.get("/api/camera-validation")
     def camera_validation_status():
-        snapshot = JOB.snapshot()
-        candidates, rejected = validation_candidates(get_cached_inventory(), root)
-        snapshot["candidates"] = candidates
-        snapshot["rejected_candidates"] = rejected
-        return jsonify(snapshot)
+        return jsonify(status_snapshot())
 
     @app.post("/api/camera-validation/prepare")
     def camera_validation_prepare():
@@ -67,7 +80,7 @@ def register_camera_validation_routes(app, trigger_snapshot, root=ROOT):
         if CHARACTERIZATION_JOB.running:
             return jsonify(error="Camera characterization is running"), 409
 
-        inventory = refresh_inventory()
+        inventory = get_cached_inventory()
         matches = [
             entry
             for entry in inventory.get("camera", [])
@@ -143,7 +156,7 @@ def register_camera_validation_routes(app, trigger_snapshot, root=ROOT):
             return jsonify(error="Explicit deletion confirmation is required"), 400
         try:
             audit = JOB.delete_generated_files(root)
-            refresh_inventory()
+            reclassify_cached_cameras()
         except CameraValidationError as exc:
             return jsonify(error=str(exc)), 409
         return jsonify(status="deleted", **audit)

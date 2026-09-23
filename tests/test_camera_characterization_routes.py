@@ -12,7 +12,6 @@ def api(monkeypatch):
     entry = {"manufacturer": "Test", "model": "Camera", "serial": "1234",
              "transport_locator": "usb:001,002", "present": True, "pilotable": False}
     monkeypatch.setattr(routes, "get_cached_inventory", lambda: {"camera": [entry]})
-    monkeypatch.setattr(routes, "refresh_inventory", lambda: {"camera": [entry]})
     routes.register_characterization_routes(app, lambda: {})
     return app.test_client(), job
 
@@ -65,7 +64,7 @@ def test_recharacterize_starts_full_job_in_replace_mode(api, monkeypatch):
     }
     monkeypatch.setattr(
         routes,
-        "refresh_inventory",
+        "get_cached_inventory",
         lambda: {"camera": [entry]},
     )
 
@@ -89,3 +88,26 @@ def test_recharacterize_starts_full_job_in_replace_mode(api, monkeypatch):
             {"replace_existing": True},
         )
     ]
+
+
+def test_start_uses_cached_inventory_without_hardware_refresh(api, monkeypatch):
+    client, job = api
+    entry = {
+        "manufacturer": "Cached",
+        "model": "Camera",
+        "serial": "5678",
+        "transport_locator": "usb:005,006",
+        "present": True,
+        "pilotable": False,
+    }
+    monkeypatch.setattr(routes, "get_cached_inventory", lambda: {"camera": [entry]})
+    selected = []
+    monkeypatch.setattr(job, "start", lambda selected_entry: selected.append(selected_entry))
+
+    response = client.post(
+        "/api/camera-characterization/start",
+        json={"locator": "usb:005,006"},
+    )
+
+    assert response.status_code == 202
+    assert selected == [entry]

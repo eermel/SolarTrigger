@@ -811,10 +811,8 @@ def _json_number(payload, name, required=True):
 
 @app.route("/api/devices", methods=["GET"])
 def api_devices_get():
-    devices = _state_store.snapshot("devices") or {}
-    if (ttl_expired(devices.get("updated_at"))
-            or _has_missing_device_selection(devices)):
-        return jsonify(_detect_devices())
+    # Read-only by design: hardware discovery is an explicit operator action
+    # through Refresh devices (/api/devices/detect and the RIG inventory refresh).
     return jsonify(_devices_snapshot())
 
 
@@ -1768,13 +1766,18 @@ def _authoritative_trigger_snapshot():
 
 
 from backend.camera_characterization_routes import register_characterization_routes
-register_characterization_routes(app, _authoritative_trigger_snapshot)
+register_characterization_routes(
+    app,
+    _authoritative_trigger_snapshot,
+    emit_fn=lambda event, payload: socketio.emit(event, payload, namespace="/"),
+)
 
 from backend.camera_validation_routes import register_camera_validation_routes
 register_camera_validation_routes(
     app,
     _authoritative_trigger_snapshot,
     root=TRIGGER_DIR,
+    emit_fn=lambda event, payload: socketio.emit(event, payload, namespace="/"),
 )
 
 # ══════════════════════════════════════════════════════════════════════════════

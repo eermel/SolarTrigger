@@ -6,6 +6,7 @@ import pytest
 
 from backend import system_maintenance
 from backend.system_maintenance import (
+    _REQUIRED_RELEASE_PATHS,
     ethernet_status,
     installed_releases,
     internet_available,
@@ -222,6 +223,7 @@ def test_installed_releases_marks_active_symlink(tmp_path):
         json.dumps({
             "version": "1.0",
             "build_commit": "a" * 40,
+            "files": {name: {"size": 1, "sha256": "0" * 64} for name in _REQUIRED_RELEASE_PATHS},
         }),
         encoding="utf-8",
     )
@@ -229,6 +231,7 @@ def test_installed_releases_marks_active_symlink(tmp_path):
         json.dumps({
             "version": "1.1",
             "build_commit": "b" * 40,
+            "files": {name: {"size": 1, "sha256": "0" * 64} for name in _REQUIRED_RELEASE_PATHS},
         }),
         encoding="utf-8",
     )
@@ -244,11 +247,42 @@ def test_installed_releases_marks_active_symlink(tmp_path):
             "directory": "1.0",
             "active": False,
             "build_commit": "a" * 40,
+            "rollback_eligible": True,
         },
         {
             "version": "1.1",
             "directory": "1.1",
             "active": True,
             "build_commit": "b" * 40,
+            "rollback_eligible": True,
         },
     ]
+
+
+def test_installed_releases_rejects_legacy_manifest_without_hashes(tmp_path):
+    releases = tmp_path / "releases"
+    releases.mkdir()
+    legacy = releases / "legacy-20260923-203041"
+    legacy.mkdir()
+    (legacy / "RELEASE_MANIFEST.json").write_text(
+        json.dumps({
+            "package_type": "solartrigger-release",
+            "schema_version": 2,
+            "version": legacy.name,
+            "build_commit": "a" * 40,
+            "migrated_legacy": True,
+            "files": {},
+        }),
+        encoding="utf-8",
+    )
+    active = tmp_path / "solar-eclipse-trigger-prod"
+
+    result = installed_releases(releases, active)
+
+    assert result["releases"] == [{
+        "version": legacy.name,
+        "directory": legacy.name,
+        "active": False,
+        "build_commit": "a" * 40,
+        "rollback_eligible": False,
+    }]

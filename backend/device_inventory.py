@@ -50,6 +50,33 @@ def refresh_inventory() -> dict[str, list[dict[str, Any]]]:
     return deepcopy(normalized)
 
 
+def reclassify_cached_cameras() -> dict[str, list[dict[str, Any]]]:
+    """Re-evaluate cached camera backends without probing hardware.
+
+    Characterization publishes a new profile while the physical inventory is
+    intentionally frozen.  Reclassifying the existing snapshot makes that
+    camera immediately eligible for validation without another USB discovery
+    pass.  No gphoto2/INDI/ZWO probe is performed here.
+    """
+
+    from backend.camera_profiles import profile_for_model
+
+    with _cache_lock:
+        updated = deepcopy(_cache)
+        cameras = updated.get("camera", [])
+        for entry in cameras:
+            if not isinstance(entry, dict):
+                continue
+            profile = profile_for_model(entry.get("model"))
+            backend = profile.get("backend") if isinstance(profile, dict) else None
+            entry["backend"] = backend or "gphoto2"
+            entry["pilotable"] = bool(backend)
+        build_display_labels(cameras)
+        _cache.clear()
+        _cache.update(deepcopy(updated))
+        return deepcopy(updated)
+
+
 def build_display_labels(
     entries: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:

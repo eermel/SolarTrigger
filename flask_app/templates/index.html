@@ -193,28 +193,22 @@
 
           <div id="solartrigger-update-status"></div>
 
-          <input
-            type="file"
-            id="solartrigger-update-file"
-            accept=".zip">
+          <div class="system-update-primary">
+            <input
+              type="file"
+              id="solartrigger-update-file"
+              accept=".zip">
+
+            <button
+              class="btn btn-primary"
+              id="solartrigger-validate-install-release"
+              type="button"
+              onclick="validateInstallSolarTriggerRelease()">
+              Validate &amp; Install Update &amp; Reboot
+            </button>
+          </div>
 
           <div class="system-release-actions">
-            <button
-              class="btn btn-primary"
-              type="button"
-              onclick="uploadSolarTriggerRelease()">
-              Validate package
-            </button>
-
-            <button
-              class="btn btn-primary"
-              id="solartrigger-install-release"
-              type="button"
-              onclick="installSolarTriggerRelease()"
-              disabled>
-              Install update
-            </button>
-
             <select
               id="solartrigger-rollback-version"
               class="config-file-select file-select-chevron"

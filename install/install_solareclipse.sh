@@ -528,7 +528,10 @@ mkdir -p \
     "$VAR_DIR/generated/circumstances" \
     "$VAR_DIR/generated/photo_cfg" \
     "$VAR_DIR/generated/exposure_opt" \
-    "$VAR_DIR/generated/sequence"
+    "$VAR_DIR/generated/sequence" \
+    "$VAR_DIR/generated/camera_profiles" \
+    "$VAR_DIR/generated/camera_timing" \
+    "$VAR_DIR/generated/camera_characterization"
 
 # Scripts strictement nécessaires au runtime.
 RUNTIME_SCRIPTS=(
@@ -583,16 +586,30 @@ else
     error "Sounds/ directory not found in $PACKAGE_DIR"
 fi
 
-# Configurations PRODUIT livrées avec le package.
-# configs/ ne contient aucune persistance : on peut donc le remplacer
-# entièrement et supprimer d'éventuelles reliques de l'ancien layout.
+# Configurations produit livrées avec le package.  Les caractérisations caméra
+# sont ensuite déplacées vers var/generated afin de survivre à toute release.
 if [ -d "$PACKAGE_DIR/configs" ]; then
     rm -rf "$CONFIGS_DIR"
     mkdir -p "$CONFIGS_DIR"
     cp -a "$PACKAGE_DIR/configs/." "$CONFIGS_DIR/"
-    chown -R "$CURRENT_USER:$CURRENT_USER" "$CONFIGS_DIR"
+
+    for CAMERA_DATA_DIR in camera_profiles camera_timing camera_characterization; do
+        SHARED_CAMERA_DIR="$VAR_DIR/generated/$CAMERA_DATA_DIR"
+        mkdir -p "$SHARED_CAMERA_DIR"
+        if [ -d "$CONFIGS_DIR/$CAMERA_DATA_DIR" ] && [ ! -L "$CONFIGS_DIR/$CAMERA_DATA_DIR" ]; then
+            cp -an "$CONFIGS_DIR/$CAMERA_DATA_DIR/." "$SHARED_CAMERA_DIR/" 2>/dev/null || true
+        fi
+        rm -rf "$CONFIGS_DIR/$CAMERA_DATA_DIR"
+        ln -s "$SHARED_CAMERA_DIR" "$CONFIGS_DIR/$CAMERA_DATA_DIR"
+    done
+
+    chown -hR "$CURRENT_USER:$CURRENT_USER" "$CONFIGS_DIR"
+    chown -R "$CURRENT_USER:$CURRENT_USER" \
+        "$VAR_DIR/generated/camera_profiles" \
+        "$VAR_DIR/generated/camera_timing" \
+        "$VAR_DIR/generated/camera_characterization"
     chmod 755 "$CONFIGS_DIR"
-    success "Product configurations → $CONFIGS_DIR"
+    success "Product configurations + persistent camera data → $CONFIGS_DIR"
 else
     error "configs/ directory not found in $PACKAGE_DIR"
 fi
@@ -684,6 +701,95 @@ start_background_threads()
 if __name__ == "__main__":
     socketio.run(app)
 EOL
+
+# Finaliser le manifeste de la release bootstrap et sceller le code.  Les
+# répertoires caméra et var/venv sont des liens vers la persistance partagée et
+# ne font donc pas partie de l'intégrité immuable de la release.
+/usr/bin/python3 - "$RELEASE_DIR" "$INITIAL_RELEASE_VERSION" "$BUILD_COMMIT" <<'PY'
+import hashlib
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+version = sys.argv[2]
+commit = sys.argv[3] or None
+manifest_path = root / "RELEASE_MANIFEST.json"
+mutable_prefixes = (
+    "configs/camera_profiles/",
+    "configs/camera_timing/",
+    "configs/camera_characterization/",
+    "var/",
+    "venv/",
+)
+files = {}
+for path in sorted(root.rglob("*")):
+    relative = path.relative_to(root).as_posix()
+    if path.is_symlink() or not path.is_file():
+        continue
+    if any(relative.startswith(prefix) for prefix in mutable_prefixes):
+        continue
+    if path.name == "RELEASE_MANIFEST.json" or "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+        continue
+    data = path.read_bytes()
+    files[relative] = {
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "size": len(data),
+        "mode": f"{stat.S_IMODE(path.stat().st_mode):04o}",
+    }
+
+required = {
+    "app.py",
+    "wsgi.py",
+    "backend/runtime_daemon.py",
+    "scripts/eclipse_trigger.py",
+    "templates/index.html",
+    "static/js/solartrigger.js",
+}
+if not required.issubset(files):
+    missing = sorted(required - set(files))
+    raise RuntimeError("bootstrap release incomplete: " + ", ".join(missing))
+
+manifest_path.write_text(
+    json.dumps(
+        {
+            "package_type": "solartrigger-release",
+            "schema_version": 2,
+            "version": version,
+            "build_commit": commit,
+            "bootstrap_install": True,
+            "files": files,
+        },
+        indent=2,
+        sort_keys=True,
+    ) + "\n",
+    encoding="utf-8",
+)
+
+for current, dirs, names in os.walk(root, topdown=False, followlinks=False):
+    current_path = Path(current)
+    for name in names:
+        path = current_path / name
+        if path.is_symlink():
+            continue
+        mode = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(mode & ~0o222)
+        os.chown(path, 0, 0)
+    for name in dirs:
+        path = current_path / name
+        if path.is_symlink():
+            continue
+        mode = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(mode & ~0o222)
+        os.chown(path, 0, 0)
+mode = stat.S_IMODE(root.stat().st_mode)
+root.chmod(mode & ~0o222)
+os.chown(root, 0, 0)
+PY
+
+success "Bootstrap release manifest finalized and immutable code sealed."
 
 # TLS local SolarTrigger — CA persistante dans var/tls.
 # iPhone/iPad peuvent accepter manuellement l’avertissement Safari sans installer

@@ -204,6 +204,10 @@ def register_system_maintenance_routes(
             return jsonify(error="Release is not installed"), 404
         if release_state.get("active") == version:
             return jsonify(error="Release is already active"), 409
+        if not installed[version].get("rollback_eligible"):
+            return jsonify(
+                error="Release has no verifiable immutable manifest"
+            ), 409
 
         result = start_job(
             "release-rollback",

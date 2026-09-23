@@ -323,11 +323,19 @@ def installed_releases(
         except OSError:
             is_active = False
 
+        files = metadata.get("files") if isinstance(metadata, dict) else None
+        rollback_eligible = (
+            isinstance(files, dict)
+            and bool(files)
+            and _REQUIRED_RELEASE_PATHS.issubset(files)
+        )
+
         entries.append({
             "version": version,
             "directory": path.name,
             "active": is_active,
             "build_commit": metadata.get("build_commit"),
+            "rollback_eligible": rollback_eligible,
         })
 
     active = next(

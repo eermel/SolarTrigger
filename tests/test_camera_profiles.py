@@ -1081,3 +1081,44 @@ def test_failed_bracket9_does_not_discard_valid_smaller_brackets(
     ]
 
     assert "9" not in result["brackets"]
+
+
+def test_publication_accepts_only_canonical_shared_camera_symlinks(tmp_path, profile):
+    timing = {
+        "config_type": "camera_timing",
+        "timing": {},
+        **{key: profile[key] for key in ("manufacturer", "model", "backend")},
+    }
+    shared_profiles = tmp_path / "var/generated/camera_profiles"
+    shared_timing = tmp_path / "var/generated/camera_timing"
+    shared_profiles.mkdir(parents=True)
+    shared_timing.mkdir(parents=True)
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    (configs / "camera_profiles").symlink_to(shared_profiles, target_is_directory=True)
+    (configs / "camera_timing").symlink_to(shared_timing, target_is_directory=True)
+
+    paths = publish(profile, timing, tmp_path)
+
+    assert all((tmp_path / relative).exists() for relative in paths)
+    assert any(shared_profiles.glob("*.json"))
+    assert any(shared_timing.glob("*.json"))
+
+
+def test_publication_rejects_camera_symlink_outside_shared_var(tmp_path, profile):
+    timing = {
+        "config_type": "camera_timing",
+        "timing": {},
+        **{key: profile[key] for key in ("manufacturer", "model", "backend")},
+    }
+    outside_profiles = tmp_path / "outside-profiles"
+    outside_timing = tmp_path / "outside-timing"
+    outside_profiles.mkdir()
+    outside_timing.mkdir()
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    (configs / "camera_profiles").symlink_to(outside_profiles, target_is_directory=True)
+    (configs / "camera_timing").symlink_to(outside_timing, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="shared persistent data"):
+        publish(profile, timing, tmp_path)

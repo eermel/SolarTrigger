@@ -86,53 +86,28 @@ def test_devices_get_merges_detection_without_persisting(devices_api, monkeypatc
     assert state_store.snapshot("devices") == persisted
 
 
-def test_devices_get_detects_missing_selection_without_renewing_ttl(
-    devices_api, monkeypatch
-):
-    client, state_store, state_file = devices_api
-    persisted = _selections()
-    persisted["gps"] = {"plugin": "none", "active": False}
-    state_store.update_section("devices", persisted, persist=True)
-    disk_before = state_file.read_text(encoding="utf-8")
-    calls = []
-    monkeypatch.setattr(flask_module, "ttl_expired", lambda _value: False)
-    monkeypatch.setattr(
-        flask_module,
-        "detect_all",
-        lambda timeouts: calls.append(timeouts) or _detection("gpsd"),
-    )
-
-    response = client.get("/api/devices")
-
-    assert response.status_code == 200
-    assert response.get_json()["gps"]["suggested_plugin"] == "gpsd"
-    assert calls == [flask_module._DEVICE_DETECTION_TIMEOUTS]
-    assert state_store.snapshot("devices")["updated_at"] == persisted["updated_at"]
-    assert state_file.read_text(encoding="utf-8") == disk_before
-
-
-def test_devices_get_detects_expired_selection_without_renewing_ttl(
+def test_devices_get_never_detects_missing_or_expired_selection(
     devices_api, monkeypatch
 ):
     client, state_store, state_file = devices_api
     persisted = _selections(T0.isoformat())
+    persisted["gps"] = {"plugin": "none", "active": False}
     state_store.update_section("devices", persisted, persist=True)
     disk_before = state_file.read_text(encoding="utf-8")
     monkeypatch.setattr(
         flask_module,
-        "ttl_expired",
-        lambda updated_at: device_helpers.ttl_expired(
-            updated_at, T0 + timedelta(hours=72, seconds=1)
-        ),
+        "detect_all",
+        lambda _timeouts: pytest.fail("GET /api/devices must never probe hardware"),
     )
-    monkeypatch.setattr(flask_module, "detect_all", lambda _timeouts: _detection())
 
     response = client.get("/api/devices")
 
     assert response.status_code == 200
-    assert state_store.snapshot("devices")["updated_at"] == T0.isoformat()
+    payload = response.get_json()
+    assert payload["gps"]["plugin"] == "none"
+    assert payload["gps"].get("suggested_plugin") is None
+    assert state_store.snapshot("devices") == persisted
     assert state_file.read_text(encoding="utf-8") == disk_before
-
 
 def test_devices_post_updates_only_provided_categories(devices_api, monkeypatch):
     client, state_store, state_file = devices_api

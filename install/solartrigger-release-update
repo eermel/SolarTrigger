@@ -10,6 +10,10 @@ RELEASES="$BASE/releases"
 SHARED_VAR="$BASE/var"
 SHARED_VENV="$BASE/venv"
 ACTIVE="$USER_HOME/solar-eclipse-trigger-prod"
+SHARED_CAMERA_BASE="$SHARED_VAR/generated"
+SHARED_CAMERA_PROFILES="$SHARED_CAMERA_BASE/camera_profiles"
+SHARED_CAMERA_TIMING="$SHARED_CAMERA_BASE/camera_timing"
+SHARED_CAMERA_CHARACTERIZATION="$SHARED_CAMERA_BASE/camera_characterization"
 
 log() {
     printf '%s\n' "$*"
@@ -24,6 +28,123 @@ alink() {
     mv -Tf -- "$tmp" "$link"
 }
 
+ensure_shared_layout() {
+    local app_group
+    local path
+    app_group=$(id -gn "$APP_USER")
+
+    # This helper runs as root while persistent data are writable by APP_USER.
+    # Never let a persistent-data symlink redirect privileged filesystem work.
+    for path in "$BASE" "$SHARED_VAR" "$SHARED_CAMERA_BASE" \
+        "$SHARED_CAMERA_PROFILES" "$SHARED_CAMERA_TIMING" \
+        "$SHARED_CAMERA_CHARACTERIZATION"; do
+        [[ ! -L "$path" ]] || { log "Unsafe persistent-data symlink: $path" >&2; return 1; }
+    done
+
+    mkdir -p -- \
+        "$SHARED_VAR" \
+        "$SHARED_CAMERA_PROFILES" \
+        "$SHARED_CAMERA_TIMING" \
+        "$SHARED_CAMERA_CHARACTERIZATION"
+
+    for path in "$BASE" "$SHARED_VAR" "$SHARED_CAMERA_BASE" \
+        "$SHARED_CAMERA_PROFILES" "$SHARED_CAMERA_TIMING" \
+        "$SHARED_CAMERA_CHARACTERIZATION"; do
+        [[ -d "$path" && ! -L "$path" ]] || { log "Unsafe persistent-data path: $path" >&2; return 1; }
+    done
+
+    chown "$APP_USER:$app_group" -- \
+        "$SHARED_VAR" \
+        "$SHARED_CAMERA_BASE" \
+        "$SHARED_CAMERA_PROFILES" \
+        "$SHARED_CAMERA_TIMING" \
+        "$SHARED_CAMERA_CHARACTERIZATION"
+}
+
+merge_release_camera_data() {
+    local source=$1
+
+    ensure_shared_layout
+    /usr/bin/python3 - "$source" "$SHARED_CAMERA_BASE" <<'PY'
+import hashlib
+import shutil
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+shared = Path(sys.argv[2])
+
+# Persistent camera trees are user-writable.  Reject symlinks before any
+# privileged copy so a crafted persistent path can never redirect root writes.
+for entry in (shared, *sorted(shared.rglob("*"))):
+    if entry.is_symlink():
+        raise RuntimeError(f"persistent camera symlink rejected: {entry}")
+
+for name in ("camera_profiles", "camera_timing", "camera_characterization"):
+    origin = source / "configs" / name
+    destination = shared / name
+    destination.mkdir(parents=True, exist_ok=True)
+
+    if origin.is_symlink():
+        if origin.resolve() != destination.resolve():
+            raise RuntimeError(f"unsafe camera data symlink: {origin}")
+        continue
+    if not origin.exists():
+        continue
+    if not origin.is_dir():
+        raise RuntimeError(f"camera data path is not a directory: {origin}")
+
+    for item in sorted(origin.rglob("*")):
+        if item.is_symlink():
+            raise RuntimeError(f"camera data symlink rejected: {item}")
+        if not item.is_file():
+            continue
+        relative = item.relative_to(origin)
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            if not target.is_file():
+                raise RuntimeError(f"persistent camera path conflict: {target}")
+            if hashlib.sha256(target.read_bytes()).digest() != hashlib.sha256(item.read_bytes()).digest():
+                print(f"Keeping persistent camera data: {target}")
+            continue
+        shutil.copy2(item, target)
+        print(f"Persisted camera data: {target}")
+PY
+
+    chown -R "$APP_USER:$(id -gn "$APP_USER")" -- \
+        "$SHARED_CAMERA_PROFILES" \
+        "$SHARED_CAMERA_TIMING" \
+        "$SHARED_CAMERA_CHARACTERIZATION"
+}
+
+link_release_camera_data() {
+    local destination=$1
+    local name
+    local shared
+    local path
+
+    merge_release_camera_data "$destination"
+
+    for name in camera_profiles camera_timing camera_characterization; do
+        case "$name" in
+            camera_profiles) shared=$SHARED_CAMERA_PROFILES ;;
+            camera_timing) shared=$SHARED_CAMERA_TIMING ;;
+            camera_characterization) shared=$SHARED_CAMERA_CHARACTERIZATION ;;
+        esac
+        path="$destination/configs/$name"
+        mkdir -p -- "$destination/configs"
+        if [[ -L "$path" ]]; then
+            [[ "$(readlink -f "$path")" == "$(readlink -f "$shared")" ]]
+            continue
+        fi
+        if [[ -e "$path" ]]; then
+            rm -rf -- "$path"
+        fi
+        ln -s -- "$shared" "$path"
+    done
+}
+
 manifest_for_legacy() {
     local version=$1
     local destination=$2
@@ -33,15 +154,52 @@ manifest_for_legacy() {
         commit=$(tr -d '[:space:]' < "$destination/BUILD_COMMIT")
     fi
 
-    /usr/bin/python3 - "$destination/RELEASE_MANIFEST.json" "$version" "$commit" <<'PY'
+    /usr/bin/python3 - "$destination" "$version" "$commit" <<'PYLEGACY'
+import hashlib
 import json
+import stat
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
+root = Path(sys.argv[1])
 version = sys.argv[2]
 commit = sys.argv[3] or None
-path.write_text(
+manifest_path = root / "RELEASE_MANIFEST.json"
+mutable_prefixes = (
+    "configs/camera_profiles/",
+    "configs/camera_timing/",
+    "configs/camera_characterization/",
+    "var/",
+    "venv/",
+)
+skip_names = {
+    "RELEASE_MANIFEST.json",
+    "state.json",
+    "todayeclipse.json",
+    "logs_buffer.jsonl",
+    "sound_events.jsonl",
+}
+files = {}
+
+for path in sorted(root.rglob("*")):
+    relative = path.relative_to(root).as_posix()
+    if path.is_symlink() or not path.is_file():
+        continue
+    if any(relative.startswith(prefix) for prefix in mutable_prefixes):
+        continue
+    if path.name in skip_names or "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+        continue
+    data = path.read_bytes()
+    files[relative] = {
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "size": len(data),
+        "mode": f"{stat.S_IMODE(path.stat().st_mode):04o}",
+    }
+
+if not files:
+    raise RuntimeError("legacy release contains no immutable files")
+
+manifest_path.write_text(
     json.dumps(
         {
             "package_type": "solartrigger-release",
@@ -49,15 +207,14 @@ path.write_text(
             "version": version,
             "build_commit": commit,
             "migrated_legacy": True,
-            "files": {},
+            "files": files,
         },
         indent=2,
         sort_keys=True,
-    )
-    + "\n",
+    ) + "\n",
     encoding="utf-8",
 )
-PY
+PYLEGACY
 }
 
 migrate_legacy_layout() {
@@ -75,9 +232,6 @@ migrate_legacy_layout() {
 
         log "Migrating legacy installation to $destination"
         mv -- "$ACTIVE" "$destination"
-
-        # Restore the production pathname immediately. Running services may
-        # still resolve absolute paths while var/venv move to shared storage.
         alink "$destination" "$ACTIVE"
 
         if [[ -e "$destination/var" && ! -L "$destination/var" ]]; then
@@ -89,7 +243,7 @@ migrate_legacy_layout() {
             mv -- "$destination/venv" "$SHARED_VENV"
         fi
 
-        mkdir -p -- "$SHARED_VAR"
+        ensure_shared_layout
         [[ -d "$SHARED_VENV" ]]
 
         if [[ ! -L "$destination/var" ]]; then
@@ -99,6 +253,7 @@ migrate_legacy_layout() {
             ln -s -- "$SHARED_VENV" "$destination/venv"
         fi
 
+        link_release_camera_data "$destination"
         manifest_for_legacy "$version" "$destination"
     fi
 }
@@ -246,12 +401,126 @@ PY
 prepare_release_links() {
     local destination=$1
 
-    [[ ! -e "$destination/var" ]]
-    [[ ! -e "$destination/venv" ]]
-    mkdir -p -- "$SHARED_VAR"
+    ensure_shared_layout
     [[ -x "$SHARED_VENV/bin/python" ]]
-    ln -s -- "$SHARED_VAR" "$destination/var"
-    ln -s -- "$SHARED_VENV" "$destination/venv"
+
+    if [[ -L "$destination/var" ]]; then
+        [[ "$(readlink -f "$destination/var")" == "$(readlink -f "$SHARED_VAR")" ]]
+    else
+        [[ ! -e "$destination/var" ]]
+        ln -s -- "$SHARED_VAR" "$destination/var"
+    fi
+
+    if [[ -L "$destination/venv" ]]; then
+        [[ "$(readlink -f "$destination/venv")" == "$(readlink -f "$SHARED_VENV")" ]]
+    else
+        [[ ! -e "$destination/venv" ]]
+        ln -s -- "$SHARED_VENV" "$destination/venv"
+    fi
+
+    link_release_camera_data "$destination"
+}
+
+verify_release_integrity() {
+    local destination=$1
+
+    /usr/bin/python3 - "$destination" <<'PYVERIFY'
+import hashlib
+import json
+import sys
+from pathlib import Path, PurePosixPath
+
+root = Path(sys.argv[1])
+manifest_path = root / "RELEASE_MANIFEST.json"
+try:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as exc:
+    raise RuntimeError(f"invalid release manifest: {exc}") from exc
+
+if manifest.get("package_type") != "solartrigger-release" or manifest.get("schema_version") != 2:
+    raise RuntimeError("invalid release manifest identity")
+files = manifest.get("files")
+if not isinstance(files, dict) or not files:
+    raise RuntimeError("release manifest has no immutable file hashes")
+
+mutable_prefixes = (
+    "configs/camera_profiles/",
+    "configs/camera_timing/",
+    "configs/camera_characterization/",
+)
+required = {
+    "app.py",
+    "wsgi.py",
+    "backend/runtime_daemon.py",
+    "scripts/eclipse_trigger.py",
+    "templates/index.html",
+    "static/js/solartrigger.js",
+}
+if not required.issubset(files):
+    raise RuntimeError("release manifest is incomplete")
+
+for relative, metadata in files.items():
+    if any(str(relative).startswith(prefix) for prefix in mutable_prefixes):
+        continue
+    pure = PurePosixPath(str(relative))
+    if pure.is_absolute() or ".." in pure.parts or "\\" in str(relative):
+        raise RuntimeError(f"unsafe release manifest path: {relative}")
+    path = root.joinpath(*pure.parts)
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError(f"release file missing or replaced: {relative}")
+    data = path.read_bytes()
+    try:
+        expected_size = int(metadata["size"])
+        expected_hash = str(metadata["sha256"]).lower()
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError(f"invalid release metadata: {relative}") from exc
+    if len(data) != expected_size:
+        raise RuntimeError(f"release integrity size mismatch: {relative}")
+    if hashlib.sha256(data).hexdigest() != expected_hash:
+        raise RuntimeError(f"release integrity hash mismatch: {relative}")
+
+build_commit = manifest.get("build_commit")
+if build_commit:
+    build_path = root / "BUILD_COMMIT"
+    if build_path.is_file():
+        actual = build_path.read_text(encoding="utf-8").strip()
+        if actual != str(build_commit).strip():
+            raise RuntimeError("release BUILD_COMMIT does not match manifest")
+
+print(f"Release integrity verified: {manifest.get('version') or root.name}")
+PYVERIFY
+}
+
+seal_release() {
+    local destination=$1
+
+    /usr/bin/python3 - "$destination" <<'PYSEAL'
+import os
+import stat
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+for current, dirs, files in os.walk(root, topdown=False, followlinks=False):
+    current_path = Path(current)
+    for name in files:
+        path = current_path / name
+        if path.is_symlink():
+            continue
+        mode = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(mode & ~0o222)
+        os.chown(path, 0, 0)
+    for name in dirs:
+        path = current_path / name
+        if path.is_symlink():
+            continue
+        mode = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(mode & ~0o222)
+        os.chown(path, 0, 0)
+mode = stat.S_IMODE(root.stat().st_mode)
+root.chmod(mode & ~0o222)
+os.chown(root, 0, 0)
+PYSEAL
 }
 
 validate_release_runtime() {
@@ -295,9 +564,17 @@ install_release() {
     local final_destination
     local temporary
     local extracted_version
+    local current=""
 
     [[ -f "$install_package" ]]
     migrate_legacy_layout
+
+    if [[ -L "$ACTIVE" ]]; then
+        current=$(readlink -f "$ACTIVE")
+        if [[ -d "$current" ]]; then
+            merge_release_camera_data "$current"
+        fi
+    fi
 
     install_version=$(release_version "$install_package")
     final_destination="$RELEASES/$install_version"
@@ -309,11 +586,10 @@ install_release() {
     extracted_version=$(validate_and_extract "$install_package" "$temporary")
     [[ "$extracted_version" == "$install_version" ]]
 
-    # Chown only extracted immutable release files. Shared var/venv links are
-    # created afterwards so recursive ownership can never cross them.
-    chown -R "$APP_USER":"$(id -gn "$APP_USER")" "$temporary"
     prepare_release_links "$temporary"
     validate_release_runtime "$temporary"
+    verify_release_integrity "$temporary"
+    seal_release "$temporary"
 
     mv -- "$temporary" "$final_destination"
     alink "$final_destination" "$ACTIVE"
@@ -340,9 +616,15 @@ rollback_release() {
     fi
     [[ "$current" != "$(readlink -f "$rollback_destination")" ]]
 
+    if [[ -n "$current" && -d "$current" ]]; then
+        merge_release_camera_data "$current"
+    fi
+
+    prepare_release_links "$rollback_destination"
+    verify_release_integrity "$rollback_destination"
+    seal_release "$rollback_destination"
+
     alink "$rollback_destination" "$ACTIVE"
-    # Keep the newest privileged helper. Rolling application code back must
-    # never downgrade the recovery mechanism.
     log "Rolled back SolarTrigger to: $rollback_version"
     request_reboot
 }
