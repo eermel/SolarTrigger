@@ -90,7 +90,7 @@ def test_rejects_overlap_below_two_seconds():
     photo = _photo()
     photo["phases"]["diamond_ring"]["totality_overlap_s"] = 1.9
 
-    with pytest.raises(ValueError, match="must be >= 5"):
+    with pytest.raises(ValueError, match="must be >= 2"):
         build_phase_schedule(_timeline(), photo)
 
 
