@@ -471,3 +471,23 @@ def test_rollback_does_not_downgrade_root_maintenance_helper():
     rollback = script.split('    rollback)', 1)[1]
     assert 'alink "$destination" "$ACTIVE"' in rollback
     assert 'refresh_root_helpers "$destination"' not in rollback
+
+
+
+def test_legacy_migration_restores_active_path_before_shared_moves():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "install" / "solartrigger-release-update").read_text(
+        encoding="utf-8"
+    )
+
+    migration = script.split("migrate_legacy_layout() {", 1)[1].split(
+        "validate_and_extract() {", 1
+    )[0]
+
+    move_active = migration.index('mv "$ACTIVE" "$destination"')
+    relink_active = migration.index('alink "$destination" "$ACTIVE"')
+    move_var = migration.index('mv "$destination/var" "$SHARED_VAR"')
+    move_venv = migration.index('mv "$destination/venv" "$SHARED_VENV"')
+
+    assert move_active < relink_active < move_var
+    assert move_active < relink_active < move_venv
