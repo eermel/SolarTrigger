@@ -22,7 +22,22 @@ jobs:
         with:
           python-version: "3.13"
       - name: Apply remaining hardening
-        run: python tools/apply_remaining_trigger_hardening.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/apply_remaining_trigger_hardening.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              '        """Resume one same-boot persisted run without replaying past phases."""',
+              '        # Resume one same-boot persisted run without replaying past phases.',
+          )
+          text = text.replace(
+              '        """Recover at most once, and only inside the same Linux boot."""',
+              '        # Recover at most once, and only inside the same Linux boot.',
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
+          python tools/apply_remaining_trigger_hardening.py
       - name: Diff and syntax checks
         run: |
           git diff --check
@@ -54,7 +69,12 @@ jobs:
         run: python -m pytest -q
       - name: Commit validated product changes
         run: |
-          if git diff --quiet; then
+          if git diff --quiet -- \
+              backend/trigger_service.py \
+              backend/runtime_daemon.py \
+              scripts/eclipse_trigger.py \
+              flask_app/static/js/solartrigger.js \
+              install/install_standalone_runtime_service.sh; then
             echo 'No generated product changes to commit'
             exit 0
           fi
