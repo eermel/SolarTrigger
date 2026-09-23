@@ -123,7 +123,7 @@ def build_phase_schedule(
     overlap_s = _number(
         diamond.get("totality_overlap_s", 5),
         "phases.diamond_ring.totality_overlap_s",
-        minimum=5,
+        minimum=2,
     )
     diamond_interval_s = _number(
         diamond.get("interval_s", 0),
