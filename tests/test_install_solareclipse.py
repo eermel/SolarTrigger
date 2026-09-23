@@ -44,3 +44,32 @@ def test_installer_does_not_generate_direct_trigger_wrapper():
     installer_source = INSTALLER_PATH.read_text(encoding="utf-8")
 
     assert 'cat > "$BIN_DIR/trigger_eclipse.sh"' not in installer_source
+
+
+
+def test_installer_uses_versioned_release_symlink_layout():
+    installer_source = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert 'INSTALL_BASE="$USER_HOME/solartrigger"' in installer_source
+    assert 'RELEASES_DIR="$INSTALL_BASE/releases"' in installer_source
+    assert 'ACTIVE_LINK="$USER_HOME/solar-eclipse-trigger-prod"' in installer_source
+    assert 'ln -s "$RELEASE_DIR" "$ACTIVE_LINK"' in installer_source
+    assert 'ln -s "$VAR_DIR" "$RELEASE_DIR/var"' in installer_source
+    assert 'ln -s "$VENV_DIR" "$RELEASE_DIR/venv"' in installer_source
+
+
+def test_installer_installs_maintenance_helpers_and_sudoers():
+    installer_source = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert 'for HELPER in solartrigger-system-update solartrigger-release-update' in installer_source
+    assert '"/usr/local/sbin/$HELPER"' in installer_source
+    assert (
+        '$CURRENT_USER ALL=(root) NOPASSWD: '
+        '/usr/local/sbin/solartrigger-system-update'
+        in installer_source
+    )
+    assert (
+        '$CURRENT_USER ALL=(root) NOPASSWD: '
+        '/usr/local/sbin/solartrigger-release-update *'
+        in installer_source
+    )
