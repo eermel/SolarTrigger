@@ -1740,6 +1740,15 @@ function renderCameraAddLog() {
   if (atBottom) log.scrollTop = log.scrollHeight;
 }
 
+function appendCameraAddLogLine(source, line) {
+  const values = Array.isArray(cameraAddLogState[source])
+    ? cameraAddLogState[source]
+    : [];
+  values.push(String(line));
+  cameraAddLogState[source] = values;
+  renderCameraAddLog();
+}
+
 function updateCameraAddLog(source, lines, result = null) {
   const normalized = Array.isArray(lines) ? lines.map(String) : [];
   const offsetKey = `${source}Offset`;
@@ -1776,6 +1785,7 @@ function clearCameraAddLog() {
 let cameraCharacterizationQuestion = null;
 let cameraCharacterizationWasRunning = false;
 let cameraCharacterizationPolling = false;
+let cameraCharacterizationStarting = false;
 async function pollCameraCharacterization() {
   if (cameraCharacterizationPolling) return;
   cameraCharacterizationPolling = true;
@@ -1794,19 +1804,22 @@ async function pollCameraCharacterization() {
       select.appendChild(option);
     }
     if ([...select.options].some(o => o.value === selected)) select.value = selected;
-    select.disabled = status.running;
-    document.getElementById('camera-characterization-start').disabled = status.running || !select.options.length;
+    const characterizationBusy =
+      Boolean(status.running) || cameraCharacterizationStarting;
+    select.disabled = characterizationBusy;
+    document.getElementById('camera-characterization-start').disabled =
+      characterizationBusy || !select.options.length;
     document.getElementById('camera-characterization-cancel').disabled = !status.running;
     const recharacterizationSelect =
       document.getElementById('camera-recharacterization-select');
     const recharacterizationButton =
       document.getElementById('camera-recharacterization-start');
     if (recharacterizationSelect) {
-      recharacterizationSelect.disabled = status.running;
+      recharacterizationSelect.disabled = characterizationBusy;
     }
     if (recharacterizationButton) {
       recharacterizationButton.disabled =
-        status.running ||
+        characterizationBusy ||
         !recharacterizationSelect ||
         !recharacterizationSelect.value;
     }
@@ -1853,18 +1866,26 @@ async function startCameraCharacterization() {
   const locator = select ? select.value : '';
 
   // Immediate operator feedback, before USB/backend work starts.
+  cameraCharacterizationStarting = true;
   if (button) button.disabled = true;
   if (select) select.disabled = true;
+  appendCameraAddLogLine(
+    'characterization',
+    'Starting camera characterization…'
+  );
 
   await waitForBrowserPaint();
 
   try {
     await characterizationRequest('start', {locator});
   } catch (error) {
+    cameraCharacterizationStarting = false;
     if (select) select.disabled = false;
     if (button) button.disabled = !locator;
     flash(error.message, 'red');
+    return;
   }
+  cameraCharacterizationStarting = false;
 }
 async function cancelCameraCharacterization() {
   try { await characterizationRequest('cancel'); } catch (error) { flash(error.message, 'red'); }
@@ -6129,6 +6150,7 @@ let cameraValidationPolling = false;
 let cameraValidationTimer = null;
 let cameraValidationQuestionId = null;
 let cameraValidationLastResultId = null;
+let cameraValidationStarting = false;
 
 function formatValidationDuration(seconds) {
   const total = Math.max(0, Math.round(Number(seconds) || 0));
@@ -6159,7 +6181,10 @@ function renderCameraValidationStatus(status) {
     select.appendChild(option);
   });
 
-  start.disabled = Boolean(status.running) || !select.value;
+  const validationBusy =
+    Boolean(status.running) || cameraValidationStarting;
+  start.disabled = validationBusy || !select.value;
+  select.disabled = validationBusy;
   cancel.disabled = !status.running;
   updateCameraAddLog('validation', status.logs);
 
@@ -6211,10 +6236,20 @@ async function pollCameraValidation() {
 
 async function prepareCameraValidation() {
   const select = document.getElementById('camera-validation-select');
+  const start = document.getElementById('camera-validation-start');
   if (!select || !select.value) {
     flash('Select a characterized camera first.', 'red');
     return;
   }
+
+  cameraValidationStarting = true;
+  select.disabled = true;
+  if (start) start.disabled = true;
+  appendCameraAddLogLine(
+    'validation',
+    'Preparing camera validation…'
+  );
+  await waitForBrowserPaint();
 
   try {
     const response = await fetch('/api/camera-validation/prepare', {
@@ -6240,6 +6275,7 @@ async function prepareCameraValidation() {
     );
 
     if (!authorized) {
+      cameraValidationStarting = false;
       await pollCameraValidation();
       return;
     }
@@ -6253,7 +6289,10 @@ async function prepareCameraValidation() {
     if (!startResponse.ok) throw new Error(started.error || `HTTP ${startResponse.status}`);
     flash(`Camera validation started — ${prepared.expected_photos} photos expected`, 'green');
     await pollCameraValidation();
+    cameraValidationStarting = false;
   } catch (error) {
+    cameraValidationStarting = false;
+    await pollCameraValidation();
     flash(`Camera validation: ${error.message}`, 'red');
   }
 }
@@ -6671,9 +6710,11 @@ async function refreshRecharacterizationCandidates() {
       select.appendChild(option);
     });
 
-    select.disabled = Boolean(status.running);
+    const characterizationBusy =
+      Boolean(status.running) || cameraCharacterizationStarting;
+    select.disabled = characterizationBusy;
     if (button) {
-      button.disabled = Boolean(status.running) || !select.value;
+      button.disabled = characterizationBusy || !select.value;
     }
   } catch (_) {}
 }
@@ -6699,8 +6740,13 @@ async function startCameraRecharacterization() {
   cameraAddLogState.clearedCharacterizationResult = '';
   renderCameraAddLog();
 
+  cameraCharacterizationStarting = true;
   if (select) select.disabled = true;
   if (button) button.disabled = true;
+  appendCameraAddLogLine(
+    'characterization',
+    'Starting camera re-characterization…'
+  );
   await waitForBrowserPaint();
 
   try {
@@ -6721,8 +6767,10 @@ async function startCameraRecharacterization() {
 
     cameraCharacterizationWasRunning = true;
     await pollCameraCharacterization();
+    cameraCharacterizationStarting = false;
     flash('Camera re-characterization started', 'green');
   } catch (error) {
+    cameraCharacterizationStarting = false;
     if (select) select.disabled = false;
     if (button) button.disabled = !locator;
     flash(error.message || 'Re-characterization failed to start', 'red');
