@@ -152,16 +152,16 @@ jobs:
           if 'function triggerPhaseRunningState(' not in text:
               text = text[:pos] + helper + text[pos:]
 
-          assignment_end = """  state.triggerRigs[key] = {
-            ...(state.triggerRigs[key] || {}),
-            phase: nextPhase,
-            running: nextPhase !== 'idle',
-          };"""
-          replacement = assignment_end + """
-            state.triggerRigs[key].running = triggerPhaseRunningState(d, nextPhase);"""
-          if assignment_end not in text:
+          running_pos = text.find(legacy, pos)
+          object_end = text.find("\n  };", running_pos)
+          if running_pos < 0 or object_end < 0:
               raise SystemExit('trigger_phase state assignment not found')
-          text = text.replace(assignment_end, replacement, 1)
+          object_end += len("\n  };")
+          refinement = (
+              "\n  state.triggerRigs[key].running = "
+              "triggerPhaseRunningState(d, nextPhase);"
+          )
+          text = text[:object_end] + refinement + text[object_end:]
 
           path.write_text(text, encoding='utf-8')
           PY
