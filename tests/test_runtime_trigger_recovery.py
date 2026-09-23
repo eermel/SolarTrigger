@@ -106,3 +106,76 @@ def test_runtime_recovery_is_single_attempt(tmp_path, monkeypatch):
     assert FakeTriggerService.recovered == []
     assert FakeTriggerService.failures[0][1] == "RECOVERY_LIMIT_REACHED"
     assert TriggerRunJournal(path).active_entries() == ()
+
+
+def test_runtime_restores_final_failure_after_repeated_restart(tmp_path, monkeypatch):
+    root = _prepare_project(tmp_path)
+    path = root / "var" / "state" / "trigger_state.json"
+    journal = TriggerRunJournal(path)
+    started = journal.begin_run(rig_id=3, mode="real", selected={})
+    journal.finish(
+        rig_id=3,
+        run_id=started["run_id"],
+        status="failed",
+        failure_code="CHILD_EXIT",
+        detail="scheduler exited unexpectedly",
+        exit_code=2,
+    )
+
+    import backend.runtime_daemon as runtime_daemon
+
+    monkeypatch.setattr(runtime_daemon, "CameraWorkerRuntime", FakeCameraRuntime)
+    monkeypatch.setattr(runtime_daemon, "TriggerService", FakeTriggerService)
+
+    runtime_daemon.RuntimeController(root)
+    runtime_daemon.RuntimeController(root)
+
+    restored = [item for item in FakeTriggerService.failures if item[0] == 3]
+    assert len(restored) == 2
+    assert all(item[1] == "CHILD_EXIT" for item in restored)
+    assert all(item[2] == "scheduler exited unexpectedly" for item in restored)
+
+
+@pytest.mark.parametrize("status", ["completed", "stopped"])
+def test_runtime_does_not_restore_non_failure_final_state(
+    tmp_path, monkeypatch, status
+):
+    root = _prepare_project(tmp_path)
+    path = root / "var" / "state" / "trigger_state.json"
+    journal = TriggerRunJournal(path)
+    started = journal.begin_run(rig_id=1, mode="real", selected={})
+    journal.finish(
+        rig_id=1,
+        run_id=started["run_id"],
+        status=status,
+    )
+
+    import backend.runtime_daemon as runtime_daemon
+
+    monkeypatch.setattr(runtime_daemon, "CameraWorkerRuntime", FakeCameraRuntime)
+    monkeypatch.setattr(runtime_daemon, "TriggerService", FakeTriggerService)
+
+    runtime_daemon.RuntimeController(root)
+
+    assert FakeTriggerService.failures == []
+    assert FakeTriggerService.recovered == []
+
+
+def test_runtime_surfaces_invalid_recovery_journal(tmp_path, monkeypatch):
+    root = _prepare_project(tmp_path)
+    path = root / "var" / "state" / "trigger_state.json"
+    path.write_text("{broken-json", encoding="utf-8")
+
+    import backend.runtime_daemon as runtime_daemon
+
+    monkeypatch.setattr(runtime_daemon, "CameraWorkerRuntime", FakeCameraRuntime)
+    monkeypatch.setattr(runtime_daemon, "TriggerService", FakeTriggerService)
+
+    runtime_daemon.RuntimeController(root)
+
+    assert FakeTriggerService.recovered == []
+    assert len(FakeTriggerService.failures) == 4
+    assert {item[0] for item in FakeTriggerService.failures} == {1, 2, 3, 4}
+    assert {
+        item[1] for item in FakeTriggerService.failures
+    } == {"RECOVERY_JOURNAL_INVALID"}
