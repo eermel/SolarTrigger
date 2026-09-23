@@ -61,6 +61,7 @@ def register_system_maintenance_routes(
             else False
         )
         data["release_state"] = installed_releases()
+        data["release_helper_available"] = Path(RELEASE_HELPER).is_file()
         return jsonify(data)
 
     @app.get("/api/system/maintenance/releases")
@@ -134,6 +135,15 @@ def register_system_maintenance_routes(
 
     @app.post("/api/system/maintenance/install-release")
     def install():
+        if not Path(RELEASE_HELPER).is_file():
+            return jsonify(
+                error=(
+                    "Release updater is not bootstrapped. Run "
+                    "sudo install/install_maintenance_helpers.sh once "
+                    "on this existing trigger."
+                )
+            ), 503
+
         token = str(
             (request.get_json(silent=True) or {}).get(
                 "upload_token"
@@ -168,6 +178,15 @@ def register_system_maintenance_routes(
 
     @app.post("/api/system/maintenance/rollback-release")
     def rollback():
+        if not Path(RELEASE_HELPER).is_file():
+            return jsonify(
+                error=(
+                    "Release updater is not bootstrapped. Run "
+                    "sudo install/install_maintenance_helpers.sh once "
+                    "on this existing trigger."
+                )
+            ), 503
+
         payload = request.get_json(silent=True) or {}
         try:
             version = validate_release_version(
