@@ -65,6 +65,9 @@ def test_external_failure_is_not_published_as_idle(tmp_path):
         "phase": "failed",
         "mode": None,
         "speed": None,
+        "failure_code": "CHILD_EXIT",
+        "failure_detail": "child died",
+        "exit_code": 2,
     }
     assert ("trigger_phase", {
         "rig_id": 1,
