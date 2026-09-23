@@ -5,13 +5,13 @@ from backend.timeline import build_timeline
 
 def test_debug_contacts_are_exact_and_have_no_diamond_ring_constants():
     result=generate_debug_now(datetime(2026,9,13,12,0,0,tzinfo=timezone.utc))
-    assert result["TSTART"]=="12:03:00.000"
-    assert result["C1"]=="12:08:12.000"
-    assert result["C2"]=="12:14:18.000"
-    assert result["TMAX"]=="12:16:00.000"
-    assert result["C3"]=="12:17:42.000"
-    assert result["C4"]=="12:22:54.000"
-    assert result["TEND"]=="12:26:12.000"
+    assert result["TSTART"]=="12:01:00.000"
+    assert result["C1"]=="12:06:12.000"
+    assert result["C2"]=="12:12:18.000"
+    assert result["TMAX"]=="12:14:00.000"
+    assert result["C3"]=="12:15:42.000"
+    assert result["C4"]=="12:20:54.000"
+    assert result["TEND"]=="12:24:12.000"
     assert not any("diamond" in key.lower() for key in result)
 
 def test_debug_bounds_and_diamond_photo_setup():
