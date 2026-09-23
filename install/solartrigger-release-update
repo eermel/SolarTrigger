@@ -316,7 +316,9 @@ case "${1:-}" in
         test "$current" != "$(readlink -f "$destination")"
 
         alink "$destination" "$ACTIVE"
-        refresh_root_helpers "$destination"
+        # Keep the newest root maintenance helper installed by the most recent
+        # update. Rolling application code back must not downgrade the recovery
+        # mechanism itself.
         log "Rolled back SolarTrigger to: $version"
         request_reboot
         ;;
