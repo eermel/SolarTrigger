@@ -35,6 +35,7 @@ from backend.camera_profiles import discover_profiles
 from backend.rig_runtime import load_rig_configuration
 from backend.timeline import build_timeline
 from backend.trigger_runtime import RuntimeClock
+from backend.trigger_heartbeat import HeartbeatEmitter
 from plugins.camera.base import CaptureResult
 from scripts.camera_ipc_client import CameraIpcClient, CameraIpcError
 from scripts.fanout_camera_adapter import FanoutCameraAdapter
@@ -433,6 +434,7 @@ def run_emergency_totality(
     *,
     camera_already_initialized: bool = False,
     log_fn=log,
+    heartbeat_fn=lambda _stage: None,
 ) -> dict[str, int]:
     """Run the last-resort Totality sequence without wall-clock dependencies.
 
@@ -480,13 +482,16 @@ def run_emergency_totality(
     # retry a *full* initialization so a respawned process/direct writer is not
     # left permanently unprimed for the rest of totality.
     camera_configured = False
+    heartbeat_fn("phase.setup.begin")
     try:
         if camera_already_initialized:
             camera.apply_phase_settings(aperture=aperture, iso=iso)
         else:
             camera.initialize(aperture=aperture, iso=iso)
         camera_configured = True
+        heartbeat_fn("phase.ready")
     except Exception as exc:
+        heartbeat_fn("phase.setup.error")
         log_fn(
             "WARNING Emergency Totality camera settings failed; "
             f"capture will still be attempted: {type(exc).__name__}: {exc}"
@@ -521,7 +526,8 @@ def run_emergency_totality(
             if end_monotonic is not None:
                 wait_s = min(wait_s, end_monotonic - now_monotonic)
             if wait_s > 0:
-                stopped.wait(wait_s)
+                heartbeat_fn("wait")
+                stopped.wait(min(wait_s, 0.25))
             continue
 
         # Do not immediately repeat a failed initial SET before the first
@@ -562,8 +568,10 @@ def run_emergency_totality(
         )
 
         try:
+            heartbeat_fn("capture.begin")
             prepared = camera.prepare_capture(intent)
             result = camera.trigger_prepared(prepared, deadline=None)
+            heartbeat_fn("capture.end")
             frames = max(0, int(getattr(result, "frames", 0) or 0))
             planned = getattr(result, "planned", None)
             stats["photos"] += frames
@@ -584,6 +592,7 @@ def run_emergency_totality(
             if not camera_configured:
                 retry_full_initialize = True
         except Exception as exc:
+            heartbeat_fn("capture.error")
             stats["errors"] += 1
             camera_configured = False
             retry_full_initialize = True
@@ -606,6 +615,8 @@ def run_emergency_totality(
     return stats
 
 def main() -> int:
+    heartbeat = HeartbeatEmitter.from_environment()
+    heartbeat.pulse("startup")
     args = parse_args()
     if args.simulate and args.dry_run:
         raise ValueError("simulation and dry-run are mutually exclusive")
@@ -742,6 +753,7 @@ def main() -> int:
             for attempt in range(1, 4):
                 try:
                     client.ping()
+                    heartbeat.pulse("ipc.ready")
                     break
                 except CameraIpcError as exc:
                     if attempt >= 3:
@@ -796,6 +808,7 @@ def main() -> int:
 
         def initialize_phase(window: PhaseWindow) -> None:
             nonlocal camera_initialized
+            heartbeat.pulse("phase.setup.begin")
             config = phase_config(window)
             aperture = config.get("aperture", "f/8")
             iso = str(config.get("iso", "100"))
@@ -813,9 +826,11 @@ def main() -> int:
                 )
                 camera.initialize(aperture=aperture, iso=iso)
                 camera_initialized = True
+            heartbeat.pulse("phase.ready")
 
         def reconcile_phase(window: PhaseWindow) -> None:
             nonlocal camera_initialized
+            heartbeat.pulse("phase.setup.begin")
             config = phase_config(window)
             aperture = config.get("aperture", "f/8")
             iso = str(config.get("iso", "100"))
@@ -826,6 +841,7 @@ def main() -> int:
                 )
                 camera.initialize(aperture=aperture, iso=iso)
                 camera_initialized = True
+                heartbeat.pulse("phase.ready")
                 return
             changed = camera.apply_phase_settings(
                 aperture=aperture,
@@ -836,6 +852,7 @@ def main() -> int:
                     "TRIGGER_CONFIG "
                     f"SET aperture={aperture} ISO={iso}"
                 )
+            heartbeat.pulse("phase.ready")
 
         def capture_cycle(
             window: PhaseWindow,
@@ -880,8 +897,14 @@ def main() -> int:
                 origin="atmos" if atmos_added else window.photo_phase,
                 request_id=uuid.uuid4().hex,
             )
-            prepared = camera.prepare_capture(intent)
-            result = camera.trigger_prepared(prepared, deadline=deadline)
+            heartbeat.pulse("capture.begin")
+            try:
+                prepared = camera.prepare_capture(intent)
+                result = camera.trigger_prepared(prepared, deadline=deadline)
+            except Exception:
+                heartbeat.pulse("capture.error")
+                raise
+            heartbeat.pulse("capture.end")
             frames = getattr(result, "frames", 0)
             planned = getattr(result, "planned", None)
             truncated = getattr(result, "detail", "") == "deadline"
@@ -935,6 +958,7 @@ def main() -> int:
             )
 
         def wait_until(target: datetime) -> None:
+            heartbeat.pulse("wait")
             remaining = (target - clock.now()).total_seconds()
             if remaining > 0:
                 stopped.wait(min(0.25, remaining / clock.speed))
@@ -980,9 +1004,11 @@ def main() -> int:
                 stopped,
                 camera_already_initialized=camera_initialized,
                 log_fn=log,
+                heartbeat_fn=heartbeat.pulse,
             )
         else:
             try:
+                heartbeat.pulse("runtime.begin")
                 PhaseRuntime(
                     schedule,
                     now=clock.now,
@@ -999,6 +1025,7 @@ def main() -> int:
                     ),
                     next_capture_log=log_next_capture,
                 ).run()
+                heartbeat.pulse("runtime.end")
             except EmergencyTotalityRequested:
                 log(
                     "WARNING Emergency Totality requested: abandoning eclipse "
@@ -1011,8 +1038,10 @@ def main() -> int:
                     stopped,
                     camera_already_initialized=camera_initialized,
                     log_fn=log,
+                    heartbeat_fn=heartbeat.pulse,
                 )
             except Exception as exc:
+                heartbeat.pulse("runtime.error")
                 log(
                     "FATAL scheduler failure: "
                     f"{type(exc).__name__}: {exc}"
@@ -1073,12 +1102,14 @@ def main() -> int:
         log("INFO trigger sequence complete")
         return 0
     finally:
+        heartbeat.pulse("shutdown")
         stopped.set()
         if audio_thread is not None:
             audio_service.shutdown()
             audio_thread.join(timeout=2.0)
         if camera is not None:
             camera.close()
+        heartbeat.close()
 
 
 if __name__ == "__main__":

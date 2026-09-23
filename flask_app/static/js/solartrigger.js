@@ -2152,6 +2152,11 @@ socket.on('gps_update', d => {
   }
   updateGPS(d);
 });
+function triggerPhaseRunningState(d, nextPhase) {
+  if (typeof d.running === 'boolean') return d.running;
+  return nextPhase !== 'idle' && nextPhase !== 'failed';
+}
+
 socket.on('trigger_phase', d => {
   const rigId = Number(d && d.rig_id);
   if (!Number.isInteger(rigId) || rigId < 1 || rigId > 4) return;
@@ -2168,11 +2173,19 @@ socket.on('trigger_phase', d => {
     phase: nextPhase,
     running: nextPhase !== 'idle',
   };
+  state.triggerRigs[key].running = triggerPhaseRunningState(d, nextPhase);
 
   if (rigId === selectedTriggerRigId) {
     updateSelectedTriggerPhase();
   }
 });
+
+  socket.on("trigger_failure", (payload) => {
+    const rigId = normalizeRigId(payload && payload.rig_id, selectedTriggerRigId);
+    const code = payload && payload.code ? ` [${payload.code}]` : '';
+    const message = payload && payload.message ? payload.message : 'Trigger process failed.';
+    flash(`RIG ${rigId} — TRIGGER FAILED${code}: ${message}`, 'red');
+  });
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) _reanchorClockFromStatus();
@@ -2973,6 +2986,8 @@ function updateGPS(gps) {
 }
 
 const PHASE_LABELS = {
+  recovering: '↻ RECOVERING',
+  failed: '⚠ TRIGGER FAILED',
   idle:         'IDLE',
   waiting:      'WAITING',
   partial:      'PARTIAL',

@@ -1,9 +1,15 @@
 from __future__ import annotations
 from pathlib import Path
 import json, os, signal, subprocess, sys, threading
+from threading import Thread as _HeartbeatThread
 from datetime import datetime, timezone
 from backend.timeline import build_timeline, sequence_seconds
 from backend.phase_trigger import build_phase_schedule
+from backend.trigger_heartbeat import (
+    DEFAULT_HEARTBEAT_TIMEOUT_S,
+    HEARTBEAT_ENV,
+    HeartbeatSupervisor,
+)
 
 class TriggerValidationError(RuntimeError):
     def __init__(self, message, code="TRIGGER_INVALID"):
@@ -223,7 +229,8 @@ class TriggerService:
     def __init__(self, state_store, trigger_script, json_file, configs_dir,
                  log_fn, emit_fn, line_level_fn=None, line_clean_fn=None,
                  camera_runtime=None, rig_config_loader=None,
-                 product_configs_dir=None):
+                 product_configs_dir=None, run_journal=None,
+                 heartbeat_timeout_s=DEFAULT_HEARTBEAT_TIMEOUT_S):
         self.state = state_store
         self.trigger_script = Path(trigger_script)
         self.json_file = Path(json_file)
@@ -279,6 +286,159 @@ class TriggerService:
             rig_id: None
             for rig_id in range(1, 5)
         }
+        self.run_journal = run_journal
+        self.heartbeat_timeout_s = max(0.05, float(heartbeat_timeout_s))
+        self._run_ids_by_rig = {rig_id: None for rig_id in range(1, 5)}
+
+    def _active_selection(self, rig_id):
+        circumstances = self._active_circumstances_paths.get(rig_id)
+        photo = self._active_photo_paths.get(rig_id)
+        exposure = self._active_exposure_opt_paths.get(rig_id)
+        return {
+            "circumstances_file": circumstances.name if circumstances else None,
+            "photo_file": photo.name if photo else None,
+            "exposure_opt_file": exposure.name if exposure else None,
+        }
+
+    def _journal_begin(self, rig_id, mode, selected, *, totality_only=False):
+        if self.run_journal is None:
+            return None
+        try:
+            entry = self.run_journal.begin_run(
+                rig_id=rig_id,
+                mode=mode,
+                selected=selected,
+                speed=1.0,
+                totality_only=totality_only,
+            )
+            return entry.get("run_id")
+        except Exception as exc:
+            # Persistence failure must not prevent an eclipse capture from
+            # starting. It disables crash recovery for this run and is made
+            # highly visible instead.
+            self._log_rig(
+                rig_id,
+                f"Trigger recovery journal unavailable: {type(exc).__name__}: {exc}",
+                "error",
+            )
+            return None
+
+    def _journal_finish(self, rig_id, run_id, status, **kwargs):
+        if self.run_journal is None or run_id is None:
+            return
+        try:
+            self.run_journal.finish(
+                rig_id=rig_id,
+                run_id=run_id,
+                status=status,
+                **kwargs,
+            )
+        except Exception as exc:
+            self._log_rig(
+                rig_id,
+                f"Trigger recovery journal finalization error: {exc}",
+                "error",
+            )
+
+    def publish_external_failure(self, rig_id, code, detail, *, exit_code=None):
+        self.state.update_trigger_rig(
+            rig_id,
+            {"running": False, "phase": "failed", "mode": None, "speed": None},
+        )
+        payload = {
+            "rig_id": rig_id,
+            "phase": "failed",
+            "running": False,
+            "code": str(code),
+            "message": str(detail),
+        }
+        if exit_code is not None:
+            payload["exit_code"] = exit_code
+        self.emit("trigger_phase", payload)
+        self.emit("trigger_failure", payload)
+        self._log_rig(rig_id, f"TRIGGER FAILED [{code}] {detail}", "critical")
+
+    def _recovery_window_open(self, rig_id):
+        path = self._active_circumstances_paths.get(rig_id)
+        if path is None:
+            return False
+        try:
+            ecl = json.loads(path.read_text(encoding="utf-8"))
+            timeline = build_timeline(
+                ecl,
+                fallback_date=datetime.now(timezone.utc).date(),
+            )
+            tend = timeline.get("TEND")
+            return tend is not None and datetime.now(timezone.utc) < tend
+        except Exception:
+            return False
+
+    def _child_recovery_safe(
+        self,
+        *,
+        rig_id,
+        totality_only,
+        recovery_attempt,
+        last_stage,
+        heartbeat_timed_out,
+    ):
+        if recovery_attempt >= 1 or heartbeat_timed_out:
+            return False
+        stage = str(last_stage or "")
+        safe = (
+            stage == "startup"
+            or stage == "ipc.ready"
+            or stage == "runtime.begin"
+            or stage == "runtime.end"
+            or stage == "wait"
+            or stage == "phase.ready"
+            or stage == "capture.end"
+        )
+        if not safe:
+            return False
+        return bool(totality_only or self._recovery_window_open(rig_id))
+
+    def recover_persisted_run(self, entry):
+        # Resume one same-boot persisted run without replaying past phases.
+        if not isinstance(entry, dict):
+            raise TriggerValidationError("Invalid recovery journal entry.", "RECOVERY_INVALID")
+        rig_id = int(entry.get("rig_id"))
+        run_id = entry.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            raise TriggerValidationError("Recovery run_id is missing.", "RECOVERY_INVALID")
+        if entry.get("totality_only") is True or entry.get("mode") == "totality_override":
+            return self.start_totality_only(
+                rig_id=rig_id,
+                _recovery=True,
+                _run_id=run_id,
+            )
+        if entry.get("mode") != "real":
+            raise TriggerValidationError(
+                "Only real eclipse runs can be recovered automatically.",
+                "RECOVERY_MODE_UNSAFE",
+            )
+        selected = entry.get("selected")
+        if not isinstance(selected, dict):
+            raise TriggerValidationError("Recovery inputs are missing.", "RECOVERY_INVALID")
+        # Resolve once before touching hardware, so an already-ended timeline
+        # fails closed instead of briefly starting a camera session.
+        paths = self._resolve_trigger_inputs(rig_id, selected)
+        self._active_circumstances_paths[rig_id] = paths["circumstances"]
+        self._active_photo_paths[rig_id] = paths["photo"]
+        self._active_exposure_opt_paths[rig_id] = paths["exposure_opt"]
+        if not self._recovery_window_open(rig_id):
+            self._clear_active_inputs(rig_id)
+            raise TriggerValidationError(
+                "Persisted eclipse run is already outside its active timeline.",
+                "RECOVERY_WINDOW_ENDED",
+            )
+        self._clear_active_inputs(rig_id)
+        return self.start(
+            rig_id=rig_id,
+            selected=selected,
+            _recovery=True,
+            _run_id=run_id,
+        )
 
     def _log_rig(self, rig_id, text, level="info"):
         """Log one trigger event with explicit RIG ownership.
@@ -640,7 +800,8 @@ class TriggerService:
         return ecl
 
     def start(self, rig_id=1, simulate=False, speed=60.0, dry_run=False,
-              selected=None):
+              selected=None, _recovery=False, _run_id=None,
+              _child_recovery_attempt=0):
         if (
             not isinstance(rig_id, int)
             or isinstance(rig_id, bool)
@@ -678,7 +839,7 @@ class TriggerService:
             try:
                 ecl = self.validate_start(
                     rig_id=rig_id,
-                    require_gps=not simulate,
+                    require_gps=not simulate and not _recovery,
                     selected=selected,
                     strict_circumstances_date=not (simulate or dry_run),
                 )
@@ -760,37 +921,50 @@ class TriggerService:
                 if dry_run
                 else "real"
             )
+            run_id = _run_id
+            if mode == "real" and not _recovery:
+                run_id = self._journal_begin(rig_id, mode, selected)
+            if run_id is not None:
+                self._run_ids_by_rig[rig_id] = run_id
+            published_phase = "recovering" if _recovery else "starting"
             try:
                 self.state.update_trigger_rig(
                     rig_id,
                     {
                         "running": True,
-                        "phase": "starting",
+                        "phase": published_phase,
                         "mode": mode,
                         "speed": speed if simulate else 1.0,
                     },
                 )
                 self.emit(
                     "trigger_phase",
-                    {"rig_id": rig_id, "phase": "starting"},
+                    {"rig_id": rig_id, "phase": published_phase},
                 )
                 thread = threading.Thread(
                     target=self._run,
-                    args=(
-                        simulate,
-                        speed,
-                        dry_run,
-                        ipc_session,
-                        rig_id,
-                    ),
+                    kwargs={
+                        "simulate": simulate,
+                        "speed": speed,
+                        "dry_run": dry_run,
+                        "ipc_session": ipc_session,
+                        "rig_id": rig_id,
+                        "run_id": run_id,
+                        "recovery_attempt": _child_recovery_attempt,
+                    },
                     name=f"eclipse-trigger-process-rig-{rig_id}",
                     daemon=True,
                 )
                 self._supervisor_threads[rig_id] = thread
                 thread.start()
-            except Exception:
+            except Exception as start_exc:
                 self._starting_by_rig[rig_id] = False
                 self._supervisor_threads[rig_id] = None
+                self._journal_finish(
+                    rig_id, run_id, "failed",
+                    failure_code="START_FAILED", detail=str(start_exc),
+                )
+                self._run_ids_by_rig[rig_id] = None
                 self._clear_active_inputs(rig_id)
                 if ipc_session is not None:
                     try:
@@ -914,11 +1088,28 @@ class TriggerService:
         ipc_session=None,
         rig_id=1,
         totality_only=False,
+        run_id=None,
+        recovery_attempt=0,
     ):
         proc=None
         stdout_stream = None
         stdout_read_fd = None
         stdout_write_fd = None
+        heartbeat_read_fd = None
+        heartbeat_write_fd = None
+        heartbeat = None
+        heartbeat_last_stage = None
+        heartbeat_timed_out = False
+        supervisor_error = None
+        recovery_selection = None
+        if not hasattr(self, 'run_journal'):
+            self.run_journal = None
+        if not hasattr(self, 'heartbeat_timeout_s'):
+            self.heartbeat_timeout_s = DEFAULT_HEARTBEAT_TIMEOUT_S
+        if not hasattr(self, '_run_ids_by_rig'):
+            self._run_ids_by_rig = {item: None for item in range(1, 5)}
+        if not hasattr(self, '_stopping_by_rig'):
+            self._stopping_by_rig = {item: False for item in range(1, 5)}
         try:
             # STOP may arrive immediately after start() released its lock but
             # before this supervisor thread has created the subprocess.
@@ -963,6 +1154,9 @@ class TriggerService:
 
             env=self._subprocess_env(ipc_session)
             env["SET_TRIGGER_RIG_ID"] = str(rig_id)
+            recovery_selection = self._active_selection(rig_id)
+            heartbeat_read_fd, heartbeat_write_fd = os.pipe()
+            env[HEARTBEAT_ENV] = str(heartbeat_write_fd)
 
             # The real-time scheduler must never wait for the web portal to
             # consume logs.  Make only the child's pipe writer non-blocking:
@@ -981,11 +1175,25 @@ class TriggerService:
                     bufsize=1,
                     cwd=str(self.project_dir),
                     env=env,
+                    pass_fds=(heartbeat_write_fd,),
                 )
             finally:
                 if stdout_write_fd is not None:
                     os.close(stdout_write_fd)
                     stdout_write_fd = None
+                if heartbeat_write_fd is not None:
+                    os.close(heartbeat_write_fd)
+                    heartbeat_write_fd = None
+
+            heartbeat = HeartbeatSupervisor(
+                read_fd=heartbeat_read_fd,
+                proc=proc,
+                timeout_s=self.heartbeat_timeout_s,
+                manual_stop_fn=lambda: self._manual_stop_requested_by_rig[rig_id],
+                log_fn=lambda message: self._log_rig(rig_id, message, "critical"),
+                thread_factory=_HeartbeatThread,
+            ).start()
+            heartbeat_read_fd = None
 
             # Test doubles historically expose their own .stdout even when the
             # supplied descriptor is not subprocess.PIPE. Preserve that
@@ -1140,6 +1348,7 @@ class TriggerService:
                         pass
             proc.wait()
         except Exception as exc:
+            supervisor_error = exc
             self._log_rig(
                 rig_id,
                 f"Trigger thread ERROR: {exc}",
@@ -1163,13 +1372,19 @@ class TriggerService:
                     except Exception:
                         pass
         finally:
+            if heartbeat is not None:
+                heartbeat.stop()
+                heartbeat_last_stage, heartbeat_timed_out = heartbeat.snapshot()
             if stdout_stream is not None:
                 try:
                     stdout_stream.close()
                 except Exception:
                     pass
                 stdout_stream = None
-            for fd_name in ("stdout_read_fd", "stdout_write_fd"):
+            for fd_name in (
+                "stdout_read_fd", "stdout_write_fd",
+                "heartbeat_read_fd", "heartbeat_write_fd",
+            ):
                 fd = locals().get(fd_name)
                 if fd is not None:
                     try:
@@ -1181,87 +1396,203 @@ class TriggerService:
                 try:
                     self.camera_runtime.close_ipc_session(ipc_session.session_id)
                 except Exception as exc:
-                    self.log(f"Camera IPC session close error: {exc}","error","trigger")
-
-            process_still_alive = (
-                proc is not None and proc.poll() is None
-            )
-
-            with self._lock:
-                # If STOP arrived after Popen() but before this supervisor
-                # published the process into _procs, this thread still owns
-                # the startup lifecycle. Treat that cancelled, unpublished
-                # child as ours so _starting/state/inputs are released.
-                owns_process = (
-                    self._procs[rig_id] is proc
-                    or (
-                        proc is not None
-                        and self._procs[rig_id] is None
-                        and self._cancel_start_requested_by_rig[rig_id]
+                    self._log_rig(
+                        rig_id,
+                        f"Camera IPC session close error: {exc}",
+                        "error",
                     )
-                )
+
+            process_still_alive = proc is not None and proc.poll() is None
+            with self._lock:
                 manual_stop_requested = self._manual_stop_requested_by_rig[rig_id]
+                owns_process = (
+            self._procs[rig_id] is proc
+            or (
+                proc is not None
+                and self._procs[rig_id] is None
+                and self._cancel_start_requested_by_rig[rig_id]
+            )
+            or (
+                proc is None
+                and self._starting_by_rig[rig_id]
+            )
+        )
                 if owns_process and not process_still_alive:
-                    self._procs[rig_id] = None
+                    if proc is not None and self._procs[rig_id] is proc:
+                        self._procs[rig_id] = None
                     self._starting_by_rig[rig_id] = False
                     self._clear_active_inputs(rig_id)
                     self._analysis_suppressed_by_rig[rig_id] = False
                     self._manual_stop_requested_by_rig[rig_id] = False
                     self._cancel_start_requested_by_rig[rig_id] = False
-                    stopping_map = getattr(self, "_stopping_by_rig", None)
-                    if isinstance(stopping_map, dict):
-                        stopping_map[rig_id] = False
+                    self._stopping_by_rig[rig_id] = False
                 elif owns_process and process_still_alive:
-                    # Supervision is ending but the child resisted every
-                    # terminate/kill attempt. Never publish a false idle state
-                    # or discard the only process reference. Camera IPC has
-                    # already been revoked above, so the orphan cannot keep
-                    # controlling hardware; STOP can still retry termination.
                     self._analysis_suppressed_by_rig[rig_id] = True
                     self._starting_by_rig[rig_id] = False
                 if self._supervisor_threads[rig_id] is threading.current_thread():
                     self._supervisor_threads[rig_id] = None
 
-            if owns_process and not process_still_alive:
+            code = proc.returncode if proc is not None else None
+            failed = bool(
+                supervisor_error is not None
+                or (code is not None and code != 0)
+                or (proc is None and not manual_stop_requested)
+            )
+            can_recover = bool(
+                owns_process
+                and not process_still_alive
+                and failed
+                and not manual_stop_requested
+                and not simulate
+                and not dry_run
+                and self._child_recovery_safe(
+                    rig_id=rig_id,
+                    totality_only=totality_only,
+                    recovery_attempt=recovery_attempt,
+                    last_stage=heartbeat_last_stage,
+                    heartbeat_timed_out=heartbeat_timed_out,
+                )
+            )
+            if can_recover and self.run_journal is not None and run_id is not None:
+                try:
+                    can_recover = self.run_journal.note_child_recovery(
+                        rig_id=rig_id,
+                        run_id=run_id,
+                    ) is not None
+                except Exception as exc:
+                    can_recover = False
+                    self._log_rig(
+                        rig_id,
+                        f"Child recovery journal error: {exc}",
+                        "error",
+                    )
+
+            if can_recover:
                 self.state.update_trigger_rig(
                     rig_id,
                     {
-                        "running": False,
-                        "phase": "idle",
-                        "mode": None,
-                        "speed": None,
+                        "running": True,
+                        "phase": "recovering",
+                        "mode": "totality_override" if totality_only else "real",
+                        "speed": 1.0,
                     },
+                )
+                self.emit(
+                    "trigger_phase",
+                    {"rig_id": rig_id, "phase": "recovering"},
+                )
+                self._log_rig(
+                    rig_id,
+                    "Unexpected trigger child exit at a safe boundary — "
+                    "starting the single permitted recovery attempt.",
+                    "warning",
+                )
+                try:
+                    if totality_only:
+                        recovered = self.start_totality_only(
+                            rig_id=rig_id,
+                            _recovery=True,
+                            _run_id=run_id,
+                            _child_recovery_attempt=recovery_attempt + 1,
+                        )
+                        recovered = recovered == "started"
+                    else:
+                        recovered = self.start(
+                            rig_id=rig_id,
+                            selected=recovery_selection,
+                            _recovery=True,
+                            _run_id=run_id,
+                            _child_recovery_attempt=recovery_attempt + 1,
+                        )
+                except Exception as exc:
+                    recovered = False
+                    supervisor_error = exc
+                if recovered:
+                    return
+
+            if not owns_process:
+                return
+
+            if process_still_alive:
+                detail = (
+                    "child process is still alive after supervision failed; "
+                    "camera IPC was revoked and STOP can still force termination"
+                )
+                self._journal_finish(
+                    rig_id, run_id, "failed",
+                    failure_code="SUPERVISOR_CHILD_STILL_ALIVE",
+                    detail=detail,
+                    exit_code=code,
+                )
+                self.publish_external_failure(
+                    rig_id,
+                    "SUPERVISOR_CHILD_STILL_ALIVE",
+                    detail,
+                    exit_code=code,
+                )
+                # Retain process ownership so STOP remains possible.
+                self.state.update_trigger_rig(rig_id, {"running": True})
+                self.emit(
+                    "trigger_phase",
+                    {"rig_id": rig_id, "phase": "failed", "running": True},
+                )
+                return
+
+            self._run_ids_by_rig[rig_id] = None
+            if code == 0 and supervisor_error is None:
+                self.state.update_trigger_rig(
+                    rig_id,
+                    {"running": False, "phase": "idle", "mode": None, "speed": None},
                 )
                 self.emit(
                     "trigger_phase",
                     {"rig_id": rig_id, "phase": "idle"},
                 )
-            elif owns_process and process_still_alive:
-                self._log_rig(
-                    rig_id,
-                    "TRIGGER SUPERVISION FAILED: child process is still alive; "
-                    "camera IPC revoked and process retained for STOP.",
-                    "error",
-                )
-
-            code = proc.returncode if proc else "?"
-            if code == 0:
-                self._log_rig(
-                    rig_id,
-                    "■ Trigger finished (code 0).",
-                    "info",
-                )
+                self._journal_finish(rig_id, run_id, "completed", exit_code=0)
+                self._log_rig(rig_id, "■ Trigger finished (code 0).", "info")
             elif manual_stop_requested:
+                self.state.update_trigger_rig(
+                    rig_id,
+                    {"running": False, "phase": "idle", "mode": None, "speed": None},
+                )
+                self.emit(
+                    "trigger_phase",
+                    {"rig_id": rig_id, "phase": "idle"},
+                )
+                self._journal_finish(
+                    rig_id, run_id, "stopped", exit_code=code,
+                )
                 self._log_rig(
                     rig_id,
                     f"■ Trigger stopped by user (code {code}).",
                     "warning",
                 )
             else:
-                self._log_rig(
+                failure_code = (
+                    "HEARTBEAT_TIMEOUT"
+                    if heartbeat_timed_out
+                    else "SUPERVISOR_ERROR"
+                    if supervisor_error is not None
+                    else "CHILD_EXIT"
+                )
+                detail = (
+                    f"scheduler heartbeat timed out; last_stage={heartbeat_last_stage or 'none'}"
+                    if heartbeat_timed_out
+                    else f"{type(supervisor_error).__name__}: {supervisor_error}"
+                    if supervisor_error is not None
+                    else f"trigger child exited with code {code}"
+                )
+                self._journal_finish(
+                    rig_id, run_id, "failed",
+                    failure_code=failure_code,
+                    detail=detail,
+                    exit_code=code,
+                )
+                self.publish_external_failure(
                     rig_id,
-                    f"■ TRIGGER FAILED (code {code}).",
-                    "error",
+                    failure_code,
+                    detail,
+                    exit_code=code,
                 )
 
     def override_totality(self, rig_id=1):
@@ -1323,7 +1654,8 @@ class TriggerService:
 
         return True
 
-    def start_totality_only(self, rig_id=1):
+    def start_totality_only(self, rig_id=1, _recovery=False, _run_id=None,
+                            _child_recovery_attempt=0):
         """Start emergency Totality now, or preempt an existing photo run."""
         if (
             not isinstance(rig_id, int)
@@ -1364,18 +1696,29 @@ class TriggerService:
                     self.camera_runtime.reconcile(config)
                     ipc_session = self.camera_runtime.open_ipc_session((rig_id,))
 
+            run_id = _run_id
+            if not _recovery:
+                run_id = self._journal_begin(
+                    rig_id,
+                    "totality_override",
+                    {},
+                    totality_only=True,
+                )
+            if run_id is not None:
+                self._run_ids_by_rig[rig_id] = run_id
+            published_phase = "recovering" if _recovery else "totality_override"
             self.state.update_trigger_rig(
                 rig_id,
                 {
                     "running": True,
-                    "phase": "totality_override",
+                    "phase": published_phase,
                     "mode": "totality_override",
                     "speed": 1.0,
                 },
             )
             self.emit(
                 "trigger_phase",
-                {"rig_id": rig_id, "phase": "totality_override"},
+                {"rig_id": rig_id, "phase": published_phase},
             )
             thread = threading.Thread(
                 target=self._run,
@@ -1383,6 +1726,8 @@ class TriggerService:
                     "ipc_session": ipc_session,
                     "rig_id": rig_id,
                     "totality_only": True,
+                    "run_id": run_id,
+                    "recovery_attempt": _child_recovery_attempt,
                 },
                 name=f"totality-only-process-rig-{rig_id}",
                 daemon=True,
@@ -1391,7 +1736,12 @@ class TriggerService:
                 self._supervisor_threads[rig_id] = thread
             thread.start()
             return "started"
-        except Exception:
+        except Exception as start_exc:
+            self._journal_finish(
+                rig_id, locals().get("run_id"), "failed",
+                failure_code="START_FAILED", detail=str(start_exc),
+            )
+            self._run_ids_by_rig[rig_id] = None
             with self._lock:
                 self._starting_by_rig[rig_id] = False
                 self._analysis_suppressed_by_rig[rig_id] = False

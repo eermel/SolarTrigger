@@ -75,6 +75,7 @@ ExecStart=$VENV_DIR/bin/python -m backend.runtime_daemon \
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=45
+KillMode=control-group
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=solartrigger-runtime

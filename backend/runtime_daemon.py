@@ -37,6 +37,7 @@ from backend.runtime_rpc import (
 )
 from backend.state_store import StateStore
 from backend.trigger_service import TriggerService, TriggerValidationError
+from backend.trigger_run_journal import TriggerRunJournal
 
 
 LOG = logging.getLogger("solartrigger-runtime")
@@ -181,6 +182,9 @@ class RuntimeController:
         # accepted from state.json only when its timestamp belongs to this
         # runtime lifetime.
         self.state.reset_boot_sensitive()
+        self.run_journal = TriggerRunJournal(
+            self.project_root / "var" / "state" / "trigger_state.json"
+        )
         self.camera_runtime = CameraWorkerRuntime(log_fn=self._runtime_log)
         self.trigger = TriggerService(
             self.state,
@@ -192,6 +196,7 @@ class RuntimeController:
             product_configs_dir=self.project_root / "configs",
             camera_runtime=self.camera_runtime,
             rig_config_loader=load_rig_configuration,
+            run_journal=self.run_journal,
         )
         self._shutdown_lock = threading.Lock()
         self._shutdown = False
@@ -199,6 +204,84 @@ class RuntimeController:
         # TriggerService opens its own local leases and is never included here.
         self._portal_camera_sessions: set[str] = set()
         self._portal_camera_sessions_lock = threading.RLock()
+        self._recover_active_trigger_runs()
+
+    def _recover_active_trigger_runs(self):
+        # Recover at most once, and only inside the same Linux boot.
+        current_boot = self.run_journal.boot_id
+        for entry in self.run_journal.active_entries():
+            rig_id = int(entry.get("rig_id", 0) or 0)
+            run_id = entry.get("run_id")
+            if not 1 <= rig_id <= 4 or not isinstance(run_id, str):
+                continue
+            if not current_boot or entry.get("boot_id") != current_boot:
+                detail = (
+                    "active trigger journal belongs to another/unknown boot; "
+                    "automatic recovery is forbidden"
+                )
+                self.run_journal.finish(
+                    rig_id=rig_id,
+                    run_id=run_id,
+                    status="failed",
+                    failure_code="RUNTIME_REBOOT_DURING_RUN",
+                    detail=detail,
+                )
+                self.trigger.publish_external_failure(
+                    rig_id, "RUNTIME_REBOOT_DURING_RUN", detail
+                )
+                continue
+            if entry.get("mode") not in {"real", "totality_override"}:
+                detail = "non-real trigger modes are never automatically recovered"
+                self.run_journal.finish(
+                    rig_id=rig_id,
+                    run_id=run_id,
+                    status="failed",
+                    failure_code="RECOVERY_MODE_UNSAFE",
+                    detail=detail,
+                )
+                self.trigger.publish_external_failure(
+                    rig_id, "RECOVERY_MODE_UNSAFE", detail
+                )
+                continue
+            claimed = self.run_journal.claim_runtime_recovery(
+                rig_id=rig_id,
+                run_id=run_id,
+            )
+            if claimed is None:
+                detail = "automatic runtime recovery attempt was already consumed"
+                self.run_journal.finish(
+                    rig_id=rig_id,
+                    run_id=run_id,
+                    status="failed",
+                    failure_code="RECOVERY_LIMIT_REACHED",
+                    detail=detail,
+                )
+                self.trigger.publish_external_failure(
+                    rig_id, "RECOVERY_LIMIT_REACHED", detail
+                )
+                continue
+            self._runtime_log(
+                f"RIG {rig_id}: same-boot runtime recovery claimed.",
+                "warning",
+                "trigger",
+                rig_id=rig_id,
+            )
+            try:
+                result = self.trigger.recover_persisted_run(claimed)
+                if result is False:
+                    raise RuntimeError("trigger recovery refused start")
+            except Exception as exc:
+                detail = f"runtime recovery failed: {type(exc).__name__}: {exc}"
+                self.run_journal.finish(
+                    rig_id=rig_id,
+                    run_id=run_id,
+                    status="failed",
+                    failure_code="RUNTIME_RECOVERY_FAILED",
+                    detail=detail,
+                )
+                self.trigger.publish_external_failure(
+                    rig_id, "RUNTIME_RECOVERY_FAILED", detail
+                )
 
     def _runtime_log(self, text, level="info", source="runtime", rig_id=None):
         self.log_journal.append(text, level, source, rig_id)
