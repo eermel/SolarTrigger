@@ -70,3 +70,20 @@ def test_audio_test_respects_global_mute():
     assert "if not audio_service.is_enabled():" in APP
     assert '"status": "muted"' in APP
     assert "flash('Sound is OFF', 'yellow')" in JS
+
+
+
+def test_backend_exposes_shared_audio_volume():
+    assert '@app.route("/api/audio/volume", methods=["GET", "POST"])' in APP
+    assert "audio_service.set_volume(volume)" in APP
+    assert '"audio_volume"' in APP
+
+
+def test_browser_volume_syncs_to_pi_backend():
+    assert "fetch('/api/audio/volume'" in JS
+    assert "function applyVolume(v)" in JS
+    assert "socket.on('audio_volume'" in JS
+
+
+def test_pi_playback_applies_shared_volume():
+    assert "pygame.mixer.music.set_volume(get_volume())" in AUDIO_SERVICE
