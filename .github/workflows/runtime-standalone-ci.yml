@@ -30,5 +30,16 @@ jobs:
           bash -n install/install_solareclipse.sh
           bash -n install/install_standalone_runtime_service.sh
           sh -n install/solartrigger-release-update
+          node --check flask_app/static/js/solartrigger.js
+      - name: Build and validate offline release package
+        run: |
+          python scripts/build_release_package.py --version ci-test --output /tmp/solartrigger-ci-test.zip
+          python - <<'PY'
+          from backend.system_maintenance import validate_release_zip
+          manifest = validate_release_zip("/tmp/solartrigger-ci-test.zip")
+          assert manifest["version"] == "ci-test"
+          assert manifest["files"]
+          print(f"validated {len(manifest['files'])} release files")
+          PY
       - name: Full test suite
         run: python -m pytest -q
