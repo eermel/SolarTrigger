@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - hardening/standalone-runtime-20260922
+      - feature/update-installer-devices-ui
   workflow_dispatch:
 
 jobs:
@@ -25,7 +26,7 @@ jobs:
           python -m pip install pytest Flask flask-socketio simple-websocket gphoto2 pygame pyserial gunicorn pytz timezonefinder
       - name: Syntax checks
         run: |
-          python -m py_compile backend/runtime_rpc.py backend/runtime_daemon.py flask_app/app.py
+          python -m py_compile backend/runtime_rpc.py backend/runtime_daemon.py backend/system_maintenance.py backend/system_maintenance_routes.py flask_app/app.py scripts/build_release_package.py
           bash -n install/install_solareclipse.sh
           bash -n install/install_standalone_runtime_service.sh
           sh -n install/solartrigger-release-update
