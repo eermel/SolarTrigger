@@ -72,15 +72,8 @@ class OnStepMount(MountPlugin):
             if not bool(result.get("ok")):
                 return None
 
-            try:
-                product = str(mount.get_product() or "").strip() or None
-            except Exception:
-                product = None
-            try:
-                firmware = str(mount.get_firmware() or "").strip() or None
-            except Exception:
-                firmware = None
-
+            product = str(result.get("product") or "").strip() or None
+            firmware = str(result.get("firmware") or "").strip() or None
             return {
                 "product": product,
                 "firmware": firmware,
