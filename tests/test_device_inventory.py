@@ -337,3 +337,26 @@ def test_refresh_with_usb_serial_does_not_probe_camera_protocol(
     assert camera["serial"] == "USB-STABLE"
     assert camera["model"] == "Sony ILCE-7M5 (PC Control)"
     assert camera["transport_locator"] == "usb:001,006"
+
+
+
+def test_mount_and_focuser_labels_always_include_serial_suffix():
+    entries = [
+        {
+            "category": "mount",
+            "manufacturer": "Sky-Watcher",
+            "model": "EQ6-R Pro",
+            "serial": "MOUNT12345678",
+        },
+        {
+            "category": "focuser",
+            "manufacturer": "ZWO",
+            "model": "EAF",
+            "serial": "EAFABC9876",
+        },
+    ]
+
+    device_inventory.build_display_labels(entries)
+
+    assert entries[0]["display_label"] == "Sky-Watcher EQ6-R Pro - 5678"
+    assert entries[1]["display_label"] == "ZWO EAF - 9876"
