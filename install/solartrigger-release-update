@@ -10,9 +10,6 @@ RELEASES="$BASE/releases"
 SHARED_VAR="$BASE/var"
 SHARED_VENV="$BASE/venv"
 ACTIVE="$USER_HOME/solar-eclipse-trigger-prod"
-PORTAL_SERVICE="solareclipse.service"
-RUNTIME_SERVICE="solartrigger-runtime.service"
-
 log() {
     printf '%s\n' "$*"
 }
@@ -283,10 +280,13 @@ case "${1:-}" in
 
         extracted_version=$(validate_and_extract "$package" "$temporary")
         test "$extracted_version" = "$version"
+
+        # Chown only extracted immutable release files. Shared var/venv links
+        # are created afterwards so recursive ownership can never cross them.
+        chown -R "$APP_USER":"$(id -gn "$APP_USER")" "$temporary"
         prepare_release_links "$temporary"
         validate_release_runtime "$temporary"
 
-        chown -R "$APP_USER":"$(id -gn "$APP_USER")" "$temporary"
         mv "$temporary" "$destination"
         alink "$destination" "$ACTIVE"
         refresh_root_helpers "$destination"
