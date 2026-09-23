@@ -10,8 +10,9 @@ DEPLOY = (
 ).read_text(encoding="utf-8")
 
 
-def test_installer_defines_application_var():
-    assert 'VAR_DIR="$APP_DIR/var"' in INSTALLER
+def test_installer_defines_shared_persistent_var():
+    assert 'VAR_DIR="$INSTALL_BASE/var"' in INSTALLER
+    assert 'ln -s "$VAR_DIR" "$RELEASE_DIR/var"' in INSTALLER
 
 
 def test_installer_creates_complete_var_layout():
