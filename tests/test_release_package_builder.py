@@ -99,3 +99,33 @@ def test_build_release_rejects_unsafe_version(tmp_path):
         assert "version" in str(exc)
     else:
         raise AssertionError("unsafe version was accepted")
+
+
+
+def test_build_release_excludes_untracked_local_files(tmp_path, monkeypatch):
+    root = _fake_repo(tmp_path)
+    local_only = root / "configs" / "rig" / "default.json"
+    local_only.parent.mkdir(parents=True)
+    local_only.write_text('{"local": true}\n', encoding="utf-8")
+
+    tracked = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() and path != local_only
+    }
+    monkeypatch.setattr(
+        build_release_package,
+        "_git_tracked_files",
+        lambda _root: tracked,
+    )
+
+    output = tmp_path / "solartrigger-1.3.zip"
+    build_release_package.build_release(
+        root,
+        output,
+        "1.3",
+        build_commit="d" * 40,
+    )
+
+    with zipfile.ZipFile(output) as archive:
+        assert "payload/configs/rig/default.json" not in archive.namelist()
