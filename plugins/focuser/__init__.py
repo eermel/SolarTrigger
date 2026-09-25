@@ -14,7 +14,8 @@ from .base import FocuserPlugin
 
 # id -> (module, classe, nom_affichage)
 _PLUGIN_CLASSES = {
-    "zwo_eaf": ("zwo_plugin", "ZwoFocuser", "ZWO EAF (SDK USB)"),
+    "indi": ("indi_plugin", "IndiFocuser", "INDI focuser"),
+    "zwo_eaf": ("zwo_plugin", "ZwoFocuser", "ZWO EAF (SDK USB fallback)"),
     # a venir : autres focuseurs (Pegasus, Moonlite...) = un fichier chacun.
 }
 
