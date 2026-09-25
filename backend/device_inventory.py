@@ -43,16 +43,26 @@ def refresh_inventory(
     """
 
     indi_catalog = _discover_indi_catalog()
-    discovered = {
-        "camera": _discover_cameras(),
-        "mount": _discover_mounts(
+    mount_entries = (
+        _discover_mounts()
+        if reserved_mounts is None and not indi_catalog
+        else _discover_mounts(
             reserved_mounts=reserved_mounts,
             indi_catalog=indi_catalog,
-        ),
-        "focuser": _discover_focusers(
+        )
+    )
+    focuser_entries = (
+        _discover_focusers()
+        if reserved_focusers is None and not indi_catalog
+        else _discover_focusers(
             reserved_focusers=reserved_focusers,
             indi_catalog=indi_catalog,
-        ),
+        )
+    )
+    discovered = {
+        "camera": _discover_cameras(),
+        "mount": mount_entries,
+        "focuser": focuser_entries,
         "astro": indi_catalog,
     }
     normalized = {
