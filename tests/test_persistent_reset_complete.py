@@ -1,10 +1,12 @@
 from backend.persistent_reset import reset_application_var
 
 
-def test_reset_removes_mutable_data_and_preserves_tls(tmp_path):
+def test_reset_removes_mutable_data_but_preserves_tls_and_camera_qualification(
+    tmp_path,
+):
     var_dir = tmp_path / "var"
 
-    files = (
+    deleted_files = (
         var_dir / "state" / "state.json",
         var_dir / "logs" / "logs_buffer.jsonl",
         var_dir / "logs" / "rig_traces.jsonl",
@@ -14,17 +16,29 @@ def test_reset_removes_mutable_data_and_preserves_tls(tmp_path):
         var_dir / "generated" / "photo_cfg" / "photo.json",
         var_dir / "generated" / "exposure_opt" / "expo.json",
         var_dir / "generated" / "sequence" / "sequence.json",
+        var_dir / "generated" / "unexpected" / "old-file.bin",
+        var_dir / "unexpected" / "old-file.bin",
+    )
+    preserved_camera_files = (
         var_dir / "generated" / "camera_profiles" / "profile.json",
         var_dir / "generated" / "camera_timing" / "timing.json",
         var_dir / "generated" / "camera_characterization" / "history.jsonl",
-        var_dir / "unexpected" / "old-file.bin",
+        var_dir
+        / "generated"
+        / "camera_characterization"
+        / "validation"
+        / "20260925_camera"
+        / "report.json",
     )
     tls_cert = var_dir / "tls" / "solartrigger-server.crt"
     tls_key = var_dir / "tls" / "solartrigger-server.key"
 
-    for path in files:
+    for path in deleted_files:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("old", encoding="utf-8")
+    for path in preserved_camera_files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("keep", encoding="utf-8")
     tls_cert.parent.mkdir(parents=True, exist_ok=True)
     tls_cert.write_text("certificate", encoding="utf-8")
     tls_key.write_text("private-key", encoding="utf-8")
@@ -34,7 +48,11 @@ def test_reset_removes_mutable_data_and_preserves_tls(tmp_path):
     assert var_dir.is_dir()
     assert tls_cert.read_text(encoding="utf-8") == "certificate"
     assert tls_key.read_text(encoding="utf-8") == "private-key"
-    assert all(not path.exists() for path in files)
+    assert all(not path.exists() for path in deleted_files)
+    assert all(
+        path.read_text(encoding="utf-8") == "keep"
+        for path in preserved_camera_files
+    )
 
     expected_dirs = (
         "state",
@@ -56,17 +74,34 @@ def test_reset_removes_mutable_data_and_preserves_tls(tmp_path):
         assert (var_dir / relative).is_dir()
 
     assert not (var_dir / "unexpected").exists()
+    assert not (var_dir / "generated" / "unexpected").exists()
 
 
-def test_reset_preserves_deployment_var_symlink_and_resets_shared_target(tmp_path):
+def test_reset_preserves_deployment_var_symlink_and_camera_validation(tmp_path):
     shared_var = tmp_path / "shared-var"
     shared_var.mkdir()
+
     stale_state = shared_var / "state" / "state.json"
     stale_state.parent.mkdir(parents=True)
     stale_state.write_text("old", encoding="utf-8")
+
     tls_cert = shared_var / "tls" / "solartrigger-server.crt"
     tls_cert.parent.mkdir(parents=True)
     tls_cert.write_text("certificate", encoding="utf-8")
+
+    profile = shared_var / "generated" / "camera_profiles" / "profile.json"
+    timing = shared_var / "generated" / "camera_timing" / "timing.json"
+    validation = (
+        shared_var
+        / "generated"
+        / "camera_characterization"
+        / "validation"
+        / "run-1"
+        / "report.json"
+    )
+    for path in (profile, timing, validation):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("keep", encoding="utf-8")
 
     dev_active = tmp_path / "dev-active"
     dev_active.mkdir()
@@ -79,8 +114,10 @@ def test_reset_preserves_deployment_var_symlink_and_resets_shared_target(tmp_pat
     assert var_link.resolve() == shared_var.resolve()
     assert not stale_state.exists()
     assert tls_cert.read_text(encoding="utf-8") == "certificate"
+    assert profile.read_text(encoding="utf-8") == "keep"
+    assert timing.read_text(encoding="utf-8") == "keep"
+    assert validation.read_text(encoding="utf-8") == "keep"
     assert (shared_var / "state").is_dir()
-    assert (shared_var / "generated" / "camera_characterization" / "validation").is_dir()
     assert (shared_var / "logs").is_dir()
 
 
