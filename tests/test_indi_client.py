@@ -80,6 +80,30 @@ def test_get_props_preserves_qualified_pattern_and_value_delimiters(monkeypatch)
     assert props == {"DEVICE_PORT": {"PORT": "/dev/serial/by-id/a=b"}}
 
 
+def test_get_all_devices_is_unscoped_and_preserves_each_device(monkeypatch):
+    commands = []
+    monkeypatch.setattr(
+        "plugins.mount.indi_client.subprocess.run",
+        lambda command, **kwargs: commands.append(command)
+        or completed(
+            stdout=(
+                "Mount A.CONNECTION.CONNECT=Off\n"
+                "Focuser A.ABS_FOCUS_POSITION.FOCUS_ABSOLUTE_POSITION=42\n"
+            )
+        ),
+    )
+
+    devices = IndiSubprocessClient(host="indi.local", port=8765).get_all_devices()
+
+    assert commands == [["indi_getprop", "-h", "indi.local", "-p", "8765"]]
+    assert devices == {
+        "Mount A": {"CONNECTION": {"CONNECT": "Off"}},
+        "Focuser A": {
+            "ABS_FOCUS_POSITION": {"FOCUS_ABSOLUTE_POSITION": "42"}
+        },
+    }
+
+
 def test_set_props_builds_assignment_arguments(monkeypatch):
     commands = []
     monkeypatch.setattr(
