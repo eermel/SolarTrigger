@@ -132,6 +132,7 @@ required=(
     "$SRC/flask_app/static/css"
     "$SRC/Sounds"
     "$SRC/configs"
+    "$SRC/install/install_standalone_runtime_service.sh"
 )
 
 for path in "${required[@]}"; do
@@ -280,6 +281,17 @@ rsync "${RSYNC_OPTS[@]}" --delete \
 ensure_camera_persistent_links
 
 echo
+echo "=== system migration script (copied, never executed automatically) ==="
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "Would copy install/install_standalone_runtime_service.sh"
+else
+    ssh "$DST_HOST" "mkdir -p '$DST/install'"
+fi
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/install/install_standalone_runtime_service.sh" \
+    "$DST_HOST:$DST/install/install_standalone_runtime_service.sh"
+
+echo
 echo "=== preserved camera characterization data ==="
 echo "  $DST/configs/camera_characterization/"
 echo "  $DST/configs/camera_profiles/"
@@ -316,3 +328,6 @@ echo
 echo "--delete is used only inside disposable DEV code/config/static trees; var/ remains untouched."
 echo "var/ is never synchronized or deleted."
 echo "Service is NOT restarted automatically."
+echo "INDI/systemd migration is NOT executed automatically."
+echo "After an explicit operator decision, run on the Pi:"
+echo "  sudo $ACTIVE_DST/install/install_standalone_runtime_service.sh $ACTIVE_DST"
