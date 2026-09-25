@@ -100,6 +100,78 @@ def test_reserved_mount_is_kept_without_reprobing_owned_serial_path(
     assert inventory["mount"][0]["bindable"] is True
 
 
+def test_reserved_indi_binding_blocks_direct_fallback_on_catalog_gap(
+    monkeypatch,
+):
+    from plugins import mount as mount_registry
+    from plugins import focuser as focuser_registry
+
+    def unexpected_mount_probe(**_kwargs):
+        raise AssertionError("direct mount fallback must not probe")
+
+    def unexpected_focuser_probe(**_kwargs):
+        raise AssertionError("direct focuser fallback must not probe")
+
+    monkeypatch.setattr(
+        mount_registry,
+        "inventory_mounts",
+        unexpected_mount_probe,
+    )
+    monkeypatch.setattr(
+        focuser_registry,
+        "inventory_focusers",
+        unexpected_focuser_probe,
+    )
+
+    mount_binding = {
+        "category": "mount",
+        "backend": "indi",
+        "device_name": "LX200 OnStep",
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+    }
+    focuser_binding = {
+        "category": "focuser",
+        "backend": "indi",
+        "device_name": "ZWO EAF",
+        "device_id": "indi:127.0.0.1:7624:ZWO EAF",
+    }
+
+    assert device_inventory._discover_mounts(
+        reserved_mounts=[mount_binding],
+        indi_catalog=[],
+    ) == []
+    assert device_inventory._discover_focusers(
+        reserved_focusers=[focuser_binding],
+        indi_catalog=[],
+    ) == []
+
+
+def test_reserved_indi_binding_presence_comes_from_current_catalog():
+    mount_binding = {
+        "category": "mount",
+        "backend": "indi",
+        "device_name": "LX200 OnStep",
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+    }
+    catalog_entry = {
+        "backend": "indi",
+        "device_name": "LX200 OnStep",
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+        "model": "LX200 OnStep",
+        "categories": ["mount"],
+        "present": True,
+    }
+
+    discovered = device_inventory._discover_mounts(
+        reserved_mounts=[mount_binding],
+        indi_catalog=[catalog_entry],
+    )
+
+    assert len(discovered) == 1
+    assert discovered[0]["device_id"] == mount_binding["device_id"]
+    assert discovered[0]["present"] is True
+
+
 def test_cached_inventory_returns_last_refresh_without_probing(monkeypatch):
     _mock_discovery(monkeypatch)
     refreshed = device_inventory.refresh_inventory()
