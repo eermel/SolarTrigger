@@ -64,6 +64,51 @@ def test_status_passes_through_device_and_pushes_gps_once(tmp_path):
     service.close()
 
 
+def test_status_passes_through_read_only_mount_telemetry(tmp_path):
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices", {"mount": {"plugin": "fake", "active": True}}
+    )
+
+    class TelemetryMountPlugin(LocationMountPlugin):
+        def status(self):
+            return {
+                "connected": self.connected,
+                "moving": False,
+                "move_rate": 0.25,
+                "raw": "nNpeEW264",
+                "general_error": 4,
+                "ra": "12:34:56",
+                "dec": "+45*00:00",
+                "sidereal_time": "10:11:12",
+                "product": "On-Step",
+                "firmware": "4.24",
+                "park_status": "not_parked",
+            }
+
+    plugin = TelemetryMountPlugin()
+    service = MountService(
+        state_store,
+        plugin_loader=lambda *_args, **_kwargs: plugin,
+    )
+
+    status = service.status()
+
+    for field, expected in {
+        "raw": "nNpeEW264",
+        "general_error": 4,
+        "ra": "12:34:56",
+        "dec": "+45*00:00",
+        "sidereal_time": "10:11:12",
+        "product": "On-Step",
+        "firmware": "4.24",
+        "park_status": "not_parked",
+    }.items():
+        assert status[field] == expected
+
+    service.close()
+
+
 def test_status_connects_without_gps_location(tmp_path):
     state_store = StateStore(tmp_path / "state.json")
     state_store.update_section(

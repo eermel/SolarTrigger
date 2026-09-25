@@ -191,6 +191,22 @@ class MountService:
             }
             if "device" in raw:
                 status["device"] = raw["device"]
+
+            # Read-only hardware telemetry is useful for diagnosing controller
+            # safety stops.  Preserve it without changing the generic mount
+            # control contract or issuing any additional hardware command.
+            for field in (
+                "raw",
+                "general_error",
+                "ra",
+                "dec",
+                "sidereal_time",
+                "product",
+                "firmware",
+                "park_status",
+            ):
+                if field in raw:
+                    status[field] = raw[field]
             return status
 
     def _homing_status_locked(self, plugin_id: str) -> dict:

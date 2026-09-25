@@ -415,6 +415,11 @@ class OnStep:
     def status(self):
 
         raw = self.get_status_raw()
+        general_error = (
+            int(raw[-1])
+            if raw and raw[-1].isdigit()
+            else None
+        )
 
         return {
             "connected": self.connected,
@@ -426,6 +431,7 @@ class OnStep:
             "sidereal_time": self.get_sidereal_time(),
 
             "raw": raw,
+            "general_error": general_error,
 
             "tracking": "n" not in raw,
 

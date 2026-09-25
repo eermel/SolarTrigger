@@ -60,6 +60,43 @@ def test_set_tracking_mode_rejects_unknown_mode(mount):
     assert mount.mount.start_tracking_calls == []
 
 
+def test_status_exposes_general_error_from_compact_onstep_status(monkeypatch):
+    class StatusOnStep:
+        def __init__(self, **_kwargs):
+            self.connected = True
+            self._move_rate = 4.0
+
+        def get_status_raw(self):
+            return "nNpeEW264"
+
+        def get_product(self):
+            return "On-Step"
+
+        def get_firmware(self):
+            return "4.24"
+
+        def get_ra(self):
+            return "12:34:56"
+
+        def get_dec(self):
+            return "+45*00:00"
+
+        def get_sidereal_time(self):
+            return "10:11:12"
+
+        def get_park_status(self):
+            return "not_parked"
+
+    monkeypatch.setattr(onstep_plugin, "OnStep", StatusOnStep)
+    mount = onstep_plugin.OnStepMount(log_fn=lambda _message: None)
+
+    status = mount.status()
+
+    assert status["raw"] == "nNpeEW264"
+    assert status["general_error"] == 4
+    assert status["dec"] == "+45*00:00"
+
+
 def test_go_home_passes_optional_is_cancelled_to_onstep(monkeypatch):
     received = []
 
