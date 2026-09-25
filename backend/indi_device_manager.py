@@ -225,11 +225,18 @@ class IndiDeviceManager:
             or device_name
         )
         serial = _first_serial(properties)
-        serial_path = _stable_serial_path(_text(port_prop, "PORT"))
         categories = self._categories(properties)
         connected = str(_raw(connection.get("CONNECT", "Off"))).casefold() in {
             "on", "true", "1"
         }
+        # A disconnected INDI driver may advertise a generic/default serial
+        # port unrelated to the actual hardware. Never persist that as a
+        # physical identity. The logical INDI device_id remains stable.
+        serial_path = (
+            _stable_serial_path(_text(port_prop, "PORT"))
+            if connected
+            else None
+        )
 
         return {
             "backend": "indi",
