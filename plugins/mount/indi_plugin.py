@@ -56,14 +56,19 @@ class IndiMount(MountPlugin):
     @staticmethod
     def probe(config=None):
         cfg = config or {}
+        device_name = (
+            cfg.get("device_name")
+            or cfg.get("device")
+            or "EQMod Mount"
+        )
         client = IndiSubprocessClient(
             host=cfg.get("host", "127.0.0.1"),
             port=int(cfg.get("port", 7624)),
-            device=cfg.get("device", "EQMod Mount"),
+            device=device_name,
             timeout_s=float(cfg.get("client_timeout", 4.0)),
         )
         try:
-            client.ensure_device_present(cfg.get("device", "EQMod Mount"))
+            client.ensure_device_present(device_name)
             return True
         except Exception:
             return False
@@ -100,7 +105,11 @@ class IndiMount(MountPlugin):
     def inventory(cls, config=None):
         """Describe the configured INDI mount with a physical serial identity."""
         cfg = dict(config or {})
-        device_name = cfg.get("device", "EQMod Mount")
+        device_name = (
+            cfg.get("device_name")
+            or cfg.get("device")
+            or "EQMod Mount"
+        )
         client = IndiSubprocessClient(
             host=cfg.get("host", "127.0.0.1"),
             port=int(cfg.get("port", 7624)),
@@ -311,7 +320,7 @@ class IndiMount(MountPlugin):
             mount_info = props.get("MOUNTINFORMATION", {})
             parked_prop = props.get("TELESCOPE_PARK", {})
             device = {
-                "driver": self._text(info, "DRIVER_EXEC") or "indi_eqmod_telescope",
+                "driver": self._text(info, "DRIVER_EXEC") or "indi",
                 "device": self.device_name,
                 "model": self._first_text(mount_info, "MOUNT_MODEL")
                 or self._first_text(device_info, "MODEL", "DEVICE_MODEL"),
