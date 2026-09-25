@@ -323,6 +323,7 @@ class FocuserService:
         with self._lock:
             self._motion_command = None
             self._target_position = None
+            self._motion_seen_moving = False
             active, plugin_id = self._selection()
             if not active or plugin_id == "none":
                 self._close_locked()
