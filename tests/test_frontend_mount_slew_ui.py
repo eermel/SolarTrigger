@@ -150,6 +150,22 @@ def test_short_press_stop_is_ordered_after_start_and_keeps_release_token():
     assert not re.search(r"classList\.(?:add|toggle)\([^)]*(?:slew|active)", SLEW_FUNCTIONS)
 
 
+def test_same_rig_ui_refresh_does_not_stop_a_held_slew():
+    handler = _between(
+        MOUNT_JS,
+        "document.addEventListener('controlsrigchange', () => {",
+        "socket.on('connect'",
+    )
+    assert "const selectedRigId = rig ? Number(rig.rig_id) : null;" in handler
+    assert re.search(
+        r"if\s*\(activeSlew\s*&&\s*activeSlew\.rigId\s*!==\s*selectedRigId\)"
+        r"\s*\{\s*stopSlewBestEffort\(\)",
+        handler,
+        re.DOTALL,
+    )
+    assert "rigId," in SLEW_FUNCTIONS
+
+
 def test_homing_disables_every_direction_and_preserves_home_cancel():
     assert re.search(
         r"homing\s*=\s*data\s*&&\s*data\.homing\s*===\s*true\s*;.*?"

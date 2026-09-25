@@ -275,6 +275,20 @@ def test_mount_slew_pointer_events_keep_one_start_and_redundant_stop_safety():
     )
 
 
+def test_controls_refresh_only_stops_slew_when_selected_rig_changes():
+    handler = _between(
+        MOUNT_JS,
+        "document.addEventListener('controlsrigchange', () => {",
+        "socket.on('connect'",
+    )
+    assert "activeSlew.rigId !== selectedRigId" in handler
+    assert not re.search(
+        r"controlsrigchange.*?\{\s*stopSlewBestEffort\(\)",
+        handler,
+        re.DOTALL,
+    )
+
+
 def test_mount_slew_buttons_are_disabled_while_homing():
     assert re.search(
         r"homing\s*=\s*data\s*&&\s*data\.homing\s*===\s*true\s*;"

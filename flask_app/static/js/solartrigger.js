@@ -2810,9 +2810,12 @@ socket.on('log_history', lines => {
   }
 
   function startSlew(event) {
-    const startUrl = mountUrl('slew/start');
-    const stopUrl = mountUrl('slew/stop');
-    if (!startUrl || !stopUrl || homing || activeSlew) return;
+    const rig = selectedPilotableMountRig();
+    if (!rig || homing || activeSlew) return;
+
+    const rigId = Number(rig.rig_id);
+    const startUrl = `/api/rigs/${rigId}/mount/slew/start`;
+    const stopUrl = `/api/rigs/${rigId}/mount/slew/stop`;
     event.preventDefault();
 
     const button = event.currentTarget;
@@ -2820,6 +2823,7 @@ socket.on('log_history', lines => {
     const slew = {
       button,
       pointerId: event.pointerId,
+      rigId,
       stopUrl,
       gestureId,
       releaseRequested: false,
@@ -2895,7 +2899,15 @@ socket.on('log_history', lines => {
   });
 
   document.addEventListener('controlsrigchange', () => {
-    stopSlewBestEffort();
+    const rig = selectedPilotableMountRig();
+    const selectedRigId = rig ? Number(rig.rig_id) : null;
+
+    // renderControlsRigSelection() also emits controlsrigchange during normal
+    // UI refreshes.  A refresh of the SAME RIG must never stop a held slew.
+    if (activeSlew && activeSlew.rigId !== selectedRigId) {
+      stopSlewBestEffort();
+    }
+
     triggerRunning = selectedMountTriggerRunning();
     refreshMount();
   });
