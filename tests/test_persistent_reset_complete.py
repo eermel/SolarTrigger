@@ -1,7 +1,7 @@
 from backend.persistent_reset import reset_application_var
 
 
-def test_reset_removes_everything_under_var(tmp_path):
+def test_reset_removes_mutable_data_and_preserves_tls(tmp_path):
     var_dir = tmp_path / "var"
 
     files = (
@@ -19,15 +19,22 @@ def test_reset_removes_everything_under_var(tmp_path):
         var_dir / "generated" / "camera_characterization" / "history.jsonl",
         var_dir / "unexpected" / "old-file.bin",
     )
+    tls_cert = var_dir / "tls" / "solartrigger-server.crt"
+    tls_key = var_dir / "tls" / "solartrigger-server.key"
 
     for path in files:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("old", encoding="utf-8")
+    tls_cert.parent.mkdir(parents=True, exist_ok=True)
+    tls_cert.write_text("certificate", encoding="utf-8")
+    tls_key.write_text("private-key", encoding="utf-8")
 
     reset_application_var(var_dir)
 
     assert var_dir.is_dir()
-    assert not any(path.is_file() for path in var_dir.rglob("*"))
+    assert tls_cert.read_text(encoding="utf-8") == "certificate"
+    assert tls_key.read_text(encoding="utf-8") == "private-key"
+    assert all(not path.exists() for path in files)
 
     expected_dirs = (
         "state",
@@ -41,6 +48,7 @@ def test_reset_removes_everything_under_var(tmp_path):
         "generated/camera_profiles",
         "generated/camera_timing",
         "generated/camera_characterization",
+        "generated/camera_characterization/validation",
         "logs",
     )
 
@@ -48,6 +56,32 @@ def test_reset_removes_everything_under_var(tmp_path):
         assert (var_dir / relative).is_dir()
 
     assert not (var_dir / "unexpected").exists()
+
+
+def test_reset_preserves_deployment_var_symlink_and_resets_shared_target(tmp_path):
+    shared_var = tmp_path / "shared-var"
+    shared_var.mkdir()
+    stale_state = shared_var / "state" / "state.json"
+    stale_state.parent.mkdir(parents=True)
+    stale_state.write_text("old", encoding="utf-8")
+    tls_cert = shared_var / "tls" / "solartrigger-server.crt"
+    tls_cert.parent.mkdir(parents=True)
+    tls_cert.write_text("certificate", encoding="utf-8")
+
+    dev_active = tmp_path / "dev-active"
+    dev_active.mkdir()
+    var_link = dev_active / "var"
+    var_link.symlink_to(shared_var, target_is_directory=True)
+
+    reset_application_var(var_link)
+
+    assert var_link.is_symlink()
+    assert var_link.resolve() == shared_var.resolve()
+    assert not stale_state.exists()
+    assert tls_cert.read_text(encoding="utf-8") == "certificate"
+    assert (shared_var / "state").is_dir()
+    assert (shared_var / "generated" / "camera_characterization" / "validation").is_dir()
+    assert (shared_var / "logs").is_dir()
 
 
 def test_reset_works_when_var_does_not_exist(tmp_path):
