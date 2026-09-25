@@ -3776,10 +3776,10 @@ def api_configs_save_photo():
     if (
         isinstance(overlap, bool)
         or not isinstance(overlap, (int, float))
-        or overlap < 5
+        or overlap < 2
     ):
         return jsonify({
-            "error": "Diamond Ring totality_overlap_s must be at least 5 s"
+            "error": "Diamond Ring totality_overlap_s must be at least 2 s"
         }), 400
 
     filename = requested

@@ -478,6 +478,72 @@ def test_config_save_camera_persists_default_step_ev_for_every_phase(save_routes
     )
     assert all(phase["step_ev"] == 1.0 for phase in saved["phases"].values())
 
+
+def photo_setup_data(overlap_s):
+    return {
+        "config_type": "photo_setup",
+        "sequence_margin_min": 60,
+        "phases": {
+            "partial": {
+                "shutter_min": "1/250",
+                "shutter_max": "1/1000",
+            },
+            "diamond_ring": {
+                "shutter_min": "1/500",
+                "shutter_max": "1/8000",
+                "totality_overlap_s": overlap_s,
+            },
+            "totality": {
+                "shutter_min": "2",
+                "shutter_max": "1/4000",
+            },
+        },
+    }
+
+
+def test_photo_setup_save_accepts_two_second_totality_overlap(save_routes):
+    client, configs_dir, _state_store, _emitted = save_routes
+    data = photo_setup_data(2)
+
+    response = client.post(
+        "/api/configs/save_photo",
+        json={"filename": "overlap_two_seconds", "data": data},
+    )
+
+    assert response.status_code == 200
+    saved = json.loads(
+        (
+            configs_dir
+            / "photo_cfg"
+            / "photo_overlap_two_seconds.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert saved["phases"]["diamond_ring"]["totality_overlap_s"] == 2
+
+
+@pytest.mark.parametrize("overlap_s", [0, 1, 1.999])
+def test_photo_setup_save_rejects_totality_overlap_below_two_seconds(
+    save_routes, overlap_s
+):
+    client, configs_dir, _state_store, _emitted = save_routes
+
+    response = client.post(
+        "/api/configs/save_photo",
+        json={
+            "filename": "overlap_too_short",
+            "data": photo_setup_data(overlap_s),
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {
+        "error": "Diamond Ring totality_overlap_s must be at least 2 s"
+    }
+    assert not (
+        configs_dir / "photo_cfg" / "photo_overlap_too_short.json"
+    ).exists()
+
+
 def test_exposure_opt_save_strips_legacy_optics(save_routes):
     client, configs_dir, state_store, emitted = save_routes
     initial_state = state_store.snapshot()
