@@ -287,6 +287,8 @@ class IndiDeviceManager:
             categories = source.get("categories") or []
             if category not in categories:
                 continue
+            if source.get("present") is not True:
+                continue
             entry = dict(source)
             entry["category"] = category
             entry["backend"] = "indi"
