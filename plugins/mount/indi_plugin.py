@@ -239,7 +239,7 @@ class IndiMount(MountPlugin):
                 }
 
             auto_prop = props.get("DEVICE_AUTO_SEARCH", {})
-            if auto_prop:
+            if serial_port and auto_prop:
                 assignments["DEVICE_AUTO_SEARCH"] = {
                     name: "On" if name == "INDI_DISABLED" else "Off"
                     for name in auto_prop
