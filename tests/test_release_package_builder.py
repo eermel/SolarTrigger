@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import zipfile
 
 from backend.system_maintenance import validate_release_zip
@@ -137,3 +138,32 @@ def test_build_release_excludes_untracked_local_files(tmp_path, monkeypatch):
 
     with zipfile.ZipFile(output) as archive:
         assert "payload/configs/rig/default.json" not in archive.namelist()
+
+
+def test_real_update_package_embeds_validation_persistence_helper(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    output = tmp_path / "solartrigger-update-1.0.1.zip"
+
+    build_release_package.build_release(
+        root,
+        output,
+        "1.0.1",
+        build_commit="e" * 40,
+    )
+
+    with zipfile.ZipFile(output) as archive:
+        helper = archive.read(
+            "payload/install/solartrigger-release-update"
+        ).decode("utf-8")
+        runtime_paths = archive.read(
+            "payload/backend/runtime_paths.py"
+        ).decode("utf-8")
+
+    assert (
+        'validation_dir="$SHARED_CAMERA_CHARACTERIZATION/validation"'
+        in helper
+    )
+    assert (
+        'CAMERA_VALIDATION_DIR = CAMERA_CHARACTERIZATION_DIR / "validation"'
+        in runtime_paths
+    )
