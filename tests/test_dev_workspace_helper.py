@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 
 def _helper_functions(tmp_path: Path) -> Path:
@@ -62,7 +63,8 @@ def test_dev_prepare_clones_verified_release_once_and_preserves_shared_links(tmp
 
     releases.mkdir(parents=True)
     shared_var.mkdir()
-    shared_venv.mkdir()
+    (shared_venv / "bin").mkdir(parents=True)
+    os.symlink(sys.executable, shared_venv / "bin" / "python")
     _minimal_release(release)
     os.symlink(release, active)
 
@@ -91,6 +93,9 @@ def test_dev_prepare_clones_verified_release_once_and_preserves_shared_links(tmp
         "test ! -e \"$DEV_ACTIVE/RELEASE_MANIFEST.json\"\n"
         "test \"$(readlink -f \"$DEV_ACTIVE/var\")\" = \"$(readlink -f \"$SHARED_VAR\")\"\n"
         "test \"$(readlink -f \"$DEV_ACTIVE/venv\")\" = \"$(readlink -f \"$SHARED_VENV\")\"\n"
+        "test \"$(readlink -f \"$DEV_ACTIVE/configs/camera_characterization\")\" = "
+        "\"$(readlink -f \"$SHARED_CAMERA_CHARACTERIZATION\")\"\n"
+        "test -d \"$SHARED_CAMERA_CHARACTERIZATION/validation\"\n"
         "printf '%s\\n' keep > \"$DEV_ACTIVE/local-marker\"\n"
         "prepare_dev_workspace\n"
         "test -f \"$DEV_ACTIVE/local-marker\"\n",
