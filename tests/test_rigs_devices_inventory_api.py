@@ -149,9 +149,14 @@ def test_refresh_reserves_persisted_mount_bindings(
     )
     captured = {}
 
-    def fake_refresh_inventory(*, reserved_mounts=None):
+    def fake_refresh_inventory(
+        *,
+        reserved_mounts=None,
+        reserved_focusers=None,
+    ):
         captured["reserved_mounts"] = deepcopy(reserved_mounts)
-        return {"camera": [], "mount": [], "focuser": []}
+        captured["reserved_focusers"] = deepcopy(reserved_focusers)
+        return {"camera": [], "mount": [], "focuser": [], "astro": []}
 
     monkeypatch.setattr(
         flask_module,
@@ -165,6 +170,7 @@ def test_refresh_reserves_persisted_mount_bindings(
     assert captured["reserved_mounts"] == [
         config["rigs"][0]["devices"]["mount"]
     ]
+    assert captured["reserved_focusers"] == []
 
 
 def test_post_rejects_non_pilotable_inventory_device(
