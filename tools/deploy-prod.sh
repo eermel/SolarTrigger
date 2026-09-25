@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC="/home/airone/dev/solar-eclipse-trigger"
-DST_HOST="airone@trigger1"
-DST="/home/airone/solar-eclipse-trigger-prod"
+SRC="${SOLARTRIGGER_DEPLOY_SRC:-/home/airone/dev/solar-eclipse-trigger}"
+DST_HOST="${SOLARTRIGGER_DEPLOY_HOST:-airone@trigger1}"
+ACTIVE_DST="${SOLARTRIGGER_DEPLOY_ACTIVE:-/home/airone/solar-eclipse-trigger-prod}"
+DEV_DST="${SOLARTRIGGER_DEPLOY_DEV:-/home/airone/solartrigger/dev-active}"
+REMOTE_HELPER="${SOLARTRIGGER_DEPLOY_HELPER:-/usr/local/sbin/solartrigger-release-update}"
+DST="$DEV_DST"
 
 DRY_RUN=0
 
@@ -14,20 +17,54 @@ elif [[ $# -gt 0 ]]; then
     exit 2
 fi
 
-# Legacy rsync deployment is only safe against the historical mutable
-# production directory. Versioned releases are immutable and must only be
-# installed through the release-package/update mechanism.
-ACTIVE_TARGET="$(ssh "$DST_HOST" "if [ -L '$DST' ]; then readlink -f '$DST' 2>/dev/null || printf '__SYMLINK__'; fi")" || {
-    echo "ERROR: unable to inspect production target $DST_HOST:$DST" >&2
-    exit 1
+remote_helper_supports_dev_prepare() {
+    ssh "$DST_HOST"         "grep -q '^[[:space:]]*dev-prepare)' '$REMOTE_HELPER' 2>/dev/null"
 }
 
-if [[ -n "$ACTIVE_TARGET" ]]; then
-    echo "ERROR: refusing legacy rsync deployment into versioned/linked production target:" >&2
-    echo "  $DST_HOST:$DST -> $ACTIVE_TARGET" >&2
-    echo "Build a release with scripts/build_release_package.py and install it with solartrigger-release-update." >&2
-    exit 1
-fi
+bootstrap_remote_helper() {
+    local remote_tmp="/tmp/solartrigger-release-update.$$"
+
+    if remote_helper_supports_dev_prepare; then
+        return 0
+    fi
+
+    echo "Remote release helper is older than the DEV workspace workflow."
+    echo "Installing the current helper once; sudo may request the Pi password."
+
+    scp "$SRC/install/solartrigger-release-update"         "$DST_HOST:$remote_tmp"
+
+    ssh -t "$DST_HOST"         "sudo install -o root -g root -m 0755 '$remote_tmp' '$REMOTE_HELPER' && rm -f '$remote_tmp'"
+
+    if ! remote_helper_supports_dev_prepare; then
+        echo "ERROR: remote helper upgrade did not expose dev-prepare." >&2
+        exit 1
+    fi
+}
+
+prepare_remote_dev_workspace() {
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "Would run: sudo -n $REMOTE_HELPER dev-prepare"
+        if ! ssh "$DST_HOST" "test -d '$DEV_DST'"; then
+            echo "DEV workspace does not exist yet; dry-run stops before rsync."
+            exit 0
+        fi
+        return 0
+    fi
+
+    bootstrap_remote_helper
+
+    ssh "$DST_HOST"         "sudo -n '$REMOTE_HELPER' dev-prepare"
+
+    local active_target
+    active_target="$(ssh "$DST_HOST" "readlink -f '$ACTIVE_DST' 2>/dev/null || true")"
+
+    if [[ "$active_target" != "$DEV_DST" ]]; then
+        echo "ERROR: DEV workspace was not activated:" >&2
+        echo "  $ACTIVE_DST -> ${active_target:-<missing>}" >&2
+        echo "  expected     $DEV_DST" >&2
+        exit 1
+    fi
+}
 
 RSYNC_OPTS=(
     -av
@@ -80,9 +117,17 @@ for script in "${RUNTIME_SCRIPTS[@]}"; do
     fi
 done
 
-echo "=== Solar Eclipse Trigger PROD deploy ==="
-echo "SRC : $SRC"
-echo "DST : $DST_HOST:$DST"
+if [[ ! -f "$SRC/install/solartrigger-release-update" ]]; then
+    echo "ERROR: required release helper missing: $SRC/install/solartrigger-release-update" >&2
+    exit 1
+fi
+
+prepare_remote_dev_workspace
+
+echo "=== Solar Eclipse Trigger DEV deploy ==="
+echo "SRC    : $SRC"
+echo "ACTIVE : $DST_HOST:$ACTIVE_DST"
+echo "DEV    : $DST_HOST:$DST"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "MODE: DRY RUN"
@@ -93,19 +138,19 @@ fi
 echo
 
 echo "=== backend ==="
-rsync "${RSYNC_OPTS[@]}" \
+rsync "${RSYNC_OPTS[@]}" --delete \
     "$SRC/backend/" \
     "$DST_HOST:$DST/backend/"
 
 echo
 echo "=== services ==="
-rsync "${RSYNC_OPTS[@]}" \
+rsync "${RSYNC_OPTS[@]}" --delete \
     "$SRC/services/" \
     "$DST_HOST:$DST/services/"
 
 echo
 echo "=== plugins ==="
-rsync "${RSYNC_OPTS[@]}" \
+rsync "${RSYNC_OPTS[@]}" --delete \
     "$SRC/plugins/" \
     "$DST_HOST:$DST/plugins/"
 
@@ -223,16 +268,16 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 else
     printf '%s\n' "$BUILD_COMMIT" | \
         ssh "$DST_HOST" \
-        "cat > '$DST/BUILD_COMMIT' && rm -f '$DST/VERSION'"
+        "cat > '$DST/BUILD_COMMIT' && rm -f '$DST/VERSION' '$DST/RELEASE_VERSION' '$DST/RELEASE_MANIFEST.json'"
 fi
 
 echo
-echo "=== Complete ==="
+echo "=== DEV deploy complete ==="
 echo
 echo "NEVER DEPLOYED BY THIS SCRIPT:"
 echo "  var/   (all persistent/generated/runtime application data)"
 echo "  venv"
 echo
-echo "--delete is used ONLY for product configs/ and frontend static assets (js/css)."
+echo "--delete is used only inside disposable DEV code/config/static trees; var/ remains untouched."
 echo "var/ is never synchronized or deleted."
 echo "Service is NOT restarted automatically."

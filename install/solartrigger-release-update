@@ -10,6 +10,7 @@ RELEASES="$BASE/releases"
 SHARED_VAR="$BASE/var"
 SHARED_VENV="$BASE/venv"
 ACTIVE="$USER_HOME/solar-eclipse-trigger-prod"
+DEV_ACTIVE="$BASE/dev-active"
 SHARED_CAMERA_BASE="$SHARED_VAR/generated"
 SHARED_CAMERA_PROFILES="$SHARED_CAMERA_BASE/camera_profiles"
 SHARED_CAMERA_TIMING="$SHARED_CAMERA_BASE/camera_timing"
@@ -600,6 +601,70 @@ cleanup_stale_temporary() {
     shopt -u nullglob
 }
 
+make_dev_workspace_writable() {
+    local destination=$1
+    local app_group
+    app_group=$(id -gn "$APP_USER")
+
+    # destination is still a trusted copy of a verified immutable release here.
+    # Do not call this function again after the workspace becomes user-writable.
+    chown -hR "$APP_USER:$app_group" -- "$destination"
+    find "$destination" -type d -exec chmod u+rwx {} +
+    find "$destination" -type f -exec chmod u+rw {} +
+}
+
+prepare_dev_workspace() {
+    local current=""
+    local temporary=""
+
+    migrate_legacy_layout
+    ensure_shared_layout
+
+    if [[ -L "$ACTIVE" ]]; then
+        current=$(readlink -f "$ACTIVE")
+    fi
+    [[ -n "$current" && -d "$current" ]] || {
+        log "Active SolarTrigger installation not found." >&2
+        return 1
+    }
+    [[ ! -L "$DEV_ACTIVE" ]] || {
+        log "Unsafe dev workspace symlink: $DEV_ACTIVE" >&2
+        return 1
+    }
+
+    # Once dev-active is live it is intentionally writable by APP_USER.
+    # Never traverse it again as root: deploy-prod.sh performs subsequent
+    # synchronization directly as APP_USER.
+    if [[ "$current" == "$(readlink -m "$DEV_ACTIVE")" ]]; then
+        log "SolarTrigger DEV workspace already active: $DEV_ACTIVE"
+        return 0
+    fi
+
+    # Only clone from a verified immutable release.
+    verify_release_integrity "$current"
+
+    temporary="$BASE/.dev-active.$$"
+    rm -rf -- "$temporary"
+    cp -a -- "$current" "$temporary"
+
+    cleanup_release_runtime_artifacts "$temporary"
+    rm -f --         "$temporary/RELEASE_MANIFEST.json"         "$temporary/RELEASE_VERSION"
+
+    # Keep all mutable state outside the DEV code tree exactly as for releases.
+    prepare_release_links "$temporary"
+
+    printf '%s\n' "SolarTrigger development workspace"         > "$temporary/.solartrigger-dev-workspace"
+    make_dev_workspace_writable "$temporary"
+
+    # rm -rf does not follow symlinks and DEV_ACTIVE itself was rejected above
+    # if it was a symlink.
+    rm -rf -- "$DEV_ACTIVE"
+    mv -- "$temporary" "$DEV_ACTIVE"
+    alink "$DEV_ACTIVE" "$ACTIVE"
+
+    log "SolarTrigger DEV workspace prepared: $DEV_ACTIVE"
+}
+
 request_reboot() {
     sync
     log "Release switch complete. Rebooting Raspberry Pi."
@@ -680,6 +745,9 @@ rollback_release() {
 }
 
 case "${1:-}" in
+    dev-prepare)
+        prepare_dev_workspace
+        ;;
     install)
         install_release "${2:?}"
         ;;
