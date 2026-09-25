@@ -6,6 +6,7 @@ DST_HOST="${SOLARTRIGGER_DEPLOY_HOST:-airone@trigger1}"
 ACTIVE_DST="${SOLARTRIGGER_DEPLOY_ACTIVE:-/home/airone/solar-eclipse-trigger-prod}"
 DEV_DST="${SOLARTRIGGER_DEPLOY_DEV:-/home/airone/solartrigger/dev-active}"
 REMOTE_HELPER="${SOLARTRIGGER_DEPLOY_HELPER:-/usr/local/sbin/solartrigger-release-update}"
+CAMERA_SHARED_BASE="${SOLARTRIGGER_DEPLOY_CAMERA_SHARED:-/home/airone/solartrigger/var/generated}"
 DST="$DEV_DST"
 
 DRY_RUN=0
@@ -64,6 +65,38 @@ prepare_remote_dev_workspace() {
         echo "  expected     $DEV_DST" >&2
         exit 1
     fi
+}
+
+ensure_camera_persistent_links() {
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "Would verify persistent camera links under $DST/configs/"
+        return 0
+    fi
+
+    ssh "$DST_HOST" "
+        set -e
+        mkdir -p '$DST/configs'
+        for name in camera_characterization camera_profiles camera_timing; do
+            target='$DST/configs/'\$name
+            shared='$CAMERA_SHARED_BASE/'\$name
+
+            if [ ! -d \"\$shared\" ]; then
+                echo \"ERROR: persistent camera directory missing: \$shared\" >&2
+                exit 1
+            fi
+            if [ -e \"\$target\" ] && [ ! -L \"\$target\" ]; then
+                echo \"ERROR: refusing to replace non-symlink camera path: \$target\" >&2
+                exit 1
+            fi
+
+            ln -sfn \"\$shared\" \"\$target\"
+
+            if [ \"\$(readlink -f \"\$target\")\" != \"\$(readlink -f \"\$shared\")\" ]; then
+                echo \"ERROR: persistent camera link verification failed: \$target\" >&2
+                exit 1
+            fi
+        done
+    "
 }
 
 RSYNC_OPTS=(
@@ -238,11 +271,13 @@ echo "=== product configs ==="
 # Les configs produit sont synchronisées exactement, sauf les données
 # issues de la caractérisation caméra, qui sont persistantes et locales à la Pi.
 rsync "${RSYNC_OPTS[@]}" --delete \
-    --exclude='camera_characterization/' \
-    --exclude='camera_profiles/' \
-    --exclude='camera_timing/' \
+    --exclude='camera_characterization' \
+    --exclude='camera_profiles' \
+    --exclude='camera_timing' \
     "$SRC/configs/" \
     "$DST_HOST:$DST/configs/"
+
+ensure_camera_persistent_links
 
 echo
 echo "=== preserved camera characterization data ==="

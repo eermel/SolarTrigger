@@ -108,3 +108,19 @@ def test_deploy_prod_dry_run_does_not_prepare_or_bootstrap(tmp_path):
     assert "Would run: sudo -n" in result.stdout
     assert "dry-run stops before rsync" in result.stdout
     assert "sudo install" not in ssh_log.read_text(encoding="utf-8")
+
+
+def test_deploy_prod_protects_and_repairs_camera_persistent_links():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "tools" / "deploy-prod.sh").read_text(encoding="utf-8")
+
+    assert "--exclude='camera_characterization'" in script
+    assert "--exclude='camera_profiles'" in script
+    assert "--exclude='camera_timing'" in script
+    assert "--exclude='camera_characterization/'" not in script
+    assert "--exclude='camera_profiles/'" not in script
+    assert "--exclude='camera_timing/'" not in script
+
+    assert "ensure_camera_persistent_links" in script
+    assert "ln -sfn" in script
+    assert "/home/airone/solartrigger/var/generated" in script
