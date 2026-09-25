@@ -16,7 +16,8 @@ from typing import Any, Iterable, Mapping
 from backend.device_identity import is_usb_bus_device
 
 
-CATEGORIES = ("camera", "mount", "focuser")
+RIG_CATEGORIES = ("camera", "mount", "focuser")
+CATEGORIES = (*RIG_CATEGORIES, "astro")
 SYSFS_USB_DEVICES = Path("/sys/bus/usb/devices")
 _USB_LOCATOR = re.compile(r"^usb:(\d+),(\d+)$")
 _cache_lock = threading.Lock()
@@ -33,28 +34,36 @@ def get_cached_inventory() -> dict[str, list[dict[str, Any]]]:
 def refresh_inventory(
     *,
     reserved_mounts: Iterable[Mapping[str, Any]] | None = None,
+    reserved_focusers: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Perform one discovery pass and atomically replace the memory cache.
+    """Perform one explicit discovery pass and atomically replace the cache.
 
-    reserved_mounts are persistent bindings already owned by mount workers.
-    Their stable serial paths must not be reprobed through a second serial
-    session during an operator refresh.
+    INDI is queried once and becomes the primary astronomical equipment
+    catalogue. DSLR/mirrorless cameras remain on the gphoto2 path.
     """
 
+    indi_catalog = _discover_indi_catalog()
     discovered = {
         "camera": _discover_cameras(),
-        "mount": (
-            _discover_mounts()
-            if reserved_mounts is None
-            else _discover_mounts(reserved_mounts=reserved_mounts)
+        "mount": _discover_mounts(
+            reserved_mounts=reserved_mounts,
+            indi_catalog=indi_catalog,
         ),
-        "focuser": _discover_focusers(),
+        "focuser": _discover_focusers(
+            reserved_focusers=reserved_focusers,
+            indi_catalog=indi_catalog,
+        ),
+        "astro": indi_catalog,
     }
     normalized = {
-        category: _normalize_entries(category, discovered.get(category, ()))
+        category: (
+            _normalize_astro_entries(discovered.get(category, ()))
+            if category == "astro"
+            else _normalize_entries(category, discovered.get(category, ()))
+        )
         for category in CATEGORIES
     }
-    for category in CATEGORIES:
+    for category in RIG_CATEGORIES:
         build_display_labels(normalized[category])
     with _cache_lock:
         _cache.clear()
@@ -197,45 +206,90 @@ def _discover_cameras() -> list[dict[str, Any]]:
     return entries
 
 
-def _discover_mounts(
-    reserved_mounts: Iterable[Mapping[str, Any]] | None = None,
-) -> list[dict[str, Any]]:
-    """Discover mounts without reopening serial devices owned by workers.
+def _discover_indi_catalog() -> list[dict[str, Any]]:
+    """Return all non-gphoto astronomical devices advertised by INDI."""
+    try:
+        from backend.indi_device_manager import IndiDeviceManager
 
-    A bound mount with a live stable physical path is already authoritatively
-    identified by its persisted binding. Reprobing that path can contend with
-    the worker which owns the controller, so keep the binding in the inventory
-    and exclude the path from provider probes.
-    """
+        return IndiDeviceManager().discover()
+    except Exception:
+        return []
 
-    reserved_entries = []
-    reserved_paths = set()
-    for source in reserved_mounts or ():
+
+def _reserved_entries(
+    category: str,
+    sources: Iterable[Mapping[str, Any]] | None,
+) -> tuple[list[dict[str, Any]], set[str], set[str]]:
+    entries = []
+    physical_paths: set[str] = set()
+    device_ids: set[str] = set()
+
+    for source in sources or ():
         if not isinstance(source, Mapping):
             continue
         backend = _text(source.get("backend"))
         if not backend or backend in {"none", "external"}:
             continue
+
+        entry = dict(source)
+        entry.setdefault("category", category)
+
         physical_path = _first_text(
             source,
             "fallback_physical_path",
             "physical_path",
         )
-        if not physical_path:
-            continue
-        try:
-            present = Path(physical_path).exists()
-        except OSError:
-            present = False
-        if not present:
-            continue
+        if physical_path:
+            try:
+                present = Path(physical_path).exists()
+            except OSError:
+                present = False
+            if backend == "indi":
+                # For INDI, the logical device identity remains valid even
+                # when a disconnected serial controller is not currently
+                # visible. Presence will be reconciled from the INDI catalogue.
+                present = True
+            if present:
+                entry["fallback_physical_path"] = physical_path
+                physical_paths.add(physical_path)
 
-        entry = dict(source)
-        entry.setdefault("category", "mount")
-        entry["fallback_physical_path"] = physical_path
+        device_id = _first_text(source, "device_id")
+        if device_id:
+            device_ids.add(device_id)
+
         entry["present"] = True
-        reserved_entries.append(entry)
-        reserved_paths.add(physical_path)
+        entries.append(entry)
+
+    return entries, physical_paths, device_ids
+
+
+def _discover_mounts(
+    reserved_mounts: Iterable[Mapping[str, Any]] | None = None,
+    indi_catalog: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Prefer INDI mounts; direct serial plugins remain migration fallbacks."""
+
+    reserved_entries, reserved_paths, reserved_ids = _reserved_entries(
+        "mount",
+        reserved_mounts,
+    )
+
+    try:
+        from backend.indi_device_manager import IndiDeviceManager
+
+        indi_mounts = IndiDeviceManager.inventory_entries(
+            indi_catalog or [],
+            "mount",
+        )
+    except Exception:
+        indi_mounts = []
+
+    if indi_mounts:
+        discovered = [
+            entry for entry in indi_mounts
+            if _text(entry.get("device_id")) not in reserved_ids
+        ]
+        return [*reserved_entries, *discovered]
 
     try:
         from plugins.mount import inventory_mounts
@@ -253,14 +307,48 @@ def _discover_mounts(
     return _discover_legacy_category("mount")
 
 
-def _discover_focusers() -> list[dict[str, Any]]:
-    """Discover zero or more physical focusers through their plugin registry."""
+def _discover_focusers(
+    reserved_focusers: Iterable[Mapping[str, Any]] | None = None,
+    indi_catalog: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Prefer INDI focusers; vendor SDK plugins remain migration fallbacks."""
+
+    reserved_entries, _reserved_paths, reserved_ids = _reserved_entries(
+        "focuser",
+        reserved_focusers,
+    )
+
+    try:
+        from backend.indi_device_manager import IndiDeviceManager
+
+        indi_focusers = IndiDeviceManager.inventory_entries(
+            indi_catalog or [],
+            "focuser",
+        )
+    except Exception:
+        indi_focusers = []
+
+    if indi_focusers:
+        discovered = [
+            entry for entry in indi_focusers
+            if _text(entry.get("device_id")) not in reserved_ids
+        ]
+        return [*reserved_entries, *discovered]
+
     try:
         from plugins.focuser import inventory_focusers
 
-        return list(inventory_focusers(log_fn=lambda *_args: None))
+        discovered = list(inventory_focusers(
+            log_fn=lambda *_args: None,
+            exclude_device_ids=reserved_ids,
+        ))
+        if discovered or reserved_entries:
+            return [*reserved_entries, *discovered]
     except Exception:
+        if reserved_entries:
+            return reserved_entries
         return _discover_legacy_category("focuser")
+
 
 
 def _discover_legacy_category(category: str) -> list[dict[str, Any]]:
@@ -321,26 +409,59 @@ def _normalize_entries(
             "serial": serial,
             "device_id": device_id,
             "fallback_physical_path": physical_path,
-            "present": True,
+            "present": source.get("present") is not False,
             "transport_locator": _text(source.get("transport_locator")),
         }
         if device_name:
             entry["device_name"] = device_name
+
+        for field in (
+            "host",
+            "port",
+            "driver_exec",
+            "driver_name",
+            "driver_version",
+            "driver_interface",
+            "connected",
+        ):
+            if field in source and source.get(field) is not None:
+                entry[field] = source.get(field)
+
+        categories = source.get("categories")
+        if isinstance(categories, (list, tuple)):
+            entry["categories"] = [
+                str(value) for value in categories if str(value).strip()
+            ]
+
         alias = _text(source.get("alias"))
         if alias:
             entry["alias"] = alias
-        # ``device_name`` is useful display/connection metadata but is not
-        # a physical identity: two INDI servers can expose the same device name.
+
         entry["bindable"] = (
             serial is not None
             or device_id is not None
             or entry["fallback_physical_path"] is not None
         )
-        if category == "camera" and "pilotable" in source:
+        if "pilotable" in source:
             entry["pilotable"] = source.get("pilotable") is True
         normalized.append(entry)
     return normalized
 
+
+def _normalize_astro_entries(
+    entries: Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Normalize the complete INDI catalogue without making it RIG-bindable."""
+    result = []
+    for source in entries or ():
+        if not isinstance(source, Mapping):
+            continue
+        entry = dict(source)
+        entry["category"] = "astro"
+        entry["pilotable"] = False
+        entry["bindable"] = False
+        result.append(entry)
+    return result
 
 def _read_gphoto_metadata(gp: Any, port: str) -> dict[str, str | None]:
     camera = None
@@ -452,4 +573,9 @@ def _first_text(source: Mapping[str, Any], *keys: str) -> str | None:
     return None
 
 
-__all__ = ["build_display_labels", "get_cached_inventory", "refresh_inventory"]
+__all__ = [
+    "build_display_labels",
+    "get_cached_inventory",
+    "reclassify_cached_cameras",
+    "refresh_inventory",
+]
