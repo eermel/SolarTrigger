@@ -72,6 +72,24 @@ def test_camera_selector_adds_serial_suffix():
     assert ".slice(-3)" in HTML
 
 
+def test_rig_device_identity_uses_device_id_for_eaf_and_sdk_devices():
+    start = HTML.index("function rigDeviceIdentity(device)")
+    end = HTML.index("function persistedRigBinding", start)
+    identity = HTML[start:end]
+
+    assert "device.device_id" in identity
+    assert "device.device_id.trim()" in identity
+    assert "device_id:" in identity
+
+    renderer_start = HTML.index("function renderRigDevices(")
+    renderer_end = HTML.index("async function loadRigDevices", renderer_start)
+    renderer = HTML[renderer_start:renderer_end]
+
+    assert "const assignedRig = identity ? assignments" in renderer
+    assert "(assignedRig && assignedRig !== rigId)" in renderer
+    assert " disabled" in renderer
+
+
 def test_external_altaz_virtual_mount_is_available():
     assert "External Alt-Az" in HTML
     assert "control: 'external'" in HTML

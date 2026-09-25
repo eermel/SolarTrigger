@@ -1052,6 +1052,9 @@ function renderDevices(devices) {
 function rigDeviceIdentity(device) {
   if (!device) return null;
   if (device.serial && !/^usb:\d+,\d+$/.test(device.serial)) return `serial:${device.serial}`;
+  if (typeof device.device_id === 'string' && device.device_id.trim()) {
+    return `device_id:${device.device_id.trim()}`;
+  }
   if (device.fallback_physical_path) return `fallback:${device.fallback_physical_path}`;
   return null;
 }
