@@ -229,14 +229,18 @@ class IndiDeviceManager:
         connected = str(_raw(connection.get("CONNECT", "Off"))).casefold() in {
             "on", "true", "1"
         }
-        # A disconnected INDI driver may advertise a generic/default serial
-        # port unrelated to the actual hardware. Never persist that as a
-        # physical identity. The logical INDI device_id remains stable.
-        serial_path = (
-            _stable_serial_path(_text(port_prop, "PORT"))
-            if connected
-            else None
+        # A loaded INDI driver advertises a logical device even when no
+        # hardware is attached. For serial devices, only treat the device as
+        # physically present when the configured port resolves to a currently
+        # existing device. Do not assume anything about the USB/serial
+        # chipset (FTDI, CH34x, Prolific, ...).
+        configured_port = _text(port_prop, "PORT")
+        serial_path = _stable_serial_path(configured_port)
+        serial_transport_present = bool(
+            configured_port
+            and os.path.exists(os.path.realpath(configured_port))
         )
+        present = connected or serial_transport_present
 
         return {
             "backend": "indi",
@@ -254,7 +258,7 @@ class IndiDeviceManager:
             "driver_interface": _driver_interface(properties),
             "categories": categories,
             "connected": connected,
-            "present": True,
+            "present": present,
         }
 
     def discover(self) -> list[dict[str, Any]]:
