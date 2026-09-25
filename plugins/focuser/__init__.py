@@ -70,9 +70,19 @@ def detect_focuser(candidates=None, log_fn=print, config_by_id=None):
 
 
 
-def inventory_focusers(candidates=None, log_fn=print, config_by_id=None):
-    """Enumere les instances physiques exposees par les plugins focuser."""
+def inventory_focusers(
+    candidates=None,
+    log_fn=print,
+    config_by_id=None,
+    exclude_device_ids=None,
+):
+    """Enumerate focuser instances while avoiding already-owned identities."""
     config_by_id = config_by_id or {}
+    excluded = {
+        str(value)
+        for value in (exclude_device_ids or ())
+        if str(value).strip()
+    }
     ids = candidates or list(_PLUGIN_CLASSES.keys())
     devices = []
 
@@ -96,6 +106,9 @@ def inventory_focusers(candidates=None, log_fn=print, config_by_id=None):
                         continue
 
                     normalized = dict(physical)
+                    device_id = normalized.get("device_id") or normalized.get("sdk_id")
+                    if device_id is not None and str(device_id) in excluded:
+                        continue
                     normalized.setdefault("category", "focuser")
                     normalized.setdefault("backend", pid)
                     devices.append(normalized)
