@@ -93,13 +93,23 @@ def detect_mount(candidates=None, log_fn=print, config_by_id=None):
     return None
 
 
-def inventory_mounts(candidates=None, log_fn=print, config_by_id=None):
+def inventory_mounts(
+    candidates=None,
+    log_fn=print,
+    config_by_id=None,
+    exclude_physical_paths=None,
+):
     """Enumerate physical mount instances exposed by registered plugins.
 
     Plugins implementing ``inventory()`` may return several physical devices.
     Legacy single-instance plugins remain supported through ``probe()``.
     """
     config_by_id = config_by_id or {}
+    excluded = {
+        str(path)
+        for path in (exclude_physical_paths or ())
+        if str(path).strip()
+    }
     ids = candidates or list(_PLUGIN_CLASSES.keys())
     devices = []
 
@@ -113,7 +123,9 @@ def inventory_mounts(candidates=None, log_fn=print, config_by_id=None):
 
             mod = importlib.import_module(f".{entry[0]}", __package__)
             cls = getattr(mod, entry[1])
-            config = config_by_id.get(pid)
+            config = dict(config_by_id.get(pid) or {})
+            if excluded:
+                config["_exclude_physical_paths"] = sorted(excluded)
 
             inventory = getattr(cls, "inventory", None)
             if callable(inventory):
@@ -121,6 +133,15 @@ def inventory_mounts(candidates=None, log_fn=print, config_by_id=None):
                     if not isinstance(physical, Mapping):
                         continue
                     normalized = dict(physical)
+                    physical_path = (
+                        normalized.get("fallback_physical_path")
+                        or normalized.get("physical_path")
+                    )
+                    if (
+                        physical_path is not None
+                        and str(physical_path) in excluded
+                    ):
+                        continue
                     normalized.setdefault("category", "mount")
                     normalized.setdefault("backend", pid)
                     devices.append(normalized)

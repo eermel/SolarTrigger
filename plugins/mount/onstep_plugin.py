@@ -97,6 +97,11 @@ class OnStepMount(MountPlugin):
         configured_port = cfg.get("port") or cfg.get(
             "fallback_physical_path"
         )
+        excluded_ports = {
+            str(path)
+            for path in cfg.get("_exclude_physical_paths", ())
+            if str(path).strip()
+        }
 
         if configured_port:
             ports = [str(configured_port)]
@@ -111,6 +116,8 @@ class OnStepMount(MountPlugin):
 
         devices = []
         for port in ports:
+            if port in excluded_ports:
+                continue
             probe_cfg = dict(cfg)
             probe_cfg["port"] = port
             identity = cls._probe_identity(probe_cfg)

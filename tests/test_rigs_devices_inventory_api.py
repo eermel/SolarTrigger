@@ -115,7 +115,9 @@ def test_refresh_returns_transport_locator_without_saving_it(
         "focuser": [],
     }
     monkeypatch.setattr(
-        flask_module, "refresh_inventory", lambda: deepcopy(refreshed)
+        flask_module,
+        "refresh_inventory",
+        lambda **_kwargs: deepcopy(refreshed),
     )
 
     response = client.post("/api/rigs/devices/refresh")
@@ -124,6 +126,45 @@ def test_refresh_returns_transport_locator_without_saving_it(
     assert response.get_json()["camera"][0]["transport_locator"] == "usb:004,021"
     assert config_path.read_bytes() == before
     assert "transport_locator" not in config_path.read_text(encoding="utf-8")
+
+
+def test_refresh_reserves_persisted_mount_bindings(
+    inventory_api, monkeypatch
+):
+    client, _config_path = inventory_api
+    config = _config()
+    config["rigs"][0]["devices"]["mount"] = {
+        "category": "mount",
+        "backend": "onstep",
+        "manufacturer": "OnStep",
+        "model": "On-Step",
+        "fallback_physical_path":
+            "/dev/serial/by-id/usb-OnStep-controller",
+    }
+
+    monkeypatch.setattr(
+        flask_module,
+        "load_rig_configuration",
+        lambda: deepcopy(config),
+    )
+    captured = {}
+
+    def fake_refresh_inventory(*, reserved_mounts=None):
+        captured["reserved_mounts"] = deepcopy(reserved_mounts)
+        return {"camera": [], "mount": [], "focuser": []}
+
+    monkeypatch.setattr(
+        flask_module,
+        "refresh_inventory",
+        fake_refresh_inventory,
+    )
+
+    response = client.post("/api/rigs/devices/refresh")
+
+    assert response.status_code == 200
+    assert captured["reserved_mounts"] == [
+        config["rigs"][0]["devices"]["mount"]
+    ]
 
 
 def test_post_rejects_non_pilotable_inventory_device(

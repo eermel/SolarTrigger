@@ -30,12 +30,20 @@ def get_cached_inventory() -> dict[str, list[dict[str, Any]]]:
         return deepcopy(_cache)
 
 
-def refresh_inventory() -> dict[str, list[dict[str, Any]]]:
-    """Perform one discovery pass and atomically replace the memory cache."""
+def refresh_inventory(
+    *,
+    reserved_mounts: Iterable[Mapping[str, Any]] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Perform one discovery pass and atomically replace the memory cache.
+
+    reserved_mounts are persistent bindings already owned by mount workers.
+    Their stable serial paths must not be reprobed through a second serial
+    session during an operator refresh.
+    """
 
     discovered = {
         "camera": _discover_cameras(),
-        "mount": _discover_mounts(),
+        "mount": _discover_mounts(reserved_mounts=reserved_mounts),
         "focuser": _discover_focusers(),
     }
     normalized = {
@@ -185,20 +193,58 @@ def _discover_cameras() -> list[dict[str, Any]]:
     return entries
 
 
-def _discover_mounts() -> list[dict[str, Any]]:
-    """Discover physical mounts through the plugin inventory registry.
+def _discover_mounts(
+    reserved_mounts: Iterable[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Discover mounts without reopening serial devices owned by workers.
 
-    Fall back to the historical single-instance detector while older plugins
-    are still being migrated.
+    A bound mount with a live stable physical path is already authoritatively
+    identified by its persisted binding. Reprobing that path can contend with
+    the worker which owns the controller, so keep the binding in the inventory
+    and exclude the path from provider probes.
     """
+
+    reserved_entries = []
+    reserved_paths = set()
+    for source in reserved_mounts or ():
+        if not isinstance(source, Mapping):
+            continue
+        backend = _text(source.get("backend"))
+        if not backend or backend in {"none", "external"}:
+            continue
+        physical_path = _first_text(
+            source,
+            "fallback_physical_path",
+            "physical_path",
+        )
+        if not physical_path:
+            continue
+        try:
+            present = Path(physical_path).exists()
+        except OSError:
+            present = False
+        if not present:
+            continue
+
+        entry = dict(source)
+        entry.setdefault("category", "mount")
+        entry["fallback_physical_path"] = physical_path
+        entry["present"] = True
+        reserved_entries.append(entry)
+        reserved_paths.add(physical_path)
+
     try:
         from plugins.mount import inventory_mounts
 
-        discovered = list(inventory_mounts(log_fn=lambda *_args: None))
-        if discovered:
-            return discovered
+        discovered = list(inventory_mounts(
+            log_fn=lambda *_args: None,
+            exclude_physical_paths=reserved_paths,
+        ))
+        if discovered or reserved_entries:
+            return [*reserved_entries, *discovered]
     except Exception:
-        pass
+        if reserved_entries:
+            return reserved_entries
 
     return _discover_legacy_category("mount")
 

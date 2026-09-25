@@ -58,6 +58,48 @@ def test_refresh_inventory_disambiguates_stable_serials_and_bindable(monkeypatch
     assert all("usb:" not in camera["display_label"] for camera in cameras)
 
 
+def test_reserved_mount_is_kept_without_reprobing_owned_serial_path(
+    monkeypatch, tmp_path
+):
+    stable_path = tmp_path / "usb-OnStep-controller"
+    stable_path.touch()
+
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(device_inventory, "_discover_focusers", lambda: [])
+
+    captured = {}
+    from plugins import mount as mount_registry
+
+    def fake_inventory_mounts(*, log_fn, exclude_physical_paths):
+        captured["excluded"] = set(exclude_physical_paths)
+        return []
+
+    monkeypatch.setattr(
+        mount_registry,
+        "inventory_mounts",
+        fake_inventory_mounts,
+    )
+
+    binding = {
+        "category": "mount",
+        "backend": "onstep",
+        "manufacturer": "OnStep",
+        "model": "On-Step",
+        "fallback_physical_path": str(stable_path),
+    }
+
+    inventory = device_inventory.refresh_inventory(
+        reserved_mounts=[binding],
+    )
+
+    assert captured["excluded"] == {str(stable_path)}
+    assert len(inventory["mount"]) == 1
+    assert inventory["mount"][0]["backend"] == "onstep"
+    assert inventory["mount"][0]["fallback_physical_path"] == str(stable_path)
+    assert inventory["mount"][0]["present"] is True
+    assert inventory["mount"][0]["bindable"] is True
+
+
 def test_cached_inventory_returns_last_refresh_without_probing(monkeypatch):
     _mock_discovery(monkeypatch)
     refreshed = device_inventory.refresh_inventory()

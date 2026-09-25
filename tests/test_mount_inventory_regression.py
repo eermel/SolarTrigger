@@ -46,6 +46,32 @@ def test_onstep_inventory_uses_stable_serial_path(monkeypatch):
     }]
 
 
+def test_onstep_inventory_does_not_probe_excluded_owned_port(monkeypatch):
+    _onstep_plugin, OnStepMount = _onstep_classes()
+    owned = "/dev/serial/by-id/usb-OnStep-owned"
+    free = "/dev/serial/by-id/usb-OnStep-free"
+
+    monkeypatch.setattr(
+        Path,
+        "glob",
+        lambda self, pattern: [Path(owned), Path(free)],
+    )
+    probed = []
+
+    def probe(cls, config=None):
+        probed.append(config["port"])
+        return {"product": "On-Step", "firmware": "4.24"}
+
+    monkeypatch.setattr(OnStepMount, "_probe_identity", classmethod(probe))
+
+    devices = OnStepMount.inventory({
+        "_exclude_physical_paths": [owned],
+    })
+
+    assert probed == [free]
+    assert [entry["fallback_physical_path"] for entry in devices] == [free]
+
+
 def test_onstep_binding_fallback_is_used_as_connection_port(monkeypatch):
     onstep_plugin, OnStepMount = _onstep_classes()
     captured = {}

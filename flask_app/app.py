@@ -1751,10 +1751,36 @@ def api_rig_photo_post():
     })
 
 
+def _bound_mount_inventory_reservations():
+    """Return persisted mount bindings which may already own hardware."""
+
+    reservations = []
+    try:
+        config = load_rig_configuration()
+    except Exception as exc:
+        log.warning("Unable to load RIG bindings for device refresh: %s", exc)
+        return reservations
+
+    for rig in config.get("rigs", []):
+        if not isinstance(rig, dict):
+            continue
+        devices = rig.get("devices")
+        mount = devices.get("mount") if isinstance(devices, dict) else None
+        if not isinstance(mount, dict):
+            continue
+        backend = str(mount.get("backend") or "").strip().lower()
+        if not backend or backend in {"none", "external"}:
+            continue
+        reservations.append(deepcopy(mount))
+    return reservations
+
+
 @app.route("/api/rigs/devices/refresh", methods=["POST"])
 def api_rig_device_inventory_refresh():
-    """Run the operator-requested discovery pass and replace the cache."""
-    return jsonify(refresh_inventory())
+    """Refresh discovery without reprobeing mounts already owned by workers."""
+    return jsonify(refresh_inventory(
+        reserved_mounts=_bound_mount_inventory_reservations()
+    ))
 
 
 def _authoritative_trigger_snapshot():
