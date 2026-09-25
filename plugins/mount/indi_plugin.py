@@ -498,148 +498,148 @@ class IndiMount(MountPlugin):
         """Historical EQMod Home implementation retained for compatibility."""
         tolerance_steps = 5
 
-            try:
-                # Stop manual slew without sending TELESCOPE_ABORT_MOTION.
-                # An ABORT immediately before PARK can cancel the EQMod park slew.
-                self.client.set_props({
-                    "TELESCOPE_MOTION_NS": {
-                        "MOTION_NORTH": "Off",
-                        "MOTION_SOUTH": "Off",
-                    },
-                    "TELESCOPE_MOTION_WE": {
-                        "MOTION_EAST": "Off",
-                        "MOTION_WEST": "Off",
-                    },
-                    "TELESCOPE_TRACK_STATE": {
-                        "TRACK_ON": "Off",
-                        "TRACK_OFF": "On",
-                    },
-                })
+        try:
+            # Stop manual slew without sending TELESCOPE_ABORT_MOTION.
+            # An ABORT immediately before PARK can cancel the EQMod park slew.
+            self.client.set_props({
+                "TELESCOPE_MOTION_NS": {
+                    "MOTION_NORTH": "Off",
+                    "MOTION_SOUTH": "Off",
+                },
+                "TELESCOPE_MOTION_WE": {
+                    "MOTION_EAST": "Off",
+                    "MOTION_WEST": "Off",
+                },
+                "TELESCOPE_TRACK_STATE": {
+                    "TRACK_ON": "Off",
+                    "TRACK_OFF": "On",
+                },
+            })
 
-                props = self._props([
-                    "TELESCOPE_PARK.*",
-                    "TELESCOPE_PARK_POSITION.*",
-                    "CURRENTSTEPPERS.*",
-                ])
+            props = self._props([
+                "TELESCOPE_PARK.*",
+                "TELESCOPE_PARK_POSITION.*",
+                "CURRENTSTEPPERS.*",
+            ])
 
-                park_prop = props.get("TELESCOPE_PARK", {})
-                park_position = props.get("TELESCOPE_PARK_POSITION", {})
-                current_steps = props.get("CURRENTSTEPPERS", {})
+            park_prop = props.get("TELESCOPE_PARK", {})
+            park_position = props.get("TELESCOPE_PARK_POSITION", {})
+            current_steps = props.get("CURRENTSTEPPERS", {})
 
-                if not park_prop:
-                    raise IndiClientError(
-                        "PROPERTY_UNSUPPORTED",
-                        "INDI mount does not expose TELESCOPE_PARK",
-                    )
-
-                try:
-                    park_ra = float(park_position["PARK_RA"])
-                    park_dec = float(park_position["PARK_DEC"])
-                except (KeyError, TypeError, ValueError):
-                    raise IndiClientError(
-                        "PROPERTY_UNSUPPORTED",
-                        "INDI mount does not expose a valid mechanical park position",
-                    )
-
-                try:
-                    current_ra = float(current_steps["RAStepsCurrent"])
-                    current_dec = float(current_steps["DEStepsCurrent"])
-                except (KeyError, TypeError, ValueError):
-                    current_ra = None
-                    current_dec = None
-
-                already_home = (
-                    current_ra is not None
-                    and current_dec is not None
-                    and abs(current_ra - park_ra) <= tolerance_steps
-                    and abs(current_dec - park_dec) <= tolerance_steps
+            if not park_prop:
+                raise IndiClientError(
+                    "PROPERTY_UNSUPPORTED",
+                    "INDI mount does not expose TELESCOPE_PARK",
                 )
 
-                if not already_home:
-                    self.client.set_props({
-                        "TELESCOPE_PARK": {
-                            "PARK": "On",
-                        }
-                    })
+            try:
+                park_ra = float(park_position["PARK_RA"])
+                park_dec = float(park_position["PARK_DEC"])
+            except (KeyError, TypeError, ValueError):
+                raise IndiClientError(
+                    "PROPERTY_UNSUPPORTED",
+                    "INDI mount does not expose a valid mechanical park position",
+                )
 
-                    deadline = time.monotonic() + self.home_timeout
+            try:
+                current_ra = float(current_steps["RAStepsCurrent"])
+                current_dec = float(current_steps["DEStepsCurrent"])
+            except (KeyError, TypeError, ValueError):
+                current_ra = None
+                current_dec = None
 
-                    while True:
-                        if callable(is_cancelled) and is_cancelled():
-                            try:
-                                self.stop()
-                            finally:
-                                raise RuntimeError("mount home cancelled")
+            already_home = (
+                current_ra is not None
+                and current_dec is not None
+                and abs(current_ra - park_ra) <= tolerance_steps
+                and abs(current_dec - park_dec) <= tolerance_steps
+            )
 
-                        props = self._props([
-                            "TELESCOPE_PARK.*",
-                            "TELESCOPE_PARK_POSITION.*",
-                            "CURRENTSTEPPERS.*",
-                        ])
-
-                        park_state = props.get("TELESCOPE_PARK", {})
-                        current_steps = props.get("CURRENTSTEPPERS", {})
-
-                        try:
-                            current_ra = float(current_steps["RAStepsCurrent"])
-                            current_dec = float(current_steps["DEStepsCurrent"])
-                        except (KeyError, TypeError, ValueError):
-                            current_ra = None
-                            current_dec = None
-
-                        at_home = (
-                            current_ra is not None
-                            and current_dec is not None
-                            and abs(current_ra - park_ra) <= tolerance_steps
-                            and abs(current_dec - park_dec) <= tolerance_steps
-                        )
-
-                        parked = self._switch_on(park_state, "PARK")
-
-                        if parked and at_home:
-                            break
-
-                        if time.monotonic() >= deadline:
-                            try:
-                                self.stop()
-                            finally:
-                                raise IndiClientError(
-                                    "CONNECTION_FAILED",
-                                    "INDI mount did not reach Home before timeout",
-                                )
-
-                        time.sleep(self.poll_interval)
-
-                # Finish operational, not parked.
+            if not already_home:
                 self.client.set_props({
                     "TELESCOPE_PARK": {
-                        "UNPARK": "On",
+                        "PARK": "On",
                     }
                 })
 
-                if not self._wait_for(
-                    lambda p: self._switch_on(
-                        p.get("TELESCOPE_PARK", {}),
-                        "UNPARK",
-                    )
-                ):
-                    raise IndiClientError(
-                        "CONNECTION_FAILED",
-                        "INDI mount reached Home but did not unpark",
+                deadline = time.monotonic() + self.home_timeout
+
+                while True:
+                    if callable(is_cancelled) and is_cancelled():
+                        try:
+                            self.stop()
+                        finally:
+                            raise RuntimeError("mount home cancelled")
+
+                    props = self._props([
+                        "TELESCOPE_PARK.*",
+                        "TELESCOPE_PARK_POSITION.*",
+                        "CURRENTSTEPPERS.*",
+                    ])
+
+                    park_state = props.get("TELESCOPE_PARK", {})
+                    current_steps = props.get("CURRENTSTEPPERS", {})
+
+                    try:
+                        current_ra = float(current_steps["RAStepsCurrent"])
+                        current_dec = float(current_steps["DEStepsCurrent"])
+                    except (KeyError, TypeError, ValueError):
+                        current_ra = None
+                        current_dec = None
+
+                    at_home = (
+                        current_ra is not None
+                        and current_dec is not None
+                        and abs(current_ra - park_ra) <= tolerance_steps
+                        and abs(current_dec - park_dec) <= tolerance_steps
                     )
 
-                self._move_rate = None
+                    parked = self._switch_on(park_state, "PARK")
 
-            except IndiClientError:
-                raise
-            except RuntimeError:
-                raise
-            except Exception as exc:
-                self._raise_mapped(
-                    "CONNECTION_FAILED",
-                    "Unable to home INDI mount",
-                    exc,
+                    if parked and at_home:
+                        break
+
+                    if time.monotonic() >= deadline:
+                        try:
+                            self.stop()
+                        finally:
+                            raise IndiClientError(
+                                "CONNECTION_FAILED",
+                                "INDI mount did not reach Home before timeout",
+                            )
+
+                    time.sleep(self.poll_interval)
+
+            # Finish operational, not parked.
+            self.client.set_props({
+                "TELESCOPE_PARK": {
+                    "UNPARK": "On",
+                }
+            })
+
+            if not self._wait_for(
+                lambda p: self._switch_on(
+                    p.get("TELESCOPE_PARK", {}),
+                    "UNPARK",
                 )
+            ):
+                raise IndiClientError(
+                    "CONNECTION_FAILED",
+                    "INDI mount reached Home but did not unpark",
+                )
+
+            self._move_rate = None
+
+        except IndiClientError:
+            raise
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            self._raise_mapped(
+                "CONNECTION_FAILED",
+                "Unable to home INDI mount",
+                exc,
+            )
 
     def set_speed(self, value):
         try:
