@@ -63,6 +63,7 @@ def test_catalog_classifies_indi_devices_and_excludes_gphoto():
     assert by_name["LX200 OnStep"]["device_id"] == (
         "indi:127.0.0.1:7624:LX200 OnStep"
     )
+    assert by_name["LX200 OnStep"]["fallback_physical_path"] is None
 
 
 def test_catalog_projects_only_current_rig_categories():
