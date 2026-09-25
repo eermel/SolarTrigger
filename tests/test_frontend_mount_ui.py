@@ -207,7 +207,8 @@ def test_mount_url_uses_the_selected_pilotable_rig():
 def test_mount_actions_are_guarded_without_a_pilotable_selection():
     assert re.search(r"if \(!url\) \{.*?disableMountControls\(\);.*?return;", MOUNT_JS, re.DOTALL)
     assert re.search(r"async function postMount\([^)]*\) \{\s*if \(!url\) return;", MOUNT_JS)
-    assert re.search(r"if \(!startUrl \|\| !stopUrl \|\| homing \|\| activeSlew\) return;", MOUNT_JS)
+    assert "const rig = selectedPilotableMountRig();" in MOUNT_JS
+    assert re.search(r"if \(!rig \|\| homing \|\| activeSlew\) return;", MOUNT_JS)
     for element_id in ("btn-mount-home", "mount-slew-speed", "mount-tracking-mode", "mount-tracking-switch"):
         assert re.search(rf'id="{element_id}"[^>]*\bdisabled\b', INDEX)
     assert len(re.findall(r'class="[^"]*mount-slew-button[^"]*"[^>]*\bdisabled\b', INDEX)) == 4

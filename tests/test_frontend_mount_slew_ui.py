@@ -126,7 +126,8 @@ def test_slew_has_no_click_command_or_hold_repetition_timer():
     )
     assert "setInterval" not in SLEW_FUNCTIONS
     assert "setTimeout" not in SLEW_FUNCTIONS
-    assert len(re.findall(r"mountUrl\(['\"]slew/start['\"]\)", SLEW_FUNCTIONS)) == 1
+    assert "const rig = selectedPilotableMountRig();" in SLEW_FUNCTIONS
+    assert "const startUrl = `/api/rigs/${rigId}/mount/slew/start`;" in SLEW_FUNCTIONS
 
 
 def test_short_press_stop_is_ordered_after_start_and_keeps_release_token():
