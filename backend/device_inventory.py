@@ -348,10 +348,15 @@ def _discover_focusers(
     try:
         from plugins.focuser import inventory_focusers
 
-        discovered = list(inventory_focusers(
-            log_fn=lambda *_args: None,
-            exclude_device_ids=reserved_ids,
-        ))
+        if reserved_ids:
+            discovered = list(inventory_focusers(
+                log_fn=lambda *_args: None,
+                exclude_device_ids=reserved_ids,
+            ))
+        else:
+            discovered = list(inventory_focusers(
+                log_fn=lambda *_args: None,
+            ))
         if discovered or reserved_entries:
             return [*reserved_entries, *discovered]
     except Exception:
