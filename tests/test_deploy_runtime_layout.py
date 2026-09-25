@@ -70,3 +70,13 @@ def test_deploy_includes_production_wsgi_entrypoint():
 
     assert "from app import app, socketio, start_background_threads" in wsgi
     assert "start_background_threads()" in wsgi
+
+def test_deploy_ships_but_never_runs_indi_system_migration():
+    assert '"$SRC/install/install_standalone_runtime_service.sh"' in SCRIPT
+    assert '"$DST_HOST:$DST/install/install_standalone_runtime_service.sh"' in SCRIPT
+    assert "INDI/systemd migration is NOT executed automatically." in SCRIPT
+
+    # Deployment remains non-destructive to running systemd services.
+    assert "sudo systemctl" not in SCRIPT
+    assert "systemctl restart solartrigger-indi.service" not in SCRIPT
+
