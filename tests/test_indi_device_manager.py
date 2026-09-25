@@ -73,18 +73,21 @@ def test_catalog_projects_only_current_rig_categories():
             "device_name": "Mount A",
             "device_id": "indi:127.0.0.1:7624:Mount A",
             "categories": ["mount"],
+            "present": True,
         },
         {
             "backend": "indi",
             "device_name": "Focuser A",
             "device_id": "indi:127.0.0.1:7624:Focuser A",
             "categories": ["focuser"],
+            "present": True,
         },
         {
             "backend": "indi",
             "device_name": "CCD A",
             "device_id": "indi:127.0.0.1:7624:CCD A",
             "categories": ["astro_camera"],
+            "present": True,
         },
     ]
 
