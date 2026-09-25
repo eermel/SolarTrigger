@@ -213,36 +213,65 @@ def test_mount_actions_are_guarded_without_a_pilotable_selection():
     assert len(re.findall(r'class="[^"]*mount-slew-button[^"]*"[^>]*\bdisabled\b', INDEX)) == 4
 
 
-def test_mount_slew_pointer_events_post_one_start_and_one_best_effort_stop():
-    for event in (
-        "pointerdown", "pointerup", "pointercancel", "lostpointercapture",
-    ):
+def test_mount_slew_pointer_events_keep_one_start_and_redundant_stop_safety():
+    # A movement starts only from the directional button itself.
+    assert len(re.findall(
+        r"button\.addEventListener\(\s*['\"]pointerdown['\"]\s*,\s*startSlew\s*\)",
+        MOUNT_JS,
+    )) == 1
+
+    # Button-local release paths remain present.
+    for event in ("pointerup", "pointercancel", "lostpointercapture"):
         assert len(re.findall(
-            rf"addEventListener\(\s*['\"]{event}['\"]", MOUNT_JS
+            rf"button\.addEventListener\(\s*['\"]{event}['\"]",
+            MOUNT_JS,
         )) == 1
 
-    assert len(re.findall(
-        r"fetch\(\s*startUrl\s*,\s*\{"
-        r"(?=[^}]*method:\s*['\"]POST['\"])"
-        r".*?body:\s*JSON\.stringify\(\s*\{\s*direction:\s*"
-        r"button\.dataset\.direction\s*\}\s*\)",
+    # pointerup/pointercancel also have a window-level capture safety net.
+    for event in ("pointerup", "pointercancel"):
+        assert len(re.findall(
+            rf"window\.addEventListener\(\s*['\"]{event}['\"]\s*,\s*"
+            r"stopSlewBestEffort\s*,\s*true\s*\)",
+            MOUNT_JS,
+        )) == 1
+
+    assert MOUNT_JS.count("fetch(startUrl") == 1
+    assert "gesture_id: gestureId" in MOUNT_JS
+    assert MOUNT_JS.count("fetch(slew.stopUrl") == 1
+    assert "gesture_id: slew.gestureId" in MOUNT_JS
+
+    # Multiple release events are harmless: the first one marks the gesture,
+    # later ones return without scheduling another stop sequence.
+    assert "if (!slew || slew.releaseRequested) return;" in MOUNT_JS
+    assert "slew.releaseRequested = true;" in MOUNT_JS
+
+    # One STOP is sent immediately and another after START settles, closing
+    # the short-press START/STOP reordering race.
+    assert re.search(
+        r"slew\.releaseRequested\s*=\s*true\s*;.*?"
+        r"sendSlewStop\(slew\)\s*;.*?"
+        r"Promise\.resolve\(slew\.startPromise\)\.finally",
         MOUNT_JS,
         re.DOTALL,
-    )) == 1
-    assert len(re.findall(
-        r"fetch\(\s*stopUrl\s*,\s*"
-        r"\{\s*method:\s*['\"]POST['\"]\s*\}",
-        MOUNT_JS,
-    )) == 1
-    assert re.search(
-        r"window\.addEventListener\(\s*['\"]blur['\"]\s*,\s*"
-        r"stopSlewBestEffort\s*\)",
-        MOUNT_JS,
     )
     assert re.search(
-        r"window\.addEventListener\(\s*['\"]pagehide['\"]\s*,\s*"
-        r"stopSlewBestEffort\s*\)",
+        r"function\s+finalizeReleasedSlew\(slew\).*?"
+        r"sendSlewStop\(slew\)\.finally",
         MOUNT_JS,
+        re.DOTALL,
+    )
+
+    for event in ("blur", "pagehide"):
+        assert re.search(
+            rf"window\.addEventListener\(\s*['\"]{event}['\"]\s*,\s*"
+            r"stopSlewBestEffort\s*\)",
+            MOUNT_JS,
+        )
+    assert re.search(
+        r"document\.addEventListener\(\s*['\"]visibilitychange['\"].*?"
+        r"document\.hidden.*?stopSlewBestEffort\(\)",
+        MOUNT_JS,
+        re.DOTALL,
     )
 
 
