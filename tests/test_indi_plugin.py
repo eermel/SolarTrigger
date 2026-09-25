@@ -122,13 +122,19 @@ def test_connect_rejects_baud_missing_from_advertised_property(tmp_path, full_pr
 
 
 @pytest.mark.parametrize("serial_port", [None, ""])
-def test_connect_requires_serial_port_before_client_access(serial_port):
-    client = StubIndiClient()
+def test_connect_allows_native_indi_device_without_serial_port(serial_port):
+    client = StubIndiClient({
+        "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"},
+    })
     plugin = mount(client, serial_port=serial_port)
 
-    assert_code("SERIAL_PORT_MISSING", plugin.connect)
-    assert client.present_calls == []
-    assert client.set_calls == []
+    plugin.connect()
+
+    assert client.present_calls == ["Test Mount"]
+    assert client.set_calls == [
+        {"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}},
+    ]
+    assert plugin.connected is True
 
 
 def test_connect_maps_missing_path_and_permission_denied(monkeypatch):
@@ -174,7 +180,7 @@ def test_status_uses_device_info_fallbacks_and_absent_capabilities():
 
     status = mount(client).status()
 
-    assert status["device"]["driver"] == "indi_eqmod_telescope"
+    assert status["device"]["driver"] == "indi"
     assert status["device"]["model"] == "Fallback"
     assert status["device"]["motor_controller"] == "Stepper"
     assert status["device"]["mount_code"] == "GEM"
