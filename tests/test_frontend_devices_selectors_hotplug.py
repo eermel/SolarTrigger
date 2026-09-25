@@ -95,7 +95,7 @@ def test_absent_binding_is_kept_and_marked_not_detected(mocked_backend_responses
     )
 
 
-def test_devices_assigned_to_another_rig_are_labelled_and_disabled(
+def test_devices_assigned_to_another_rig_are_hidden(
     mocked_backend_responses,
 ):
     assigned_serials = {
@@ -109,16 +109,8 @@ def test_devices_assigned_to_another_rig_are_labelled_and_disabled(
         r"assignments\[`\$\{category\}:\$\{identity\}`\]\s*=\s*Number\(rig\.rig_id\)",
         renderer,
     )
-    assert "label += ` — assigned to RIG ${assignedRig}`" in renderer
-    assert re.search(
-        r"const\s+disabled\s*=\s*\(.*?"
-        r"assignedRig\s*&&\s*assignedRig\s*!==\s*rigId.*?"
-        r"\)",
-        renderer,
-        flags=re.DOTALL,
-    )
-    assert "${disabled ? ' disabled' : ''}" in renderer
-
+    assert "if (assignedRig && assignedRig !== rigId) return;" in renderer
+    assert "assigned to RIG" not in renderer
 
 def test_refresh_posts_once_then_rerenders_with_response(mocked_backend_responses):
     assert mocked_backend_responses["refreshed_inventory"]["camera"][0]["serial"] == "D850-0002"
