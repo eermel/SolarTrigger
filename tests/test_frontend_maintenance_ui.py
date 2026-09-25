@@ -192,3 +192,38 @@ def test_release_actions_warn_that_pi_reboots():
 
     assert "Raspberry Pi will reboot" in source
     assert "Pi reboot requested" in source
+
+def test_camera_maintenance_buttons_follow_camera_selection_without_refresh():
+    source = frontend_source()
+
+    characterization_start = source.index(
+        "function renderCameraCharacterizationStatus(status)"
+    )
+    characterization_end = source.index(
+        "async function pollCameraCharacterization()",
+        characterization_start,
+    )
+    characterization = source[
+        characterization_start:characterization_end
+    ]
+
+    assert "recharacterizationSelect.onchange = () => {" in characterization
+    assert (
+        "recharacterizationButton.disabled =" in characterization
+    )
+    assert "!recharacterizationSelect.value" in characterization
+
+    validation_start = source.index(
+        "function renderCameraValidationStatus(status)"
+    )
+    validation_end = source.index(
+        "async function pollCameraValidation()",
+        validation_start,
+    )
+    validation = source[validation_start:validation_end]
+
+    assert "select.onchange = () => {" in validation
+    assert (
+        "start.disabled = select.disabled || !select.value;"
+        in validation
+    )

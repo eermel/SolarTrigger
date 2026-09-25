@@ -1843,6 +1843,13 @@ function renderCameraCharacterizationStatus(status) {
   }
   if (recharacterizationSelect) {
     recharacterizationSelect.disabled = characterizationBusy;
+    recharacterizationSelect.onchange = () => {
+      if (recharacterizationButton) {
+        recharacterizationButton.disabled =
+          recharacterizationSelect.disabled ||
+          !recharacterizationSelect.value;
+      }
+    };
   }
   if (recharacterizationButton) {
     recharacterizationButton.disabled =
@@ -6268,6 +6275,9 @@ function renderCameraValidationStatus(status) {
     Boolean(status.running) || cameraValidationStarting;
   start.disabled = validationBusy || !select.value;
   select.disabled = validationBusy;
+  select.onchange = () => {
+    start.disabled = select.disabled || !select.value;
+  };
   cancel.disabled = !status.running;
   const validationLogs = Array.isArray(status.logs)
     ? status.logs.slice()
