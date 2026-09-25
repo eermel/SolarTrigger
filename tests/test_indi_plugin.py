@@ -137,6 +137,17 @@ def test_connect_allows_native_indi_device_without_serial_port(serial_port):
     assert plugin.connected is True
 
 
+def test_connect_without_serial_binding_preserves_driver_auto_search(full_props):
+    client = StubIndiClient(full_props)
+    plugin = mount(client)
+
+    plugin.connect()
+
+    assert client.set_calls == [
+        {"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}},
+    ]
+
+
 def test_connect_maps_missing_path_and_permission_denied(monkeypatch):
     client = StubIndiClient()
     assert_code("SERIAL_PORT_MISSING", mount(client, serial_port="/missing").connect)
