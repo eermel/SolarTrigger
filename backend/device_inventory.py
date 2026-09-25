@@ -226,6 +226,16 @@ def _discover_indi_catalog() -> list[dict[str, Any]]:
         return []
 
 
+def _has_reserved_indi(
+    sources: Iterable[Mapping[str, Any]] | None,
+) -> bool:
+    return any(
+        isinstance(source, Mapping)
+        and str(source.get("backend") or "").strip().lower() == "indi"
+        for source in (sources or ())
+    )
+
+
 def _reserved_entries(
     category: str,
     sources: Iterable[Mapping[str, Any]] | None,
@@ -239,6 +249,11 @@ def _reserved_entries(
             continue
         backend = _text(source.get("backend"))
         if not backend or backend in {"none", "external"}:
+            continue
+        if backend.strip().lower() == "indi":
+            # INDI bindings are logical identities. Their live presence comes
+            # exclusively from the current INDI catalogue; never synthesize a
+            # present entry from persisted configuration.
             continue
 
         entry = dict(source)
@@ -254,11 +269,6 @@ def _reserved_entries(
                 present = Path(physical_path).exists()
             except OSError:
                 present = False
-            if backend == "indi":
-                # For INDI, the logical device identity remains valid even
-                # when a disconnected serial controller is not currently
-                # visible. Presence will be reconciled from the INDI catalogue.
-                present = True
             if present:
                 entry["fallback_physical_path"] = physical_path
                 physical_paths.add(physical_path)
@@ -300,6 +310,11 @@ def _discover_mounts(
             if _text(entry.get("device_id")) not in reserved_ids
         ]
         return [*reserved_entries, *discovered]
+
+    if _has_reserved_indi(reserved_mounts):
+        # Do not open a direct serial backend merely because an assigned INDI
+        # device disappeared from one catalogue refresh.
+        return reserved_entries
 
     try:
         from plugins.mount import inventory_mounts
@@ -344,6 +359,11 @@ def _discover_focusers(
             if _text(entry.get("device_id")) not in reserved_ids
         ]
         return [*reserved_entries, *discovered]
+
+    if _has_reserved_indi(reserved_focusers):
+        # Avoid taking the same focuser through a vendor SDK after a transient
+        # INDI catalogue failure.
+        return reserved_entries
 
     try:
         from plugins.focuser import inventory_focusers
