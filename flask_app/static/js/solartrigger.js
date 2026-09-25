@@ -1061,7 +1061,11 @@ function rigDeviceIdentity(device) {
 
 function persistedRigBinding(device) {
   if (!device) return null;
-  const runtimeFields = new Set(['present', 'pilotable', 'display_label', 'transport_locator', 'busnum', 'devnum']);
+  const runtimeFields = new Set([
+    'present', 'pilotable', 'display_label', 'transport_locator',
+    'busnum', 'devnum', 'connected', 'categories',
+    'driver_interface', 'driver_name', 'driver_version'
+  ]);
   return Object.fromEntries(Object.entries(device).filter(([key]) => !runtimeFields.has(key)));
 }
 
