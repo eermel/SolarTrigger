@@ -195,14 +195,22 @@ class IndiMount(MountPlugin):
             props = self._props()
 
             assignments = {}
-            connection_mode = props.get("CONNECTION_MODE", {})
-            if serial_port and connection_mode:
-                assignments["CONNECTION_MODE"] = {
-                    name: "On" if name == "CONNECTION_SERIAL" else "Off"
-                    for name in connection_mode
-                }
-
-            if serial_port and props.get("DEVICE_PORT"):
+            if serial_port:
+                connection_mode = props.get("CONNECTION_MODE", {})
+                if connection_mode:
+                    assignments["CONNECTION_MODE"] = {
+                        name: "On" if name == "CONNECTION_SERIAL" else "Off"
+                        for name in connection_mode
+                    }
+                else:
+                    # Legacy EQMod/OnStep setups relied on these standard
+                    # property names even when the first property snapshot was
+                    # incomplete. An explicit serial binding remains
+                    # authoritative.
+                    assignments["CONNECTION_MODE"] = {
+                        "CONNECTION_SERIAL": "On",
+                        "CONNECTION_TCP": "Off",
+                    }
                 assignments["DEVICE_PORT"] = {"PORT": serial_port}
 
             baud_prop = props.get("DEVICE_BAUD_RATE", {})
