@@ -45,6 +45,7 @@ class FocuserService:
         self._settings_updated_at: str | None = None
         self._motion_command: str | None = None
         self._target_position: int | None = None
+        self._motion_seen_moving = False
         self._load_settings()
 
     @staticmethod
@@ -150,6 +151,9 @@ class FocuserService:
     def _close_locked(self) -> None:
         plugin, self._plugin = self._plugin, None
         self._plugin_id = None
+        self._motion_command = None
+        self._target_position = None
+        self._motion_seen_moving = False
         if plugin is not None and getattr(plugin, "connected", False):
             plugin.disconnect()
 
@@ -177,14 +181,25 @@ class FocuserService:
         raw = dict(plugin.status() or {})
         # Position is deliberately read from the device, not from cached status.
         raw["position"] = plugin.get_position()
+
+        tracked_motion = self._motion_command in ("go", "home")
+        moving = bool(raw.get("moving", False))
+        if tracked_motion and moving:
+            self._motion_seen_moving = True
+
+        at_target = (
+            tracked_motion
+            and self._target_position is not None
+            and raw.get("position") == self._target_position
+        )
         motion_finished = (
-            self._motion_command in ("go", "home")
-            and not raw.get("moving")
+            tracked_motion
+            and not moving
+            and (self._motion_seen_moving or at_target)
         )
         home_succeeded = (
             motion_finished
             and self._motion_command == "home"
-            and raw.get("position") == 0
         )
         if home_succeeded:
             reset_position = getattr(plugin, "set_current_position", None)
@@ -195,6 +210,7 @@ class FocuserService:
         if motion_finished:
             self._motion_command = None
             self._target_position = None
+            self._motion_seen_moving = False
         return {
             "connected": bool(plugin.connected),
             "position": raw.get("position"),
@@ -252,9 +268,16 @@ class FocuserService:
         with self._lock:
             plugin = self._plugin_for_operation()
             target_position = int(position)
-            plugin.move_to(target_position, wait=wait)
             self._motion_command = _motion_command
             self._target_position = target_position
+            self._motion_seen_moving = False
+            try:
+                plugin.move_to(target_position, wait=wait)
+            except Exception:
+                self._motion_command = None
+                self._target_position = None
+                self._motion_seen_moving = False
+                raise
             return self._status_locked(plugin)
 
     def move_relative(self, delta: int, wait: bool = False) -> dict:
@@ -286,6 +309,7 @@ class FocuserService:
         with self._lock:
             self._motion_command = None
             self._target_position = None
+            self._motion_seen_moving = False
             active, plugin_id = self._selection()
             if not active or plugin_id == "none":
                 self._close_locked()

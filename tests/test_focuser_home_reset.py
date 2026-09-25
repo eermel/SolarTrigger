@@ -33,6 +33,7 @@ class FakePlugin:
         self.connected = False
         self.position = 100
         self.moving = False
+        self.report_motion_on_move = True
         self.reset_positions = []
 
     def connect(self):
@@ -52,7 +53,7 @@ class FakePlugin:
         self.reset_positions.append(int(value))
 
     def move_to(self, position, wait=False):
-        self.moving = not wait
+        self.moving = self.report_motion_on_move and not wait
 
     def stop(self):
         self.moving = False
@@ -111,14 +112,40 @@ def test_go_to_zero_does_not_reset_eaf_counter():
     assert plugin.reset_positions == []
 
 
-def test_home_that_stops_before_zero_does_not_reset_eaf_counter():
+def test_home_that_finishes_with_nonzero_counter_resets_reference_to_zero():
     service, plugin = make_service()
 
     service.home()
-    plugin.position = 17
+    plugin.position = 7333
     plugin.moving = False
     completed = service.status()
 
-    assert completed["position"] == 17
+    assert completed["position"] == 0
     assert completed["motion_command"] is None
+    assert completed["target_position"] is None
+    assert plugin.reset_positions == [0]
+
+
+def test_home_does_not_finish_before_motion_has_actually_started():
+    service, plugin = make_service()
+    plugin.report_motion_on_move = False
+
+    started = service.home()
+
+    assert started["position"] == 100
+    assert started["moving"] is False
+    assert started["motion_command"] == "home"
+    assert started["target_position"] == 0
     assert plugin.reset_positions == []
+
+    plugin.moving = True
+    moving = service.status()
+    assert moving["motion_command"] == "home"
+
+    plugin.position = 7333
+    plugin.moving = False
+    completed = service.status()
+
+    assert completed["position"] == 0
+    assert completed["motion_command"] is None
+    assert plugin.reset_positions == [0]

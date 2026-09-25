@@ -101,6 +101,15 @@ def test_movement_does_not_use_set_interval():
     assert re.search(r"press\.timer\s*=\s*setTimeout", FOCUSER_JS)
 
 
+def test_absolute_home_remains_cancelable_until_backend_clears_command():
+    assert re.search(
+        r"absoluteMotion\s*=\s*\(data\.motion_command\s*===\s*['\"]go['\"]\s*"
+        r"\|\|\s*data\.motion_command\s*===\s*['\"]home['\"]\)",
+        FOCUSER_JS,
+    )
+    assert "data.moving === true &&" not in FOCUSER_JS
+
+
 def test_backend_refresh_and_socket_resynchronization_are_present():
     assert re.search(r"const\s+url\s*=\s*focuserUrl\(\s*['\"]status['\"]\s*\)", FOCUSER_JS)
     assert re.search(r"displayFocuser\(\s*await\s+request\(\s*url\s*\)\s*\)", FOCUSER_JS)

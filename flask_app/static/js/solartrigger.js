@@ -2447,7 +2447,7 @@ socket.on('log_history', lines => {
     if (data.mode === 'slow' || data.mode === 'fast') {
       speedSwitch.checked = data.mode === 'fast';
     }
-    absoluteMotion = data.moving === true && (data.motion_command === 'go' || data.motion_command === 'home')
+    absoluteMotion = (data.motion_command === 'go' || data.motion_command === 'home')
       ? data.motion_command
       : null;
     const selectedRig = selectedControlsRig();
