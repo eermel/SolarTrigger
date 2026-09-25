@@ -396,6 +396,22 @@ def test_runtime_migration_upgrades_legacy_wsgi_entrypoint():
     assert "start_background_threads()" in script
 
 
+def test_runtime_migration_installs_central_indi_service():
+    root = Path(__file__).resolve().parents[1]
+    script = (
+        root
+        / "install"
+        / "install_standalone_runtime_service.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "solartrigger-indi.service" in script
+    assert "backend.indi_server_daemon" in script
+    assert "configs/indi_default.json" in script
+    assert "After=network.target local-fs.target solartrigger-indi.service" in script
+    assert "systemctl restart solartrigger-indi.service" in script
+    assert "systemctl disable --now indiserver-eqmod.service" in script
+
+
 def test_runtime_status_refreshes_and_exposes_current_runtime_gps(tmp_path):
     controller = RuntimeController.__new__(RuntimeController)
     controller.state_file = tmp_path / "state.json"
