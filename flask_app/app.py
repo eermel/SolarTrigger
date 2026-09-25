@@ -967,9 +967,18 @@ def api_rig_devices_get():
 _RIG_PATCH_FIELDS = frozenset(("rig_id", "enabled", "name", "devices", "optics"))
 _RIG_PHOTO_PATCH_FIELDS = frozenset(("rig_id", "photo"))
 _RIG_DEVICE_CATEGORIES = frozenset(("camera", "mount", "focuser"))
-_RUNTIME_DEVICE_FIELDS = frozenset(
-    ("present", "pilotable", "transport_locator", "busnum", "devnum")
-)
+_RUNTIME_DEVICE_FIELDS = frozenset((
+    "present",
+    "pilotable",
+    "transport_locator",
+    "busnum",
+    "devnum",
+    "connected",
+    "categories",
+    "driver_interface",
+    "driver_name",
+    "driver_version",
+))
 
 
 def _new_rig_scaffold(rig_id, *, atmos_enabled=False):
@@ -1751,35 +1760,47 @@ def api_rig_photo_post():
     })
 
 
-def _bound_mount_inventory_reservations():
-    """Return persisted mount bindings which may already own hardware."""
+def _bound_inventory_reservations(category):
+    """Return persisted bindings which may already own hardware."""
 
     reservations = []
     try:
         config = load_rig_configuration()
     except Exception as exc:
-        log.warning("Unable to load RIG bindings for device refresh: %s", exc)
+        log.warning(
+            "Unable to load RIG bindings for device refresh: %s",
+            exc,
+        )
         return reservations
 
     for rig in config.get("rigs", []):
         if not isinstance(rig, dict):
             continue
         devices = rig.get("devices")
-        mount = devices.get("mount") if isinstance(devices, dict) else None
-        if not isinstance(mount, dict):
+        entry = devices.get(category) if isinstance(devices, dict) else None
+        if not isinstance(entry, dict):
             continue
-        backend = str(mount.get("backend") or "").strip().lower()
+        backend = str(entry.get("backend") or "").strip().lower()
         if not backend or backend in {"none", "external"}:
             continue
-        reservations.append(deepcopy(mount))
+        reservations.append(deepcopy(entry))
     return reservations
+
+
+def _bound_mount_inventory_reservations():
+    return _bound_inventory_reservations("mount")
+
+
+def _bound_focuser_inventory_reservations():
+    return _bound_inventory_reservations("focuser")
 
 
 @app.route("/api/rigs/devices/refresh", methods=["POST"])
 def api_rig_device_inventory_refresh():
-    """Refresh discovery without reprobeing mounts already owned by workers."""
+    """Refresh INDI/gphoto inventory without reprobeing owned devices."""
     return jsonify(refresh_inventory(
-        reserved_mounts=_bound_mount_inventory_reservations()
+        reserved_mounts=_bound_mount_inventory_reservations(),
+        reserved_focusers=_bound_focuser_inventory_reservations(),
     ))
 
 
