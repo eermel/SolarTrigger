@@ -283,11 +283,19 @@ def test_controls_refresh_only_stops_slew_when_selected_rig_changes():
         "socket.on('connect'",
     )
     assert "activeSlew.rigId !== selectedRigId" in handler
-    assert not re.search(
-        r"controlsrigchange.*?\{\s*stopSlewBestEffort\(\)",
+    assert re.search(
+        r"if\s*\(activeSlew\s*&&\s*activeSlew\.rigId\s*!==\s*selectedRigId\)"
+        r"\s*\{\s*stopSlewBestEffort\(\)\s*;\s*\}",
         handler,
         re.DOTALL,
     )
+
+    # No unconditional STOP is allowed before the guarded rig-change branch.
+    prefix = handler.split(
+        "if (activeSlew && activeSlew.rigId !== selectedRigId)",
+        1,
+    )[0]
+    assert "stopSlewBestEffort()" not in prefix
 
 
 def test_mount_slew_buttons_are_disabled_while_homing():
