@@ -8,6 +8,13 @@ def test_runtime_paths_are_project_local():
     assert runtime_paths.STATE_FILE == (
         runtime_paths.PROJECT_ROOT / "var" / "state" / "state.json"
     )
+    assert runtime_paths.CAMERA_VALIDATION_DIR == (
+        runtime_paths.PROJECT_ROOT
+        / "var"
+        / "generated"
+        / "camera_characterization"
+        / "validation"
+    )
 
 
 def test_ensure_var_layout_recreates_every_directory(tmp_path):
@@ -29,6 +36,7 @@ def test_ensure_var_layout_recreates_every_directory(tmp_path):
         "generated/camera_profiles",
         "generated/camera_timing",
         "generated/camera_characterization",
+        "generated/camera_characterization/validation",
         "logs",
     )
 

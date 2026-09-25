@@ -32,13 +32,15 @@ alink() {
 ensure_shared_layout() {
     local app_group
     local path
+    local validation_dir
     app_group=$(id -gn "$APP_USER")
+    validation_dir="$SHARED_CAMERA_CHARACTERIZATION/validation"
 
     # This helper runs as root while persistent data are writable by APP_USER.
     # Never let a persistent-data symlink redirect privileged filesystem work.
     for path in "$BASE" "$SHARED_VAR" "$SHARED_CAMERA_BASE" \
         "$SHARED_CAMERA_PROFILES" "$SHARED_CAMERA_TIMING" \
-        "$SHARED_CAMERA_CHARACTERIZATION"; do
+        "$SHARED_CAMERA_CHARACTERIZATION" "$validation_dir"; do
         [[ ! -L "$path" ]] || { log "Unsafe persistent-data symlink: $path" >&2; return 1; }
     done
 
@@ -46,11 +48,12 @@ ensure_shared_layout() {
         "$SHARED_VAR" \
         "$SHARED_CAMERA_PROFILES" \
         "$SHARED_CAMERA_TIMING" \
-        "$SHARED_CAMERA_CHARACTERIZATION"
+        "$SHARED_CAMERA_CHARACTERIZATION" \
+        "$validation_dir"
 
     for path in "$BASE" "$SHARED_VAR" "$SHARED_CAMERA_BASE" \
         "$SHARED_CAMERA_PROFILES" "$SHARED_CAMERA_TIMING" \
-        "$SHARED_CAMERA_CHARACTERIZATION"; do
+        "$SHARED_CAMERA_CHARACTERIZATION" "$validation_dir"; do
         [[ -d "$path" && ! -L "$path" ]] || { log "Unsafe persistent-data path: $path" >&2; return 1; }
     done
 
@@ -59,7 +62,8 @@ ensure_shared_layout() {
         "$SHARED_CAMERA_BASE" \
         "$SHARED_CAMERA_PROFILES" \
         "$SHARED_CAMERA_TIMING" \
-        "$SHARED_CAMERA_CHARACTERIZATION"
+        "$SHARED_CAMERA_CHARACTERIZATION" \
+        "$validation_dir"
 }
 
 merge_release_camera_data() {

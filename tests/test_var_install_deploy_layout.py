@@ -28,6 +28,7 @@ def test_installer_creates_complete_var_layout():
         '$VAR_DIR/generated/camera_profiles',
         '$VAR_DIR/generated/camera_timing',
         '$VAR_DIR/generated/camera_characterization',
+        '$VAR_DIR/generated/camera_characterization/validation',
     )
 
     for path in expected:

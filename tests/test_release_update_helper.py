@@ -76,6 +76,15 @@ def test_release_update_does_not_leak_function_destination_and_cleans_stale(tmp_
     history = active / "configs/camera_characterization/history.jsonl"
     history.parent.mkdir(parents=True)
     history.write_text('{"status":"SUCCESS"}\n', encoding="utf-8")
+    validation_report = (
+        active
+        / "configs/camera_characterization/validation/legacy-pass/report.json"
+    )
+    validation_report.parent.mkdir(parents=True)
+    validation_report.write_text(
+        '{"config_type":"camera_validation_report","analysis":{"verdict":"PASS"}}\n',
+        encoding="utf-8",
+    )
 
     releases.mkdir(parents=True)
     stale = releases / ".install-previous-failure-4938"
@@ -132,6 +141,11 @@ def test_release_update_does_not_leak_function_destination_and_cleans_stale(tmp_
     assert (shared / "camera_profiles/user_camera.json").read_text() == legacy_profile.read_text()
     assert (shared / "camera_timing/user_camera.json").read_text() == legacy_timing.read_text()
     assert (shared / "camera_characterization/history.jsonl").read_text() == history.read_text()
+    assert (
+        shared
+        / "camera_characterization/validation/legacy-pass/report.json"
+    ).read_text() == validation_report.read_text()
+    assert (shared / "camera_characterization/validation").is_dir()
     assert (shared / "camera_profiles/reference.json").read_text() == '{"source":"package"}\n'
     assert (shared / "camera_timing/reference.json").read_text() == '{"source":"package"}\n'
 
@@ -265,6 +279,9 @@ def test_user_generated_data_and_characterization_survive_version_switch_and_rol
         '"$ACTIVE/configs/camera_timing/field_camera.json"\n'
         "printf '%s\\n' '{\"status\":\"SUCCESS\"}' >> "
         '"$ACTIVE/configs/camera_characterization/history.jsonl"\n'
+        "mkdir -p \"$ACTIVE/configs/camera_characterization/validation/release-one-pass\"\n"
+        "printf '%s\\n' '{\"analysis\":{\"verdict\":\"PASS\"}}' > "
+        '"$ACTIVE/configs/camera_characterization/validation/release-one-pass/report.json"\n'
         f"install_release {release_two!s}\n"
         "test \"$(readlink -f \"$ACTIVE\")\" = \"$(readlink -f \"$RELEASES/release-two\")\"\n"
         "grep -q 'release-one' \"$ACTIVE/configs/camera_profiles/field_camera.json\"\n"
@@ -274,6 +291,7 @@ def test_user_generated_data_and_characterization_survive_version_switch_and_rol
         "grep -q 'release-one' \"$ACTIVE/configs/camera_profiles/field_camera.json\"\n"
         "grep -q 'measured' \"$ACTIVE/configs/camera_timing/field_camera.json\"\n"
         "grep -q 'SUCCESS' \"$ACTIVE/configs/camera_characterization/history.jsonl\"\n"
+        "grep -q 'PASS' \"$ACTIVE/configs/camera_characterization/validation/release-one-pass/report.json\"\n"
         "grep -q '\"user\":true' \"$ACTIVE/var/generated/photo_cfg/user.json\"\n",
         encoding="utf-8",
     )
@@ -291,4 +309,12 @@ def test_user_generated_data_and_characterization_survive_version_switch_and_rol
     assert (shared / "camera_profiles" / "field_camera.json").is_file()
     assert (shared / "camera_timing" / "field_camera.json").is_file()
     assert (shared / "camera_characterization" / "history.jsonl").is_file()
+    assert (
+        shared
+        / "camera_characterization"
+        / "validation"
+        / "release-one-pass"
+        / "report.json"
+    ).is_file()
+    assert (shared / "camera_characterization" / "validation").is_dir()
     assert (shared / "photo_cfg" / "user.json").is_file()

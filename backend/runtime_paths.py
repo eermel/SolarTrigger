@@ -28,6 +28,7 @@ SEQUENCE_DIR = GENERATED_DIR / "sequence"
 CAMERA_PROFILE_DIR = GENERATED_DIR / "camera_profiles"
 CAMERA_TIMING_DIR = GENERATED_DIR / "camera_timing"
 CAMERA_CHARACTERIZATION_DIR = GENERATED_DIR / "camera_characterization"
+CAMERA_VALIDATION_DIR = CAMERA_CHARACTERIZATION_DIR / "validation"
 
 LOGS_BUFFER_FILE = LOGS_DIR / "logs_buffer.jsonl"
 RIG_TRACES_FILE = LOGS_DIR / "rig_traces.jsonl"
@@ -45,6 +46,7 @@ _VAR_DIRECTORIES = (
     CAMERA_PROFILE_DIR,
     CAMERA_TIMING_DIR,
     CAMERA_CHARACTERIZATION_DIR,
+    CAMERA_VALIDATION_DIR,
     LOGS_DIR,
 )
 
@@ -65,6 +67,7 @@ def ensure_var_layout(var_dir: Path = VAR_DIR) -> None:
         "generated/camera_profiles",
         "generated/camera_timing",
         "generated/camera_characterization",
+        "generated/camera_characterization/validation",
         "logs",
     )
 

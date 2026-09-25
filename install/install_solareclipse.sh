@@ -531,7 +531,8 @@ mkdir -p \
     "$VAR_DIR/generated/sequence" \
     "$VAR_DIR/generated/camera_profiles" \
     "$VAR_DIR/generated/camera_timing" \
-    "$VAR_DIR/generated/camera_characterization"
+    "$VAR_DIR/generated/camera_characterization" \
+    "$VAR_DIR/generated/camera_characterization/validation"
 
 # Scripts strictement nécessaires au runtime.
 RUNTIME_SCRIPTS=(
