@@ -43,7 +43,11 @@ def refresh_inventory(
 
     discovered = {
         "camera": _discover_cameras(),
-        "mount": _discover_mounts(reserved_mounts=reserved_mounts),
+        "mount": (
+            _discover_mounts()
+            if reserved_mounts is None
+            else _discover_mounts(reserved_mounts=reserved_mounts)
+        ),
         "focuser": _discover_focusers(),
     }
     normalized = {
