@@ -95,3 +95,53 @@ def test_catalog_projects_only_current_rig_categories():
     assert [entry["device_name"] for entry in focusers] == ["Focuser A"]
     assert all(entry["pilotable"] is True for entry in mounts + focusers)
     assert IndiDeviceManager.inventory_entries(catalog, "camera") == []
+
+
+def test_inventory_excludes_loaded_driver_without_live_transport(monkeypatch):
+    devices = {
+        "EQMod Mount": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_eqmod_telescope",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/ttyUSB99"},
+        },
+    }
+    monkeypatch.setattr("backend.indi_device_manager.os.path.exists", lambda _p: False)
+
+    manager = IndiDeviceManager(client=FakeClient(devices))
+    catalog = manager.discover()
+
+    assert catalog[0]["present"] is False
+    assert IndiDeviceManager.inventory_entries(catalog, "mount") == []
+
+
+def test_inventory_accepts_any_live_serial_transport_without_chipset_assumption(
+    monkeypatch,
+):
+    devices = {
+        "EQMod Mount": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_eqmod_telescope",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/ttyUSB7"},
+        },
+    }
+    monkeypatch.setattr("backend.indi_device_manager.os.path.exists", lambda _p: True)
+    monkeypatch.setattr(
+        "backend.indi_device_manager._stable_serial_path",
+        lambda _p: "/dev/serial/by-id/usb-arbitrary-controller",
+    )
+
+    manager = IndiDeviceManager(client=FakeClient(devices))
+    catalog = manager.discover()
+    mounts = IndiDeviceManager.inventory_entries(catalog, "mount")
+
+    assert catalog[0]["present"] is True
+    assert mounts[0]["device_name"] == "EQMod Mount"
+    assert mounts[0]["fallback_physical_path"] == (
+        "/dev/serial/by-id/usb-arbitrary-controller"
+    )
