@@ -85,6 +85,8 @@ class FakeMountWorkerRuntime:
 
 
 def _client(monkeypatch, workers):
+    with flask_module._MOUNT_SLEW_GESTURE_LOCK:
+        flask_module._MOUNT_RELEASED_SLEW_GESTURES.clear()
     config = _rig_config()
     runtime = FakeMountWorkerRuntime(workers)
     emitted = []
@@ -149,6 +151,25 @@ def test_mount_routes_dispatch_to_requested_rig(
             {"namespace": "/"},
         )
     ]
+
+
+def test_stop_before_start_same_gesture_never_dispatches_start(monkeypatch):
+    worker = FakeMountWorker(1)
+    client, _runtime, _emitted = _client(monkeypatch, {1: worker})
+
+    stopped = client.post(
+        "/api/rigs/1/mount/slew/stop",
+        json={"gesture_id": "press-1"},
+    )
+    started = client.post(
+        "/api/rigs/1/mount/slew/start",
+        json={"direction": "east", "gesture_id": "press-1"},
+    )
+
+    assert stopped.status_code == 200
+    assert started.status_code == 200
+    assert ("start_slew", ("east",)) not in worker.calls
+    assert worker.calls == [("stop", ()), ("stop", ())]
 
 
 def test_stop_rig1_mount_does_not_affect_rig2(monkeypatch):

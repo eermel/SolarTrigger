@@ -2646,6 +2646,7 @@ socket.on('log_history', lines => {
   let pollTimer = null;
   let slewSpeedValues = null;
   let activeSlew = null;
+  let slewGestureSequence = 0;
 
   function mountUrl(path) {
     const rig = selectedPilotableMountRig();
@@ -2775,11 +2776,37 @@ socket.on('log_history', lines => {
     refreshMount();
   }
 
+  function sendSlewStop(slew) {
+    if (!slew || !slew.stopUrl) return Promise.resolve();
+    return fetch(slew.stopUrl, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({gesture_id: slew.gestureId}),
+    }).catch(() => {});
+  }
+
+  function finalizeReleasedSlew(slew) {
+    if (!slew || !slew.releaseRequested) return;
+    sendSlewStop(slew).finally(() => {
+      if (activeSlew === slew) activeSlew = null;
+    });
+  }
+
   function stopSlewBestEffort() {
-    if (!activeSlew) return;
-    const stopUrl = activeSlew.stopUrl;
-    activeSlew = null;
-    fetch(stopUrl, {method: 'POST'}).catch(() => {});
+    const slew = activeSlew;
+    if (!slew || slew.releaseRequested) return;
+
+    slew.releaseRequested = true;
+
+    // Send one STOP immediately so the server can mark the gesture released
+    // even if this request reaches it before START.
+    sendSlewStop(slew);
+
+    // Send another STOP only after START has settled.  This closes the
+    // short-press race where independent HTTP requests are reordered.
+    Promise.resolve(slew.startPromise).finally(() => {
+      finalizeReleasedSlew(slew);
+    });
   }
 
   function startSlew(event) {
@@ -2787,14 +2814,28 @@ socket.on('log_history', lines => {
     const stopUrl = mountUrl('slew/stop');
     if (!startUrl || !stopUrl || homing || activeSlew) return;
     event.preventDefault();
+
     const button = event.currentTarget;
-    activeSlew = {button, pointerId: event.pointerId, stopUrl};
+    const gestureId = `${Date.now()}-${++slewGestureSequence}`;
+    const slew = {
+      button,
+      pointerId: event.pointerId,
+      stopUrl,
+      gestureId,
+      releaseRequested: false,
+      startPromise: null,
+    };
+    activeSlew = slew;
     button.setPointerCapture(event.pointerId);
-    fetch(startUrl, {
+
+    slew.startPromise = fetch(startUrl, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({direction: button.dataset.direction}),
-    }).catch(() => stopSlewBestEffort());
+      body: JSON.stringify({
+        direction: button.dataset.direction,
+        gesture_id: gestureId,
+      }),
+    }).catch(() => null);
   }
 
   slewButtons.forEach(button => {
@@ -2804,8 +2845,13 @@ socket.on('log_history', lines => {
     button.addEventListener('lostpointercapture', stopSlewBestEffort);
     button.addEventListener('dragstart', event => event.preventDefault());
   });
+  window.addEventListener('pointerup', stopSlewBestEffort, true);
+  window.addEventListener('pointercancel', stopSlewBestEffort, true);
   window.addEventListener('blur', stopSlewBestEffort);
   window.addEventListener('pagehide', stopSlewBestEffort);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopSlewBestEffort();
+  });
 
   homeButton.addEventListener('click', () => {
     postMount(mountUrl(homing ? 'slew/stop' : 'home'));

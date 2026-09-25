@@ -2400,6 +2400,59 @@ def api_rig_mount_speed(rig_id):
     return _rig_mount_emit(rig_id, result)
 
 
+_MOUNT_SLEW_GESTURE_LOCK = threading.Lock()
+_MOUNT_RELEASED_SLEW_GESTURES: dict[tuple[int, str], float] = {}
+_MOUNT_SLEW_GESTURE_TTL_S = 15.0
+
+
+def _mount_slew_gesture_id(payload):
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("gesture_id")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Field 'gesture_id' must be a string.")
+    value = value.strip()
+    if not value or len(value) > 128:
+        raise ValueError("Field 'gesture_id' must contain 1 to 128 characters.")
+    return value
+
+
+def _prune_mount_slew_gestures_locked(now):
+    stale = [
+        key
+        for key, when in _MOUNT_RELEASED_SLEW_GESTURES.items()
+        if now - when > _MOUNT_SLEW_GESTURE_TTL_S
+    ]
+    for key in stale:
+        _MOUNT_RELEASED_SLEW_GESTURES.pop(key, None)
+
+
+def _mark_mount_slew_released(rig_id, gesture_id):
+    if not gesture_id:
+        return
+    now = time.monotonic()
+    with _MOUNT_SLEW_GESTURE_LOCK:
+        _prune_mount_slew_gestures_locked(now)
+        _MOUNT_RELEASED_SLEW_GESTURES[(int(rig_id), gesture_id)] = now
+
+
+def _consume_mount_slew_release(rig_id, gesture_id):
+    if not gesture_id:
+        return False
+    now = time.monotonic()
+    with _MOUNT_SLEW_GESTURE_LOCK:
+        _prune_mount_slew_gestures_locked(now)
+        return (
+            _MOUNT_RELEASED_SLEW_GESTURES.pop(
+                (int(rig_id), gesture_id),
+                None,
+            )
+            is not None
+        )
+
+
 @app.route("/api/rigs/<int:rig_id>/mount/slew/start", methods=["POST"])
 def api_rig_mount_slew_start(rig_id):
     worker, error = _rig_mount_worker(rig_id)
@@ -2416,6 +2469,23 @@ def api_rig_mount_slew_start(rig_id):
             )
         }), 400
     try:
+        gesture_id = _mount_slew_gesture_id(payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    # A very short press can deliver STOP before START through two independent
+    # HTTP requests.  Remember the release and never allow that late START to
+    # reach the hardware.
+    if gesture_id and _consume_mount_slew_release(rig_id, gesture_id):
+        try:
+            result = worker.stop()
+        except IndiClientError as exc:
+            return _rig_mount_error(rig_id, exc)
+        except (ValueError, RuntimeError) as exc:
+            return _rig_mount_error(rig_id, exc)
+        return _rig_mount_emit(rig_id, result)
+
+    try:
         result = worker.start_slew(direction)
     except IndiClientError as exc:
         return _rig_mount_error(rig_id, exc)
@@ -2423,6 +2493,17 @@ def api_rig_mount_slew_start(rig_id):
         if "homing" in str(exc).lower():
             return _rig_mount_error(rig_id, exc, status=409, code="MOUNT_HOMING")
         return _rig_mount_error(rig_id, exc)
+
+    # STOP may have arrived while START was being executed.  In that case,
+    # issue an authoritative STOP again before reporting the command complete.
+    if gesture_id and _consume_mount_slew_release(rig_id, gesture_id):
+        try:
+            result = worker.stop()
+        except IndiClientError as exc:
+            return _rig_mount_error(rig_id, exc)
+        except (ValueError, RuntimeError) as exc:
+            return _rig_mount_error(rig_id, exc)
+
     return _rig_mount_emit(rig_id, result)
 
 
@@ -2446,9 +2527,23 @@ def api_rig_mount_slew_stop(rig_id):
     worker, error = _rig_mount_worker(rig_id)
     if error is not None:
         return error
+
+    payload = request.get_json(silent=True)
+    try:
+        gesture_id = _mount_slew_gesture_id(
+            payload if isinstance(payload, dict) else None
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if gesture_id:
+        _mark_mount_slew_released(rig_id, gesture_id)
+
     try:
         result = worker.stop()
     except IndiClientError as exc:
+        return _rig_mount_error(rig_id, exc)
+    except (ValueError, RuntimeError) as exc:
         return _rig_mount_error(rig_id, exc)
     return _rig_mount_emit(rig_id, result)
 

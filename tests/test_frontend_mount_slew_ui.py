@@ -111,11 +111,9 @@ def test_hold_starts_once_and_all_pointer_end_paths_stop():
             MOUNT_JS,
         )
     assert MOUNT_JS.count("fetch(startUrl") == 1
-    assert re.search(
-        r"fetch\(\s*stopUrl\s*,\s*"
-        r"\{\s*method:\s*['\"]POST['\"]\s*\}\s*\)",
-        MOUNT_JS,
-    )
+    assert "function sendSlewStop(slew)" in MOUNT_JS
+    assert "gesture_id: slew.gestureId" in MOUNT_JS
+    assert "gesture_id: gestureId" in MOUNT_JS
 
 
 def test_slew_has_no_click_command_or_hold_repetition_timer():
@@ -131,17 +129,21 @@ def test_slew_has_no_click_command_or_hold_repetition_timer():
     assert len(re.findall(r"mountUrl\(['\"]slew/start['\"]\)", SLEW_FUNCTIONS)) == 1
 
 
-def test_failed_start_clears_the_only_active_slew_state_and_sends_stop():
+def test_short_press_stop_is_ordered_after_start_and_keeps_release_token():
     assert re.search(r"let\s+activeSlew\s*=\s*null", MOUNT_JS)
+    assert "releaseRequested: false" in MOUNT_JS
+    assert "startPromise: null" in MOUNT_JS
+    assert "slew.releaseRequested = true;" in MOUNT_JS
+    assert "sendSlewStop(slew);" in MOUNT_JS
     assert re.search(
-        r"function\s+stopSlewBestEffort\(\)\s*\{.*?activeSlew\s*=\s*null\s*;.*?"
-        r"fetch\(\s*stopUrl",
+        r"Promise\.resolve\(slew\.startPromise\)\.finally\(\(\)\s*=>\s*\{"
+        r".*?finalizeReleasedSlew\(slew\)",
         MOUNT_JS,
         re.DOTALL,
     )
     assert re.search(
-        r"fetch\(\s*startUrl.*?"
-        r"\.catch\(\s*\(\)\s*=>\s*stopSlewBestEffort\(\)\s*\)",
+        r"finalizeReleasedSlew\(slew\).*?sendSlewStop\(slew\)\.finally"
+        r".*?activeSlew\s*===\s*slew.*?activeSlew\s*=\s*null",
         MOUNT_JS,
         re.DOTALL,
     )
