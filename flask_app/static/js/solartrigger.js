@@ -1156,16 +1156,14 @@ function renderRigDevices(payload, inventoryOverride) {
           && choice.geometry === 'altaz'
         );
 
+        if (assignedRig && assignedRig !== rigId) return;
+
         let label = rigDeviceDisplayLabel(category, choice);
         if (isCurrent && current.present === false) label += ' — expected / not detected';
         if (choice.pilotable === false && !isExternalAltAz) label += ' — not controllable';
-        if (assignedRig && assignedRig !== rigId) label += ` — assigned to RIG ${assignedRig}`;
 
         const optionBinding = isCurrent ? current : choice;
-        const disabled = (
-          (choice.pilotable === false && !isExternalAltAz)
-          || (assignedRig && assignedRig !== rigId)
-        );
+        const disabled = choice.pilotable === false && !isExternalAltAz;
         options.push(`<option value="${escapeDeviceText(encodedRigBinding(optionBinding))}"${disabled ? ' disabled' : ''}>${escapeDeviceText(label)}</option>`);
       });
       const persisted = encodedRigBinding(current);

@@ -81,13 +81,15 @@ def test_rig_device_identity_uses_device_id_for_eaf_and_sdk_devices():
     assert "device.device_id.trim()" in identity
     assert "device_id:" in identity
 
+
+def test_device_assigned_to_another_rig_is_hidden_from_selector():
     renderer_start = HTML.index("function renderRigDevices(")
     renderer_end = HTML.index("async function loadRigDevices", renderer_start)
     renderer = HTML[renderer_start:renderer_end]
 
     assert "const assignedRig = identity ? assignments" in renderer
-    assert "(assignedRig && assignedRig !== rigId)" in renderer
-    assert " disabled" in renderer
+    assert "if (assignedRig && assignedRig !== rigId) return;" in renderer
+    assert "assigned to RIG" not in renderer
 
 
 def test_external_altaz_virtual_mount_is_available():
