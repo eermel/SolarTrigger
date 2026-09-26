@@ -50,11 +50,18 @@ class HeartbeatEmitter:
             fd = None
         return cls(fd)
 
-    def pulse(self, stage: str) -> None:
+    def pulse(self, stage: str, *, timeout_s: float | None = None) -> None:
         if self.fd is None:
             return
         try:
-            text = str(stage).replace("\n", " ").strip() or "tick"
+            text = (
+                str(stage).replace("\n", " ").replace("\t", " ").strip()
+                or "tick"
+            )
+            if timeout_s is not None:
+                value = float(timeout_s)
+                if value > 0.0:
+                    text = f"{text}\t{value:.3f}"
             os.write(self.fd, (text + "\n").encode("utf-8", errors="replace"))
         except (BlockingIOError, BrokenPipeError, OSError):
             # Parent supervision/heartbeat failure must not affect capture.
@@ -127,16 +134,32 @@ class HeartbeatSupervisor:
                 buffer += chunk
                 while b"\n" in buffer:
                     raw, buffer = buffer.split(b"\n", 1)
-                    stage = raw.decode("utf-8", errors="replace").strip() or "tick"
+                    pulse = raw.decode("utf-8", errors="replace").strip() or "tick"
+                    stage, separator, raw_timeout = pulse.partition("\t")
+                    stage = stage.strip() or "tick"
+                    custom_timeout_s = None
+                    if separator:
+                        try:
+                            parsed_timeout = float(raw_timeout)
+                            if parsed_timeout > 0.0:
+                                custom_timeout_s = parsed_timeout
+                        except (TypeError, ValueError):
+                            custom_timeout_s = None
                     with self._lock:
                         self.last_seen = time.monotonic()
                         self.last_stage = stage
-                        stage_timeout = DEFAULT_STAGE_TIMEOUTS_S.get(stage)
-                        self.last_stage_timeout_s = (
-                            None
-                            if stage_timeout is None
-                            else min(self.timeout_s, float(stage_timeout))
-                        )
+                        if custom_timeout_s is not None:
+                            # A capture-specific budget may legitimately exceed
+                            # the generic watchdog timeout. It is derived from
+                            # the characterized PreparedCapture duration.
+                            self.last_stage_timeout_s = custom_timeout_s
+                        else:
+                            stage_timeout = DEFAULT_STAGE_TIMEOUTS_S.get(stage)
+                            self.last_stage_timeout_s = (
+                                None
+                                if stage_timeout is None
+                                else min(self.timeout_s, float(stage_timeout))
+                            )
                     self._pulse_event.set()
         finally:
             try:
@@ -152,7 +175,7 @@ class HeartbeatSupervisor:
             effective_timeout_s = (
                 self.timeout_s
                 if stage_timeout_s is None
-                else min(self.timeout_s, stage_timeout_s)
+                else stage_timeout_s
             )
             poll_interval_s = min(
                 1.0,
@@ -188,7 +211,7 @@ class HeartbeatSupervisor:
             effective_timeout_s = (
                 self.timeout_s
                 if stage_timeout_s is None
-                else min(self.timeout_s, stage_timeout_s)
+                else stage_timeout_s
             )
             if age <= effective_timeout_s:
                 continue
