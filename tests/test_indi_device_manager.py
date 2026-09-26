@@ -333,3 +333,59 @@ def test_mount_transport_probe_keeps_success_connected_and_stops_monitor(
     })
     assert disconnect not in calls
     assert calls[-1] == ("monitor", "stop")
+
+
+
+def test_stale_connected_by_id_transport_is_not_present(monkeypatch):
+    devices = {
+        "LX200 OnStep": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_lx200_OnStep",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {
+                "PORT": "/dev/serial/by-id/usb-unplugged-controller"
+            },
+        },
+    }
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: path != "/dev/serial/by-id/usb-unplugged-controller",
+    )
+
+    manager = IndiDeviceManager(client=FakeClient(devices))
+    catalog = manager.discover()
+
+    assert catalog[0]["connected"] is True
+    assert catalog[0]["present"] is False
+    assert catalog[0]["fallback_physical_path"] is None
+    assert IndiDeviceManager.inventory_entries(catalog, "mount") == []
+
+
+def test_connected_existing_by_id_transport_remains_present(monkeypatch):
+    devices = {
+        "EQMod Mount": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_eqmod_telescope",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {
+                "PORT": "/dev/serial/by-id/usb-existing-controller"
+            },
+        },
+    }
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda _path: True,
+    )
+
+    manager = IndiDeviceManager(client=FakeClient(devices))
+    catalog = manager.discover()
+
+    assert catalog[0]["connected"] is True
+    assert catalog[0]["present"] is True
+    assert catalog[0]["fallback_physical_path"] == (
+        "/dev/serial/by-id/usb-existing-controller"
+    )
