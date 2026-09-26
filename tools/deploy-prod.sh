@@ -23,12 +23,12 @@ remote_helper_supports_dev_prepare() {
 }
 
 bootstrap_remote_helper() {
-    local remote_tmp="/tmp/solartrigger-release-update.$"
+    local remote_tmp="/tmp/solartrigger-release-update.$BASHPID"
     local local_hash
     local remote_hash
 
-    local_hash="$(sha256sum "$SRC/install/solartrigger-release-update" | awk '{print $1}')"
-    remote_hash="$(ssh "$DST_HOST" "sha256sum '$REMOTE_HELPER' 2>/dev/null | awk '{print \\$1}'" || true)"
+    local_hash="$(sha256sum "$SRC/install/solartrigger-release-update" | cut -d ' ' -f1)"
+    remote_hash="$(ssh "$DST_HOST" "sha256sum '$REMOTE_HELPER' 2>/dev/null | cut -d ' ' -f1" || true)"
 
     if [[ "$remote_hash" == "$local_hash" ]] && remote_helper_supports_dev_prepare; then
         return 0
@@ -42,7 +42,7 @@ bootstrap_remote_helper() {
     ssh -t "$DST_HOST" \
         "sudo install -o root -g root -m 0755 '$remote_tmp' '$REMOTE_HELPER' && rm -f '$remote_tmp'"
 
-    remote_hash="$(ssh "$DST_HOST" "sha256sum '$REMOTE_HELPER' 2>/dev/null | awk '{print \\$1}'" || true)"
+    remote_hash="$(ssh "$DST_HOST" "sha256sum '$REMOTE_HELPER' 2>/dev/null | cut -d ' ' -f1" || true)"
     if [[ "$remote_hash" != "$local_hash" ]]; then
         echo "ERROR: remote release helper does not match the current source." >&2
         exit 1
