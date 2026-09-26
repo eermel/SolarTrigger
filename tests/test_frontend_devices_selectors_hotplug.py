@@ -155,7 +155,7 @@ def test_devices_poll_usb_presence_every_second_and_refresh_only_on_change():
     assert "/api/rigs/devices/usb-presence" in poll
     assert "deviceUsbPresencePollInFlight || deviceAutoRefreshInFlight" in poll
     assert "if (signature === deviceUsbPresenceSignature) return;" in poll
-    assert "await refreshRigDevices(true);" in poll
+    assert "await refreshRigDevices(true, false);" in poll
 
     auto_refresh = _function("startDeviceAutoRefresh")
     assert "if (deviceAutoRefreshTimer !== null) return;" in auto_refresh
@@ -163,7 +163,7 @@ def test_devices_poll_usb_presence_every_second_and_refresh_only_on_change():
     assert "deviceAutoRefreshTimer = setInterval" in auto_refresh
     assert "DEVICE_AUTO_REFRESH_INTERVAL_MS" in auto_refresh
     assert "setInterval" in auto_refresh
-    assert "refreshRigDevices(true)" not in auto_refresh
+    assert "refreshRigDevices(true, false)" not in auto_refresh
 
     assert "loadRigDevices();\nstartDeviceAutoRefresh();" in INDEX_HTML
 
