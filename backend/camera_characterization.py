@@ -723,6 +723,15 @@ def characterize(camera, entry, job):
             }
 
         def write_and_confirm(candidate, node, value):
+            # Persist the exact native operation before entering libgphoto2.
+            # If the isolated worker crashes, the parent-side checkpoint still
+            # identifies the setting/primitive that was in flight.
+            job.checkpoint(
+                phase="setting_set_single_config",
+                setting=key,
+                path=candidate["path"],
+                target=str(value),
+            )
             # Timed portion is SET-only. Readback happens afterwards and is
             # characterization evidence, never part of the runtime path.
             started = time.monotonic()
@@ -776,6 +785,12 @@ def characterize(camera, entry, job):
                     # readback. New runtime profiles therefore never need a
                     # configuration GET to perform a SET.
                     try:
+                        job.checkpoint(
+                            phase="setting_get_single_config",
+                            setting=key,
+                            path=candidate["path"],
+                            target=str(target),
+                        )
                         node = prime_single_config(camera, direct_spec(candidate))
                     except Exception as exc:
                         ev.failures.append(f"direct writer prime: {exc}")
