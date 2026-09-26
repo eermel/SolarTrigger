@@ -173,3 +173,110 @@ def test_connected_mount_keeps_stable_transport_without_chipset_assumption(
         "/dev/serial/by-id/usb-arbitrary-controller"
     )
 
+
+
+def test_mount_autoconnect_tries_stable_transports_and_stops_on_success(
+    monkeypatch,
+):
+    devices = {
+        "EQMod Mount": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_eqmod_telescope",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/ttyUSB0"},
+        },
+    }
+    manager = IndiDeviceManager(client=FakeClient(devices))
+    monkeypatch.setattr(
+        manager,
+        "_serial_candidates",
+        lambda: ["/dev/serial/by-id/A", "/dev/serial/by-id/B"],
+    )
+    attempts = []
+
+    def fake_probe(device_name, candidate, **_kwargs):
+        attempts.append((device_name, candidate))
+        return candidate.endswith("/B")
+
+    monkeypatch.setattr(manager, "_probe_mount_transport", fake_probe)
+
+    assert manager._autoconnect_mounts(devices) is True
+    assert attempts == [
+        ("EQMod Mount", "/dev/serial/by-id/A"),
+        ("EQMod Mount", "/dev/serial/by-id/B"),
+    ]
+
+
+def test_mount_autoconnect_never_reuses_transport_claimed_by_connected_mount(
+    monkeypatch,
+):
+    devices = {
+        "Mount A": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "On"},
+            "DEVICE_PORT": {"PORT": "/dev/ttyUSB1"},
+        },
+        "Mount B": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/ttyUSB0"},
+        },
+    }
+    manager = IndiDeviceManager(client=FakeClient(devices))
+    monkeypatch.setattr(
+        manager,
+        "_serial_candidates",
+        lambda: ["/dev/serial/by-id/A", "/dev/serial/by-id/B"],
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager._stable_serial_path",
+        lambda port: "/dev/serial/by-id/A" if port == "/dev/ttyUSB1" else None,
+    )
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_probe_mount_transport",
+        lambda device, candidate, **_kwargs: attempts.append(
+            (device, candidate)
+        ) or False,
+    )
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert attempts == [("Mount B", "/dev/serial/by-id/B")]
+
+
+def test_mount_transport_probe_disconnects_failed_candidate(monkeypatch):
+    calls = []
+
+    class ProbeClient:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs["device"]))
+
+        def set_props(self, assignments):
+            calls.append(("set", assignments))
+
+        def get_props(self, patterns):
+            calls.append(("get", tuple(patterns)))
+            return {"CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}}
+
+    monkeypatch.setattr(
+        "backend.indi_device_manager.IndiSubprocessClient",
+        ProbeClient,
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.time.monotonic",
+        iter([0.0, 4.0]).__next__,
+    )
+
+    manager = IndiDeviceManager(client=FakeClient({}))
+    assert manager._probe_mount_transport(
+        "EQMod Mount",
+        "/dev/serial/by-id/test",
+        timeout_s=3.0,
+    ) is False
+
+    assert ("set", {
+        "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}
+    }) in calls
