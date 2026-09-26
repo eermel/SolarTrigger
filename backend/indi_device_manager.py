@@ -688,7 +688,7 @@ class IndiDeviceManager:
     def _disable_tracking_on_detected_mounts(
         self,
         devices: Mapping[str, Mapping[str, Mapping[str, Any]]],
-    ) -> None:
+    ) -> bool:
         """Force tracking OFF as soon as a connected mount is detected.
 
         Discovery is a safety boundary: a mount may have retained tracking
@@ -696,6 +696,7 @@ class IndiDeviceManager:
         mounts that explicitly advertise TELESCOPE_TRACK_STATE are touched.
         Already-stopped mounts generate no write.
         """
+        changed = False
         for device_name in sorted(devices):
             properties = devices.get(device_name)
             if not isinstance(properties, Mapping):
@@ -726,26 +727,27 @@ class IndiDeviceManager:
                         "TELESCOPE_TRACK_STATE",
                         {"TRACK_ON": "Off", "TRACK_OFF": "On"},
                     )
-                    session.wait_for(
+                    changed = session.wait_for(
                         "TELESCOPE_TRACK_STATE",
                         "TRACK_ON",
                         {"Off", "false", "0"},
                         max(self.timeout_s, 1.0),
-                    )
+                    ) or changed
             except Exception:
                 # Discovery must remain available even if a driver disappears
                 # between the snapshot and this safety write. Runtime connect
                 # enforces the same invariant before publishing connected.
                 continue
+        return changed
 
     def discover(self) -> list[dict[str, Any]]:
         devices = self.client.get_all_devices()
         if self._autoconnect_mounts(devices):
             devices = self.client.get_all_devices()
-        self._disable_tracking_on_detected_mounts(devices)
-        # Refresh after a safety write so the published catalogue reflects
-        # the driver's actual post-detection state.
-        devices = self.client.get_all_devices()
+        if self._disable_tracking_on_detected_mounts(devices):
+            # Refresh only after a real safety state transition; ordinary
+            # discovery keeps its previous snapshot count/latency.
+            devices = self.client.get_all_devices()
         result = []
         for device_name in sorted(devices):
             properties = devices.get(device_name)
