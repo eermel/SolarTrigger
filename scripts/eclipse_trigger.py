@@ -147,16 +147,20 @@ def _capture_watchdog_timeout_s(
     """Budget one synchronous prepared capture without masking real hangs."""
     floor_s = float(DEFAULT_STAGE_TIMEOUTS_S["capture.begin"])
     estimate = getattr(prepared, "estimated_total_s", None)
+    known_wait_s = max(0.0, float(wait_s))
     if (
         isinstance(estimate, bool)
         or not isinstance(estimate, (int, float))
         or not isfinite(float(estimate))
         or float(estimate) < 0.0
     ):
-        return floor_s
+        return max(
+            floor_s,
+            known_wait_s + CAPTURE_WATCHDOG_MARGIN_S,
+        )
     return max(
         floor_s,
-        max(0.0, float(wait_s))
+        known_wait_s
         + float(estimate)
         + CAPTURE_WATCHDOG_MARGIN_S,
     )
