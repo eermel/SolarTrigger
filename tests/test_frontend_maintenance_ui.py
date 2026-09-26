@@ -187,7 +187,8 @@ def test_system_update_has_no_apt_explanatory_text():
 
 def test_system_camera_group_contains_camera_workflow():
     source = frontend_source()
-    assert 'class="system-camera-group"' in source
+    assert 'class="system-section system-camera-group"' in source
+    assert 'data-system-section="camera"' in source
     assert 'class="system-camera-group-title">Camera</div>' in source
     group_start = source.index('class="system-camera-group"')
     persistent_start = source.index('<div class="card-title">Persistent data</div>')
