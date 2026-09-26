@@ -133,6 +133,7 @@ required=(
     "$SRC/Sounds"
     "$SRC/configs"
     "$SRC/install/install_standalone_runtime_service.sh"
+    "$SRC/install/install_zwo_eaf_hid.sh"
 )
 
 for path in "${required[@]}"; do
@@ -281,15 +282,18 @@ rsync "${RSYNC_OPTS[@]}" --delete \
 ensure_camera_persistent_links
 
 echo
-echo "=== system migration script (copied, never executed automatically) ==="
+echo "=== system helpers (copied, never executed automatically) ==="
 if [[ "$DRY_RUN" -eq 1 ]]; then
-    echo "Would copy install/install_standalone_runtime_service.sh"
+    echo "Would copy install/install_standalone_runtime_service.sh and install/install_zwo_eaf_hid.sh"
 else
     ssh "$DST_HOST" "mkdir -p '$DST/install'"
 fi
 rsync "${RSYNC_OPTS[@]}" \
     "$SRC/install/install_standalone_runtime_service.sh" \
     "$DST_HOST:$DST/install/install_standalone_runtime_service.sh"
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/install/install_zwo_eaf_hid.sh" \
+    "$DST_HOST:$DST/install/install_zwo_eaf_hid.sh"
 
 echo
 echo "=== preserved camera characterization data ==="
