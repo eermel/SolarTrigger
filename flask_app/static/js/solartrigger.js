@@ -1061,7 +1061,11 @@ function rigDeviceIdentity(device) {
 
 function persistedRigBinding(device) {
   if (!device) return null;
-  const runtimeFields = new Set(['present', 'pilotable', 'display_label', 'transport_locator', 'busnum', 'devnum']);
+  const runtimeFields = new Set([
+    'present', 'pilotable', 'display_label', 'transport_locator',
+    'busnum', 'devnum', 'connected', 'categories',
+    'driver_interface', 'driver_name', 'driver_version'
+  ]);
   return Object.fromEntries(Object.entries(device).filter(([key]) => !runtimeFields.has(key)));
 }
 
@@ -1690,65 +1694,43 @@ const cameraAddLogState = {
   clearedCharacterizationResult: '',
 };
 
+function cameraLogLineClass(line) {
+  const text = String(line || '');
+  if (/\b(SUCCESS|PASS|PASSED|COMPLETED SUCCESSFULLY)\b/i.test(text)) return 'camera-log-success';
+  if (/\b(ERROR|FAILED|FAIL|TIMEOUT|CANCELLED)\b/i.test(text)) return 'camera-log-error';
+  return '';
+}
+
 function renderCameraAddLog() {
   const log = document.getElementById('camera-add-log');
   if (!log) return;
-
-  const sections = [];
-  const characterization = cameraAddLogState.characterization.slice(
-    cameraAddLogState.characterizationOffset
-  );
-  const validation = cameraAddLogState.validation.slice(
-    cameraAddLogState.validationOffset
-  );
-
-  const result = (
-    cameraAddLogState.characterizationResult &&
-    cameraAddLogState.characterizationResult !==
-      cameraAddLogState.clearedCharacterizationResult
-  )
-    ? cameraAddLogState.characterizationResult
-    : '';
-
-  if (characterization.length || result) {
-    sections.push(
-      ['=== CAMERA CHARACTERIZATION ===', ...characterization, result]
-        .filter(Boolean)
-        .join('\n')
-    );
-  }
-
-  if (validation.length) {
-    sections.push(
-      ['=== CAMERA VALIDATION ===', ...validation].join('\n')
-    );
-  }
-
-  const systemUpdate = cameraAddLogState.systemUpdate.slice(
-    cameraAddLogState.systemUpdateOffset
-  );
-
-  if (systemUpdate.length) {
-    sections.push(
-      ['=== UPDATE SYSTEM ===', ...systemUpdate].join('\n')
-    );
-  }
-
-  const solarTriggerUpdate = cameraAddLogState.solarTriggerUpdate.slice(
-    cameraAddLogState.solarTriggerUpdateOffset
-  );
-
-  if (solarTriggerUpdate.length) {
-    sections.push(
-      [
-        '=== UPDATE SOLAR ECLIPSE TRIGGER ===',
-        ...solarTriggerUpdate
-      ].join('\n')
-    );
-  }
-
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
-  log.textContent = sections.join('\n\n');
+  const sections = [];
+  const add = (title, values) => {
+    const lines = (values || []).filter(Boolean).map(String);
+    if (lines.length) sections.push([title, ...lines]);
+  };
+  const characterization = cameraAddLogState.characterization.slice(cameraAddLogState.characterizationOffset);
+  const validation = cameraAddLogState.validation.slice(cameraAddLogState.validationOffset);
+  const result = cameraAddLogState.characterizationResult &&
+    cameraAddLogState.characterizationResult !== cameraAddLogState.clearedCharacterizationResult
+      ? cameraAddLogState.characterizationResult : '';
+  add('=== CAMERA CHARACTERIZATION ===', [...characterization, result]);
+  add('=== CAMERA VALIDATION ===', validation);
+  add('=== UPDATE SYSTEM ===', cameraAddLogState.systemUpdate.slice(cameraAddLogState.systemUpdateOffset));
+  add('=== UPDATE SOLAR ECLIPSE TRIGGER ===', cameraAddLogState.solarTriggerUpdate.slice(cameraAddLogState.solarTriggerUpdateOffset));
+
+  log.replaceChildren();
+  sections.forEach((section, sectionIndex) => {
+    section.forEach((line, lineIndex) => {
+      const span = document.createElement('span');
+      span.textContent = line;
+      if (lineIndex > 0) span.className = cameraLogLineClass(line);
+      log.appendChild(span);
+      log.appendChild(document.createTextNode('\n'));
+    });
+    if (sectionIndex < sections.length - 1) log.appendChild(document.createTextNode('\n'));
+  });
   if (atBottom) log.scrollTop = log.scrollHeight;
 }
 
@@ -1798,66 +1780,35 @@ let cameraCharacterizationQuestion = null;
 let cameraCharacterizationPolling = false;
 let cameraCharacterizationStarting = false;
 let cameraCharacterizationStartingMessage = '';
+let cameraQualificationLocator = '';
+let cameraQualificationAutoValidationJob = '';
 
 function renderCameraCharacterizationStatus(status) {
   const select = document.getElementById('camera-characterization-select');
   if (!select) return;
 
-  if (Array.isArray(status.candidates)) {
+  if (Array.isArray(status.qualification_candidates)) {
     const selected = select.value;
     select.replaceChildren();
-    for (const entry of status.candidates) {
+    for (const entry of status.qualification_candidates) {
       const option = document.createElement('option');
-      option.value = entry.transport_locator;
-      option.textContent = `${entry.model}${entry.serial ? ' · ' + entry.serial : ''}`;
+      option.value = entry.transport_locator || '';
+      option.dataset.characterized = entry.characterized ? '1' : '0';
+      const label = entry.display_label || entry.model || option.value;
+      option.textContent = entry.characterized ? label : `NEW · ${label}`;
+      if (!entry.characterized) option.classList.add('camera-new-option');
       select.appendChild(option);
     }
-    if ([...select.options].some(option => option.value === selected)) {
-      select.value = selected;
-    }
+    if ([...select.options].some(option => option.value === selected)) select.value = selected;
   }
 
-  const characterizationBusy =
-    Boolean(status.running) || cameraCharacterizationStarting;
-  select.disabled = characterizationBusy;
+  const characterizationBusy = Boolean(status.running) || cameraCharacterizationStarting;
+  const validationBusy = Boolean(window.cameraValidationRunning) || cameraValidationStarting;
+  select.disabled = characterizationBusy || validationBusy;
   document.getElementById('camera-characterization-start').disabled =
-    characterizationBusy || !select.options.length;
+    characterizationBusy || validationBusy || !select.options.length;
   document.getElementById('camera-characterization-cancel').disabled =
-    !status.running;
-
-  const recharacterizationSelect =
-    document.getElementById('camera-recharacterization-select');
-  const recharacterizationButton =
-    document.getElementById('camera-recharacterization-start');
-  if (recharacterizationSelect && Array.isArray(status.recharacterization_candidates)) {
-    const previous = recharacterizationSelect.value;
-    recharacterizationSelect.innerHTML =
-      '<option value="">— Characterized camera —</option>';
-    status.recharacterization_candidates.forEach(camera => {
-      const option = document.createElement('option');
-      option.value = camera.transport_locator || '';
-      option.textContent =
-        camera.display_label || camera.model || option.value;
-      option.selected = option.value === previous;
-      recharacterizationSelect.appendChild(option);
-    });
-  }
-  if (recharacterizationSelect) {
-    recharacterizationSelect.disabled = characterizationBusy;
-    recharacterizationSelect.onchange = () => {
-      if (recharacterizationButton) {
-        recharacterizationButton.disabled =
-          recharacterizationSelect.disabled ||
-          !recharacterizationSelect.value;
-      }
-    };
-  }
-  if (recharacterizationButton) {
-    recharacterizationButton.disabled =
-      characterizationBusy ||
-      !recharacterizationSelect ||
-      !recharacterizationSelect.value;
-  }
+    !status.running && !window.cameraValidationRunning;
 
   const characterizationLogs = Array.isArray(status.logs)
     ? status.logs.slice()
@@ -1891,10 +1842,28 @@ function renderCameraCharacterizationStatus(status) {
   questionPanel.style.gap = '8px';
   document.getElementById('camera-characterization-prompt').style.gridColumn = '1 / -1';
 
-  if (status.inventory_reclassified) {
-    // Profile publication only reclassifies the existing cache.  Refresh the
-    // validation selector once, without performing another hardware discovery.
-    void pollCameraValidation();
+  const resultStatus = status.result && status.result.status;
+  if (!status.running && status.job_id && cameraQualificationLocator &&
+      (resultStatus === 'SUCCESS' || resultStatus === 'PARTIAL') &&
+      cameraQualificationAutoValidationJob !== status.job_id) {
+    cameraQualificationAutoValidationJob = status.job_id;
+    void startAutomaticCameraValidation(cameraQualificationLocator);
+  }
+}
+
+async function cameraJsonResponse(response, context) {
+  const contentType = response.headers.get('content-type') || '';
+  const body = await response.text();
+  if (!contentType.includes('application/json')) {
+    const clean = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+    throw new Error(clean
+      ? `${context}: HTTP ${response.status}: ${clean}`
+      : `${context}: HTTP ${response.status}: empty non-JSON response`);
+  }
+  try {
+    return JSON.parse(body);
+  } catch (error) {
+    throw new Error(`${context}: invalid JSON response (HTTP ${response.status}): ${error.message}`);
   }
 }
 
@@ -1903,8 +1872,9 @@ async function pollCameraCharacterization() {
   cameraCharacterizationPolling = true;
   try {
     const response = await fetch('/api/camera-characterization');
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    renderCameraCharacterizationStatus(await response.json());
+    const data = await cameraJsonResponse(response, 'Characterization status');
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    renderCameraCharacterizationStatus(data);
   } catch (error) {
     updateCameraAddLog(
       'characterization',
@@ -1921,7 +1891,7 @@ async function characterizationRequest(action, payload = {}) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload)
   });
-  const data = await response.json();
+  const data = await cameraJsonResponse(response, `Camera characterization ${action}`);
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
 }
@@ -1930,31 +1900,48 @@ async function startCameraCharacterization() {
   const button = document.getElementById('camera-characterization-start');
   const select = document.getElementById('camera-characterization-select');
   const locator = select ? select.value : '';
+  const option = select && select.selectedOptions ? select.selectedOptions[0] : null;
+  const characterized = Boolean(option && option.dataset.characterized === '1');
+  if (!locator) {
+    flash('Select a connected camera first.', 'red');
+    return;
+  }
+  cameraQualificationLocator = locator;
+  cameraQualificationAutoValidationJob = '';
+  cameraAddLogState.characterization = [];
+  cameraAddLogState.validation = [];
+  cameraAddLogState.characterizationOffset = 0;
+  cameraAddLogState.validationOffset = 0;
+  cameraAddLogState.characterizationResult = '';
+  renderCameraAddLog();
 
   cameraCharacterizationStarting = true;
-  cameraCharacterizationStartingMessage =
-    'Starting camera characterization…';
+  cameraCharacterizationStartingMessage = characterized
+    ? 'Starting camera re-characterization…'
+    : 'Starting camera characterization…';
   if (button) button.disabled = true;
   if (select) select.disabled = true;
-  appendCameraAddLogLine(
-    'characterization',
-    cameraCharacterizationStartingMessage
-  );
-
+  appendCameraAddLogLine('characterization', cameraCharacterizationStartingMessage);
   await waitForBrowserPaint();
 
   try {
-    await characterizationRequest('start', {locator});
+    await characterizationRequest(characterized ? 'recharacterize' : 'start', {locator});
   } catch (error) {
     cameraCharacterizationStarting = false;
     cameraCharacterizationStartingMessage = '';
     if (select) select.disabled = false;
-    if (button) button.disabled = !locator;
+    if (button) button.disabled = false;
+    appendCameraAddLogLine('characterization', `FAILED: ${error.message}`);
     flash(error.message, 'red');
     return;
   }
   cameraCharacterizationStarting = false;
   cameraCharacterizationStartingMessage = '';
+}
+
+async function cancelCameraQualification() {
+  if (window.cameraValidationRunning) return cancelCameraValidation();
+  return cancelCameraCharacterization();
 }
 
 async function cancelCameraCharacterization() {
@@ -6308,49 +6295,20 @@ function formatValidationDuration(seconds) {
 }
 
 function renderCameraValidationStatus(status) {
-  const select = document.getElementById('camera-validation-select');
-  const start = document.getElementById('camera-validation-start');
-  const cancel = document.getElementById('camera-validation-cancel');
   const summary = document.getElementById('camera-validation-summary');
   const question = document.getElementById('camera-validation-question');
   const prompt = document.getElementById('camera-validation-prompt');
   const deleteButton = document.getElementById('camera-validation-delete-files');
+  if (!summary || !question || !prompt || !deleteButton) return;
 
-  if (!select || !start || !cancel || !summary || !question || !prompt || !deleteButton) return;
-
-  if (Array.isArray(status.candidates)) {
-    const current = select.value;
-    select.innerHTML = '<option value="">— Characterized camera —</option>';
-    status.candidates.forEach(camera => {
-      const option = document.createElement('option');
-      option.value = camera.transport_locator || '';
-      option.textContent = camera.display_label || camera.model || camera.backend || 'Camera';
-      if (option.value === current) option.selected = true;
-      select.appendChild(option);
-    });
-  }
-
-  const validationBusy =
-    Boolean(status.running) || cameraValidationStarting;
-  start.disabled = validationBusy || !select.value;
-  select.disabled = validationBusy;
-  select.onchange = () => {
-    start.disabled = select.disabled || !select.value;
-  };
-  cancel.disabled = !status.running;
-  const validationLogs = Array.isArray(status.logs)
-    ? status.logs.slice()
-    : [];
-  if (
-    cameraValidationStarting
-    && cameraValidationStartingMessage
-    && !validationLogs.includes(cameraValidationStartingMessage)
-  ) {
+  window.cameraValidationRunning = Boolean(status.running);
+  const validationLogs = Array.isArray(status.logs) ? status.logs.slice() : [];
+  if (cameraValidationStarting && cameraValidationStartingMessage &&
+      !validationLogs.includes(cameraValidationStartingMessage)) {
     validationLogs.unshift(cameraValidationStartingMessage);
   }
   updateCameraAddLog('validation', validationLogs);
 
-  const prepared = status.prepared;
   const result = status.result;
   if (status.running) {
     summary.textContent = `Validation running — phase: ${status.phase || 'running'}`;
@@ -6358,26 +6316,34 @@ function renderCameraValidationStatus(status) {
     const analysis = result.analysis;
     const timing = analysis.timing || {};
     const timingText = Number.isFinite(timing.stddev_ms)
-      ? ` · σ=${timing.stddev_ms.toFixed(1)} ms · max|Δ|=${Number(timing.max_abs_ms || 0).toFixed(1)} ms`
-      : '';
+      ? ` · σ=${timing.stddev_ms.toFixed(1)} ms · max|Δ|=${Number(timing.max_abs_ms || 0).toFixed(1)} ms` : '';
     const countText = analysis.actual_count_complete === false
       ? `${analysis.confirmed_photos}/${analysis.expected_photos} confirmed minimum`
       : `${analysis.confirmed_photos}/${analysis.expected_photos} confirmed`;
     summary.textContent = `${analysis.verdict} — ${countText}${timingText}`;
-  } else if (prepared) {
-    summary.textContent = `${prepared.expected_photos} photos · ${formatValidationDuration(prepared.estimated_duration_s)} estimated`;
+    if (!validationLogs.some(line => /\b(PASS|FAIL)\b/i.test(String(line)))) {
+      appendCameraAddLogLine('validation', `${analysis.verdict}: ${countText}${timingText}`);
+    }
   } else {
-    summary.textContent = 'Prepare a deterministic real-camera validation run.';
+    summary.textContent = '';
   }
 
   const q = status.question;
   cameraValidationQuestionId = q ? q.id : null;
   question.hidden = !q;
   prompt.textContent = q ? q.message : '';
-
   const fail = Boolean(result && result.analysis && result.analysis.verdict === 'FAIL');
   deleteButton.hidden = !fail;
   if (result && result.validation_id) cameraValidationLastResultId = result.validation_id;
+
+  const cancel = document.getElementById('camera-characterization-cancel');
+  if (cancel) cancel.disabled = !status.running;
+  const select = document.getElementById('camera-characterization-select');
+  const start = document.getElementById('camera-characterization-start');
+  if (!status.running && !cameraCharacterizationStarting) {
+    if (select) select.disabled = false;
+    if (start) start.disabled = !select || !select.options.length;
+  }
 }
 
 async function pollCameraValidation() {
@@ -6385,7 +6351,7 @@ async function pollCameraValidation() {
   cameraValidationPolling = true;
   try {
     const response = await fetch('/api/camera-validation');
-    const status = await response.json();
+    const status = await cameraJsonResponse(response, 'Camera validation status');
     if (!response.ok) throw new Error(status.error || `HTTP ${response.status}`);
     renderCameraValidationStatus(status);
   } catch (error) {
@@ -6393,6 +6359,35 @@ async function pollCameraValidation() {
     if (summary) summary.textContent = `Validation status unavailable: ${error.message}`;
   } finally {
     cameraValidationPolling = false;
+  }
+}
+
+async function startAutomaticCameraValidation(locator) {
+  cameraValidationStarting = true;
+  cameraValidationStartingMessage = 'Characterization successful — starting camera validation automatically…';
+  appendCameraAddLogLine('validation', cameraValidationStartingMessage);
+  try {
+    const response = await fetch('/api/camera-validation/prepare', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({locator}),
+    });
+    const prepared = await cameraJsonResponse(response, 'Camera validation prepare');
+    if (!response.ok) throw new Error(prepared.error || `HTTP ${response.status}`);
+    const startResponse = await fetch('/api/camera-validation/start', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({token: prepared.token}),
+    });
+    const started = await cameraJsonResponse(startResponse, 'Camera validation start');
+    if (!startResponse.ok) throw new Error(started.error || `HTTP ${startResponse.status}`);
+    appendCameraAddLogLine('validation', `SUCCESS: Validation started — ${prepared.expected_photos} photos expected`);
+    flash(`Camera validation started — ${prepared.expected_photos} photos expected`, 'green');
+  } catch (error) {
+    appendCameraAddLogLine('validation', `FAILED: Automatic validation: ${error.message}`);
+    flash(`Camera validation: ${error.message}`, 'red');
+  } finally {
+    cameraValidationStarting = false;
+    cameraValidationStartingMessage = '';
+    await pollCameraValidation();
   }
 }
 
@@ -6420,7 +6415,7 @@ async function prepareCameraValidation() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({locator: select.value}),
     });
-    const prepared = await response.json();
+    const prepared = await cameraJsonResponse(response, 'Camera validation prepare');
     if (!response.ok) throw new Error(prepared.error || `HTTP ${response.status}`);
 
     const bracketText = Array.isArray(prepared.supported_bracket_frames) && prepared.supported_bracket_frames.length
@@ -6449,7 +6444,7 @@ async function prepareCameraValidation() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({token: prepared.token}),
     });
-    const started = await startResponse.json();
+    const started = await cameraJsonResponse(startResponse, 'Camera validation start');
     if (!startResponse.ok) throw new Error(started.error || `HTTP ${startResponse.status}`);
     flash(`Camera validation started — ${prepared.expected_photos} photos expected`, 'green');
     await pollCameraValidation();
@@ -6466,7 +6461,7 @@ async function prepareCameraValidation() {
 async function cancelCameraValidation() {
   try {
     const response = await fetch('/api/camera-validation/cancel', {method: 'POST'});
-    const data = await response.json();
+    const data = await cameraJsonResponse(response, 'Camera validation cancel');
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     await pollCameraValidation();
   } catch (error) {
@@ -6482,7 +6477,7 @@ async function answerCameraValidation(outcome) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({question_id: cameraValidationQuestionId, outcome}),
     });
-    const data = await response.json();
+    const data = await cameraJsonResponse(response, 'Camera validation answer');
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     cameraValidationQuestionId = null;
     await pollCameraValidation();

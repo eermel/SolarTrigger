@@ -80,6 +80,56 @@ def test_get_props_preserves_qualified_pattern_and_value_delimiters(monkeypatch)
     assert props == {"DEVICE_PORT": {"PORT": "/dev/serial/by-id/a=b"}}
 
 
+def test_get_all_devices_uses_one_bounded_catalogue_snapshot(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        raise subprocess.TimeoutExpired(
+            command,
+            kwargs["timeout"],
+            output=(
+                b"Mount A.DRIVER_INFO.DRIVER_INTERFACE=1\n"
+                b"Mount A.CONNECTION.CONNECT=Off\n"
+                b"Mount A.DEVICE_PORT.PORT=/dev/ttyUSB0\n"
+                b"Focuser A.DRIVER_INFO.DRIVER_INTERFACE=8\n"
+            ),
+        )
+
+    monkeypatch.setattr("plugins.mount.indi_client.subprocess.run", fake_run)
+
+    devices = IndiSubprocessClient(
+        host="indi.local",
+        port=8765,
+        timeout_s=2.0,
+    ).get_all_devices()
+
+    assert len(calls) == 1
+    command, kwargs = calls[0]
+    assert command == ["indi_getprop", "-h", "indi.local", "-p", "8765"]
+    assert kwargs["timeout"] == 5.0
+    assert devices["Mount A"]["DRIVER_INFO"]["DRIVER_INTERFACE"] == "1"
+    assert devices["Mount A"]["CONNECTION"]["CONNECT"] == "Off"
+    assert devices["Mount A"]["DEVICE_PORT"]["PORT"] == "/dev/ttyUSB0"
+    assert devices["Focuser A"]["DRIVER_INFO"]["DRIVER_INTERFACE"] == "8"
+
+
+def test_get_all_devices_preserves_longer_configured_timeout(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return completed(stdout="Mount A.DRIVER_INFO.DRIVER_INTERFACE=1\n")
+
+    monkeypatch.setattr("plugins.mount.indi_client.subprocess.run", fake_run)
+
+    devices = IndiSubprocessClient(timeout_s=7.0).get_all_devices()
+
+    assert len(calls) == 1
+    assert calls[0][1]["timeout"] == 7.0
+    assert devices["Mount A"]["DRIVER_INFO"]["DRIVER_INTERFACE"] == "1"
+
+
 def test_set_props_builds_assignment_arguments(monkeypatch):
     commands = []
     monkeypatch.setattr(
@@ -115,6 +165,42 @@ def test_timeout_is_structured(monkeypatch):
 
     assert raised.value.code == "TIMEOUT"
     assert raised.value.command[0] == "indi_getprop"
+    assert raised.value.stderr == "late"
+
+
+def test_getprop_timeout_with_snapshot_returns_partial_stdout(monkeypatch):
+    def fake_run(command, **kwargs):
+        raise subprocess.TimeoutExpired(
+            command,
+            kwargs["timeout"],
+            output=b"EQMod Mount.DRIVER_INFO.DRIVER_INTERFACE=5\n",
+        )
+
+    monkeypatch.setattr("plugins.mount.indi_client.subprocess.run", fake_run)
+
+    props = IndiSubprocessClient(timeout_s=0.25).get_props(
+        ["DRIVER_INFO.*"]
+    )
+
+    assert props["DRIVER_INFO"]["DRIVER_INTERFACE"] == "5"
+
+
+def test_getprop_timeout_without_snapshot_remains_structured_timeout(
+    monkeypatch,
+):
+    def fake_run(command, **kwargs):
+        raise subprocess.TimeoutExpired(
+            command,
+            kwargs["timeout"],
+            stderr=b"late",
+        )
+
+    monkeypatch.setattr("plugins.mount.indi_client.subprocess.run", fake_run)
+
+    with pytest.raises(IndiClientError) as raised:
+        IndiSubprocessClient(timeout_s=0.25).get_props(["DRIVER_INFO.*"])
+
+    assert raised.value.code == "TIMEOUT"
     assert raised.value.stderr == "late"
 
 

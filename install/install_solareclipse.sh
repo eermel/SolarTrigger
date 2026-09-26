@@ -274,6 +274,13 @@ apt install -y \
 
 apt install -y indi-bin indi-eqmod
 
+# Optional third-party INDI package for ZWO astronomy hardware.
+if apt-cache show indi-asi >/dev/null 2>&1; then
+    apt install -y indi-asi
+else
+    warning "Package indi-asi is unavailable; ZWO EAF will keep the SDK fallback."
+fi
+
 success "System dependencies installed."
 
 # Droits matériels du compte de service : série/INDI, audio local et USB.
@@ -472,7 +479,15 @@ ACTION=="add", ATTRS{idVendor}=="03c3", ATTRS{idProduct}=="1f10", GROUP="users",
 EAFUDEV
     fi
     udevadm control --reload-rules 2>/dev/null || true
-    udevadm trigger 2>/dev/null || true
+
+    # Some Raspberry Pi kernels enumerate 03c3:1f10 as HID but leave its
+    # interface unbound. Install the SolarTrigger hot-plug rule and repair an
+    # already-connected EAF without touching unrelated HID devices.
+    if [ -f "$SCRIPT_DIR/install_zwo_eaf_hid.sh" ]; then
+        bash "$SCRIPT_DIR/install_zwo_eaf_hid.sh"
+    else
+        warning "EAF HID binding helper missing: $SCRIPT_DIR/install_zwo_eaf_hid.sh"
+    fi
 
     if ldconfig -p | grep -q libEAFFocuser; then
         success "ZWO EAF SDK installed (library + udev rule). Unplug/replug the EAF."
@@ -1010,22 +1025,24 @@ fi
 cat > /etc/systemd/system/solartrigger-runtime.service <<EOL
 [Unit]
 Description=SolarTrigger Autonomous Runtime
-After=network.target local-fs.target indiserver-eqmod.service
-Wants=network.target indiserver-eqmod.service
+After=network.target local-fs.target solartrigger-indi.service
+Wants=network.target solartrigger-indi.service
 
 [Service]
 Type=simple
-User=$CURRENT_USER
+User=root
 Group=$CURRENT_USER
 WorkingDirectory=$APP_DIR
 RuntimeDirectory=solartrigger
 RuntimeDirectoryMode=0770
+RuntimeDirectoryPreserve=yes
 Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 Environment="PYTHONPATH=$APP_DIR"
 Environment="LD_LIBRARY_PATH=/usr/local/lib"
 Environment="SOLARTRIGGER_ROOT=$APP_DIR"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
+Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$CURRENT_USER"
 ${CAMLIBS_ENV_LINE}
 ${IOLIBS_ENV_LINE}
 ExecStart=$VENV_DIR/bin/python -m backend.runtime_daemon \
@@ -1047,8 +1064,8 @@ EOL
 cat > /etc/systemd/system/solareclipse.service <<EOL
 [Unit]
 Description=SolarEclipse Portal
-After=network.target local-fs.target indiserver-eqmod.service solartrigger-runtime.service
-Wants=network.target indiserver-eqmod.service
+After=network.target local-fs.target solartrigger-indi.service solartrigger-runtime.service
+Wants=network.target solartrigger-indi.service
 Requires=solartrigger-runtime.service
 
 [Service]
@@ -1087,28 +1104,45 @@ EOL
 systemctl disable --now solareclipse-trigger.service 2>/dev/null || true
 rm -f /etc/systemd/system/solareclipse-trigger.service
 
-# Service INDI pour la monture EQMod. Le groupe principal est résolu à
-# l'installation ; l'accès série est fourni par l'appartenance à dialout.
+# Central INDI service for astronomical equipment. SolarTrigger owns one
+# indiserver. DSLR/mirrorless cameras stay on the characterized gphoto2 path.
 RUNTIME_GROUP=$(id -gn "$CURRENT_USER")
-cat > /etc/systemd/system/indiserver-eqmod.service <<EOL
+cat > /etc/systemd/system/solartrigger-indi.service <<EOL
 [Unit]
-Description=INDI server (EQMod)
-After=network.target
+Description=SolarTrigger INDI astronomical equipment server
+After=network.target local-fs.target
 
 [Service]
-ExecStart=/usr/bin/indiserver indi_eqmod_telescope
-Restart=on-failure
+Type=simple
 User=$CURRENT_USER
 Group=$RUNTIME_GROUP
+WorkingDirectory=$APP_DIR
+Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONPATH=$APP_DIR"
+ExecStart=$VENV_DIR/bin/python -m backend.indi_server_daemon \
+    --config $APP_DIR/configs/indi_default.json
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=solartrigger-indi
 
 [Install]
 WantedBy=multi-user.target
 EOL
 
+# Remove the previous EQMod-only unit if present.
+systemctl disable --now indiserver-eqmod.service 2>/dev/null || true
+rm -f /etc/systemd/system/indiserver-eqmod.service
+
 systemctl daemon-reload
-systemctl enable indiserver-eqmod.service
-systemctl start indiserver-eqmod.service
-success "indiserver-eqmod service started and enabled at boot."
+systemctl enable solartrigger-indi.service
+if systemctl restart solartrigger-indi.service; then
+    success "solartrigger-indi service started and enabled at boot."
+else
+    warning "solartrigger-indi did not start — check installed INDI drivers."
+fi
 
 systemctl enable solartrigger-runtime.service
 if systemctl restart solartrigger-runtime.service; then

@@ -111,3 +111,16 @@ def test_start_uses_cached_inventory_without_hardware_refresh(api, monkeypatch):
 
     assert response.status_code == 202
     assert selected == [entry]
+
+
+def test_status_exposes_new_and_characterized_cameras_in_one_qualification_list(api, monkeypatch):
+    client, _job = api
+    cameras = [
+        {"manufacturer":"New","model":"Camera","serial":"N1","transport_locator":"usb:1,1","present":True,"pilotable":False},
+        {"manufacturer":"Known","model":"Camera","serial":"K1","transport_locator":"usb:1,2","present":True,"pilotable":True},
+    ]
+    monkeypatch.setattr(routes, "get_cached_inventory", lambda: {"camera": cameras})
+    payload = client.get("/api/camera-characterization").get_json()
+    assert [(item["transport_locator"], item["characterized"]) for item in payload["qualification_candidates"]] == [
+        ("usb:1,1", False), ("usb:1,2", True)
+    ]

@@ -149,3 +149,35 @@ def test_home_does_not_finish_before_motion_has_actually_started():
     assert completed["position"] == 0
     assert completed["motion_command"] is None
     assert plugin.reset_positions == [0]
+
+
+
+def test_inventory_keeps_sdk_visible_eaf_when_open_is_busy():
+    from plugins.focuser.zwo_eaf import ZwoEaf
+
+    class BusyEafLib:
+        def EAFGetNum(self):
+            return 1
+
+        def EAFGetID(self, index, out_id):
+            assert index == 0
+            out_id._obj.value = 7
+            return 0
+
+        def EAFOpen(self, sdk_id):
+            assert sdk_id == 7
+            return 5
+
+    eaf = ZwoEaf.__new__(ZwoEaf)
+    eaf.lib = BusyEafLib()
+    eaf.id = None
+    eaf.name = None
+    eaf.max_step = None
+    eaf._session_acquired = False
+
+    devices = eaf.enumerate_devices()
+
+    assert len(devices) == 1
+    assert devices[0]["device_id"] == "zwo_eaf:7"
+    assert devices[0]["model"] == "EAF"
+    assert devices[0]["details_available"] is False

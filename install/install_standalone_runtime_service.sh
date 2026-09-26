@@ -21,6 +21,12 @@ if [[ ! -f "$APP_DIR/backend/runtime_daemon.py" ]]; then
     exit 1
 fi
 
+if [[ ! -f "$APP_DIR/backend/indi_server_daemon.py" ]] || \
+   [[ ! -f "$APP_DIR/configs/indi_default.json" ]]; then
+    echo "ERROR: central INDI manager code/config is not deployed in $APP_DIR." >&2
+    exit 1
+fi
+
 if pgrep -f "$APP_DIR/scripts/eclipse_trigger.py" >/dev/null 2>&1; then
     echo "ERROR: an eclipse trigger is currently active; runtime migration is forbidden." >&2
     exit 1
@@ -34,6 +40,11 @@ fi
 
 CURRENT_USER="$(stat -c '%U' "$APP_DIR")"
 CURRENT_GROUP="$(id -gn "$CURRENT_USER")"
+PORTAL_USER="$(systemctl show solareclipse.service -p User --value 2>/dev/null || true)"
+if [[ -z "$PORTAL_USER" ]]; then
+    PORTAL_USER="$CURRENT_USER"
+fi
+PORTAL_GROUP="$(id -gn "$PORTAL_USER")"
 
 CAMLIBS_DIR=$(find /usr/local/lib/libgphoto2 \
     -maxdepth 1 -mindepth 1 -type d 2>/dev/null \
@@ -47,25 +58,52 @@ IOLIBS_ENV=""
 [[ -n "$CAMLIBS_DIR" ]] && CAMLIBS_ENV="Environment=\"CAMLIBS=$CAMLIBS_DIR\""
 [[ -n "$IOLIBS_DIR" ]] && IOLIBS_ENV="Environment=\"IOLIBS=$IOLIBS_DIR\""
 
-cat > /etc/systemd/system/solartrigger-runtime.service <<EOF
+cat > /etc/systemd/system/solartrigger-indi.service <<EOF
 [Unit]
-Description=SolarTrigger Autonomous Runtime
-After=network.target local-fs.target indiserver-eqmod.service
-Wants=network.target indiserver-eqmod.service
+Description=SolarTrigger INDI astronomical equipment server
+After=network.target local-fs.target
 
 [Service]
 Type=simple
 User=$CURRENT_USER
 Group=$CURRENT_GROUP
 WorkingDirectory=$APP_DIR
+Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONPATH=$APP_DIR"
+ExecStart=$VENV_DIR/bin/python -m backend.indi_server_daemon \
+    --config $APP_DIR/configs/indi_default.json
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=solartrigger-indi
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/solartrigger-runtime.service <<EOF
+[Unit]
+Description=SolarTrigger Autonomous Runtime
+After=network.target local-fs.target solartrigger-indi.service
+Wants=network.target solartrigger-indi.service
+
+[Service]
+Type=simple
+User=root
+Group=$PORTAL_GROUP
+WorkingDirectory=$APP_DIR
 RuntimeDirectory=solartrigger
 RuntimeDirectoryMode=0770
+RuntimeDirectoryPreserve=yes
 Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 Environment="PYTHONPATH=$APP_DIR"
 Environment="LD_LIBRARY_PATH=/usr/local/lib"
 Environment="SOLARTRIGGER_ROOT=$APP_DIR"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
+Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$PORTAL_GROUP"
 $CAMLIBS_ENV
 $IOLIBS_ENV
 ExecStart=$VENV_DIR/bin/python -m backend.runtime_daemon \
@@ -95,14 +133,15 @@ start_background_threads()
 if __name__ == "__main__":
     socketio.run(app)
 EOF
-chown "$CURRENT_USER:$CURRENT_GROUP" "$APP_DIR/wsgi.py"
+chown "$PORTAL_USER:$PORTAL_GROUP" "$APP_DIR/wsgi.py"
 chmod 644 "$APP_DIR/wsgi.py"
 
 mkdir -p /etc/systemd/system/solareclipse.service.d
 cat > /etc/systemd/system/solareclipse.service.d/standalone-runtime.conf <<'EOF'
 [Unit]
 Requires=solartrigger-runtime.service
-After=solartrigger-runtime.service
+Wants=solartrigger-indi.service
+After=solartrigger-indi.service solartrigger-runtime.service
 
 [Service]
 Environment="SOLARTRIGGER_RUNTIME_CLIENT=1"
@@ -110,8 +149,33 @@ Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
 Environment="SOLARTRIGGER_ADMISSION_LOCK=/run/solartrigger/admission.lock"
 EOF
 
+# The runtime owns /run/solartrigger, but the portal must also reach the
+# runtime socket and create admission.lock.  Keep the runtime itself root when
+# required by the installed hardware stack, and share only this runtime
+# directory with the portal's group.
+install -d -o root -g "$PORTAL_GROUP" -m 0770 /run/solartrigger
+mkdir -p /etc/tmpfiles.d
+cat > /etc/tmpfiles.d/solartrigger.conf <<EOF
+d /run/solartrigger 0770 root $PORTAL_GROUP -
+EOF
+
+# RuntimeDirectory ownership is derived directly from User=root + Group=$PORTAL_GROUP.
+# Remove the obsolete post-start ownership workaround if an older migration created it.
+rm -f /etc/systemd/system/solartrigger-runtime.service.d/runtime-directory-group.conf
+
+# Retire l'ancien serveur mono-EQMod s'il existe encore.
+systemctl disable --now indiserver-eqmod.service 2>/dev/null || true
+rm -f /etc/systemd/system/indiserver-eqmod.service
+
 systemctl daemon-reload
+systemctl enable solartrigger-indi.service
 systemctl enable solartrigger-runtime.service
+
+if ! systemctl restart solartrigger-indi.service; then
+    echo "ERROR: solartrigger-indi.service failed to start." >&2
+    systemctl --no-pager --full status solartrigger-indi.service >&2 || true
+    exit 1
+fi
 
 if ! systemctl restart solartrigger-runtime.service; then
     echo "ERROR: solartrigger-runtime.service failed to start." >&2
@@ -125,9 +189,11 @@ if ! systemctl restart solareclipse.service; then
     exit 1
 fi
 
+systemctl is-active --quiet solartrigger-indi.service
 systemctl is-active --quiet solartrigger-runtime.service
 systemctl is-active --quiet solareclipse.service
 
-echo "Standalone runtime migration complete."
+echo "Standalone runtime + INDI migration complete."
+echo "INDI   : active"
 echo "Runtime: active"
 echo "Portal : active"

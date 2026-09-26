@@ -61,36 +61,20 @@ def test_set_tracking_mode_rejects_unknown_mode(mount):
 
 
 def test_status_exposes_general_error_from_compact_onstep_status(monkeypatch):
-    class StatusOnStep:
-        def __init__(self, **_kwargs):
-            self.connected = True
-            self._move_rate = 4.0
+    instance = onstep.OnStep.__new__(onstep.OnStep)
+    instance.serial = type("SerialState", (), {"is_open": True})()
+    instance._move_rate = 4.0
+    instance._tracking_rate = None
 
-        def get_status_raw(self):
-            return "nNpeEW264"
+    monkeypatch.setattr(instance, "get_status_raw", lambda: "nNpeEW264")
+    monkeypatch.setattr(instance, "get_product", lambda: "On-Step")
+    monkeypatch.setattr(instance, "get_firmware", lambda: "4.24")
+    monkeypatch.setattr(instance, "get_ra", lambda: "12:34:56")
+    monkeypatch.setattr(instance, "get_dec", lambda: "+45*00:00")
+    monkeypatch.setattr(instance, "get_sidereal_time", lambda: "10:11:12")
+    monkeypatch.setattr(instance, "get_park_status", lambda: "not_parked")
 
-        def get_product(self):
-            return "On-Step"
-
-        def get_firmware(self):
-            return "4.24"
-
-        def get_ra(self):
-            return "12:34:56"
-
-        def get_dec(self):
-            return "+45*00:00"
-
-        def get_sidereal_time(self):
-            return "10:11:12"
-
-        def get_park_status(self):
-            return "not_parked"
-
-    monkeypatch.setattr(onstep_plugin, "OnStep", StatusOnStep)
-    mount = onstep_plugin.OnStepMount(log_fn=lambda _message: None)
-
-    status = mount.status()
+    status = onstep.OnStep.status(instance)
 
     assert status["raw"] == "nNpeEW264"
     assert status["general_error"] == 4

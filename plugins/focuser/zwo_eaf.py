@@ -270,7 +270,22 @@ class ZwoEaf:
                 })
 
             except EafError:
-                continue
+                # EAFGetNum/EAFGetID are sufficient evidence that the SDK can
+                # see the physical focuser. Opening it may legitimately fail
+                # when another process already owns the SDK session. Do not
+                # make the device disappear from Add devices in that case.
+                if sdk_id is not None:
+                    devices.append({
+                        "category": "focuser",
+                        "backend": "zwo_eaf",
+                        "manufacturer": "ZWO",
+                        "model": "EAF",
+                        "serial": None,
+                        "device_id": f"zwo_eaf:{sdk_id}",
+                        "sdk_id": sdk_id,
+                        "max_step": None,
+                        "details_available": False,
+                    })
 
             finally:
                 if acquired and sdk_id is not None:

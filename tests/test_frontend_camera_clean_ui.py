@@ -37,3 +37,17 @@ def test_photo_setup_clean_requires_confirmation():
 
     assert "confirm(" in logic
     assert "Photo Setup" in logic
+
+
+def test_system_camera_ui_is_unified_characterize_validate_workflow():
+    assert "Characterize &amp; Validate" in INDEX
+    assert 'class="card-title">Re-characterize Camera' not in INDEX
+    assert 'class="card-title">Camera Validation' not in INDEX
+    assert "qualification_candidates" in INDEX
+    assert "startAutomaticCameraValidation" in INDEX
+    assert "NEW ·" in INDEX
+
+
+def test_system_log_has_semantic_success_and_error_coloring():
+    assert "camera-log-success" in INDEX
+    assert "camera-log-error" in INDEX

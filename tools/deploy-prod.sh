@@ -132,6 +132,8 @@ required=(
     "$SRC/flask_app/static/css"
     "$SRC/Sounds"
     "$SRC/configs"
+    "$SRC/install/install_standalone_runtime_service.sh"
+    "$SRC/install/install_zwo_eaf_hid.sh"
 )
 
 for path in "${required[@]}"; do
@@ -280,6 +282,20 @@ rsync "${RSYNC_OPTS[@]}" --delete \
 ensure_camera_persistent_links
 
 echo
+echo "=== system helpers (copied, never executed automatically) ==="
+if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "Would copy install/install_standalone_runtime_service.sh and install/install_zwo_eaf_hid.sh"
+else
+    ssh "$DST_HOST" "mkdir -p '$DST/install'"
+fi
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/install/install_standalone_runtime_service.sh" \
+    "$DST_HOST:$DST/install/install_standalone_runtime_service.sh"
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/install/install_zwo_eaf_hid.sh" \
+    "$DST_HOST:$DST/install/install_zwo_eaf_hid.sh"
+
+echo
 echo "=== preserved camera characterization data ==="
 echo "  $DST/configs/camera_characterization/"
 echo "  $DST/configs/camera_profiles/"
@@ -316,3 +332,11 @@ echo
 echo "--delete is used only inside disposable DEV code/config/static trees; var/ remains untouched."
 echo "var/ is never synchronized or deleted."
 echo "Service is NOT restarted automatically."
+echo "INDI/systemd migration is NOT executed automatically."
+echo "System helpers are copied but NEVER executed automatically."
+echo
+echo "Existing Pi: install/repair the persistent ZWO EAF HID hot-plug rule with:"
+echo "  $ACTIVE_DST/install/install_zwo_eaf_hid.sh   # run explicitly as root"
+echo
+echo "Standalone runtime/INDI systemd migration is ONLY for installations that"
+echo "have not already been migrated; do not rerun it as a normal deploy step."

@@ -12,7 +12,6 @@ CSS = (ROOT / "flask_app/static/css/solartrigger.css").read_text(
 
 FILE_SELECT_IDS = (
     "camera-characterization-select",
-    "camera-validation-select",
     "eclipse-circumstances-select",
     "camera-config-select",
     "exposure-opt-config-select",

@@ -73,3 +73,21 @@ def test_installer_installs_maintenance_helpers_and_sudoers():
         '/usr/local/sbin/solartrigger-release-update *'
         in installer_source
     )
+
+def test_installer_uses_central_indi_service():
+    installer_source = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert "solartrigger-indi.service" in installer_source
+    assert "backend.indi_server_daemon" in installer_source
+    assert "configs/indi_default.json" in installer_source
+    assert "After=network.target local-fs.target solartrigger-indi.service" in installer_source
+    assert "indiserver-eqmod.service" in installer_source  # cleanup only
+    assert "Description=INDI server (EQMod)" not in installer_source
+
+
+def test_installer_keeps_zwo_indi_package_optional():
+    installer_source = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert "apt-cache show indi-asi" in installer_source
+    assert "apt install -y indi-asi" in installer_source
+

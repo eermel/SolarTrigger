@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import fnmatch
+import socket
 import subprocess
 import threading
+import time
+import xml.etree.ElementTree as ET
 from typing import Any
 
 
@@ -25,6 +28,190 @@ class IndiClientError(Exception):
         self.returncode = returncode
         self.stderr = stderr
         super().__init__(message)
+
+
+class IndiTcpSession:
+    """Minimal persistent duplex INDI session for mount transport probing."""
+
+    def __init__(self, host="127.0.0.1", port=7624, device="EQMod Mount", timeout_s=4.0):
+        self.host, self.port, self.device = host, int(port), device
+        self.timeout_s = float(timeout_s)
+        self.sock = None
+        self.buffer = ""
+        self.props = {}
+        self._reader_stop = threading.Event()
+        self._reader_thread = None
+
+    def __enter__(self):
+        try:
+            self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout_s)
+            self.sock.settimeout(self.timeout_s)
+            self._send(ET.Element("getProperties", {"version": "1.7", "device": self.device}))
+            return self
+        except OSError as exc:
+            self.close()
+            raise IndiClientError("INDI_UNAVAILABLE", f"Unable to open INDI session: {exc}", stderr=str(exc)) from exc
+
+    def __exit__(self, *_args):
+        self.close()
+
+    def start_reader(self):
+        """Continuously drain server updates for a long-lived write session."""
+        if self.sock is None:
+            raise IndiClientError("CONNECTION_LOST", "INDI session is closed")
+        if self._reader_thread is not None:
+            return
+        self._reader_stop.clear()
+        thread = threading.Thread(
+            target=self._reader_loop,
+            name=f"indi-tcp-{self.device}",
+            daemon=True,
+        )
+        self._reader_thread = thread
+        thread.start()
+
+    def _reader_loop(self):
+        try:
+            while not self._reader_stop.is_set():
+                try:
+                    self._recv(0.25)
+                except IndiClientError:
+                    if not self._reader_stop.is_set():
+                        self._reader_stop.set()
+                    return
+        finally:
+            if threading.current_thread() is self._reader_thread:
+                self._reader_thread = None
+
+    def close(self):
+        self._reader_stop.set()
+        sock, self.sock = self.sock, None
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                sock.close()
+            except OSError:
+                pass
+        thread = self._reader_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+        self._reader_thread = None
+
+    def set_text(self, prop, elements):
+        root = ET.Element("newTextVector", {"device": self.device, "name": prop})
+        for name, value in elements.items():
+            node = ET.SubElement(root, "oneText", {"name": str(name)})
+            node.text = str(value)
+        self._send(root)
+
+    def set_switch(self, prop, elements):
+        root = ET.Element("newSwitchVector", {"device": self.device, "name": prop})
+        for name, value in elements.items():
+            node = ET.SubElement(root, "oneSwitch", {"name": str(name)})
+            node.text = str(value)
+        self._send(root)
+
+    def set_number(self, prop, elements):
+        root = ET.Element("newNumberVector", {"device": self.device, "name": prop})
+        for name, value in elements.items():
+            node = ET.SubElement(root, "oneNumber", {"name": str(name)})
+            node.text = str(value)
+        self._send(root)
+
+    def wait_for(self, prop, element, accepted, timeout_s):
+        wanted = {str(value).casefold() for value in accepted}
+        deadline = time.monotonic() + float(timeout_s)
+        while time.monotonic() < deadline:
+            value = self.props.get(prop, {}).get(element)
+            if value is not None and value.casefold() in wanted:
+                return True
+            self._recv(max(0.01, deadline - time.monotonic()))
+        return False
+
+    def _send(self, element):
+        sock = self.sock
+        if sock is None:
+            raise IndiClientError("CONNECTION_LOST", "INDI session is closed")
+        try:
+            sock.sendall(ET.tostring(element, encoding="utf-8") + b"\n")
+        except OSError as exc:
+            raise IndiClientError("CONNECTION_LOST", f"INDI write failed: {exc}", stderr=str(exc)) from exc
+
+    def _recv(self, timeout_s):
+        sock = self.sock
+        if sock is None:
+            raise IndiClientError("CONNECTION_LOST", "INDI session is closed")
+        sock.settimeout(timeout_s)
+        try:
+            chunk = sock.recv(65536)
+        except socket.timeout:
+            return
+        except OSError as exc:
+            raise IndiClientError("CONNECTION_LOST", f"INDI read failed: {exc}", stderr=str(exc)) from exc
+        if not chunk:
+            raise IndiClientError("CONNECTION_LOST", "INDI server closed the session")
+        self.buffer += chunk.decode("utf-8", errors="replace")
+        self._parse_buffer()
+
+    def _parse_buffer(self):
+        """Consume complete top-level INDI XML elements from the stream."""
+        while self.buffer:
+            data = self.buffer.lstrip()
+            leading = len(self.buffer) - len(data)
+            if not data:
+                self.buffer = ""
+                return
+            if not data.startswith("<"):
+                raise IndiClientError(
+                    "CONNECTION_FAILED",
+                    "Malformed INDI XML: expected '<'",
+                )
+
+            # INDI sends sibling XML elements without a document root. Find
+            # the root tag first, then wait until its matching close tag is
+            # present. This is safe for the flat INDI vector messages used
+            # here and correctly preserves arbitrarily fragmented recv() data.
+            tag_end = data.find(">")
+            if tag_end < 0:
+                return
+            opening = data[1:tag_end].strip()
+            if not opening:
+                raise IndiClientError("CONNECTION_FAILED", "Malformed INDI XML")
+            tag = opening.split(None, 1)[0].rstrip("/")
+            if opening.endswith("/"):
+                end = tag_end + 1
+            else:
+                closing = f"</{tag}>"
+                close_at = data.find(closing, tag_end + 1)
+                if close_at < 0:
+                    return
+                end = close_at + len(closing)
+
+            fragment = data[:end]
+            try:
+                root = ET.fromstring(fragment)
+            except ET.ParseError as exc:
+                raise IndiClientError(
+                    "CONNECTION_FAILED",
+                    f"Malformed INDI XML: {exc}",
+                ) from exc
+            self._record(root)
+            self.buffer = self.buffer[leading + end:]
+
+    def _record(self, root):
+        if root.attrib.get("device") != self.device:
+            return
+        prop = root.attrib.get("name")
+        if not prop:
+            return
+        values = self.props.setdefault(prop, {})
+        for child in root:
+            name = child.attrib.get("name")
+            if name:
+                values[name] = (child.text or "").strip()
 
 
 class IndiSubprocessClient:
@@ -81,7 +268,7 @@ class IndiSubprocessClient:
                 for pattern in patterns
             ]
 
-        output = self._run("indi_getprop", filters or [])
+        output = self._getprop_snapshot(filters or [])
         parsed = self._parse_props(output)
 
         # Preserve the last known values so a subsequently started monitor
@@ -89,6 +276,21 @@ class IndiSubprocessClient:
         self._merge_cache(parsed)
 
         return parsed.get(self.device, {})
+
+    def get_all_devices(self) -> dict[str, dict[str, dict[str, str]]]:
+        """Return one bounded snapshot of the INDI catalogue.
+
+        Real indiserver/indi_getprop combinations may need more than the
+        normal command timeout before emitting their initial catalogue and
+        may then remain attached instead of exiting. Discovery therefore
+        performs exactly one unfiltered read, allows a bounded startup window,
+        and accepts the snapshot collected when that window expires.
+        """
+        discovery_timeout_s = max(self.timeout_s, 5.0)
+        output = self._getprop_snapshot([], timeout_s=discovery_timeout_s)
+        parsed = self._parse_props(output)
+        self._merge_cache(parsed)
+        return parsed
 
     def set_props(self, assignments: dict[str, dict[str, Any]]) -> None:
         """Set property elements on the configured device."""
@@ -105,7 +307,7 @@ class IndiSubprocessClient:
         This intentionally remains a one-shot query so probes and inventory
         discovery never leave persistent monitor processes behind.
         """
-        output = self._run("indi_getprop", [f"{device_name}.*.*"])
+        output = self._getprop_snapshot([f"{device_name}.*.*"])
         if device_name not in self._parse_props(output):
             raise IndiClientError(
                 "DEVICE_NOT_FOUND",
@@ -258,6 +460,67 @@ class IndiSubprocessClient:
 
         return result
 
+    def _getprop_snapshot(
+        self,
+        arguments: list[str],
+        *,
+        timeout_s: float | None = None,
+    ) -> str:
+        """Capture the initial indi_getprop snapshot and stop the client.
+
+        Some INDI builds keep indi_getprop attached after emitting matching
+        properties. A subprocess timeout is therefore not itself a discovery
+        failure when stdout already contains a valid snapshot.
+        """
+        command = [
+            "indi_getprop",
+            "-h",
+            self.host,
+            "-p",
+            str(self.port),
+            *arguments,
+        ]
+        effective_timeout_s = self.timeout_s if timeout_s is None else float(timeout_s)
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=effective_timeout_s,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = self._as_text(exc.stdout)
+            stderr = self._as_text(exc.stderr)
+            if stdout.strip():
+                return stdout
+            raise IndiClientError(
+                "TIMEOUT",
+                f"indi_getprop produced no snapshot within {effective_timeout_s}s",
+                command=command,
+                stderr=stderr,
+            ) from exc
+        except OSError as exc:
+            raise IndiClientError(
+                "INDI_UNAVAILABLE",
+                f"Unable to start indi_getprop: {exc}",
+                command=command,
+                stderr=str(exc),
+            ) from exc
+
+        if result.returncode != 0:
+            stderr = result.stderr or ""
+            code = self._failure_code("indi_getprop", stderr)
+            detail = stderr.strip() or f"exit code {result.returncode}"
+            raise IndiClientError(
+                code,
+                f"indi_getprop failed: {detail}",
+                command=command,
+                returncode=result.returncode,
+                stderr=stderr,
+            )
+        return result.stdout or ""
+
     def _run(self, executable: str, arguments: list[str]) -> str:
         command = [
             executable,
@@ -364,4 +627,4 @@ class IndiSubprocessClient:
         return value or ""
 
 
-__all__ = ["IndiClientError", "IndiSubprocessClient"]
+__all__ = ["IndiClientError", "IndiSubprocessClient", "IndiTcpSession"]

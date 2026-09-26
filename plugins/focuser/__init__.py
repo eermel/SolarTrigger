@@ -12,7 +12,8 @@ from collections.abc import Mapping
 
 from .base import FocuserPlugin
 
-# id -> (module, classe, nom_affichage)
+# Current focuser policy: ZWO EAF is discovered and controlled directly with
+# the official ZWO SDK. INDI is reserved for mounts for now.
 _PLUGIN_CLASSES = {
     "zwo_eaf": ("zwo_plugin", "ZwoFocuser", "ZWO EAF (SDK USB)"),
     # a venir : autres focuseurs (Pegasus, Moonlite...) = un fichier chacun.
@@ -68,10 +69,19 @@ def detect_focuser(candidates=None, log_fn=print, config_by_id=None):
     return None
 
 
-
-def inventory_focusers(candidates=None, log_fn=print, config_by_id=None):
-    """Enumere les instances physiques exposees par les plugins focuser."""
+def inventory_focusers(
+    candidates=None,
+    log_fn=print,
+    config_by_id=None,
+    exclude_device_ids=None,
+):
+    """Enumerate focuser instances while avoiding already-owned identities."""
     config_by_id = config_by_id or {}
+    excluded = {
+        str(value)
+        for value in (exclude_device_ids or ())
+        if str(value).strip()
+    }
     ids = candidates or list(_PLUGIN_CLASSES.keys())
     devices = []
 
@@ -95,6 +105,9 @@ def inventory_focusers(candidates=None, log_fn=print, config_by_id=None):
                         continue
 
                     normalized = dict(physical)
+                    device_id = normalized.get("device_id") or normalized.get("sdk_id")
+                    if device_id is not None and str(device_id) in excluded:
+                        continue
                     normalized.setdefault("category", "focuser")
                     normalized.setdefault("backend", pid)
                     devices.append(normalized)

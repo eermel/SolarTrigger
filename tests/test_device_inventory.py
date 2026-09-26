@@ -100,6 +100,78 @@ def test_reserved_mount_is_kept_without_reprobing_owned_serial_path(
     assert inventory["mount"][0]["bindable"] is True
 
 
+def test_reserved_indi_binding_blocks_direct_fallback_on_catalog_gap(
+    monkeypatch,
+):
+    from plugins import mount as mount_registry
+    from plugins import focuser as focuser_registry
+
+    def unexpected_mount_probe(**_kwargs):
+        raise AssertionError("direct mount fallback must not probe")
+
+    def unexpected_focuser_probe(**_kwargs):
+        raise AssertionError("direct focuser fallback must not probe")
+
+    monkeypatch.setattr(
+        mount_registry,
+        "inventory_mounts",
+        unexpected_mount_probe,
+    )
+    monkeypatch.setattr(
+        focuser_registry,
+        "inventory_focusers",
+        unexpected_focuser_probe,
+    )
+
+    mount_binding = {
+        "category": "mount",
+        "backend": "indi",
+        "device_name": "LX200 OnStep",
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+    }
+    focuser_binding = {
+        "category": "focuser",
+        "backend": "indi",
+        "device_name": "ZWO EAF",
+        "device_id": "indi:127.0.0.1:7624:ZWO EAF",
+    }
+
+    assert device_inventory._discover_mounts(
+        reserved_mounts=[mount_binding],
+        indi_catalog=[],
+    ) == []
+    assert device_inventory._discover_focusers(
+        reserved_focusers=[focuser_binding],
+        indi_catalog=[],
+    ) == []
+
+
+def test_reserved_indi_binding_presence_comes_from_current_catalog():
+    mount_binding = {
+        "category": "mount",
+        "backend": "indi",
+        "device_name": "LX200 OnStep",
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+    }
+    catalog_entry = {
+        "backend": "indi",
+        "device_name": "LX200 OnStep",
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+        "model": "LX200 OnStep",
+        "categories": ["mount"],
+        "present": True,
+    }
+
+    discovered = device_inventory._discover_mounts(
+        reserved_mounts=[mount_binding],
+        indi_catalog=[catalog_entry],
+    )
+
+    assert len(discovered) == 1
+    assert discovered[0]["device_id"] == mount_binding["device_id"]
+    assert discovered[0]["present"] is True
+
+
 def test_cached_inventory_returns_last_refresh_without_probing(monkeypatch):
     _mock_discovery(monkeypatch)
     refreshed = device_inventory.refresh_inventory()
@@ -448,3 +520,122 @@ def test_reclassify_cached_camera_after_characterization_does_not_probe(monkeypa
     assert updated["camera"][0]["backend"] == "profile-sony-test-camera"
     assert updated["camera"][0]["pilotable"] is True
     assert updated["camera"][0]["transport_locator"] == "usb:001,002"
+
+
+def test_focuser_discovery_uses_vendor_sdk_even_when_indi_catalog_exists(
+    monkeypatch,
+):
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_mounts",
+        lambda reserved_mounts=None, indi_catalog=None: [],
+    )
+
+    from plugins import focuser as focuser_registry
+
+    calls = []
+
+    def fake_inventory_focusers(*, log_fn, exclude_device_ids=None):
+        calls.append(set(exclude_device_ids or ()))
+        return [{
+            "category": "focuser",
+            "backend": "zwo_eaf",
+            "manufacturer": "ZWO",
+            "model": "EAF",
+            "device_id": "zwo_eaf:3",
+            "present": True,
+        }]
+
+    monkeypatch.setattr(
+        focuser_registry,
+        "inventory_focusers",
+        fake_inventory_focusers,
+    )
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_indi_catalog",
+        lambda: [{
+            "backend": "indi",
+            "device_name": "EQMod Mount",
+            "device_id": "indi:127.0.0.1:7624:EQMod Mount",
+            "categories": ["mount"],
+            "present": True,
+        }],
+    )
+
+    inventory = device_inventory.refresh_inventory()
+
+    assert calls == [set()]
+    assert len(inventory["focuser"]) == 1
+    assert inventory["focuser"][0]["backend"] == "zwo_eaf"
+    assert inventory["focuser"][0]["device_id"] == "zwo_eaf:3"
+
+
+
+def test_two_present_indi_mounts_are_exposed_without_legacy_probe(monkeypatch):
+    from plugins import mount as mount_registry
+
+    monkeypatch.setattr(
+        mount_registry,
+        "inventory_mounts",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("legacy mount probing must not run")
+        ),
+    )
+    catalog = [
+        {
+            "backend": "indi",
+            "device_name": "EQMod Mount",
+            "device_id": "indi:127.0.0.1:7624:EQMod Mount",
+            "model": "EQMod Mount",
+            "categories": ["guider", "mount"],
+            "present": True,
+            "connected": True,
+            "fallback_physical_path": "/dev/serial/by-id/usb-ftdi",
+        },
+        {
+            "backend": "indi",
+            "device_name": "LX200 OnStep",
+            "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+            "model": "LX200 OnStep",
+            "categories": ["focuser", "guider", "mount", "weather"],
+            "present": True,
+            "connected": True,
+            "fallback_physical_path": "/dev/serial/by-id/usb-ch340",
+        },
+    ]
+
+    mounts = device_inventory._discover_mounts(indi_catalog=catalog)
+
+    assert [entry["device_name"] for entry in mounts] == [
+        "EQMod Mount",
+        "LX200 OnStep",
+    ]
+    assert all(entry["backend"] == "indi" for entry in mounts)
+    assert all(entry["pilotable"] is True for entry in mounts)
+
+
+def test_absent_advertised_indi_mount_never_falls_back_to_legacy_serial(
+    monkeypatch,
+):
+    from plugins import mount as mount_registry
+
+    calls = []
+    monkeypatch.setattr(
+        mount_registry,
+        "inventory_mounts",
+        lambda **_kwargs: calls.append("legacy") or [],
+    )
+    catalog = [{
+        "backend": "indi",
+        "device_name": "LX200 OnStep",
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+        "categories": ["mount"],
+        "present": False,
+        "connected": True,
+        "fallback_physical_path": None,
+    }]
+
+    assert device_inventory._discover_mounts(indi_catalog=catalog) == []
+    assert calls == []

@@ -51,6 +51,14 @@ def register_characterization_routes(app, trigger_snapshot, emit_fn=None):
             for entry in cameras
             if entry.get("present") and entry.get("pilotable")
         ]
+        snapshot["qualification_candidates"] = [
+            {
+                **entry,
+                "characterized": bool(entry.get("pilotable")),
+            }
+            for entry in cameras
+            if entry.get("present")
+        ]
         snapshot["inventory_reclassified"] = reclassified_now
         return snapshot
 

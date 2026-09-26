@@ -265,6 +265,7 @@ def build_fresh_install(
         "install/install_solareclipse.sh",
         "install/solartrigger-release-update",
         "install/solartrigger-system-update",
+        "install/install_zwo_eaf_hid.sh",
         "backend/runtime_daemon.py",
         "scripts/eclipse_trigger.py",
         "flask_app/app.py",

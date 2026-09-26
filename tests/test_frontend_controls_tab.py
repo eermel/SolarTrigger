@@ -109,7 +109,6 @@ def test_add_camera_sections_are_separate_and_devices_is_default():
     for identifier in (
         'camera-characterization-select',
         'camera-characterization-question',
-        'camera-validation-select',
         'camera-add-log',
     ):
         assert f'id="{identifier}"' in add_camera

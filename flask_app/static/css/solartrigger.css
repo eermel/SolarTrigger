@@ -1111,3 +1111,8 @@ header {
 .system-camera-group-content > .card {
   margin: 0;
 }
+
+/* Unified camera qualification and semantic System log status */
+#camera-characterization-select option.camera-new-option { color: var(--green); }
+#camera-add-log .camera-log-success { color: var(--green); }
+#camera-add-log .camera-log-error { color: var(--red); }

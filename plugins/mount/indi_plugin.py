@@ -10,7 +10,7 @@ from .base import (
     RATE_SIDEREAL,
     RATE_SOLAR,
 )
-from .indi_client import IndiClientError, IndiSubprocessClient
+from .indi_client import IndiClientError, IndiSubprocessClient, IndiTcpSession
 
 
 _RATE_ELEMENTS = {
@@ -32,34 +32,45 @@ _DIRECTION_ELEMENTS = {
 
 class IndiMount(MountPlugin):
     plugin_id = "indi"
-    display_name = "INDI / EQMod compatible"
+    display_name = "INDI telescope"
 
     def __init__(self, log_fn=print, config=None, client=None):
         super().__init__(log_fn, config)
-        self.device_name = self.config.get("device", "EQMod Mount")
+        self.device_name = (
+            self.config.get("device_name")
+            or self.config.get("device")
+            or "EQMod Mount"
+        )
         self.timeout = float(self.config.get("timeout", 3.0))
         self.home_timeout = float(self.config.get("home_timeout", 120.0))
         self.poll_interval = float(self.config.get("poll_interval", 0.05))
+        self._runtime_tcp_enabled = client is None
         self.client = client or IndiSubprocessClient(
             host=self.config.get("host", "127.0.0.1"),
             port=int(self.config.get("port", 7624)),
             device=self.device_name,
             timeout_s=float(self.config.get("client_timeout", 4.0)),
         )
+        self._control_session = None
         self._connected = False
         self._move_rate = None
 
     @staticmethod
     def probe(config=None):
         cfg = config or {}
+        device_name = (
+            cfg.get("device_name")
+            or cfg.get("device")
+            or "EQMod Mount"
+        )
         client = IndiSubprocessClient(
             host=cfg.get("host", "127.0.0.1"),
             port=int(cfg.get("port", 7624)),
-            device=cfg.get("device", "EQMod Mount"),
+            device=device_name,
             timeout_s=float(cfg.get("client_timeout", 4.0)),
         )
         try:
-            client.ensure_device_present(cfg.get("device", "EQMod Mount"))
+            client.ensure_device_present(device_name)
             return True
         except Exception:
             return False
@@ -96,7 +107,11 @@ class IndiMount(MountPlugin):
     def inventory(cls, config=None):
         """Describe the configured INDI mount with a physical serial identity."""
         cfg = dict(config or {})
-        device_name = cfg.get("device", "EQMod Mount")
+        device_name = (
+            cfg.get("device_name")
+            or cfg.get("device")
+            or "EQMod Mount"
+        )
         client = IndiSubprocessClient(
             host=cfg.get("host", "127.0.0.1"),
             port=int(cfg.get("port", 7624)),
@@ -165,70 +180,124 @@ class IndiMount(MountPlugin):
         return [entry]
 
     def connect(self):
+        """Connect a generic INDI telescope without assuming EQMod.
+
+        Serial drivers may receive a stable serial_by_id path from the RIG
+        binding. Network/native INDI drivers are allowed to keep their own
+        connection transport and therefore do not require a serial path.
+        """
         serial_port = (
             self.config.get("serial_port")
             or self.config.get("fallback_physical_path")
         )
-        if not serial_port:
-            raise IndiClientError("SERIAL_PORT_MISSING", "Serial port is required")
-        if not os.path.exists(serial_port):
-            raise IndiClientError("SERIAL_PORT_MISSING", f"Serial port does not exist: {serial_port}")
-        if not os.access(serial_port, os.R_OK | os.W_OK):
+        if serial_port and not os.path.exists(serial_port):
             raise IndiClientError(
-                "SERIAL_PERMISSION_DENIED", f"Serial port is not readable and writable: {serial_port}"
+                "SERIAL_PORT_MISSING",
+                f"Serial port does not exist: {serial_port}",
             )
+        if serial_port and not os.access(serial_port, os.R_OK | os.W_OK):
+            raise IndiClientError(
+                "SERIAL_PERMISSION_DENIED",
+                f"Serial port is not readable and writable: {serial_port}",
+            )
+
         try:
             self.client.ensure_device_present(self.device_name)
-            assignments = {
-                "CONNECTION_MODE": {"CONNECTION_SERIAL": "On", "CONNECTION_TCP": "Off"}
-            }
-            assignments["DEVICE_PORT"] = {"PORT": serial_port}
             props = self._props()
+
+            assignments = {}
+            if serial_port:
+                connection_mode = props.get("CONNECTION_MODE", {})
+                if connection_mode:
+                    assignments["CONNECTION_MODE"] = {
+                        name: "On" if name == "CONNECTION_SERIAL" else "Off"
+                        for name in connection_mode
+                    }
+                else:
+                    # Legacy EQMod/OnStep setups relied on these standard
+                    # property names even when the first property snapshot was
+                    # incomplete. An explicit serial binding remains
+                    # authoritative.
+                    assignments["CONNECTION_MODE"] = {
+                        "CONNECTION_SERIAL": "On",
+                        "CONNECTION_TCP": "Off",
+                    }
+                assignments["DEVICE_PORT"] = {"PORT": serial_port}
+
             baud_prop = props.get("DEVICE_BAUD_RATE", {})
-            if "baud" in self.config:
-                baud_element = self._find_element(baud_prop, str(self.config["baud"]))
+            if "baud" in self.config and baud_prop:
+                baud_element = self._find_element(
+                    baud_prop,
+                    str(self.config["baud"]),
+                )
                 if baud_element is None:
                     raise IndiClientError(
-                        "PROPERTY_UNSUPPORTED", f"Unsupported INDI baud rate: {self.config['baud']}"
+                        "PROPERTY_UNSUPPORTED",
+                        f"Unsupported INDI baud rate: {self.config['baud']}",
                     )
                 assignments["DEVICE_BAUD_RATE"] = {
-                    name: "On" if name == baud_element else "Off" for name in baud_prop
+                    name: "On" if name == baud_element else "Off"
+                    for name in baud_prop
                 }
+
             auto_prop = props.get("DEVICE_AUTO_SEARCH", {})
-            if auto_prop:
+            if serial_port and auto_prop:
                 assignments["DEVICE_AUTO_SEARCH"] = {
                     name: "On" if name == "INDI_DISABLED" else "Off"
                     for name in auto_prop
                 }
 
-            # Runtime control uses one persistent INDI monitor. The initial
-            # one-shot _props() above primes its cache; subsequent reads are
-            # therefore memory-only while the monitor applies authoritative
-            # updates from indiserver.
             start_monitor = getattr(self.client, "start_monitor", None)
             if callable(start_monitor):
                 start_monitor()
 
-            self.client.set_props(assignments)
-            self.client.set_props({"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}})
-            if not self._wait_for(lambda p: self._switch_on(p.get("CONNECTION", {}), "CONNECT")):
-                raise IndiClientError("CONNECTION_FAILED", f"INDI device did not connect: {self.device_name}")
+            self._open_control_session()
+
+            if assignments:
+                self._set_props(assignments)
+
+            connection = props.get("CONNECTION", {})
+            if connection:
+                self._set_props({
+                    "CONNECTION": {
+                        "CONNECT": "On",
+                        "DISCONNECT": "Off",
+                    }
+                })
+                if not self._wait_for(
+                    lambda p: self._switch_on(
+                        p.get("CONNECTION", {}),
+                        "CONNECT",
+                    )
+                ):
+                    raise IndiClientError(
+                        "CONNECTION_FAILED",
+                        f"INDI device did not connect: {self.device_name}",
+                    )
+
+            # Safety invariant: selecting/connecting a mount in SolarTrigger
+            # must never inherit tracking left active by a previous client.
+            self._ensure_tracking_stopped()
             self._connected = True
         except IndiClientError:
+            self._cleanup_runtime_channels()
             raise
         except Exception as exc:
-            self._raise_mapped("CONNECTION_FAILED", "Unable to connect to INDI mount", exc)
+            self._cleanup_runtime_channels()
+            self._raise_mapped(
+                "CONNECTION_FAILED",
+                "Unable to connect to INDI mount",
+                exc,
+            )
 
     def disconnect(self):
         try:
-            self.client.set_props({"CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}})
+            self._set_props({"CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}})
             self._wait_for(lambda p: not self._switch_on(p.get("CONNECTION", {}), "CONNECT"))
         except Exception:
             pass
         finally:
-            stop_monitor = getattr(self.client, "stop_monitor", None)
-            if callable(stop_monitor):
-                stop_monitor()
+            self._cleanup_runtime_channels()
             self._connected = False
 
     @property
@@ -259,7 +328,7 @@ class IndiMount(MountPlugin):
             mount_info = props.get("MOUNTINFORMATION", {})
             parked_prop = props.get("TELESCOPE_PARK", {})
             device = {
-                "driver": self._text(info, "DRIVER_EXEC") or "indi_eqmod_telescope",
+                "driver": self._text(info, "DRIVER_EXEC") or "indi",
                 "device": self.device_name,
                 "model": self._first_text(mount_info, "MOUNT_MODEL")
                 or self._first_text(device_info, "MODEL", "DEVICE_MODEL"),
@@ -310,7 +379,7 @@ class IndiMount(MountPlugin):
             element = self._rate_element(mode_prop, rate)
             if element is None:
                 raise IndiClientError("PROPERTY_UNSUPPORTED", f"Tracking rate is unsupported: {rate}")
-            self.client.set_props({
+            self._set_props({
                 "TELESCOPE_TRACK_MODE": {name: "On" if name == element else "Off" for name in mode_prop},
                 "TELESCOPE_TRACK_STATE": {"TRACK_ON": "On", "TRACK_OFF": "Off"},
             })
@@ -329,7 +398,7 @@ class IndiMount(MountPlugin):
             element = self._rate_element(props.get("TELESCOPE_TRACK_MODE", {}), mode)
             if element is None:
                 raise IndiClientError("PROPERTY_UNSUPPORTED", f"Tracking rate is unsupported: {mode}")
-            self.client.set_props({"TELESCOPE_TRACK_MODE": {
+            self._set_props({"TELESCOPE_TRACK_MODE": {
                 name: "On" if name == element else "Off" for name in props["TELESCOPE_TRACK_MODE"]
             }})
         except IndiClientError:
@@ -337,9 +406,33 @@ class IndiMount(MountPlugin):
         except Exception as exc:
             self._raise_mapped("CONNECTION_FAILED", "Unable to set INDI tracking mode", exc)
 
+    def _ensure_tracking_stopped(self):
+        props = self._props(["TELESCOPE_TRACK_STATE.*"])
+        tracking = props.get("TELESCOPE_TRACK_STATE", {})
+        if not tracking:
+            return
+        if not self._switch_on(tracking, "TRACK_ON"):
+            return
+        self._set_props({
+            "TELESCOPE_TRACK_STATE": {
+                "TRACK_ON": "Off",
+                "TRACK_OFF": "On",
+            }
+        })
+        if not self._wait_for(
+            lambda current: not self._switch_on(
+                current.get("TELESCOPE_TRACK_STATE", {}),
+                "TRACK_ON",
+            )
+        ):
+            raise IndiClientError(
+                "CONNECTION_FAILED",
+                "INDI mount tracking could not be disabled safely",
+            )
+
     def stop_tracking(self):
         try:
-            self.client.set_props({"TELESCOPE_TRACK_STATE": {"TRACK_ON": "Off", "TRACK_OFF": "On"}})
+            self._set_props({"TELESCOPE_TRACK_STATE": {"TRACK_ON": "Off", "TRACK_OFF": "On"}})
             if not self._wait_for(
                 lambda p: not self._switch_on(p.get("TELESCOPE_TRACK_STATE", {}), "TRACK_ON")
             ):
@@ -386,13 +479,78 @@ class IndiMount(MountPlugin):
             pass
 
     def go_home(self, is_cancelled=None):
-        """Return the EQMod mount to its mechanical Home reference."""
+        """Use the standard INDI Home capability when the driver exposes it.
+
+        Older EQMod deployments are kept compatible through the historical
+        PARK/CURRENTSTEPPERS fallback.
+        """
+        props = self._props(["TELESCOPE_HOME.*"])
+        home_prop = props.get("TELESCOPE_HOME", {})
+        if home_prop:
+            element = None
+            for candidate in ("GO", "HOME_GO"):
+                if candidate in home_prop:
+                    element = candidate
+                    break
+            if element is None:
+                element = next(
+                    (
+                        name for name in home_prop
+                        if "GO" in name.upper()
+                    ),
+                    None,
+                )
+            if element is None:
+                raise IndiClientError(
+                    "PROPERTY_UNSUPPORTED",
+                    "INDI telescope Home property has no GO action",
+                )
+
+            self._set_props({
+                "TELESCOPE_HOME": {
+                    name: "On" if name == element else "Off"
+                    for name in home_prop
+                }
+            })
+
+            deadline = time.monotonic() + self.home_timeout
+            seen_active = False
+            while True:
+                if callable(is_cancelled) and is_cancelled():
+                    try:
+                        self.stop()
+                    finally:
+                        raise RuntimeError("mount home cancelled")
+
+                current = self._props(["TELESCOPE_HOME.*"]).get(
+                    "TELESCOPE_HOME",
+                    {},
+                )
+                active = self._switch_on(current, element)
+                seen_active = seen_active or active
+                if seen_active and not active:
+                    self._move_rate = None
+                    return
+                if time.monotonic() >= deadline:
+                    try:
+                        self.stop()
+                    finally:
+                        raise IndiClientError(
+                            "TIMEOUT",
+                            "INDI mount did not reach Home before timeout",
+                        )
+                time.sleep(self.poll_interval)
+
+        return self._go_home_eqmod_legacy(is_cancelled=is_cancelled)
+
+    def _go_home_eqmod_legacy(self, is_cancelled=None):
+        """Historical EQMod Home implementation retained for compatibility."""
         tolerance_steps = 5
 
         try:
             # Stop manual slew without sending TELESCOPE_ABORT_MOTION.
             # An ABORT immediately before PARK can cancel the EQMod park slew.
-            self.client.set_props({
+            self._set_props({
                 "TELESCOPE_MOTION_NS": {
                     "MOTION_NORTH": "Off",
                     "MOTION_SOUTH": "Off",
@@ -447,7 +605,7 @@ class IndiMount(MountPlugin):
             )
 
             if not already_home:
-                self.client.set_props({
+                self._set_props({
                     "TELESCOPE_PARK": {
                         "PARK": "On",
                     }
@@ -502,7 +660,7 @@ class IndiMount(MountPlugin):
                     time.sleep(self.poll_interval)
 
             # Finish operational, not parked.
-            self.client.set_props({
+            self._set_props({
                 "TELESCOPE_PARK": {
                     "UNPARK": "On",
                 }
@@ -538,7 +696,7 @@ class IndiMount(MountPlugin):
             selected = self._find_element(prop, value)
             if selected is None:
                 raise IndiClientError("PROPERTY_UNSUPPORTED", f"Unsupported slew speed: {value}")
-            self.client.set_props({"TELESCOPE_SLEW_RATE": {
+            self._set_props({"TELESCOPE_SLEW_RATE": {
                 name: "On" if name == selected else "Off" for name in prop
             }})
             self._move_rate = value
@@ -560,13 +718,63 @@ class IndiMount(MountPlugin):
             prop = self._props(["GEOGRAPHIC_COORD.*"]).get("GEOGRAPHIC_COORD")
             if not prop:
                 raise IndiClientError("PROPERTY_UNSUPPORTED", "INDI geographic coordinates are unsupported")
-            self.client.set_props({"GEOGRAPHIC_COORD": {
+            self._set_props({"GEOGRAPHIC_COORD": {
                 "LAT": lat, "LONG": lon, "ELEV": elev,
             }})
         except IndiClientError:
             raise
         except Exception as exc:
             self._raise_mapped("CONNECTION_FAILED", "Unable to set INDI location", exc)
+
+    def _cleanup_runtime_channels(self):
+        """Close every runtime channel, including partial connect failures."""
+        self._close_control_session()
+        stop_monitor = getattr(self.client, "stop_monitor", None)
+        if callable(stop_monitor):
+            stop_monitor()
+
+    def _open_control_session(self):
+        """Open the runtime write channel once and keep it for the mount session."""
+        if not self._runtime_tcp_enabled or self._control_session is not None:
+            return
+        session = IndiTcpSession(
+            host=self.config.get("host", "127.0.0.1"),
+            port=int(self.config.get("port", 7624)),
+            device=self.device_name,
+            timeout_s=float(self.config.get("client_timeout", 4.0)),
+        )
+        session.__enter__()
+        try:
+            session.start_reader()
+        except Exception:
+            session.close()
+            raise
+        self._control_session = session
+
+    def _close_control_session(self):
+        session, self._control_session = self._control_session, None
+        if session is not None:
+            session.close()
+
+    def _set_props(self, assignments):
+        """Write through the persistent TCP channel during normal runtime.
+
+        Injected clients retain the historical set_props contract for unit
+        tests and alternate callers. INDI vector type is explicit for the
+        standard properties SolarTrigger writes.
+        """
+        session = self._control_session
+        if session is None:
+            self.client.set_props(assignments)
+            return
+
+        for prop, elements in assignments.items():
+            if prop == "DEVICE_PORT":
+                session.set_text(prop, elements)
+            elif prop == "GEOGRAPHIC_COORD":
+                session.set_number(prop, elements)
+            else:
+                session.set_switch(prop, elements)
 
     def _props(self, patterns=None):
         return self.client.get_props(patterns)
@@ -582,7 +790,7 @@ class IndiMount(MountPlugin):
 
     def _set_mapped(self, assignments, message):
         try:
-            self.client.set_props(assignments)
+            self._set_props(assignments)
         except IndiClientError:
             raise
         except Exception as exc:

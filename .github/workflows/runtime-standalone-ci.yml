@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - hardening/standalone-runtime-20260922
+      - refactor/indi-astro-device-manager
   workflow_dispatch:
 
 jobs:
@@ -25,7 +26,15 @@ jobs:
           python -m pip install pytest Flask flask-socketio simple-websocket gphoto2 pygame pyserial gunicorn pytz timezonefinder
       - name: Syntax checks
         run: |
-          python -m py_compile backend/runtime_rpc.py backend/runtime_daemon.py flask_app/app.py
+          python -m py_compile \
+            backend/runtime_rpc.py \
+            backend/runtime_daemon.py \
+            backend/indi_device_manager.py \
+            backend/indi_server_daemon.py \
+            plugins/mount/indi_client.py \
+            plugins/mount/indi_plugin.py \
+            plugins/focuser/indi_plugin.py \
+            flask_app/app.py
           bash -n install/install_solareclipse.sh
           bash -n install/install_standalone_runtime_service.sh
           sh -n install/solartrigger-release-update

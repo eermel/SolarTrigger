@@ -122,13 +122,30 @@ def test_connect_rejects_baud_missing_from_advertised_property(tmp_path, full_pr
 
 
 @pytest.mark.parametrize("serial_port", [None, ""])
-def test_connect_requires_serial_port_before_client_access(serial_port):
-    client = StubIndiClient()
+def test_connect_allows_native_indi_device_without_serial_port(serial_port):
+    client = StubIndiClient({
+        "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"},
+    })
     plugin = mount(client, serial_port=serial_port)
 
-    assert_code("SERIAL_PORT_MISSING", plugin.connect)
-    assert client.present_calls == []
-    assert client.set_calls == []
+    plugin.connect()
+
+    assert client.present_calls == ["Test Mount"]
+    assert client.set_calls == [
+        {"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}},
+    ]
+    assert plugin.connected is True
+
+
+def test_connect_without_serial_binding_preserves_driver_auto_search(full_props):
+    client = StubIndiClient(full_props)
+    plugin = mount(client)
+
+    plugin.connect()
+
+    assert client.set_calls == [
+        {"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}},
+    ]
 
 
 def test_connect_maps_missing_path_and_permission_denied(monkeypatch):
@@ -174,7 +191,7 @@ def test_status_uses_device_info_fallbacks_and_absent_capabilities():
 
     status = mount(client).status()
 
-    assert status["device"]["driver"] == "indi_eqmod_telescope"
+    assert status["device"]["driver"] == "indi"
     assert status["device"]["model"] == "Fallback"
     assert status["device"]["motor_controller"] == "Stepper"
     assert status["device"]["mount_code"] == "GEM"
@@ -317,3 +334,160 @@ def test_structured_client_error_keeps_its_code():
 
     error = assert_code("CONNECTION_LOST", mount(client).status)
     assert str(error) == "server disconnected"
+
+
+def test_runtime_control_routes_writes_by_indi_vector_type(full_props):
+    client = StubIndiClient(full_props)
+    plugin = mount(client)
+
+    class ControlSession:
+        def __init__(self):
+            self.calls = []
+
+        def set_text(self, prop, elements):
+            self.calls.append(("text", prop, deepcopy(elements)))
+
+        def set_number(self, prop, elements):
+            self.calls.append(("number", prop, deepcopy(elements)))
+
+        def set_switch(self, prop, elements):
+            self.calls.append(("switch", prop, deepcopy(elements)))
+
+    session = ControlSession()
+    plugin._control_session = session
+
+    plugin._set_props({
+        "DEVICE_PORT": {"PORT": "/dev/serial/by-id/test"},
+        "GEOGRAPHIC_COORD": {"LAT": 48.5, "LONG": 2.25, "ELEV": 120},
+        "TELESCOPE_SLEW_RATE": {"SLEW_MAX": "On"},
+        "TELESCOPE_MOTION_WE": {
+            "MOTION_EAST": "On",
+            "MOTION_WEST": "Off",
+        },
+    })
+
+    assert client.set_calls == []
+    assert session.calls == [
+        ("text", "DEVICE_PORT", {"PORT": "/dev/serial/by-id/test"}),
+        ("number", "GEOGRAPHIC_COORD", {"LAT": 48.5, "LONG": 2.25, "ELEV": 120}),
+        ("switch", "TELESCOPE_SLEW_RATE", {"SLEW_MAX": "On"}),
+        (
+            "switch",
+            "TELESCOPE_MOTION_WE",
+            {"MOTION_EAST": "On", "MOTION_WEST": "Off"},
+        ),
+    ]
+
+
+def test_injected_client_keeps_legacy_set_props_path(full_props):
+    client = StubIndiClient(full_props)
+    plugin = mount(client)
+
+    plugin._set_props({
+        "TELESCOPE_MOTION_NS": {
+            "MOTION_NORTH": "On",
+            "MOTION_SOUTH": "Off",
+        }
+    })
+
+    assert client.set_calls == [{
+        "TELESCOPE_MOTION_NS": {
+            "MOTION_NORTH": "On",
+            "MOTION_SOUTH": "Off",
+        }
+    }]
+
+
+def test_runtime_control_session_is_opened_drained_and_closed(monkeypatch, full_props):
+    events = []
+
+    class Session:
+        def __init__(self, **kwargs):
+            events.append(("init", kwargs))
+
+        def __enter__(self):
+            events.append(("enter",))
+            return self
+
+        def start_reader(self):
+            events.append(("reader",))
+
+        def close(self):
+            events.append(("close",))
+
+    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", Session)
+
+    plugin = mount(StubIndiClient(full_props))
+    plugin._runtime_tcp_enabled = True
+    plugin._open_control_session()
+    plugin._open_control_session()
+    plugin._close_control_session()
+
+    assert [event[0] for event in events] == [
+        "init",
+        "enter",
+        "reader",
+        "close",
+    ]
+    assert events[0][1]["device"] == "Test Mount"
+
+
+def test_connect_disables_inherited_tracking(full_props):
+    props = deepcopy(full_props)
+    props["TELESCOPE_TRACK_STATE"] = {
+        "TRACK_ON": "On",
+        "TRACK_OFF": "Off",
+    }
+    client = StubIndiClient(props)
+    plugin = mount(client)
+
+    plugin.connect()
+
+    assert {
+        "TELESCOPE_TRACK_STATE": {
+            "TRACK_ON": "Off",
+            "TRACK_OFF": "On",
+        }
+    } in client.set_calls
+    assert plugin.connected is True
+    assert plugin.tracking is False
+
+
+def test_connect_failure_cleans_monitor_and_persistent_session(monkeypatch, full_props):
+    events = []
+
+    class Client(StubIndiClient):
+        def start_monitor(self):
+            events.append("monitor-start")
+        def stop_monitor(self):
+            events.append("monitor-stop")
+
+    class Session:
+        def __init__(self, **_kwargs):
+            pass
+        def __enter__(self):
+            events.append("session-open")
+            return self
+        def start_reader(self):
+            events.append("reader-start")
+        def close(self):
+            events.append("session-close")
+        def set_switch(self, *_args, **_kwargs):
+            raise IndiClientError("CONNECTION_LOST", "forced")
+
+    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", Session)
+    client = Client(full_props)
+    plugin = mount(client)
+    plugin._runtime_tcp_enabled = True
+
+    with pytest.raises(IndiClientError):
+        plugin.connect()
+
+    assert events == [
+        "monitor-start",
+        "session-open",
+        "reader-start",
+        "session-close",
+        "monitor-stop",
+    ]
+    assert plugin._control_session is None

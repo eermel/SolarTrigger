@@ -5,7 +5,6 @@ def test_trigger_and_add_camera_file_selects_share_config_style():
     html = Path("flask_app/templates/index.html").read_text(encoding="utf-8")
     for select_id in (
         "camera-characterization-select",
-        "camera-validation-select",
         "trigger-circumstances-select",
         "trigger-photo-select",
         "trigger-exposure-opt-select",

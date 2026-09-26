@@ -406,6 +406,7 @@ class Job:
                 self.logs.append(line.rstrip())
             if process.wait():
                 raise RuntimeError("Maintenance helper failed")
+            self.logs.append("SUCCESS: System update completed successfully" if self.kind == "apt-upgrade" else "SUCCESS: Maintenance operation completed successfully")
             self.status = "success"
         except Exception as exc:
             self.status = "failed"
