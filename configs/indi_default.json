@@ -3,7 +3,6 @@
   "port": 7624,
   "drivers": [
     "indi_lx200_OnStep",
-    "indi_eqmod_telescope",
-    "indi_asi_focuser"
+    "indi_eqmod_telescope"
   ]
 }
