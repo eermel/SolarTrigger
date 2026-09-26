@@ -144,6 +144,7 @@ required=(
     "$SRC/flask_app/static/css"
     "$SRC/Sounds"
     "$SRC/configs"
+    "$SRC/data"
     "$SRC/install/install_standalone_runtime_service.sh"
     "$SRC/install/install_zwo_eaf_hid.sh"
 )
@@ -292,6 +293,12 @@ rsync "${RSYNC_OPTS[@]}" --delete \
     "$DST_HOST:$DST/configs/"
 
 ensure_camera_persistent_links
+
+echo
+echo "=== runtime data ==="
+rsync "${RSYNC_OPTS[@]}" --delete \\
+    "$SRC/data/" \\
+    "$DST/data/"
 
 echo
 echo "=== system helpers (copied, never executed automatically) ==="
