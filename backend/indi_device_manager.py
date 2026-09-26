@@ -229,18 +229,18 @@ class IndiDeviceManager:
         connected = str(_raw(connection.get("CONNECT", "Off"))).casefold() in {
             "on", "true", "1"
         }
-        # A loaded INDI driver advertises a logical device even when no
-        # hardware is attached. For serial devices, only treat the device as
-        # physically present when the configured port resolves to a currently
-        # existing device. Do not assume anything about the USB/serial
-        # chipset (FTDI, CH34x, Prolific, ...).
+        # A disconnected driver's DEVICE_PORT is only a configured/default
+        # value; it is not proof that the advertised mount owns that serial
+        # transport. Another USB serial device may currently occupy the same
+        # ttyUSB number. Only a connected INDI device is physical presence
+        # evidence. Keep a stable serial path only after INDI has connected.
         configured_port = _text(port_prop, "PORT")
-        serial_path = _stable_serial_path(configured_port)
-        serial_transport_present = bool(
-            configured_port
-            and os.path.exists(os.path.realpath(configured_port))
+        serial_path = (
+            _stable_serial_path(configured_port)
+            if connected
+            else None
         )
-        present = connected or serial_transport_present
+        present = connected
 
         return {
             "backend": "indi",
