@@ -154,7 +154,7 @@ def _signature_categories(properties: Mapping[str, Mapping[str, Any]]) -> set[st
 
 
 class IndiDeviceManager:
-    """Read-only catalogue of logical devices advertised by indiserver."""
+    """Catalogue and transport probing for logical INDI devices."""
 
     def __init__(
         self,
@@ -291,7 +291,13 @@ class IndiDeviceManager:
             device=device_name,
             timeout_s=self.timeout_s,
         )
+        connected = False
         try:
+            # Keep exactly one read-side INDI client alive for the complete
+            # probe. Repeated short-lived indi_getprop clients can generate
+            # broken pipes and, on some indiserver builds, destabilise the
+            # driver being probed.
+            client.start_monitor()
             client.set_props({"DEVICE_PORT": {"PORT": candidate}})
             client.set_props({
                 "CONNECTION": {
@@ -306,23 +312,27 @@ class IndiDeviceManager:
                 if str(_raw(connection.get("CONNECT", "Off"))).casefold() in {
                     "on", "true", "1",
                 }:
-                    return True
+                    connected = True
+                    break
                 time.sleep(poll_interval)
         except Exception:
-            pass
+            connected = False
+        finally:
+            if not connected:
+                # A failed candidate must not remain connected before another
+                # driver or candidate is allowed to try the same transport.
+                try:
+                    client.set_props({
+                        "CONNECTION": {
+                            "CONNECT": "Off",
+                            "DISCONNECT": "On",
+                        }
+                    })
+                except Exception:
+                    pass
+            client.stop_monitor()
 
-        # A failed candidate must not remain connected before another driver
-        # or candidate is allowed to try the same physical transport.
-        try:
-            client.set_props({
-                "CONNECTION": {
-                    "CONNECT": "Off",
-                    "DISCONNECT": "On",
-                }
-            })
-        except Exception:
-            pass
-        return False
+        return connected
 
     def _autoconnect_mounts(
         self,
