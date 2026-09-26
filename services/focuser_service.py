@@ -200,6 +200,33 @@ class FocuserService:
             and raw.get("position") == self._target_position
         )
 
+        span = getattr(plugin, "max_async_move_span", None)
+        lookahead = getattr(plugin, "async_move_lookahead", None)
+        # Extend a segmented ZWO move before the current SDK target is reached.
+        # EAFMove is absolute, so updating its target while the motor is still
+        # moving avoids the visible/mechanical pause between segments.
+        if (
+            tracked_motion
+            and moving
+            and not at_target
+            and self._commanded_position is not None
+            and isinstance(span, int)
+            and not isinstance(span, bool)
+            and span > 0
+            and isinstance(lookahead, int)
+            and not isinstance(lookahead, bool)
+            and lookahead > 0
+            and abs(int(self._commanded_position) - int(raw.get("position"))) <= lookahead
+            and self._commanded_position != self._target_position
+        ):
+            current = int(raw.get("position"))
+            final = int(self._target_position)
+            delta = final - current
+            next_target = current + max(-span, min(span, delta))
+            if next_target != self._commanded_position:
+                plugin.move_to(next_target, wait=False)
+                self._commanded_position = next_target
+
         # Some ZWO EAF firmware/SDK combinations stop a long asynchronous
         # EAFMove after roughly ten seconds even though the requested absolute
         # target is farther away.  ZwoFocuser advertises a conservative
@@ -207,7 +234,6 @@ class FocuserService:
         # absolute segments.  Advance to the next segment only after two
         # consecutive stationary samples: one transient moving=False sample
         # must never redirect a motor that is still travelling.
-        span = getattr(plugin, "max_async_move_span", None)
         if (
             tracked_motion
             and not at_target
