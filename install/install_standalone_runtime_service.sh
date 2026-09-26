@@ -91,6 +91,7 @@ Group=$CURRENT_GROUP
 WorkingDirectory=$APP_DIR
 RuntimeDirectory=solartrigger
 RuntimeDirectoryMode=0770
+RuntimeDirectoryPreserve=yes
 Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 Environment="PYTHONPATH=$APP_DIR"
@@ -140,6 +141,23 @@ After=solartrigger-indi.service solartrigger-runtime.service
 Environment="SOLARTRIGGER_RUNTIME_CLIENT=1"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
 Environment="SOLARTRIGGER_ADMISSION_LOCK=/run/solartrigger/admission.lock"
+EOF
+
+# The runtime owns /run/solartrigger, but the portal must also reach the
+# runtime socket and create admission.lock.  Keep the runtime itself root when
+# required by the installed hardware stack, and share only this runtime
+# directory with the portal's group.
+install -d -o root -g "$CURRENT_GROUP" -m 0770 /run/solartrigger
+mkdir -p /etc/tmpfiles.d
+cat > /etc/tmpfiles.d/solartrigger.conf <<EOF
+d /run/solartrigger 0770 root $CURRENT_GROUP -
+EOF
+
+mkdir -p /etc/systemd/system/solartrigger-runtime.service.d
+cat > /etc/systemd/system/solartrigger-runtime.service.d/runtime-directory-group.conf <<EOF
+[Service]
+ExecStartPost=+/bin/chgrp $CURRENT_GROUP /run/solartrigger
+ExecStartPost=+/bin/chmod 0770 /run/solartrigger
 EOF
 
 # Retire l'ancien serveur mono-EQMod s'il existe encore.
