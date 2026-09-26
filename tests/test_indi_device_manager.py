@@ -434,3 +434,101 @@ def test_explicit_hardware_serial_rejects_switch_like_value(monkeypatch):
     entry = IndiDeviceManager(client=FakeClient(devices)).discover()[0]
 
     assert entry["serial"] is None
+
+
+
+def test_serial_candidates_exclude_os_reserved_gps_transport(monkeypatch):
+    manager = IndiDeviceManager(client=FakeClient({}))
+    root = "/dev/serial/by-id"
+    gps = f"{root}/usb-gps"
+    mount = f"{root}/usb-mount"
+
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.listdir",
+        lambda path: ["usb-gps", "usb-mount"] if path == root else [],
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: path in {"/dev/gps0", gps, mount},
+    )
+
+    realpaths = {
+        "/dev/gps0": "/dev/ttyUSB0",
+        gps: "/dev/ttyUSB0",
+        mount: "/dev/ttyUSB1",
+    }
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.realpath",
+        lambda path: realpaths.get(path, path),
+    )
+
+    assert manager._serial_candidates() == [mount]
+
+
+def test_serial_candidates_do_not_guess_roles_from_usb_chipset(monkeypatch):
+    manager = IndiDeviceManager(client=FakeClient({}))
+    root = "/dev/serial/by-id"
+    candidates = [
+        f"{root}/usb-FTDI-controller",
+        f"{root}/usb-1a86-controller",
+        f"{root}/usb-Prolific-controller",
+    ]
+
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.listdir",
+        lambda path: [path.rsplit("/", 1)[-1] for path in candidates]
+        if path == root
+        else [],
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: path in candidates,
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.realpath",
+        lambda path: path,
+    )
+
+    assert manager._serial_candidates() == candidates
+
+
+def test_mount_autoconnect_never_probes_reserved_gps_candidate(monkeypatch):
+    devices = {
+        "Mount A": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/ttyUSB0"},
+        },
+    }
+    manager = IndiDeviceManager(client=FakeClient(devices))
+    root = "/dev/serial/by-id"
+    gps = f"{root}/usb-gps"
+    mount = f"{root}/usb-mount"
+
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.listdir",
+        lambda path: ["usb-gps", "usb-mount"] if path == root else [],
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: path in {"/dev/gps0", gps, mount},
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.realpath",
+        lambda path: {
+            "/dev/gps0": "/dev/ttyUSB0",
+            gps: "/dev/ttyUSB0",
+            mount: "/dev/ttyUSB1",
+        }.get(path, path),
+    )
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_probe_mount_transport",
+        lambda device, candidate, **_kwargs: attempts.append(
+            (device, candidate)
+        ) or False,
+    )
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert attempts == [("Mount A", mount)]
