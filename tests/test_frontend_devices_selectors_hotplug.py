@@ -163,7 +163,12 @@ def test_devices_poll_usb_presence_every_second_and_refresh_only_on_change():
     assert "deviceAutoRefreshTimer = setInterval" in auto_refresh
     assert "DEVICE_AUTO_REFRESH_INTERVAL_MS" in auto_refresh
     assert "setInterval" in auto_refresh
-    assert "refreshRigDevices(true, false)" not in auto_refresh
+    # Startup performs one lightweight inventory refresh so a browser reload
+    # cannot preserve a stale inventory while adopting the current USB
+    # signature as its baseline. Subsequent 1 Hz polls still refresh only
+    # when that signature changes.
+    assert "await refreshRigDevices(true, false);" in auto_refresh
+    assert auto_refresh.count("refreshRigDevices(true, false)") == 1
 
     assert "loadRigDevices();\nstartDeviceAutoRefresh();" in INDEX_HTML
 
