@@ -1052,7 +1052,7 @@ def characterize(camera, entry, job):
             characterize_auxiliary_capabilities,
         )
         auxiliary_capabilities, auxiliary_commands = (
-            characterize_auxiliary_capabilities(camera, job)
+            characterize_auxiliary_capabilities(camera, job, items=initial)
         )
         commands.update(auxiliary_commands)
 
@@ -1065,7 +1065,7 @@ def characterize(camera, entry, job):
             shutter_item = next(
                 (
                     item
-                    for item in enumerate_widgets(camera)
+                    for item in initial
                     if item["path"] == shutter_mode_spec.get("path")
                 ),
                 None,
