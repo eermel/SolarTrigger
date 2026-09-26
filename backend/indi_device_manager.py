@@ -484,20 +484,22 @@ class IndiDeviceManager:
                 continue
 
             learned = bindings.get(device_name)
-            ordered_candidates: list[str] = []
-            if (
-                learned
-                and learned in candidates
-                and learned not in claimed
-            ):
-                ordered_candidates.append(learned)
-            ordered_candidates.extend(
-                candidate
-                for candidate in candidates
-                if candidate != learned and candidate not in claimed
-            )
 
-            for candidate in ordered_candidates:
+            # Once a logical mount has a learned stable transport, never probe
+            # other serial devices merely because that transport is absent.
+            # Hot-unplug therefore means "mount absent", not "search every
+            # remaining serial port". A broad safe scan is reserved for mounts
+            # which have never been learned.
+            if learned:
+                if learned in candidates and learned not in claimed:
+                    if self._probe_mount_transport(device_name, learned):
+                        claimed.add(learned)
+                        changed = True
+                continue
+
+            for candidate in candidates:
+                if candidate in claimed:
+                    continue
                 if self._probe_mount_transport(device_name, candidate):
                     claimed.add(candidate)
                     self._remember_mount_binding(
