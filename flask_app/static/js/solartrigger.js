@@ -7177,9 +7177,27 @@ function renderInstalledSolarTriggerReleases(releaseState) {
   };
 }
 
+const MAINTENANCE_POLL_INTERVAL_MS = 1000;
+let maintenancePollTimer = null;
+
+function stopMaintenancePolling() {
+  if (maintenancePollTimer !== null) {
+    clearTimeout(maintenancePollTimer);
+    maintenancePollTimer = null;
+  }
+}
+
+function scheduleMaintenancePoll() {
+  stopMaintenancePolling();
+  maintenancePollTimer = setTimeout(
+    pollMaintenanceStatus,
+    MAINTENANCE_POLL_INTERVAL_MS
+  );
+}
+
 async function loadMaintenanceStatus(){
   const button = document.getElementById('system-check-update');
-  if (!button) return;
+  if (!button) return null;
 
   try {
     const response = await fetch('/api/system/maintenance/status');
@@ -7195,7 +7213,7 @@ async function loadMaintenanceStatus(){
       data.ethernet && data.ethernet.connected
     );
 
-    button.disabled = !ethernetConnected;
+    button.disabled = Boolean(data.running) || !ethernetConnected;
     button.textContent = ethernetConnected
       ? 'CHECK AND UPDATE SYSTEM'
       : 'CHECK AND UPDATE SYSTEM — Eth need to be connected';
@@ -7211,12 +7229,31 @@ async function loadMaintenanceStatus(){
     }
 
     renderInstalledSolarTriggerReleases(data.release_state || {});
+    return data;
   } catch (error) {
     console.warn(
       'Unable to load maintenance status:',
       error
     );
+    return null;
   }
+}
+
+async function pollMaintenanceStatus() {
+  const data = await loadMaintenanceStatus();
+
+  if (data && data.running) {
+    scheduleMaintenancePoll();
+  } else {
+    stopMaintenancePolling();
+  }
+
+  return data;
+}
+
+function startMaintenancePolling() {
+  stopMaintenancePolling();
+  void pollMaintenanceStatus();
 }
 async function checkAndUpdateSystem(){
   if(!confirm(
@@ -7235,6 +7272,7 @@ async function checkAndUpdateSystem(){
       '/api/system/maintenance/update-system'
     );
     flash('System update started','green');
+    startMaintenancePolling();
   } catch(e) {
     cameraAddLogState.systemUpdate.push(
       `ERROR: ${e.message}`
@@ -7343,4 +7381,4 @@ async function rollbackSolarTriggerRelease() {
 }
 // Maintenance state is only relevant while an update/rollback operation is
 // active.  Do not poll it continuously from every idle browser.
-setTimeout(loadMaintenanceStatus, 250);
+setTimeout(() => { void pollMaintenanceStatus(); }, 250);
