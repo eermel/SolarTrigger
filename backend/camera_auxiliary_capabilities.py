@@ -307,7 +307,13 @@ def _classify_shutter_choice(value):
 def _looks_like_shutter_control(item):
     if item["name"] in _SHUTTER_MODE_NAMES:
         return True
-    combined = f"{item['name']} {item['label_norm']}"
+    # Characterization's initial discovery intentionally stores only the
+    # fields needed by the main qualifier and may not include label_norm.
+    # Normalize the label lazily so that auxiliary probes can safely reuse it.
+    label_norm = item.get("label_norm")
+    if label_norm is None:
+        label_norm = _norm(item.get("label", ""))
+    combined = f"{item['name']} {label_norm}"
     if "shutterspeed" in combined or "shuttercount" in combined:
         return False
     return any(
