@@ -489,7 +489,9 @@ def test_serial_candidates_do_not_guess_roles_from_usb_chipset(monkeypatch):
         lambda path: path,
     )
 
-    assert manager._serial_candidates() == candidates
+    # Candidate order is deterministic (sorted by stable by-id name), but
+    # no USB chipset/vendor token is used to include or exclude a transport.
+    assert manager._serial_candidates() == sorted(candidates)
 
 
 def test_mount_autoconnect_never_probes_reserved_gps_candidate(monkeypatch):
