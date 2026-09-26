@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import fnmatch
-import socket
 import subprocess
 import threading
 from typing import Any
@@ -114,33 +113,6 @@ class IndiSubprocessClient:
             for element, value in elements.items()
         ]
         self._run("indi_setprop", values)
-
-    def set_props_via_monitor(
-        self,
-        assignments: dict[str, dict[str, Any]],
-    ) -> None:
-        """Write INDI newText/newSwitch vectors on the monitor connection.
-
-        Probe code already owns a persistent read-side INDI connection. Using
-        that same TCP session for DEVICE_PORT and CONNECTION avoids spawning
-        short-lived indi_setprop clients while indiserver is publishing the
-        corresponding property updates.
-        """
-        with self._monitor_lock:
-            process = self._monitor_process
-            if process is None:
-                raise IndiClientError(
-                    "CONNECTION_FAILED",
-                    "Persistent INDI monitor is not active",
-                )
-
-        # indi_getprop owns the monitor socket internally and does not expose
-        # it for writes. Do not pretend it is duplex: retain the public method
-        # as an explicit guard until the monitor transport itself is replaced.
-        raise IndiClientError(
-            "PROPERTY_UNSUPPORTED",
-            "indi_getprop monitor transport is read-only",
-        )
 
     def ensure_device_present(self, device_name: str) -> None:
         """Raise ``DEVICE_NOT_FOUND`` unless *device_name* is advertised.
