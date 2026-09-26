@@ -1653,7 +1653,7 @@ function waitForBrowserPaint() {
   });
 }
 
-async function refreshRigDevices(silent = false) {
+async function refreshRigDevices(silent = false, fullLegacyDetect = true) {
   if (deviceAutoRefreshInFlight) return;
 
   deviceAutoRefreshInFlight = true;
@@ -1664,21 +1664,26 @@ async function refreshRigDevices(silent = false) {
   await waitForBrowserPaint();
 
   try {
-    const [inventoryResponse, devicesResponse] = await Promise.all([
-      fetch('/api/rigs/devices/refresh', {method: 'POST'}),
-      fetch('/api/devices/detect', {method: 'POST'}),
-    ]);
+    // Automatic USB hotplug refreshes must stay lightweight.  The legacy
+    // /api/devices/detect endpoint probes every hardware category (camera,
+    // GPS, focuser and mount) and can be slow on real USB/INDI hardware.
+    // Keep that exhaustive probe for explicit/manual refreshes only.
+    const inventoryResponse = await fetch('/api/rigs/devices/refresh', {method: 'POST'});
     const inventory = await inventoryResponse.json();
-    const devices = await devicesResponse.json();
     if (!inventoryResponse.ok) {
       throw new Error(inventory.error || `HTTP error ${inventoryResponse.status}`);
     }
-    if (!devicesResponse.ok) {
-      throw new Error(devices.error || `HTTP error ${devicesResponse.status}`);
-    }
     await loadRigDevices(inventory);
-    renderDevices(devices);
-    updateControlsVisibility(devices);
+
+    if (fullLegacyDetect) {
+      const devicesResponse = await fetch('/api/devices/detect', {method: 'POST'});
+      const devices = await devicesResponse.json();
+      if (!devicesResponse.ok) {
+        throw new Error(devices.error || `HTTP error ${devicesResponse.status}`);
+      }
+      renderDevices(devices);
+      updateControlsVisibility(devices);
+    }
     await pollCameraCharacterization();
     await pollCameraValidation();
     if (!silent) flash('Device inventory refreshed', 'green');
@@ -1711,7 +1716,7 @@ async function pollDeviceUsbPresence() {
     if (signature === deviceUsbPresenceSignature) return;
 
     deviceUsbPresenceSignature = signature;
-    await refreshRigDevices(true);
+    await refreshRigDevices(true, false);
   } catch (error) {
     console.warn('USB presence polling failed:', error);
   } finally {
