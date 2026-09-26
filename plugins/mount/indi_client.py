@@ -81,7 +81,7 @@ class IndiSubprocessClient:
                 for pattern in patterns
             ]
 
-        output = self._run("indi_getprop", filters or [])
+        output = self._getprop_snapshot(filters or [])
         parsed = self._parse_props(output)
 
         # Preserve the last known values so a subsequently started monitor
@@ -110,7 +110,7 @@ class IndiSubprocessClient:
         # essential DRIVER_INFO/CONNECTION catalogue.
         for pattern in patterns:
             try:
-                output = self._run("indi_getprop", [pattern])
+                output = self._getprop_snapshot([pattern])
             except IndiClientError as exc:
                 if pattern in {"*.DRIVER_INFO.*", "*.CONNECTION.*"}:
                     raise
@@ -140,7 +140,7 @@ class IndiSubprocessClient:
         This intentionally remains a one-shot query so probes and inventory
         discovery never leave persistent monitor processes behind.
         """
-        output = self._run("indi_getprop", [f"{device_name}.*.*"])
+        output = self._getprop_snapshot([f"{device_name}.*.*"])
         if device_name not in self._parse_props(output):
             raise IndiClientError(
                 "DEVICE_NOT_FOUND",
@@ -292,6 +292,61 @@ class IndiSubprocessClient:
                     result.setdefault(prop, {})[element] = value
 
         return result
+
+    def _getprop_snapshot(self, arguments: list[str]) -> str:
+        """Capture the initial indi_getprop snapshot and stop the client.
+
+        Some INDI builds keep indi_getprop attached after emitting matching
+        properties. A subprocess timeout is therefore not itself a discovery
+        failure when stdout already contains a valid snapshot.
+        """
+        command = [
+            "indi_getprop",
+            "-h",
+            self.host,
+            "-p",
+            str(self.port),
+            *arguments,
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_s,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = self._as_text(exc.stdout)
+            stderr = self._as_text(exc.stderr)
+            if stdout.strip():
+                return stdout
+            raise IndiClientError(
+                "TIMEOUT",
+                f"indi_getprop produced no snapshot within {self.timeout_s}s",
+                command=command,
+                stderr=stderr,
+            ) from exc
+        except OSError as exc:
+            raise IndiClientError(
+                "INDI_UNAVAILABLE",
+                f"Unable to start indi_getprop: {exc}",
+                command=command,
+                stderr=str(exc),
+            ) from exc
+
+        if result.returncode != 0:
+            stderr = result.stderr or ""
+            code = self._failure_code("indi_getprop", stderr)
+            detail = stderr.strip() or f"exit code {result.returncode}"
+            raise IndiClientError(
+                code,
+                f"indi_getprop failed: {detail}",
+                command=command,
+                returncode=result.returncode,
+                stderr=stderr,
+            )
+        return result.stdout or ""
 
     def _run(self, executable: str, arguments: list[str]) -> str:
         command = [
