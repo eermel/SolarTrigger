@@ -234,7 +234,8 @@ class CameraService:
         already_initialized = False
         try:
             if self.camera_factory is None:
-                import gphoto2 as gp
+                from backend.gphoto_runtime import import_gphoto2
+                gp = import_gphoto2()
 
                 serial = (
                     self.camera_identity.get("serial")
