@@ -80,28 +80,32 @@ def test_get_props_preserves_qualified_pattern_and_value_delimiters(monkeypatch)
     assert props == {"DEVICE_PORT": {"PORT": "/dev/serial/by-id/a=b"}}
 
 
-def test_get_all_devices_is_unscoped_and_preserves_each_device(monkeypatch):
+def test_get_all_devices_uses_bounded_discovery_patterns(monkeypatch):
     commands = []
     monkeypatch.setattr(
         "plugins.mount.indi_client.subprocess.run",
         lambda command, **kwargs: commands.append(command)
         or completed(
             stdout=(
+                "Mount A.DRIVER_INFO.DRIVER_INTERFACE=1\n"
                 "Mount A.CONNECTION.CONNECT=Off\n"
-                "Focuser A.ABS_FOCUS_POSITION.FOCUS_ABSOLUTE_POSITION=42\n"
+                "Focuser A.DRIVER_INFO.DRIVER_INTERFACE=8\n"
             )
         ),
     )
 
     devices = IndiSubprocessClient(host="indi.local", port=8765).get_all_devices()
 
-    assert commands == [["indi_getprop", "-h", "indi.local", "-p", "8765"]]
-    assert devices == {
-        "Mount A": {"CONNECTION": {"CONNECT": "Off"}},
-        "Focuser A": {
-            "ABS_FOCUS_POSITION": {"FOCUS_ABSOLUTE_POSITION": "42"}
-        },
-    }
+    command = commands[0]
+    assert command[:5] == [
+        "indi_getprop", "-h", "indi.local", "-p", "8765"
+    ]
+    assert "*.DRIVER_INFO.*" in command
+    assert "*.CONNECTION.*" in command
+    assert "*.DEVICE_PORT.*" in command
+    assert len(command) > 5
+    assert devices["Mount A"]["DRIVER_INFO"]["DRIVER_INTERFACE"] == "1"
+    assert devices["Focuser A"]["DRIVER_INFO"]["DRIVER_INTERFACE"] == "8"
 
 
 def test_set_props_builds_assignment_arguments(monkeypatch):
