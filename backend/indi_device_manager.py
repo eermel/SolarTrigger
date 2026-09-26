@@ -562,7 +562,15 @@ class IndiDeviceManager:
                 _text(properties.get("DEVICE_PORT", {}), "PORT")
             ))
         }
-        claimed = set(connected_bindings.values())
+        # A connected transport is normally claimed. A mount marked for
+        # forced recovery is the exception: its CONNECT=On state is stale,
+        # so its own learned transport must remain available to the recovery
+        # cycle below. Other mounts still cannot claim/reuse it.
+        claimed = {
+            path
+            for name, path in connected_bindings.items()
+            if name not in reconnect_required
+        }
 
         # A live INDI connection on an existing stable by-id transport is
         # authoritative ownership evidence. Learn it even when the driver was
