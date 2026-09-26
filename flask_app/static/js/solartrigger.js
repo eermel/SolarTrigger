@@ -33,6 +33,7 @@ const DEVICE_AUTO_REFRESH_INTERVAL_MS = 1000;
 let deviceAutoRefreshInFlight = false;
 let deviceUsbPresenceSignature = null;
 let deviceUsbPresencePollInFlight = false;
+let deviceAutoRefreshTimer = null;
 let rigPhotoState = {rigs: []};
 let globalDevicesState = null;
 
@@ -965,7 +966,6 @@ function renderControlsRigSelection() {
     button.classList.toggle('active', available && selectedRigId === defaultRig.rig_id);
     button.setAttribute('aria-pressed', available && selectedRigId === defaultRig.rig_id ? 'true' : 'false');
   });
-  document.dispatchEvent(new CustomEvent('controlsrigchange'));
   renderSelectedMountAvailability();
   renderSelectedFocuserAvailability();
 
@@ -994,6 +994,7 @@ function selectControlsRig(rigId) {
 
   selectedRigId = numericRigId;
   renderControlsRigSelection();
+  document.dispatchEvent(new CustomEvent('controlsrigchange'));
 }
 
 function escapeDeviceText(value) {
@@ -1719,8 +1720,9 @@ async function pollDeviceUsbPresence() {
 }
 
 function startDeviceAutoRefresh() {
+  if (deviceAutoRefreshTimer !== null) return;
   pollDeviceUsbPresence();
-  setInterval(() => {
+  deviceAutoRefreshTimer = setInterval(() => {
     pollDeviceUsbPresence();
   }, DEVICE_AUTO_REFRESH_INTERVAL_MS);
 }
@@ -2636,10 +2638,12 @@ socket.on('log_history', lines => {
 
   document.addEventListener('controlsrigchange', () => {
     active = Boolean(focuserUrl('status'));
+    clearTimeout(pollTimer);
     if (!active) {
-      clearTimeout(pollTimer);
       stopPress(false);
+      return;
     }
+    refreshFocuser();
   });
 
   socket.on('focuser_update', refreshFocuser);
