@@ -496,12 +496,20 @@ allowed_extra_files = {"RELEASE_MANIFEST.json"}
 
 for current, dirs, names in os.walk(root, topdown=True, followlinks=False):
     current_path = Path(current)
+
+    # Python may create bytecode caches while an installed release is running.
+    # They are generated interpreter artefacts, never release payload. Ignore
+    # only those known artefacts; every other undeclared path remains fatal.
+    dirs[:] = [name for name in dirs if name != "__pycache__"]
+
     for name in [*dirs, *names]:
         path = current_path / name
         relative = path.relative_to(root).as_posix()
         if path.is_symlink():
             if relative not in allowed_symlinks:
                 raise RuntimeError(f"undeclared release symlink: {relative}")
+            continue
+        if path.is_file() and path.suffix in {".pyc", ".pyo"}:
             continue
         if (
             path.is_file()
