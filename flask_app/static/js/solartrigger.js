@@ -1728,9 +1728,17 @@ async function pollDeviceUsbPresence() {
   }
 }
 
-function startDeviceAutoRefresh() {
+async function startDeviceAutoRefresh() {
   if (deviceAutoRefreshTimer !== null) return;
-  pollDeviceUsbPresence();
+
+  // A browser reload must not treat the persisted inventory as current.
+  // Perform one lightweight inventory refresh immediately, then establish
+  // the USB signature baseline used for subsequent 1 Hz hot-plug detection.
+  // Keep the slow legacy hardware probes reserved for the manual Refresh
+  // Devices action.
+  await refreshRigDevices(true, false);
+  await pollDeviceUsbPresence();
+
   deviceAutoRefreshTimer = setInterval(() => {
     pollDeviceUsbPresence();
   }, DEVICE_AUTO_REFRESH_INTERVAL_MS);
