@@ -683,7 +683,11 @@ ensure_runtime_ipc_permissions() {
     mkdir -p /etc/systemd/system/solartrigger-runtime.service.d
     cat > /etc/systemd/system/solartrigger-runtime.service.d/runtime-directory-group.conf <<EOF
 [Service]
+User=root
 Group=$app_group
+RuntimeDirectory=solartrigger
+RuntimeDirectoryMode=0770
+RuntimeDirectoryPreserve=yes
 Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$app_group"
 EOF
 
@@ -694,6 +698,21 @@ EOF
 
     /usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/solartrigger.conf
     /usr/bin/systemctl daemon-reload
+}
+
+refresh_installed_release_helper() {
+    local source=$1
+    local target=/usr/local/sbin/solartrigger-release-update
+    local temporary="${target}.new.$"
+
+    [[ -f "$source" && ! -L "$source" ]]
+    if [[ "$(id -u)" -ne 0 ]]; then
+        log "Skipping installed release helper refresh (root required)"
+        return 0
+    fi
+
+    install -o root -g root -m 0755 -- "$source" "$temporary"
+    mv -f -- "$temporary" "$target"
 }
 
 request_reboot() {
@@ -739,6 +758,7 @@ install_release() {
     mv -- "$temporary" "$final_destination"
     alink "$final_destination" "$ACTIVE"
     rm -f -- "$install_package"
+    refresh_installed_release_helper "$final_destination/install/solartrigger-release-update"
     ensure_runtime_ipc_permissions
     log "Installed SolarTrigger release: $install_version"
     request_reboot
