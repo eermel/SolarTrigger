@@ -60,6 +60,16 @@ def test_system_sections_keep_outlines_with_devices_spacing():
     assert "margin-bottom:" not in rule
 
 
+def test_system_camera_title_does_not_double_section_gap():
+    source = frontend_source()
+
+    start = source.index(".system-camera-group-title {")
+    end = source.index("}", start)
+    rule = source[start:end]
+
+    assert "margin-bottom:" not in rule
+
+
 def test_system_camera_section_has_no_legacy_extra_spacing():
     source = frontend_source()
 
