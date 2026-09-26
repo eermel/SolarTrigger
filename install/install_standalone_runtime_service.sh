@@ -39,6 +39,7 @@ if [[ ! -x "$VENV_DIR/bin/python" ]]; then
 fi
 
 CURRENT_USER="$(stat -c '%U' "$APP_DIR")"
+CURRENT_GROUP="$(id -gn "$CURRENT_USER")"
 PORTAL_USER="$(systemctl show solareclipse.service -p User --value 2>/dev/null || true)"
 if [[ -z "$PORTAL_USER" ]]; then
     PORTAL_USER="$CURRENT_USER"
@@ -90,7 +91,7 @@ Wants=network.target solartrigger-indi.service
 
 [Service]
 Type=simple
-User=$CURRENT_USER
+User=root
 Group=$PORTAL_GROUP
 WorkingDirectory=$APP_DIR
 RuntimeDirectory=solartrigger
@@ -158,12 +159,9 @@ cat > /etc/tmpfiles.d/solartrigger.conf <<EOF
 d /run/solartrigger 0770 root $PORTAL_GROUP -
 EOF
 
-mkdir -p /etc/systemd/system/solartrigger-runtime.service.d
-cat > /etc/systemd/system/solartrigger-runtime.service.d/runtime-directory-group.conf <<EOF
-[Service]
-ExecStartPost=+/bin/chgrp $PORTAL_GROUP /run/solartrigger
-ExecStartPost=+/bin/chmod 0770 /run/solartrigger
-EOF
+# RuntimeDirectory ownership is derived directly from User=root + Group=$PORTAL_GROUP.
+# Remove the obsolete post-start ownership workaround if an older migration created it.
+rm -f /etc/systemd/system/solartrigger-runtime.service.d/runtime-directory-group.conf
 
 # Retire l'ancien serveur mono-EQMod s'il existe encore.
 systemctl disable --now indiserver-eqmod.service 2>/dev/null || true
