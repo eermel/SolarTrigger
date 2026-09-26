@@ -296,11 +296,14 @@ def test_refresh_and_socket_resync_cannot_issue_a_slew_command():
     )
     assert not re.search(r"/api/mount/slew/(?:start|stop)", refresh)
     assert not re.search(r"\b(?:startSlew|stopSlewBestEffort)\s*\(", refresh)
-    for event in ("connect", "status_update"):
-        assert re.search(
-            rf"socket\.on\(\s*['\"]{event}['\"]\s*,\s*refreshMount\s*\)",
-            MOUNT_JS,
-        )
+    assert re.search(
+        r"socket\.on\(\s*['\"]connect['\"]\s*,\s*refreshMount\s*\)",
+        MOUNT_JS,
+    )
+    assert not re.search(
+        r"socket\.on\(\s*['\"]status_update['\"]\s*,\s*refreshMount\s*\)",
+        MOUNT_JS,
+    )
     assert re.search(r"\n\s*refreshMount\(\);\s*\n\}\)\(\);", MOUNT_JS)
 
 
@@ -310,11 +313,14 @@ def test_reload_and_socket_resync_cannot_issue_a_tracking_command():
     )
     assert not re.search(r"/api/mount/tracking/(?:start|stop)", refresh)
     assert not re.search(r"\bpostMount\s*\(", refresh)
-    for event in ("connect", "status_update"):
-        assert re.search(
-            rf"socket\.on\(\s*['\"]{event}['\"]\s*,\s*refreshMount\s*\)",
-            MOUNT_JS,
-        )
+    assert re.search(
+        r"socket\.on\(\s*['\"]connect['\"]\s*,\s*refreshMount\s*\)",
+        MOUNT_JS,
+    )
+    assert not re.search(
+        r"socket\.on\(\s*['\"]status_update['\"]\s*,\s*refreshMount\s*\)",
+        MOUNT_JS,
+    )
     assert re.search(r"\n\s*refreshMount\(\);\s*\n\}\)\(\);", MOUNT_JS)
 
 
