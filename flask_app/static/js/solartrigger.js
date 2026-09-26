@@ -2483,14 +2483,11 @@ socket.on('log_history', lines => {
   function displayFocuser(data) {
     if (!data || !active) return;
     plugin.textContent = data.plugin || plugin.textContent || '--';
-    const reportedAbsoluteMotion = (
-      data.motion_command === 'go' || data.motion_command === 'home'
-    ) ? data.motion_command : null;
-    // The ZWO SDK can transiently report moving=false during an active
-    // absolute command.  Do not flash ready/moving in the UI while the backend
-    // still owns a Go/Home operation.
+    // A focuser backend may transiently report moving=false while an
+    // absolute command is still active.  Keep the visual state stable until
+    // the backend explicitly clears the Go/Home command.
     status.textContent = data.state || (
-      reportedAbsoluteMotion || data.moving
+      data.motion_command === 'go' || data.motion_command === 'home' || data.moving
         ? 'moving'
         : (data.connected ? 'ready' : 'disconnected')
     );
@@ -2500,7 +2497,9 @@ socket.on('log_history', lines => {
     if (data.mode === 'slow' || data.mode === 'fast') {
       speedSwitch.checked = data.mode === 'fast';
     }
-    absoluteMotion = reportedAbsoluteMotion;
+    absoluteMotion = (data.motion_command === 'go' || data.motion_command === 'home')
+      ? data.motion_command
+      : null;
     const selectedRig = selectedControlsRig();
     const triggerState = selectedRig
       ? (state.triggerRigs[String(selectedRig.rig_id)] || {})
