@@ -20,9 +20,12 @@ def test_long_capture_budget_includes_target_wait_and_margin():
     ) == 148.0 + CAPTURE_WATCHDOG_MARGIN_S
 
 
-def test_invalid_capture_estimate_falls_back_to_safe_floor():
+def test_invalid_capture_estimate_preserves_known_target_wait():
     prepared = SimpleNamespace(estimated_total_s=None)
-    assert _capture_watchdog_timeout_s(prepared, wait_s=999.0) == 125.0
+    assert _capture_watchdog_timeout_s(
+        prepared,
+        wait_s=999.0,
+    ) == 999.0 + CAPTURE_WATCHDOG_MARGIN_S
 
 
 def test_capture_begin_publishes_dynamic_budget():
