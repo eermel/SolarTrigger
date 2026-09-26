@@ -13,10 +13,14 @@ chipset/vendor names.
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
+import tempfile
 import time
 from typing import Any, Mapping
 
+from backend.runtime_paths import INDI_MOUNT_BINDINGS_FILE
 from plugins.mount.indi_client import IndiSubprocessClient
 
 
@@ -163,10 +167,12 @@ class IndiDeviceManager:
         port: int = 7624,
         timeout_s: float = 2.0,
         client: IndiSubprocessClient | None = None,
+        bindings_file: Path | str | None = None,
     ) -> None:
         self.host = str(host)
         self.port = int(port)
         self.timeout_s = float(timeout_s)
+        self.bindings_file = Path(bindings_file or INDI_MOUNT_BINDINGS_FILE)
         self.client = client or IndiSubprocessClient(
             host=self.host,
             port=self.port,
@@ -318,6 +324,70 @@ class IndiDeviceManager:
             candidates.append(candidate)
         return candidates
 
+    def _load_mount_bindings(self) -> dict[str, str]:
+        """Load learned logical-mount to stable-transport bindings safely."""
+        try:
+            payload = json.loads(self.bindings_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return {}
+        if not isinstance(payload, Mapping):
+            return {}
+
+        raw_bindings = payload.get("bindings", payload)
+        if not isinstance(raw_bindings, Mapping):
+            return {}
+
+        bindings: dict[str, str] = {}
+        for device_name, transport in raw_bindings.items():
+            name = str(device_name or "").strip()
+            path = str(transport or "").strip()
+            if name and path.startswith("/dev/serial/by-id/"):
+                bindings[name] = path
+        return bindings
+
+    def _save_mount_bindings(self, bindings: Mapping[str, str]) -> None:
+        """Atomically persist only stable by-id bindings."""
+        clean = {
+            str(name): str(path)
+            for name, path in bindings.items()
+            if str(name).strip()
+            and str(path).startswith("/dev/serial/by-id/")
+        }
+        self.bindings_file.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"version": 1, "bindings": clean}
+        fd, temporary = tempfile.mkstemp(
+            prefix=self.bindings_file.name + ".",
+            dir=str(self.bindings_file.parent),
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.bindings_file)
+        finally:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+
+    def _remember_mount_binding(
+        self,
+        device_name: str,
+        transport: str,
+        bindings: dict[str, str],
+    ) -> bool:
+        stable = _stable_serial_path(transport)
+        if not stable or not stable.startswith("/dev/serial/by-id/"):
+            return False
+        if bindings.get(device_name) == stable:
+            return False
+        bindings[device_name] = stable
+        self._save_mount_bindings(bindings)
+        return True
+
     def _probe_mount_transport(
         self,
         device_name: str,
@@ -386,8 +456,7 @@ class IndiDeviceManager:
         caller can refresh the catalogue and publish the live INDI state.
         """
         candidates = self._serial_candidates()
-        if not candidates:
-            return False
+        bindings = self._load_mount_bindings()
 
         claimed = {
             path
@@ -414,11 +483,28 @@ class IndiDeviceManager:
             }:
                 continue
 
-            for candidate in candidates:
-                if candidate in claimed:
-                    continue
+            learned = bindings.get(device_name)
+            ordered_candidates: list[str] = []
+            if (
+                learned
+                and learned in candidates
+                and learned not in claimed
+            ):
+                ordered_candidates.append(learned)
+            ordered_candidates.extend(
+                candidate
+                for candidate in candidates
+                if candidate != learned and candidate not in claimed
+            )
+
+            for candidate in ordered_candidates:
                 if self._probe_mount_transport(device_name, candidate):
                     claimed.add(candidate)
+                    self._remember_mount_binding(
+                        device_name,
+                        candidate,
+                        bindings,
+                    )
                     changed = True
                     break
         return changed
