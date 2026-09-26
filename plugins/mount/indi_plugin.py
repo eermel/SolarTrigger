@@ -712,6 +712,11 @@ class IndiMount(MountPlugin):
             timeout_s=float(self.config.get("client_timeout", 4.0)),
         )
         session.__enter__()
+        try:
+            session.start_reader()
+        except Exception:
+            session.close()
+            raise
         self._control_session = session
 
     def _close_control_session(self):
