@@ -617,7 +617,7 @@ def test_successful_mount_probe_persists_stable_binding(monkeypatch, tmp_path):
     }
 
 
-def test_missing_learned_transport_falls_back_to_safe_candidates(
+def test_missing_learned_transport_fails_closed_without_scanning_others(
     monkeypatch,
     tmp_path,
 ):
@@ -640,7 +640,7 @@ def test_missing_learned_transport_falls_back_to_safe_candidates(
     monkeypatch.setattr(
         manager,
         "_serial_candidates",
-        lambda: ["/dev/serial/by-id/NEW"],
+        lambda: ["/dev/serial/by-id/UNRELATED"],
     )
     attempts = []
     monkeypatch.setattr(
@@ -652,7 +652,47 @@ def test_missing_learned_transport_falls_back_to_safe_candidates(
     )
 
     assert manager._autoconnect_mounts(devices) is False
-    assert attempts == [("Mount A", "/dev/serial/by-id/NEW")]
+    assert attempts == []
+
+
+def test_failed_learned_transport_does_not_probe_other_serial_devices(
+    monkeypatch,
+    tmp_path,
+):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    learned = "/dev/serial/by-id/MOUNT-A"
+    unrelated = "/dev/serial/by-id/UNRELATED"
+    bindings_file.write_text(
+        '{"version":1,"bindings":{"Mount A":"/dev/serial/by-id/MOUNT-A"}}\n',
+        encoding="utf-8",
+    )
+    devices = {
+        "Mount A": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/ttyUSB0"},
+        },
+    }
+    manager = IndiDeviceManager(
+        client=FakeClient(devices),
+        bindings_file=bindings_file,
+    )
+    monkeypatch.setattr(
+        manager,
+        "_serial_candidates",
+        lambda: [learned, unrelated],
+    )
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_probe_mount_transport",
+        lambda device, candidate, **_kwargs: attempts.append(
+            (device, candidate)
+        ) or False,
+    )
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert attempts == [("Mount A", learned)]
 
 
 def test_corrupt_mount_binding_file_is_ignored(tmp_path):
