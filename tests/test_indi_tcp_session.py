@@ -125,3 +125,23 @@ def test_tcp_session_consumes_multiple_vectors_with_whitespace(monkeypatch):
     with IndiTcpSession(device="Mount A") as session:
         assert session.wait_for("CONNECTION", "CONNECT", {"On"}, 1.0) is True
         assert session.props["DEVICE_PORT"]["PORT"] == "/dev/A"
+
+
+def test_tcp_session_emits_number_vector(monkeypatch):
+    sock = FakeSocket()
+    monkeypatch.setattr(
+        "plugins.mount.indi_client.socket.create_connection",
+        lambda *args, **kwargs: sock,
+    )
+    with IndiTcpSession(device="Mount A") as session:
+        session.set_number(
+            "GEOGRAPHIC_COORD",
+            {"LAT": 48.5, "LONG": 2.25, "ELEV": 120},
+        )
+
+    root = ET.fromstring(sock.sent[1])
+    assert root.tag == "newNumberVector"
+    assert root.attrib["device"] == "Mount A"
+    assert {
+        child.attrib["name"]: child.text for child in root
+    } == {"LAT": "48.5", "LONG": "2.25", "ELEV": "120"}
