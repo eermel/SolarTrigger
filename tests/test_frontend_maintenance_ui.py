@@ -190,9 +190,9 @@ def test_system_camera_group_contains_camera_workflow():
     assert 'class="system-section system-camera-group"' in source
     assert 'data-system-section="camera"' in source
     assert 'class="system-camera-group-title">Camera</div>' in source
-    group_start = source.index('class="system-camera-group"')
-    persistent_start = source.index('<div class="card-title">Persistent data</div>')
-    camera_group = source[group_start:persistent_start]
+    group_start = source.index('data-system-section="camera"')
+    update_start = source.index('data-system-section="update"')
+    camera_group = source[group_start:update_start]
     assert '<div class="card-title">Device discovery</div>' in camera_group
     assert '<div class="card-title">Camera</div>' in camera_group
     assert "Characterize &amp; Validate" in camera_group
