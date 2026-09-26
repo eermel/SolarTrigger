@@ -2473,47 +2473,82 @@ def characterize(camera, entry, job):
                 else 1
             )
 
-            # Functional trial above is trial 1/5 for
-            # calibration sizes.
+            # Functional trial above is trial 1/5 for calibration
+            # sizes. Timing calibration still requires target_trials VALID
+            # samples. A transient incomplete USB event count must not discard
+            # an already functionally-proven native bracket, but retries are
+            # strictly bounded so an unstable camera still fails closed.
+            retry_failures = 0
+            max_retry_failures = target_trials
+
             while len(samples) < target_trials:
                 job.check()
 
-                prepare_ms = (
-                    timed_runtime_prepare(
-                        "1/500",
-                        selected_item["mode"],
+                try:
+                    prepare_ms = (
+                        timed_runtime_prepare(
+                            "1/500",
+                            selected_item["mode"],
+                        )
                     )
-                )
 
-                sample = probe(
-                    selected_item["trigger"],
-                    expected=frames,
-                    exposure_s=sum(
-                        selected_item[
-                            "reference_views_s"
-                        ]
-                    ),
-                    ready_set=(
+                    sample = probe(
+                        selected_item["trigger"],
+                        expected=frames,
+                        exposure_s=sum(
+                            selected_item[
+                                "reference_views_s"
+                            ]
+                        ),
+                        ready_set=(
+                            "capture_mode",
+                            commands[
+                                "capture_mode"
+                            ]["value"],
+                        ),
+                    )
+
+                    samples.append(
+                        (
+                            *sample,
+                            prepare_ms,
+                        )
+                    )
+
+                    job.log(
+                        f"BRACKET TIMING PASS {frames}: "
+                        f"{len(samples)}/{target_trials} valid sample(s)"
+                    )
+
+                except (
+                    Cancelled,
+                    CameraIdleTimeout,
+                ):
+                    raise
+
+                except Exception as exc:
+                    retry_failures += 1
+                    job.log(
+                        f"BRACKET TIMING RETRY {frames}: "
+                        f"rejected sample {retry_failures}/{max_retry_failures}: "
+                        f"{exc}"
+                    )
+                    if retry_failures > max_retry_failures:
+                        raise RuntimeError(
+                            f"Native bracket {frames} timing calibration "
+                            f"could not collect {target_trials} valid samples "
+                            f"after {retry_failures} rejected retries: {exc}"
+                        ) from exc
+
+                finally:
+                    # Always converge to the production baseline after a
+                    # successful or failed bracket PHOTO before another trial.
+                    runtime_set(
                         "capture_mode",
                         commands[
                             "capture_mode"
                         ]["value"],
-                    ),
-                )
-
-                samples.append(
-                    (
-                        *sample,
-                        prepare_ms,
                     )
-                )
-
-                runtime_set(
-                    "capture_mode",
-                    commands[
-                        "capture_mode"
-                    ]["value"],
-                )
 
             # Timing-trial history contains only the sizes
             # that actually identify the timing model.
