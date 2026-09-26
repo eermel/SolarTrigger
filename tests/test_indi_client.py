@@ -80,32 +80,57 @@ def test_get_props_preserves_qualified_pattern_and_value_delimiters(monkeypatch)
     assert props == {"DEVICE_PORT": {"PORT": "/dev/serial/by-id/a=b"}}
 
 
-def test_get_all_devices_uses_bounded_discovery_patterns(monkeypatch):
+def test_get_all_devices_queries_bounded_discovery_patterns_separately(
+    monkeypatch,
+):
     commands = []
-    monkeypatch.setattr(
-        "plugins.mount.indi_client.subprocess.run",
-        lambda command, **kwargs: commands.append(command)
-        or completed(
-            stdout=(
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        pattern = command[-1]
+        outputs = {
+            "*.DRIVER_INFO.*": (
                 "Mount A.DRIVER_INFO.DRIVER_INTERFACE=1\n"
-                "Mount A.CONNECTION.CONNECT=Off\n"
                 "Focuser A.DRIVER_INFO.DRIVER_INTERFACE=8\n"
-            )
-        ),
-    )
+            ),
+            "*.CONNECTION.*": "Mount A.CONNECTION.CONNECT=Off\n",
+        }
+        return completed(stdout=outputs.get(pattern, ""))
+
+    monkeypatch.setattr("plugins.mount.indi_client.subprocess.run", fake_run)
 
     devices = IndiSubprocessClient(host="indi.local", port=8765).get_all_devices()
 
-    command = commands[0]
-    assert command[:5] == [
+    assert all(command[:5] == [
         "indi_getprop", "-h", "indi.local", "-p", "8765"
-    ]
-    assert "*.DRIVER_INFO.*" in command
-    assert "*.CONNECTION.*" in command
-    assert "*.DEVICE_PORT.*" in command
-    assert len(command) > 5
+    ] for command in commands)
+    assert all(len(command) == 6 for command in commands)
+    patterns = [command[-1] for command in commands]
+    assert "*.DRIVER_INFO.*" in patterns
+    assert "*.CONNECTION.*" in patterns
+    assert "*.DEVICE_PORT.*" in patterns
     assert devices["Mount A"]["DRIVER_INFO"]["DRIVER_INTERFACE"] == "1"
+    assert devices["Mount A"]["CONNECTION"]["CONNECT"] == "Off"
     assert devices["Focuser A"]["DRIVER_INFO"]["DRIVER_INTERFACE"] == "8"
+
+
+def test_get_all_devices_tolerates_optional_pattern_timeout(monkeypatch):
+    def fake_run(command, **kwargs):
+        pattern = command[-1]
+        if pattern == "*.DEVICE_INFO.*":
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        if pattern == "*.DRIVER_INFO.*":
+            return completed(stdout="Mount A.DRIVER_INFO.DRIVER_INTERFACE=1\n")
+        if pattern == "*.CONNECTION.*":
+            return completed(stdout="Mount A.CONNECTION.CONNECT=Off\n")
+        return completed()
+
+    monkeypatch.setattr("plugins.mount.indi_client.subprocess.run", fake_run)
+
+    devices = IndiSubprocessClient().get_all_devices()
+
+    assert devices["Mount A"]["DRIVER_INFO"]["DRIVER_INTERFACE"] == "1"
+    assert devices["Mount A"]["CONNECTION"]["CONNECT"] == "Off"
 
 
 def test_set_props_builds_assignment_arguments(monkeypatch):
