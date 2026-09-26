@@ -269,3 +269,34 @@ def test_profile_preflight_applies_characterized_electronic_shutter_before_plan(
 
     assert _leaf(camera, "shuttertype").get_value() == "Electronic Shutter"
     assert "shutter_mode" in result["changed"]
+
+
+def test_auxiliary_shutter_probe_accepts_initial_discovery_without_label_norm():
+    camera = FakeCamera(
+        [
+            FakeWidget(
+                "shuttertype",
+                "Mechanical",
+                choices=["Mechanical", "Electronic"],
+            )
+        ]
+    )
+    items = [
+        {
+            "path": "/main/settings/shuttertype",
+            "name": "shuttertype",
+            "label": "Shutter Type",
+            "value": "Mechanical",
+            "choices": ["Mechanical", "Electronic"],
+            "readonly": True,
+        }
+    ]
+
+    capabilities, commands = characterize_auxiliary_capabilities(
+        camera, items=items
+    )
+
+    assert capabilities["shutter"]["control_detected"] is True
+    assert capabilities["shutter"]["mechanical_supported"] is True
+    assert capabilities["shutter"]["electronic_supported"] is True
+    assert commands == {}
