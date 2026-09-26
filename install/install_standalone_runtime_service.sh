@@ -39,7 +39,11 @@ if [[ ! -x "$VENV_DIR/bin/python" ]]; then
 fi
 
 CURRENT_USER="$(stat -c '%U' "$APP_DIR")"
-CURRENT_GROUP="$(id -gn "$CURRENT_USER")"
+PORTAL_USER="$(systemctl show solareclipse.service -p User --value 2>/dev/null || true)"
+if [[ -z "$PORTAL_USER" ]]; then
+    PORTAL_USER="$CURRENT_USER"
+fi
+PORTAL_GROUP="$(id -gn "$PORTAL_USER")"
 
 CAMLIBS_DIR=$(find /usr/local/lib/libgphoto2 \
     -maxdepth 1 -mindepth 1 -type d 2>/dev/null \
@@ -87,7 +91,7 @@ Wants=network.target solartrigger-indi.service
 [Service]
 Type=simple
 User=$CURRENT_USER
-Group=$CURRENT_GROUP
+Group=$PORTAL_GROUP
 WorkingDirectory=$APP_DIR
 RuntimeDirectory=solartrigger
 RuntimeDirectoryMode=0770
@@ -98,7 +102,7 @@ Environment="PYTHONPATH=$APP_DIR"
 Environment="LD_LIBRARY_PATH=/usr/local/lib"
 Environment="SOLARTRIGGER_ROOT=$APP_DIR"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
-Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$CURRENT_GROUP"
+Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$PORTAL_GROUP"
 $CAMLIBS_ENV
 $IOLIBS_ENV
 ExecStart=$VENV_DIR/bin/python -m backend.runtime_daemon \
@@ -128,7 +132,7 @@ start_background_threads()
 if __name__ == "__main__":
     socketio.run(app)
 EOF
-chown "$CURRENT_USER:$CURRENT_GROUP" "$APP_DIR/wsgi.py"
+chown "$PORTAL_USER:$PORTAL_GROUP" "$APP_DIR/wsgi.py"
 chmod 644 "$APP_DIR/wsgi.py"
 
 mkdir -p /etc/systemd/system/solareclipse.service.d
@@ -148,16 +152,16 @@ EOF
 # runtime socket and create admission.lock.  Keep the runtime itself root when
 # required by the installed hardware stack, and share only this runtime
 # directory with the portal's group.
-install -d -o root -g "$CURRENT_GROUP" -m 0770 /run/solartrigger
+install -d -o root -g "$PORTAL_GROUP" -m 0770 /run/solartrigger
 mkdir -p /etc/tmpfiles.d
 cat > /etc/tmpfiles.d/solartrigger.conf <<EOF
-d /run/solartrigger 0770 root $CURRENT_GROUP -
+d /run/solartrigger 0770 root $PORTAL_GROUP -
 EOF
 
 mkdir -p /etc/systemd/system/solartrigger-runtime.service.d
 cat > /etc/systemd/system/solartrigger-runtime.service.d/runtime-directory-group.conf <<EOF
 [Service]
-ExecStartPost=+/bin/chgrp $CURRENT_GROUP /run/solartrigger
+ExecStartPost=+/bin/chgrp $PORTAL_GROUP /run/solartrigger
 ExecStartPost=+/bin/chmod 0770 /run/solartrigger
 EOF
 
