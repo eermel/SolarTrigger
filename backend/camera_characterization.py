@@ -162,7 +162,8 @@ class CharacterizationJob:
                    "manufacturer": entry["manufacturer"], "model": entry["model"],
                    "status": "FAILED", "files": [], "schema_version": 1}
         try:
-            import gphoto2 as gp
+            from backend.gphoto_runtime import import_gphoto2
+            gp = import_gphoto2()
             camera = gp.Camera()
             ports = gp.PortInfoList()
             ports.load()
@@ -1392,7 +1393,8 @@ def characterize(camera, entry, job):
             if candidate not in trigger_candidates:
                 trigger_candidates.append(candidate)
 
-    import gphoto2 as gp
+    from backend.gphoto_runtime import import_gphoto2
+    gp = import_gphoto2()
 
     job.log(
         "TEST POLICY: bracket primitives are tested smallest-to-largest; "
