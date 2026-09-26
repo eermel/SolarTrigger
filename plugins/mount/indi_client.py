@@ -79,6 +79,13 @@ class IndiTcpSession:
             node.text = str(value)
         self._send(root)
 
+    def set_number(self, prop, elements):
+        root = ET.Element("newNumberVector", {"device": self.device, "name": prop})
+        for name, value in elements.items():
+            node = ET.SubElement(root, "oneNumber", {"name": str(name)})
+            node.text = str(value)
+        self._send(root)
+
     def wait_for(self, prop, element, accepted, timeout_s):
         wanted = {str(value).casefold() for value in accepted}
         deadline = time.monotonic() + float(timeout_s)
