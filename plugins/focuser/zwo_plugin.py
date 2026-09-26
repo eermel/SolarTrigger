@@ -31,6 +31,9 @@ HOLD_INTERVAL_S = 0.02     # cadence des pas en maintien (quasi continu)
 class ZwoFocuser(FocuserPlugin):
     plugin_id = "zwo_eaf"
     display_name = "ZWO EAF (SDK USB)"
+    # Keep each asynchronous SDK command comfortably below the ~10 s
+    # long-move stop observed on real EAF hardware (~365 steps/s).
+    max_async_move_span = 2500
 
     def __init__(self, log_fn=print, config=None):
         super().__init__(log_fn, config)
