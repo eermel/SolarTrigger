@@ -139,18 +139,78 @@ def test_refresh_posts_once_then_rerenders_with_response(mocked_backend_response
     assert "renderRigDevices(payload, inventory)" in loader
 
 
-def test_devices_tab_does_not_refresh_or_poll():
-    show_tab = _function("showTab")
-    assert "loadRigDevices" not in show_tab
-    assert "/api/rigs/devices/refresh" not in show_tab
+def test_devices_poll_usb_presence_every_second_and_refresh_only_on_change():
+    assert "const DEVICE_AUTO_REFRESH_INTERVAL_MS = 1000;" in INDEX_HTML
+    assert "let deviceAutoRefreshInFlight = false;" in INDEX_HTML
+    assert "let deviceUsbPresenceSignature = null;" in INDEX_HTML
+    assert "let deviceUsbPresencePollInFlight = false;" in INDEX_HTML
+    assert "let deviceAutoRefreshTimer = null;" in INDEX_HTML
 
-    devices_logic = re.search(
-        r"const\s+DEFAULT_RIGS\b(?P<body>.*?)function\s+updateControlsVisibility",
+    refresh = _function("refreshRigDevices", async_function=True)
+    assert "if (deviceAutoRefreshInFlight) return;" in refresh
+    assert "deviceAutoRefreshInFlight = true;" in refresh
+    assert "deviceAutoRefreshInFlight = false;" in refresh
+
+    poll = _function("pollDeviceUsbPresence", async_function=True)
+    assert "/api/rigs/devices/usb-presence" in poll
+    assert "deviceUsbPresencePollInFlight || deviceAutoRefreshInFlight" in poll
+    assert "if (signature === deviceUsbPresenceSignature) return;" in poll
+    assert "await refreshRigDevices(true, false);" in poll
+
+    auto_refresh = _function("startDeviceAutoRefresh")
+    assert "if (deviceAutoRefreshTimer !== null) return;" in auto_refresh
+    assert "pollDeviceUsbPresence();" in auto_refresh
+    assert "deviceAutoRefreshTimer = setInterval" in auto_refresh
+    assert "DEVICE_AUTO_REFRESH_INTERVAL_MS" in auto_refresh
+    assert "setInterval" in auto_refresh
+    # Startup performs one lightweight inventory refresh so a browser reload
+    # cannot preserve a stale inventory while adopting the current USB
+    # signature as its baseline. Subsequent 1 Hz polls still refresh only
+    # when that signature changes.
+    assert "await refreshRigDevices(true, false);" in auto_refresh
+    assert auto_refresh.count("refreshRigDevices(true, false)") == 1
+
+    assert "loadRigDevices();\nstartDeviceAutoRefresh();" in INDEX_HTML
+
+
+
+def test_rig_render_does_not_emit_controls_change_or_restart_status_polling():
+    controls = _function("renderControlsRigSelection")
+    assert "controlsrigchange" not in controls
+
+    selector = _function("selectControlsRig")
+    assert "renderControlsRigSelection();" in selector
+    assert "document.dispatchEvent(new CustomEvent('controlsrigchange'));" in selector
+
+    assert re.search(
+        r"document\.addEventListener\('controlsrigchange',\s*\(\)\s*=>\s*\{"
+        r".*?clearTimeout\(pollTimer\);"
+        r".*?refreshFocuser\(\);",
         INDEX_HTML,
         flags=re.DOTALL,
     )
-    assert devices_logic, "Devices selector logic is missing"
-    assert "setInterval" not in devices_logic.group("body")
+
+
+
+
+def test_idle_ui_does_not_poll_mount_focuser_or_global_status():
+    # Idle hardware state is pushed over Socket.IO.  HTTP status polling is
+    # reserved for active motion and explicit user actions.
+    assert "schedulePoll(data.moving === true ? 400 : 1500)" not in INDEX_HTML
+    assert "scheduleMountRefresh(homing ? 400 : 1500)" not in INDEX_HTML
+    assert "socket.on('status_update', refreshMount)" not in INDEX_HTML
+    assert "setInterval(loadCameraStatus, 10000)" not in INDEX_HTML
+    assert "setInterval(loadMaintenanceStatus,2000)" not in INDEX_HTML
+
+    assert "if (absoluteMotion || jogPolling) schedulePoll(250);" in INDEX_HTML
+    assert "let jogPolling = false;" in INDEX_HTML
+    assert "jogPolling = true;" in INDEX_HTML
+    assert "jogPolling = false;" in INDEX_HTML
+    assert "data.moving === true && absoluteMotion" not in INDEX_HTML
+    assert "if (homing) scheduleMountRefresh(400);" in INDEX_HTML
+    assert "socket.on('focuser_update', refreshFocuser);" in INDEX_HTML
+    assert "socket.on('connect', refreshMount);" in INDEX_HTML
+    assert "setTimeout(loadMaintenanceStatus, 250);" in INDEX_HTML
 
 
 def test_non_pilotable_camera_is_visible_but_disabled():

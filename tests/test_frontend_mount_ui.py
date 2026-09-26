@@ -175,11 +175,14 @@ def test_mount_home_display_follows_backend_homing_through_natural_end():
 def test_mount_reload_and_socket_resync_preserve_backend_homing_display():
     refresh = _between(MOUNT_JS, "async function refreshMount()", "function scheduleMountRefresh(delay)")
     assert re.search(r"displayMount\(\s*data\s*\)", refresh)
-    for event in ("connect", "status_update"):
-        assert re.search(
-            rf"socket\.on\(\s*['\"]{event}['\"]\s*,\s*refreshMount\s*\)",
-            MOUNT_JS,
-        )
+    assert re.search(
+        r"socket\.on\(\s*['\"]connect['\"]\s*,\s*refreshMount\s*\)",
+        MOUNT_JS,
+    )
+    assert not re.search(
+        r"socket\.on\(\s*['\"]status_update['\"]\s*,\s*refreshMount\s*\)",
+        MOUNT_JS,
+    )
     assert re.search(r"\n\s*refreshMount\(\);\s*\n\}\)\(\);", MOUNT_JS)
 
 
@@ -320,7 +323,7 @@ def test_mount_uses_timeout_refresh_and_socket_resynchronization():
     assert re.search(
         r"socket\.on\(\s*['\"]connect['\"]\s*,\s*refreshMount\s*\)", MOUNT_JS
     )
-    assert re.search(
+    assert not re.search(
         r"socket\.on\(\s*['\"]status_update['\"]\s*,\s*refreshMount\s*\)",
         MOUNT_JS,
     )
@@ -336,14 +339,13 @@ def test_mount_refresh_and_socket_resynchronization_do_not_start_or_stop_slew():
     assert not re.search(r"/api/mount/slew/(?:start|stop)", refresh_source)
     assert not re.search(r"\bpostMount\s*\(", refresh_source)
 
-    for event in ("connect", "status_update"):
-        listener = re.search(
-            rf"socket\.on\(\s*['\"]{event}['\"]\s*,\s*"
-            r"(?P<handler>\w+)\s*\)",
-            MOUNT_JS,
-        )
-        assert listener
-        assert listener.group("handler") == "refreshMount"
+    listener = re.search(
+        r"socket\.on\(\s*['\"]connect['\"]\s*,\s*(?P<handler>\w+)\s*\)",
+        MOUNT_JS,
+    )
+    assert listener
+    assert listener.group("handler") == "refreshMount"
+    assert not re.search(r"socket\.on\(\s*['\"]status_update['\"]", MOUNT_JS)
 
 
 def test_mount_click_uses_last_server_status_and_refreshes_after_post():

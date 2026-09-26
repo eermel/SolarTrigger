@@ -46,6 +46,8 @@ class FocuserService:
         self._motion_command: str | None = None
         self._target_position: int | None = None
         self._motion_seen_moving = False
+        self._commanded_position: int | None = None
+        self._stationary_samples = 0
         self._load_settings()
 
     @staticmethod
@@ -154,6 +156,8 @@ class FocuserService:
         self._motion_command = None
         self._target_position = None
         self._motion_seen_moving = False
+        self._commanded_position = None
+        self._stationary_samples = 0
         if plugin is not None and getattr(plugin, "connected", False):
             plugin.disconnect()
 
@@ -186,31 +190,36 @@ class FocuserService:
         moving = bool(raw.get("moving", False))
         if tracked_motion and moving:
             self._motion_seen_moving = True
+            self._stationary_samples = 0
+        elif tracked_motion:
+            self._stationary_samples += 1
 
         at_target = (
             tracked_motion
             and self._target_position is not None
             and raw.get("position") == self._target_position
         )
+
+        # Go and Home are both absolute moves.  Completion is determined by
+        # the requested position, never by an inferred moving -> stopped edge.
+        # The ZWO EAF has no mechanical homing operation in this abstraction:
+        # Home means "move to the existing absolute zero".  It must therefore
+        # never rewrite the controller's position counter.
+        #
+        # Some EAF/SDK status reads can transiently report moving=False while
+        # travel is still in progress, so keep the command active until the
+        # physical position reaches the requested target.
         motion_finished = (
             tracked_motion
             and not moving
-            and (self._motion_seen_moving or at_target)
+            and at_target
         )
-        home_succeeded = (
-            motion_finished
-            and self._motion_command == "home"
-        )
-        if home_succeeded:
-            reset_position = getattr(plugin, "set_current_position", None)
-            if callable(reset_position):
-                reset_position(0)
-                raw["position"] = plugin.get_position()
-                self._log("   [focuser] HOME complete: position reset to 0")
         if motion_finished:
             self._motion_command = None
             self._target_position = None
             self._motion_seen_moving = False
+            self._commanded_position = None
+            self._stationary_samples = 0
         return {
             "connected": bool(plugin.connected),
             "position": raw.get("position"),
@@ -271,12 +280,17 @@ class FocuserService:
             self._motion_command = _motion_command
             self._target_position = target_position
             self._motion_seen_moving = False
+            self._stationary_samples = 0
+            commanded_position = target_position
+            self._commanded_position = commanded_position
             try:
-                plugin.move_to(target_position, wait=wait)
+                plugin.move_to(commanded_position, wait=wait)
             except Exception:
                 self._motion_command = None
                 self._target_position = None
                 self._motion_seen_moving = False
+                self._commanded_position = None
+                self._stationary_samples = 0
                 raise
             return self._status_locked(plugin)
 

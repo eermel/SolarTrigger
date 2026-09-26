@@ -29,6 +29,11 @@ const DEFAULT_RIGS = Array.from({length: 4}, (_, index) => ({
 }));
 const RIG_DEVICE_CATEGORIES = ['camera', 'mount', 'focuser'];
 let rigDevicesState = {rigs: DEFAULT_RIGS, inventory: {camera: [], mount: [], focuser: []}};
+const DEVICE_AUTO_REFRESH_INTERVAL_MS = 1000;
+let deviceAutoRefreshInFlight = false;
+let deviceUsbPresenceSignature = null;
+let deviceUsbPresencePollInFlight = false;
+let deviceAutoRefreshTimer = null;
 let rigPhotoState = {rigs: []};
 let globalDevicesState = null;
 
@@ -961,7 +966,6 @@ function renderControlsRigSelection() {
     button.classList.toggle('active', available && selectedRigId === defaultRig.rig_id);
     button.setAttribute('aria-pressed', available && selectedRigId === defaultRig.rig_id ? 'true' : 'false');
   });
-  document.dispatchEvent(new CustomEvent('controlsrigchange'));
   renderSelectedMountAvailability();
   renderSelectedFocuserAvailability();
 
@@ -990,6 +994,7 @@ function selectControlsRig(rigId) {
 
   selectedRigId = numericRigId;
   renderControlsRigSelection();
+  document.dispatchEvent(new CustomEvent('controlsrigchange'));
 }
 
 function escapeDeviceText(value) {
@@ -1209,6 +1214,10 @@ function renderRigDevices(payload, inventoryOverride) {
     });
   });
   updateRigs(rigs);
+  // Device bindings are loaded asynchronously after the Controls widgets have
+  // already initialized.  Notify them now so they resolve the newly persisted
+  // RIG binding and fetch the RIG-specific status endpoint immediately.
+  document.dispatchEvent(new CustomEvent('controlsrigchange'));
   updateControlsVisibility();
 }
 
@@ -1648,7 +1657,10 @@ function waitForBrowserPaint() {
   });
 }
 
-async function refreshRigDevices(silent = false) {
+async function refreshRigDevices(silent = false, fullLegacyDetect = true) {
+  if (deviceAutoRefreshInFlight) return;
+
+  deviceAutoRefreshInFlight = true;
   const buttons = document.querySelectorAll('#devices-rescan, #add-camera-rescan');
   buttons.forEach(button => { button.disabled = true; });
 
@@ -1656,21 +1668,26 @@ async function refreshRigDevices(silent = false) {
   await waitForBrowserPaint();
 
   try {
-    const [inventoryResponse, devicesResponse] = await Promise.all([
-      fetch('/api/rigs/devices/refresh', {method: 'POST'}),
-      fetch('/api/devices/detect', {method: 'POST'}),
-    ]);
+    // Automatic USB hotplug refreshes must stay lightweight.  The legacy
+    // /api/devices/detect endpoint probes every hardware category (camera,
+    // GPS, focuser and mount) and can be slow on real USB/INDI hardware.
+    // Keep that exhaustive probe for explicit/manual refreshes only.
+    const inventoryResponse = await fetch('/api/rigs/devices/refresh', {method: 'POST'});
     const inventory = await inventoryResponse.json();
-    const devices = await devicesResponse.json();
     if (!inventoryResponse.ok) {
       throw new Error(inventory.error || `HTTP error ${inventoryResponse.status}`);
     }
-    if (!devicesResponse.ok) {
-      throw new Error(devices.error || `HTTP error ${devicesResponse.status}`);
-    }
     await loadRigDevices(inventory);
-    renderDevices(devices);
-    updateControlsVisibility(devices);
+
+    if (fullLegacyDetect) {
+      const devicesResponse = await fetch('/api/devices/detect', {method: 'POST'});
+      const devices = await devicesResponse.json();
+      if (!devicesResponse.ok) {
+        throw new Error(devices.error || `HTTP error ${devicesResponse.status}`);
+      }
+      renderDevices(devices);
+      updateControlsVisibility(devices);
+    }
     await pollCameraCharacterization();
     await pollCameraValidation();
     if (!silent) flash('Device inventory refreshed', 'green');
@@ -1678,7 +1695,53 @@ async function refreshRigDevices(silent = false) {
     flash(`Detection: ${error.message}`, 'red');
   } finally {
     buttons.forEach(button => { button.disabled = false; });
+    deviceAutoRefreshInFlight = false;
   }
+}
+
+async function pollDeviceUsbPresence() {
+  if (deviceUsbPresencePollInFlight || deviceAutoRefreshInFlight) return;
+
+  deviceUsbPresencePollInFlight = true;
+  try {
+    const response = await fetch('/api/rigs/devices/usb-presence', {
+      cache: 'no-store',
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `HTTP error ${response.status}`);
+    }
+
+    const signature = JSON.stringify(payload.signature || []);
+    if (deviceUsbPresenceSignature === null) {
+      deviceUsbPresenceSignature = signature;
+      return;
+    }
+    if (signature === deviceUsbPresenceSignature) return;
+
+    deviceUsbPresenceSignature = signature;
+    await refreshRigDevices(true, false);
+  } catch (error) {
+    console.warn('USB presence polling failed:', error);
+  } finally {
+    deviceUsbPresencePollInFlight = false;
+  }
+}
+
+async function startDeviceAutoRefresh() {
+  if (deviceAutoRefreshTimer !== null) return;
+
+  // A browser reload must not treat the persisted inventory as current.
+  // Perform one lightweight inventory refresh immediately, then establish
+  // the USB signature baseline used for subsequent 1 Hz hot-plug detection.
+  // Keep the slow legacy hardware probes reserved for the manual Refresh
+  // Devices action.
+  await refreshRigDevices(true, false);
+  await pollDeviceUsbPresence();
+
+  deviceAutoRefreshTimer = setInterval(() => {
+    pollDeviceUsbPresence();
+  }, DEVICE_AUTO_REFRESH_INTERVAL_MS);
 }
 
 const cameraAddLogState = {
@@ -2179,6 +2242,7 @@ socket.on('connect', async () => {
       // A new browser document has no cached device bindings. Rehydrate them
       // once from the persisted RIG configuration after Socket.IO attaches.
       await loadRigDevices();
+startDeviceAutoRefresh();
     }
   } catch (e) {
     console.warn('Unable to re-anchor time after connection:', e);
@@ -2412,8 +2476,10 @@ socket.on('log_history', lines => {
   const directionButtons = document.querySelectorAll('[data-focuser-direction]');
   let active = false;
   let absoluteMotion = null;
+  let commandedAbsoluteMotion = null;
   let press = null;
   let pollTimer = null;
+  let jogPolling = false;
 
   function focuserUrl(path) {
     const rig = selectedControlsRig();
@@ -2427,16 +2493,36 @@ socket.on('log_history', lines => {
   function displayFocuser(data) {
     if (!data || !active) return;
     plugin.textContent = data.plugin || plugin.textContent || '--';
-    status.textContent = data.state || (data.moving ? 'moving' : (data.connected ? 'ready' : 'disconnected'));
+    // A focuser backend may transiently report moving=false while an
+    // absolute command is still active.  Keep the visual state stable until
+    // the backend explicitly clears the Go/Home command.
+    status.textContent = data.state || (
+      data.motion_command === 'go' || data.motion_command === 'home' || data.moving
+        ? 'moving'
+        : (data.connected ? 'ready' : 'disconnected')
+    );
     position.textContent = Number.isFinite(data.position) ? data.position : '--';
     if (Number.isInteger(data.step_fine) && data.step_fine > 0) slowStep.value = data.step_fine;
     if (Number.isInteger(data.step_coarse) && data.step_coarse > 0) fastStep.value = data.step_coarse;
     if (data.mode === 'slow' || data.mode === 'fast') {
       speedSwitch.checked = data.mode === 'fast';
     }
-    absoluteMotion = (data.motion_command === 'go' || data.motion_command === 'home')
+    const backendAbsoluteMotion = (data.motion_command === 'go' || data.motion_command === 'home')
       ? data.motion_command
       : null;
+    // Keep the operator command latched while its target has not been reached.
+    // This prevents transient/stale status samples from making Go/Home buttons
+    // alternate between their idle and Cancel states during one physical move.
+    if (backendAbsoluteMotion) {
+      commandedAbsoluteMotion = backendAbsoluteMotion;
+    } else if (commandedAbsoluteMotion) {
+      // The backend is authoritative for absolute-move lifetime.  Once it
+      // clears motion_command, the requested target has been reached or the
+      // motion was explicitly stopped.  Clear the UI latch here rather than
+      // waiting on the SDK's transient moving flag.
+      commandedAbsoluteMotion = null;
+    }
+    absoluteMotion = backendAbsoluteMotion || commandedAbsoluteMotion;
     const selectedRig = selectedControlsRig();
     const triggerState = selectedRig
       ? (state.triggerRigs[String(selectedRig.rig_id)] || {})
@@ -2453,7 +2539,15 @@ socket.on('log_history', lines => {
     slowStep.disabled = disableOtherControls;
     fastStep.disabled = disableOtherControls;
     speedSwitch.disabled = disableOtherControls;
-    schedulePoll(data.moving === true ? 400 : 1500);
+    // Poll only motion initiated by this UI.  Some focuser SDKs can report
+    // a stale/ambiguous moving flag while idle; using moving alone would turn
+    // that into permanent 400 ms HTTP polling.
+    // Keep polling for the lifetime of a tracked Go/Home command, not only
+    // while the SDK's instantaneous moving flag is true.  The backend clears
+    // motion_command only once the requested target is physically reached or
+    // an explicit stop/cancel occurs.
+    if (absoluteMotion || jogPolling) schedulePoll(250);
+    else clearTimeout(pollTimer);
   }
 
   async function request(url, options = {}) {
@@ -2511,12 +2605,16 @@ socket.on('log_history', lines => {
   }
 
   function cancelAbsoluteMotion() {
+    commandedAbsoluteMotion = null;
     post('stop');
   }
 
   homeButton.addEventListener('click', () => {
     if (absoluteMotion === 'home') cancelAbsoluteMotion();
-    else post('home');
+    else {
+      commandedAbsoluteMotion = 'home';
+      post('home');
+    }
   });
   goButton.addEventListener('click', () => {
     if (absoluteMotion === 'go') {
@@ -2524,7 +2622,10 @@ socket.on('log_history', lines => {
       return;
     }
     const requestedPosition = Number.parseInt(target.value, 10);
-    if (Number.isInteger(requestedPosition)) post('move_to', {position: requestedPosition});
+    if (Number.isInteger(requestedPosition)) {
+      commandedAbsoluteMotion = 'go';
+      post('move_to', {position: requestedPosition});
+    }
   });
 
   function saveSteps() {
@@ -2549,8 +2650,11 @@ socket.on('log_history', lines => {
     press.timer = setTimeout(() => {
       if (!press || press.pointerId !== event.pointerId) return;
       press.jogStarted = true;
+      jogPolling = true;
       post('jog/start', {
         direction: sign < 0 ? 'decrease' : 'increase',
+      }).then(data => {
+        if (data && press && press.pointerId === event.pointerId) schedulePoll(250);
       });
     }, 400);
   }
@@ -2561,10 +2665,14 @@ socket.on('log_history', lines => {
     press = null;
     clearTimeout(ended.timer);
     if (ended.jogStarted) {
+      jogPolling = false;
+      clearTimeout(pollTimer);
       if (!ended.stopSent) {
         ended.stopSent = true;
         const url = focuserUrl('jog/stop');
-        if (url) fetch(url, {method: 'POST'}).catch(() => {});
+        if (url) fetch(url, {method: 'POST'})
+          .then(() => refreshFocuser())
+          .catch(() => {});
       }
     } else if (singleStep && active) {
       post('step', {direction: ended.sign < 0 ? 'decrease' : 'increase'});
@@ -2591,21 +2699,15 @@ socket.on('log_history', lines => {
 
   document.addEventListener('controlsrigchange', () => {
     active = Boolean(focuserUrl('status'));
+    clearTimeout(pollTimer);
     if (!active) {
-      clearTimeout(pollTimer);
       stopPress(false);
+      return;
     }
+    refreshFocuser();
   });
 
   socket.on('focuser_update', refreshFocuser);
-  socket.on('status_update', data => {
-    if (data.devices) {
-      const devices = data.devices;
-      updateControlsVisibility(devices);
-      applyDevices(devices);
-    }
-    if (data.focuser) refreshFocuser();
-  });
 })();
 // FOCUSER UI END
 
@@ -2723,7 +2825,8 @@ socket.on('log_history', lines => {
       || !capabilities
       || capabilities.toggle !== true
     );
-    scheduleMountRefresh(homing ? 400 : 1500);
+    if (homing) scheduleMountRefresh(400);
+    else clearTimeout(pollTimer);
   }
 
   async function refreshMount() {
@@ -2899,7 +3002,6 @@ socket.on('log_history', lines => {
     refreshMount();
   });
   socket.on('connect', refreshMount);
-  socket.on('status_update', refreshMount);
   socket.on('trigger_phase', data => {
     const rigId = Number(data && data.rig_id);
     const rig = selectedControlsRig();
@@ -6249,7 +6351,8 @@ async function loadCameraStatus() {
 // Countdown toutes les secondes
 setInterval(() => { if (state.eclipse) updateCountdowns(state.eclipse); }, 1000);
 // Camera toutes les 10s
-setInterval(loadCameraStatus, 10000);
+// Camera status is refreshed by Socket.IO status_update.  Keep the explicit
+// load at startup, but do not add a second periodic /api/status poll.
 
 // Init
 
@@ -7111,4 +7214,6 @@ async function rollbackSolarTriggerRelease() {
     flash(error.message, 'red');
   }
 }
-setInterval(loadMaintenanceStatus,2000);setTimeout(loadMaintenanceStatus,250);
+// Maintenance state is only relevant while an update/rollback operation is
+// active.  Do not poll it continuously from every idle browser.
+setTimeout(loadMaintenanceStatus, 250);

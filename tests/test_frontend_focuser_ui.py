@@ -54,7 +54,8 @@ def test_principal_focuser_ids_are_not_duplicated():
 
 
 def test_visibility_is_driven_by_active_focuser_device():
-    assert "updateControlsVisibility(devices)" in FOCUSER_JS
+    assert "updateControlsVisibility(devices)" not in FOCUSER_JS
+    assert "renderSelectedFocuserAvailability()" in SOLARTRIGGER_JS
     assert not re.search(r"section\.style\.display\s*=", FOCUSER_JS)
 
 
@@ -102,12 +103,33 @@ def test_movement_does_not_use_set_interval():
 
 
 def test_absolute_home_remains_cancelable_until_backend_clears_command():
-    assert re.search(
-        r"absoluteMotion\s*=\s*\(data\.motion_command\s*===\s*['\"]go['\"]\s*"
-        r"\|\|\s*data\.motion_command\s*===\s*['\"]home['\"]\)",
-        FOCUSER_JS,
+    # The backend command remains authoritative when present, while the UI
+    # latches the operator's Go/Home intent across transient status samples.
+    assert "const backendAbsoluteMotion = (data.motion_command === 'go' || data.motion_command === 'home')" in FOCUSER_JS
+    assert "commandedAbsoluteMotion = backendAbsoluteMotion;" in FOCUSER_JS
+    assert "absoluteMotion = backendAbsoluteMotion || commandedAbsoluteMotion;" in FOCUSER_JS
+    assert "commandedAbsoluteMotion = 'home';" in FOCUSER_JS
+    assert "commandedAbsoluteMotion = 'go';" in FOCUSER_JS
+    assert "commandedAbsoluteMotion = null;" in FOCUSER_JS
+    assert "if (absoluteMotion || jogPolling) schedulePoll(250);" in FOCUSER_JS
+    assert "data.moving === true && absoluteMotion" not in FOCUSER_JS
+
+
+def test_rig_binding_load_resynchronizes_controls_focuser():
+    render_function = re.search(
+        r"function\s+renderRigDevices\([^)]*\)\s*\{(?P<body>.*?)\n\}",
+        SOLARTRIGGER_JS,
+        re.DOTALL,
     )
-    assert "data.moving === true &&" not in FOCUSER_JS
+    assert render_function
+    body = render_function.group("body")
+    assert "updateRigs(rigs);" in body
+    assert re.search(
+        r"updateRigs\(rigs\);.*?"
+        r"document\.dispatchEvent\(new CustomEvent\(['\"]controlsrigchange['\"]\)\)",
+        body,
+        re.DOTALL,
+    )
 
 
 def test_backend_refresh_and_socket_resynchronization_are_present():
@@ -115,7 +137,7 @@ def test_backend_refresh_and_socket_resynchronization_are_present():
     assert re.search(r"displayFocuser\(\s*await\s+request\(\s*url\s*\)\s*\)", FOCUSER_JS)
     assert re.search(r"setTimeout\(\s*refreshFocuser\s*,", FOCUSER_JS)
     assert re.search(r"socket\.on\(\s*['\"]focuser_update['\"]", FOCUSER_JS)
-    assert re.search(r"socket\.on\(\s*['\"]status_update['\"]", FOCUSER_JS)
+    assert not re.search(r"socket\.on\(\s*['\"]status_update['\"]", FOCUSER_JS)
 
 
 def test_focuser_control_block_is_brand_neutral():
@@ -258,14 +280,12 @@ def test_go_and_home_are_adjacent_in_target_position_row():
         re.DOTALL,
     )
 
-def test_socket_updates_refresh_from_backend_status():
+def test_socket_updates_refresh_from_focuser_specific_event_only():
     assert re.search(
         r"socket\.on\(\s*['\"]focuser_update['\"]\s*,\s*refreshFocuser\s*\)",
         FOCUSER_JS,
     )
-    assert re.search(
-        r"socket\.on\(\s*['\"]status_update['\"].*?"
-        r"if\s*\(\s*data\.focuser\s*\)\s*refreshFocuser\(\s*\)",
+    assert not re.search(
+        r"socket\.on\(\s*['\"]status_update['\"]",
         FOCUSER_JS,
-        re.DOTALL,
     )

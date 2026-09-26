@@ -383,13 +383,8 @@ def test_socket_device_updates_recalculate_controls_visibility():
         INDEX,
         re.DOTALL,
     )
-    assert re.search(
-        r"socket\.on\(\s*['\"]status_update['\"].*?"
-        r"if\s*\(data\.devices\)\s*\{.*?"
-        r"updateControlsVisibility\(devices\).*?applyDevices\(devices\)",
-        INDEX,
-        re.DOTALL,
-    )
+    # Generic status_update must not restart hardware HTTP polling.
+    assert "socket.on('status_update', refreshMount)" not in INDEX
 
 
 def test_global_sound_control_has_contact_test_button():

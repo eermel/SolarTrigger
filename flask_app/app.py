@@ -211,6 +211,7 @@ from backend.device_inventory import (
     build_display_labels,
     get_cached_inventory,
     refresh_inventory,
+    usb_presence_signature,
 )
 from backend.eclipse_engine import loader as eclipse_loader
 from backend.preview_context import load_eclipse_context
@@ -890,6 +891,14 @@ def api_devices_set():
 @app.route("/api/devices/detect", methods=["POST"])
 def api_devices_detect():
     return jsonify(_detect_devices())
+
+
+@app.route("/api/rigs/devices/usb-presence", methods=["GET"])
+def api_rig_device_usb_presence():
+    """Return a cheap sysfs-only USB topology fingerprint."""
+    return jsonify({
+        "signature": [list(entry) for entry in usb_presence_signature()],
+    })
 
 
 @app.route("/api/rigs/devices/inventory", methods=["GET"])
@@ -2136,7 +2145,10 @@ def api_rig_focuser_status(rig_id):
     worker, error = _rig_focuser_worker(rig_id)
     if error is not None:
         return error
-    return _rig_focuser_result(rig_id, worker.status())
+    # A read-only status request must not publish focuser_update.  The browser
+    # handles focuser_update by refreshing this endpoint; emitting here would
+    # therefore create an HTTP -> Socket.IO -> HTTP feedback loop.
+    return jsonify(worker.status())
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/mode", methods=["POST"])

@@ -280,6 +280,53 @@ def test_move_and_stop_map_to_indi_switches(direction, expected):
     )
 
 
+def test_onstep_home_never_falls_back_to_park(full_props):
+    props = deepcopy(full_props)
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_lx200_OnStep",
+        "DRIVER_NAME": "LX200 OnStep",
+    }
+    props.pop("TELESCOPE_HOME", None)
+    client = StubIndiClient(props)
+    plugin = mount(client)
+
+    error = assert_code("PROPERTY_UNSUPPORTED", plugin.go_home)
+
+    assert "refusing PARK fallback" in str(error)
+    assert not any("TELESCOPE_PARK" in call for call in client.set_calls)
+
+
+def test_non_eqmod_home_never_uses_park_fallback(full_props):
+    props = deepcopy(full_props)
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_custom_telescope",
+        "DRIVER_NAME": "Custom Telescope",
+    }
+    props.pop("TELESCOPE_HOME", None)
+    client = StubIndiClient(props)
+
+    assert_code("PROPERTY_UNSUPPORTED", mount(client).go_home)
+
+    assert not any("TELESCOPE_PARK" in call for call in client.set_calls)
+
+
+def test_eqmod_remains_the_only_park_home_fallback(full_props):
+    props = deepcopy(full_props)
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_eqmod_telescope",
+        "DRIVER_NAME": "EQMod Mount",
+    }
+    plugin = mount(StubIndiClient(props))
+
+    assert plugin._is_eqmod_driver(props) is True
+
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_lx200_OnStep",
+        "DRIVER_NAME": "LX200 OnStep",
+    }
+    assert plugin._is_eqmod_driver(props) is False
+
+
 def test_speed_selects_value_updates_rate_and_rejects_unknown(full_props):
     client = StubIndiClient(full_props)
     plugin = mount(client)

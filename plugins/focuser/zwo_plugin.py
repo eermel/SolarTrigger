@@ -14,7 +14,6 @@ move_relative repetes tant que le bouton est "enfonce", avec deux garde-fous :
 """
 
 import threading
-import time
 
 from .base import (FocuserPlugin, DIR_IN, DIR_OUT, STEP_COARSE, STEP_FINE)
 
@@ -24,8 +23,6 @@ from .zwo_eaf import ZwoEaf, EafError
 # defauts (regles sur le vrai materiel ; surchargeables via config)
 DEFAULT_COARSE = 150       # bon compromis fluidite/rapidite (trouver la zone)
 DEFAULT_FINE = 20          # petit pas pour lunette rapide (WO Z73) -- affinage
-HOLD_TIMEOUT_S = 5.0       # securite : arret auto du maintien
-HOLD_INTERVAL_S = 0.02     # cadence des pas en maintien (quasi continu)
 
 
 class ZwoFocuser(FocuserPlugin):
@@ -37,9 +34,6 @@ class ZwoFocuser(FocuserPlugin):
         self.eaf = ZwoEaf()
         self.step_coarse = int(self.config.get("step_coarse", DEFAULT_COARSE))
         self.step_fine = int(self.config.get("step_fine", DEFAULT_FINE))
-        self.hold_timeout = float(self.config.get("hold_timeout", HOLD_TIMEOUT_S))
-        self.hold_interval = float(self.config.get("hold_interval",
-                                                   HOLD_INTERVAL_S))
         # limite haute logicielle (protection butee mecanique du focuseur).
         # None => on garde la valeur par defaut du SDK (pas de reduction).
         self.max_step_limit = self.config.get("max_step_limit", None)
@@ -130,35 +124,26 @@ class ZwoFocuser(FocuserPlugin):
 
     # -- maintien continu -------------------------------------------------- #
     def _hold_loop(self, direction, step):
-        """Boucle du thread de maintien : avance par pas jusqu'a stop, butee,
-        ou timeout de securite."""
-        signed = +step if direction == DIR_OUT else -step
-        t0 = time.monotonic()
-        while not self._hold_stop.is_set():
-            # timeout de securite
-            if (time.monotonic() - t0) > self.hold_timeout:
-                self.log("   [zwo_eaf] maintien : timeout securite -> stop")
-                break
-            try:
-                pos = self.eaf.get_position()
-                # butees : inutile de pousser au-dela
-                if signed > 0 and pos >= self.max_step:
-                    self.log("   [zwo_eaf] maintien : butee haute atteinte")
-                    break
-                if signed < 0 and pos <= 0:
-                    self.log("   [zwo_eaf] maintien : butee basse atteinte")
-                    break
-                self.eaf.move_relative(signed, wait=True, timeout=2.0)
-            except EafError as e:
-                self.log(f"   [zwo_eaf] hold: error {e} -> stop")
-                break
-            # petite pause entre deux pas (cadence)
-            self._hold_stop.wait(self.hold_interval)
-        # securite finale
+        """Run one native asynchronous EAFMove until button release.
+
+        The ZWO SDK has no direction/speed command for manual jogging.  Its
+        documented continuous-motion pattern is therefore one absolute move
+        toward the corresponding software limit, followed by EAFStop when the
+        operator releases the button.  Do not emulate a hold with repeated
+        relative moves: every EAFMove boundary produces a mechanical pause.
+        """
+        del step  # step size is for short clicks, not held-button velocity.
         try:
-            self.eaf.stop()
-        except Exception:
-            pass
+            target = self.max_step if direction == DIR_OUT else 0
+            self.eaf.move_to(target, wait=False)
+            self._hold_stop.wait()
+        except EafError as e:
+            self.log(f"   [zwo_eaf] hold: error {e} -> stop")
+        finally:
+            try:
+                self.eaf.stop()
+            except Exception:
+                pass
 
     def start_continuous(self, direction, mode=STEP_COARSE):
         if direction not in (DIR_IN, DIR_OUT):
