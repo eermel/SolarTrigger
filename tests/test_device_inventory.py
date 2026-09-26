@@ -570,3 +570,72 @@ def test_focuser_discovery_uses_vendor_sdk_even_when_indi_catalog_exists(
     assert len(inventory["focuser"]) == 1
     assert inventory["focuser"][0]["backend"] == "zwo_eaf"
     assert inventory["focuser"][0]["device_id"] == "zwo_eaf:3"
+
+
+
+def test_two_present_indi_mounts_are_exposed_without_legacy_probe(monkeypatch):
+    from plugins import mount as mount_registry
+
+    monkeypatch.setattr(
+        mount_registry,
+        "inventory_mounts",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("legacy mount probing must not run")
+        ),
+    )
+    catalog = [
+        {
+            "backend": "indi",
+            "device_name": "EQMod Mount",
+            "device_id": "indi:127.0.0.1:7624:EQMod Mount",
+            "model": "EQMod Mount",
+            "categories": ["guider", "mount"],
+            "present": True,
+            "connected": True,
+            "fallback_physical_path": "/dev/serial/by-id/usb-ftdi",
+        },
+        {
+            "backend": "indi",
+            "device_name": "LX200 OnStep",
+            "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+            "model": "LX200 OnStep",
+            "categories": ["focuser", "guider", "mount", "weather"],
+            "present": True,
+            "connected": True,
+            "fallback_physical_path": "/dev/serial/by-id/usb-ch340",
+        },
+    ]
+
+    mounts = device_inventory._discover_mounts(indi_catalog=catalog)
+
+    assert [entry["device_name"] for entry in mounts] == [
+        "EQMod Mount",
+        "LX200 OnStep",
+    ]
+    assert all(entry["backend"] == "indi" for entry in mounts)
+    assert all(entry["pilotable"] is True for entry in mounts)
+
+
+def test_absent_advertised_indi_mount_never_falls_back_to_legacy_serial(
+    monkeypatch,
+):
+    from plugins import mount as mount_registry
+
+    calls = []
+    monkeypatch.setattr(
+        mount_registry,
+        "inventory_mounts",
+        lambda **_kwargs: calls.append("legacy") or [],
+    )
+    catalog = [{
+        "backend": "indi",
+        "device_name": "LX200 OnStep",
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+        "categories": ["mount"],
+        "present": False,
+        "connected": True,
+        "fallback_physical_path": None,
+    }]
+
+    assert device_inventory._discover_mounts(indi_catalog=catalog) == []
+    assert calls == []
