@@ -1013,7 +1013,7 @@ def test_detected_connected_mount_forces_tracking_off(monkeypatch):
     }) in calls
 
 
-def test_detected_mount_already_not_tracking_generates_no_write(monkeypatch):
+def test_detected_mount_already_not_tracking_is_still_forced_off(monkeypatch):
     devices = {
         "Mount A": {
             "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
@@ -1021,14 +1021,26 @@ def test_detected_mount_already_not_tracking_generates_no_write(monkeypatch):
             "TELESCOPE_TRACK_STATE": {"TRACK_ON": "Off", "TRACK_OFF": "On"},
         },
     }
+    calls = []
 
-    class ForbiddenSession:
-        def __init__(self, **_kwargs):
-            raise AssertionError("tracking-off mount must not open a write session")
+    class SafetySession:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs["device"]))
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            pass
+        def set_switch(self, prop, values):
+            calls.append(("switch", prop, values))
+        def wait_for(self, prop, element, accepted, timeout):
+            return True
 
-    monkeypatch.setattr("backend.indi_device_manager.IndiTcpSession", ForbiddenSession)
+    monkeypatch.setattr("backend.indi_device_manager.IndiTcpSession", SafetySession)
     manager = IndiDeviceManager(client=FakeClient(devices))
-    assert manager._disable_tracking_on_detected_mounts(devices) is False
+    assert manager._disable_tracking_on_detected_mounts(devices) is True
+    assert ("switch", "TELESCOPE_TRACK_STATE", {
+        "TRACK_ON": "Off", "TRACK_OFF": "On",
+    }) in calls
 
 
 def test_disconnected_mount_tracking_state_is_not_written(monkeypatch):
