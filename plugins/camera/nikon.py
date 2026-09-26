@@ -23,7 +23,8 @@ Strategie de capture : PHOTO PAR PHOTO -- une vue par vitesse.
 import time
 
 try:
-    import gphoto2 as gp
+    from backend.gphoto_runtime import import_gphoto2
+    gp = import_gphoto2()
 except ModuleNotFoundError:
     gp = None
 
