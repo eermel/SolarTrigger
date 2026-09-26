@@ -2508,7 +2508,11 @@ socket.on('log_history', lines => {
     // Poll only motion initiated by this UI.  Some focuser SDKs can report
     // a stale/ambiguous moving flag while idle; using moving alone would turn
     // that into permanent 400 ms HTTP polling.
-    if (data.moving === true && absoluteMotion) schedulePoll(400);
+    // Keep polling for the lifetime of a tracked Go/Home command, not only
+    // while the SDK's instantaneous moving flag is true.  The backend clears
+    // motion_command only once the requested target is physically reached or
+    // an explicit stop/cancel occurs.
+    if (absoluteMotion) schedulePoll(400);
     else clearTimeout(pollTimer);
   }
 
