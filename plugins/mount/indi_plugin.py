@@ -484,7 +484,7 @@ class IndiMount(MountPlugin):
         Older EQMod deployments are kept compatible through the historical
         PARK/CURRENTSTEPPERS fallback.
         """
-        props = self._props(["TELESCOPE_HOME.*", "DRIVER_INFO.*"])
+        props = self._props(["TELESCOPE_HOME.*", "HOME_INIT.*", "DRIVER_INFO.*"])
         home_prop = props.get("TELESCOPE_HOME", {})
         if home_prop:
             element = None
@@ -538,6 +538,57 @@ class IndiMount(MountPlugin):
                         raise IndiClientError(
                             "TIMEOUT",
                             "INDI mount did not reach Home before timeout",
+                        )
+                time.sleep(self.poll_interval)
+
+        # Older OnStep INDI drivers expose the mechanical Home action through
+        # HOME_INIT.RETURN_HOME rather than the standard TELESCOPE_HOME vector.
+        # This is a true Home operation: it must never be emulated with PARK.
+        home_init = props.get("HOME_INIT", {})
+        if self._is_onstep_driver(props) and "RETURN_HOME" in home_init:
+            self._set_props({
+                "HOME_INIT": {
+                    name: "On" if name == "RETURN_HOME" else "Off"
+                    for name in home_init
+                }
+            })
+
+            deadline = time.monotonic() + self.home_timeout
+            while True:
+                if callable(is_cancelled) and is_cancelled():
+                    try:
+                        self.stop()
+                    finally:
+                        raise RuntimeError("mount home cancelled")
+
+                current = self._props([
+                    "HOME_INIT.*",
+                    "TELESCOPE_PARK.*",
+                    "OnStep Status.*",
+                ])
+                park_state = current.get("TELESCOPE_PARK", {})
+                if self._switch_on(park_state, "PARK"):
+                    raise IndiClientError(
+                        "CONNECTION_FAILED",
+                        "OnStep entered Park while returning Home",
+                    )
+
+                status = current.get("OnStep Status", {})
+                park_text = self._first_text(status, "Park") or ""
+                if "at home" in park_text.casefold() and "unparked" in park_text.casefold():
+                    self._move_rate = None
+                    return
+
+                # HOME_INIT is momentary on legacy OnStep.  Do not interpret
+                # RETURN_HOME=Off alone as completion: the real driver turns
+                # it Off immediately after accepting the command.
+                if time.monotonic() >= deadline:
+                    try:
+                        self.stop()
+                    finally:
+                        raise IndiClientError(
+                            "TIMEOUT",
+                            "OnStep mount did not reach Home before timeout",
                         )
                 time.sleep(self.poll_interval)
 
@@ -881,6 +932,20 @@ class IndiMount(MountPlugin):
         if isinstance(value, dict):
             return str(value.get("label", fallback))
         return fallback
+
+    def _is_onstep_driver(self, props):
+        """Identify the OnStep INDI driver without relying on the device label alone."""
+        info = props.get("DRIVER_INFO", {}) if isinstance(props, dict) else {}
+        identity = " ".join(
+            value
+            for value in (
+                self._text(info, "DRIVER_EXEC"),
+                self._text(info, "DRIVER_NAME"),
+                self.device_name,
+            )
+            if value
+        ).casefold()
+        return "onstep" in identity
 
     def _is_eqmod_driver(self, props):
         """True only for EQMod, the sole owner of the PARK-as-Home fallback."""
