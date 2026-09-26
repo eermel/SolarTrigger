@@ -670,3 +670,85 @@ def test_absent_advertised_indi_mount_never_falls_back_to_legacy_serial(
 
     assert device_inventory._discover_mounts(indi_catalog=catalog) == []
     assert calls == []
+
+
+def test_bound_focuser_is_not_synthesized_present_after_usb_unplug(monkeypatch):
+    """A persisted EAF binding must disappear when vendor inventory is empty."""
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_mounts",
+        lambda reserved_mounts=None, indi_catalog=None: [],
+    )
+    monkeypatch.setattr(device_inventory, "_discover_indi_catalog", lambda: [])
+
+    from plugins import focuser as focuser_registry
+    calls = []
+
+    def fake_inventory_focusers(*, log_fn, exclude_device_ids=None):
+        calls.append(exclude_device_ids)
+        return []
+
+    monkeypatch.setattr(
+        focuser_registry,
+        "inventory_focusers",
+        fake_inventory_focusers,
+    )
+
+    binding = {
+        "category": "focuser",
+        "backend": "zwo_eaf",
+        "manufacturer": "ZWO",
+        "model": "EAF",
+        "device_id": "zwo_eaf:0",
+    }
+
+    inventory = device_inventory.refresh_inventory(
+        reserved_focusers=[binding],
+    )
+
+    assert calls == [None]
+    assert inventory["focuser"] == []
+
+
+def test_bound_focuser_keeps_binding_metadata_when_vendor_inventory_sees_it(monkeypatch):
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_mounts",
+        lambda reserved_mounts=None, indi_catalog=None: [],
+    )
+    monkeypatch.setattr(device_inventory, "_discover_indi_catalog", lambda: [])
+
+    from plugins import focuser as focuser_registry
+
+    monkeypatch.setattr(
+        focuser_registry,
+        "inventory_focusers",
+        lambda **_kwargs: [{
+            "category": "focuser",
+            "backend": "zwo_eaf",
+            "manufacturer": "ZWO",
+            "model": "EAF",
+            "device_id": "zwo_eaf:0",
+            "present": True,
+        }],
+    )
+
+    binding = {
+        "category": "focuser",
+        "backend": "zwo_eaf",
+        "manufacturer": "ZWO",
+        "model": "EAF",
+        "device_id": "zwo_eaf:0",
+        "alias": "Solar focuser",
+    }
+
+    inventory = device_inventory.refresh_inventory(
+        reserved_focusers=[binding],
+    )
+
+    assert len(inventory["focuser"]) == 1
+    focuser = inventory["focuser"][0]
+    assert focuser["device_id"] == "zwo_eaf:0"
+    assert focuser["present"] is True
