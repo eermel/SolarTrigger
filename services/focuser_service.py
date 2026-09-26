@@ -192,10 +192,16 @@ class FocuserService:
             and self._target_position is not None
             and raw.get("position") == self._target_position
         )
+        # Some EAF/SDK status reads can transiently report moving=False
+        # while an absolute move is still in progress.  Never retire a Go/Home
+        # command merely because movement was seen once and then briefly
+        # disappeared: the physical position is authoritative.  This also
+        # keeps the UI polling until the requested position is actually
+        # reached (or the operator explicitly cancels/stops).
         motion_finished = (
             tracked_motion
             and not moving
-            and (self._motion_seen_moving or at_target)
+            and at_target
         )
         home_succeeded = (
             motion_finished
