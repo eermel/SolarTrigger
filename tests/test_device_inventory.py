@@ -536,8 +536,8 @@ def test_focuser_discovery_uses_vendor_sdk_even_when_indi_catalog_exists(
 
     calls = []
 
-    def fake_inventory_focusers(*, log_fn, exclude_device_ids):
-        calls.append(set(exclude_device_ids))
+    def fake_inventory_focusers(*, log_fn, exclude_device_ids=None):
+        calls.append(set(exclude_device_ids or ()))
         return [{
             "category": "focuser",
             "backend": "zwo_eaf",
