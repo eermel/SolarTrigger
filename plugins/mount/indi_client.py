@@ -113,34 +113,49 @@ class IndiTcpSession:
         self._parse_buffer()
 
     def _parse_buffer(self):
-        # INDI is a stream of sibling XML elements. Wrapping the accumulated
-        # fragment lets us consume every complete vector while retaining the
-        # final incomplete element for the next recv().
+        """Consume complete top-level INDI XML elements from the stream."""
         while self.buffer:
             data = self.buffer.lstrip()
             leading = len(self.buffer) - len(data)
             if not data:
                 self.buffer = ""
                 return
-            parser = ET.XMLPullParser(events=("end",))
-            depth = 0
-            consumed = None
-            try:
-                for i, ch in enumerate(data):
-                    parser.feed(ch)
-                    for _event, elem in parser.read_events():
-                        # A top-level INDI vector ends when its element closes.
-                        if elem.tag.startswith(("def", "set")) and elem.tag.endswith("Vector"):
-                            consumed = i + 1
-                            self._record(elem)
-                            break
-                    if consumed is not None:
-                        break
-            except ET.ParseError as exc:
-                raise IndiClientError("CONNECTION_FAILED", f"Malformed INDI XML: {exc}") from exc
-            if consumed is None:
+            if not data.startswith("<"):
+                raise IndiClientError(
+                    "CONNECTION_FAILED",
+                    "Malformed INDI XML: expected '<'",
+                )
+
+            # INDI sends sibling XML elements without a document root. Find
+            # the root tag first, then wait until its matching close tag is
+            # present. This is safe for the flat INDI vector messages used
+            # here and correctly preserves arbitrarily fragmented recv() data.
+            tag_end = data.find(">")
+            if tag_end < 0:
                 return
-            self.buffer = self.buffer[leading + consumed:]
+            opening = data[1:tag_end].strip()
+            if not opening:
+                raise IndiClientError("CONNECTION_FAILED", "Malformed INDI XML")
+            tag = opening.split(None, 1)[0].rstrip("/")
+            if opening.endswith("/"):
+                end = tag_end + 1
+            else:
+                closing = f"</{tag}>"
+                close_at = data.find(closing, tag_end + 1)
+                if close_at < 0:
+                    return
+                end = close_at + len(closing)
+
+            fragment = data[:end]
+            try:
+                root = ET.fromstring(fragment)
+            except ET.ParseError as exc:
+                raise IndiClientError(
+                    "CONNECTION_FAILED",
+                    f"Malformed INDI XML: {exc}",
+                ) from exc
+            self._record(root)
+            self.buffer = self.buffer[leading + end:]
 
     def _record(self, root):
         if root.attrib.get("device") != self.device:
