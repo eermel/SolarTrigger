@@ -22,7 +22,10 @@ def test_installer_does_not_install_duplicate_system_python_bindings():
     assert "python3-pygame" not in INSTALLER
 
     # Les bindings utilisés par SolarTrigger sont installés dans son venv.
-    assert "    gphoto2 \\" in INSTALLER
+    # gphoto2 is deliberately built from source in a separate pip invocation so
+    # it links to the same native libgphoto2 that provides CAMLIBS/IOLIBS.
+    assert "--no-binary gphoto2" in INSTALLER
+    assert '"gphoto2==$GPHOTO_PYTHON_VERSION"' in INSTALLER
     assert "    pygame \\" in INSTALLER
     assert "    pyserial \\" in INSTALLER
 
