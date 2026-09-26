@@ -39,6 +39,8 @@ class IndiTcpSession:
         self.sock = None
         self.buffer = ""
         self.props = {}
+        self._reader_stop = threading.Event()
+        self._reader_thread = None
 
     def __enter__(self):
         try:
@@ -53,7 +55,36 @@ class IndiTcpSession:
     def __exit__(self, *_args):
         self.close()
 
+    def start_reader(self):
+        """Continuously drain server updates for a long-lived write session."""
+        if self.sock is None:
+            raise IndiClientError("CONNECTION_LOST", "INDI session is closed")
+        if self._reader_thread is not None:
+            return
+        self._reader_stop.clear()
+        thread = threading.Thread(
+            target=self._reader_loop,
+            name=f"indi-tcp-{self.device}",
+            daemon=True,
+        )
+        self._reader_thread = thread
+        thread.start()
+
+    def _reader_loop(self):
+        try:
+            while not self._reader_stop.is_set():
+                try:
+                    self._recv(0.25)
+                except IndiClientError:
+                    if not self._reader_stop.is_set():
+                        self._reader_stop.set()
+                    return
+        finally:
+            if threading.current_thread() is self._reader_thread:
+                self._reader_thread = None
+
     def close(self):
+        self._reader_stop.set()
         sock, self.sock = self.sock, None
         if sock is not None:
             try:
@@ -64,6 +95,10 @@ class IndiTcpSession:
                 sock.close()
             except OSError:
                 pass
+        thread = self._reader_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+        self._reader_thread = None
 
     def set_text(self, prop, elements):
         root = ET.Element("newTextVector", {"device": self.device, "name": prop})
