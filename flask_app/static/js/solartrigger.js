@@ -29,6 +29,8 @@ const DEFAULT_RIGS = Array.from({length: 4}, (_, index) => ({
 }));
 const RIG_DEVICE_CATEGORIES = ['camera', 'mount', 'focuser'];
 let rigDevicesState = {rigs: DEFAULT_RIGS, inventory: {camera: [], mount: [], focuser: []}};
+const DEVICE_AUTO_REFRESH_INTERVAL_MS = 1000;
+let deviceAutoRefreshInFlight = false;
 let rigPhotoState = {rigs: []};
 let globalDevicesState = null;
 
@@ -1649,6 +1651,9 @@ function waitForBrowserPaint() {
 }
 
 async function refreshRigDevices(silent = false) {
+  if (deviceAutoRefreshInFlight) return;
+
+  deviceAutoRefreshInFlight = true;
   const buttons = document.querySelectorAll('#devices-rescan, #add-camera-rescan');
   buttons.forEach(button => { button.disabled = true; });
 
@@ -1678,7 +1683,14 @@ async function refreshRigDevices(silent = false) {
     flash(`Detection: ${error.message}`, 'red');
   } finally {
     buttons.forEach(button => { button.disabled = false; });
+    deviceAutoRefreshInFlight = false;
   }
+}
+
+function startDeviceAutoRefresh() {
+  setInterval(() => {
+    refreshRigDevices(true);
+  }, DEVICE_AUTO_REFRESH_INTERVAL_MS);
 }
 
 const cameraAddLogState = {
@@ -2179,6 +2191,7 @@ socket.on('connect', async () => {
       // A new browser document has no cached device bindings. Rehydrate them
       // once from the persisted RIG configuration after Socket.IO attaches.
       await loadRigDevices();
+startDeviceAutoRefresh();
     }
   } catch (e) {
     console.warn('Unable to re-anchor time after connection:', e);
