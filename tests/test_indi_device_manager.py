@@ -389,3 +389,48 @@ def test_connected_existing_by_id_transport_remains_present(monkeypatch):
     assert catalog[0]["fallback_physical_path"] == (
         "/dev/serial/by-id/usb-existing-controller"
     )
+
+
+
+def test_heuristic_serial_switch_value_is_not_physical_identity(monkeypatch):
+    devices = {
+        "EQMod Mount": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_eqmod_telescope",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/serial/by-id/usb-controller"},
+            "SERIAL_CONNECTION": {"SERIAL": "On"},
+        },
+    }
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda _path: True,
+    )
+
+    entry = IndiDeviceManager(client=FakeClient(devices)).discover()[0]
+
+    assert entry["serial"] is None
+
+
+def test_explicit_hardware_serial_rejects_switch_like_value(monkeypatch):
+    devices = {
+        "EQMod Mount": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_eqmod_telescope",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/serial/by-id/usb-controller"},
+            "DEVICE_INFO": {"SERIAL": "On"},
+        },
+    }
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda _path: True,
+    )
+
+    entry = IndiDeviceManager(client=FakeClient(devices)).discover()[0]
+
+    assert entry["serial"] is None
