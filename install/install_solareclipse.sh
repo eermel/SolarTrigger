@@ -263,7 +263,7 @@ fi
 step "STEP 3 — Install system dependencies"
 
 apt install -y \
-    python3 python3-pip python3-venv \
+    python3 python3-pip python3-venv python3-dev \
     gphoto2 libgphoto2-dev \
     screen curl wget \
     gpsd gpsd-clients chrony socat \
@@ -690,16 +690,59 @@ chmod o+x "/home/$CURRENT_USER"
 info "Creating Python virtual environment..."
 sudo -u "$CURRENT_USER" HOME="$USER_HOME" python3 -m venv "$VENV_DIR"
 sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install --upgrade pip -q
+# python-gphoto2 binary wheels bundle their own libgphoto2. Mixing that core
+# library with CAMLIBS/IOLIBS from the newer /usr/local build is unsafe and can
+# crash inside native widget/config calls. Build the binding from source against
+# the same libgphoto2 installation that provides the camera drivers.
+GPHOTO_PYTHON_VERSION="2.6.4"
+GPHOTO_PKGCONFIG_DIR="/usr/local/lib/pkgconfig"
+if [ ! -f "$GPHOTO_PKGCONFIG_DIR/libgphoto2.pc" ]; then
+    # When STEP 3b selected a sufficiently recent distro libgphoto2, use the
+    # system pkg-config metadata instead of forcing a nonexistent /usr/local one.
+    GPHOTO_PKGCONFIG_DIR=""
+fi
+
+info "Installing python-gphoto2 $GPHOTO_PYTHON_VERSION from source against native libgphoto2..."
+sudo -u "$CURRENT_USER" \
+    HOME="$USER_HOME" \
+    LD_LIBRARY_PATH="/usr/local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    PKG_CONFIG_PATH="${GPHOTO_PKGCONFIG_DIR}${GPHOTO_PKGCONFIG_DIR:+:}${PKG_CONFIG_PATH:-}" \
+    "$VENV_DIR/bin/pip" install \
+        --no-binary gphoto2 \
+        "gphoto2==$GPHOTO_PYTHON_VERSION"
+
 sudo -u "$CURRENT_USER" HOME="$USER_HOME" "$VENV_DIR/bin/pip" install \
     Flask \
     flask-socketio \
     simple-websocket \
-    gphoto2 \
     pygame \
     pyserial \
     gunicorn \
     pytz \
     timezonefinder
+
+# Fail the installation rather than publish a venv whose Python extension is
+# linked to a wheel-bundled libgphoto2 while runtime drivers come from /usr/local.
+GPHOTO_CAMERA_SO=$(sudo -u "$CURRENT_USER" HOME="$USER_HOME" \
+    "$VENV_DIR/bin/python3" - <<'PY'
+import importlib.util
+spec = importlib.util.find_spec("gphoto2._camera")
+if spec is None or not spec.origin:
+    raise SystemExit(1)
+print(spec.origin)
+PY
+) || error "Unable to locate the native python-gphoto2 _camera extension."
+
+if ldd "$GPHOTO_CAMERA_SO" | grep -q '/site-packages/gphoto2/libgphoto2/'; then
+    error "python-gphoto2 is using a bundled libgphoto2; refusing unsafe mixed native/wheel stack."
+fi
+
+if [ -f /usr/local/lib/libgphoto2.so ] && \
+   ! ldd "$GPHOTO_CAMERA_SO" | grep -q '/usr/local/lib/libgphoto2\.so'; then
+    error "python-gphoto2 is not linked to the native /usr/local libgphoto2 build."
+fi
+
+success "python-gphoto2 native linkage verified."
 success "Virtual environment → $VENV_DIR"
 
 # Fichier wsgi.py
