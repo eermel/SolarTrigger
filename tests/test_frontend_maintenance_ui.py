@@ -40,6 +40,9 @@ def test_system_tab_has_camera_update_and_log_sections():
     assert '<div class="system-section-title">Log</div>' in log_section
     assert 'id="camera-add-log"' in log_section
 
+    system_section = source[camera:log_end]
+    assert r"\n" not in system_section
+
 
 def test_system_update_is_single_full_width_action():
     source = frontend_source()
