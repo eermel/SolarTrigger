@@ -42,7 +42,7 @@ def test_mount_tracking_switch_waits_for_authoritative_status():
 
 def test_add_camera_long_actions_disable_before_network_work():
     refresh = _between(
-        "async function refreshRigDevices(silent = false) {",
+        "async function refreshRigDevices(silent = false, fullLegacyDetect = true) {",
         "let cameraCharacterizationQuestion = null;",
     )
     assert (
