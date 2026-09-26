@@ -31,6 +31,8 @@ const RIG_DEVICE_CATEGORIES = ['camera', 'mount', 'focuser'];
 let rigDevicesState = {rigs: DEFAULT_RIGS, inventory: {camera: [], mount: [], focuser: []}};
 const DEVICE_AUTO_REFRESH_INTERVAL_MS = 1000;
 let deviceAutoRefreshInFlight = false;
+let deviceUsbPresenceSignature = null;
+let deviceUsbPresencePollInFlight = false;
 let rigPhotoState = {rigs: []};
 let globalDevicesState = null;
 
@@ -1687,9 +1689,39 @@ async function refreshRigDevices(silent = false) {
   }
 }
 
+async function pollDeviceUsbPresence() {
+  if (deviceUsbPresencePollInFlight || deviceAutoRefreshInFlight) return;
+
+  deviceUsbPresencePollInFlight = true;
+  try {
+    const response = await fetch('/api/rigs/devices/usb-presence', {
+      cache: 'no-store',
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `HTTP error ${response.status}`);
+    }
+
+    const signature = JSON.stringify(payload.signature || []);
+    if (deviceUsbPresenceSignature === null) {
+      deviceUsbPresenceSignature = signature;
+      return;
+    }
+    if (signature === deviceUsbPresenceSignature) return;
+
+    deviceUsbPresenceSignature = signature;
+    await refreshRigDevices(true);
+  } catch (error) {
+    console.warn('USB presence polling failed:', error);
+  } finally {
+    deviceUsbPresencePollInFlight = false;
+  }
+}
+
 function startDeviceAutoRefresh() {
+  pollDeviceUsbPresence();
   setInterval(() => {
-    refreshRigDevices(true);
+    pollDeviceUsbPresence();
   }, DEVICE_AUTO_REFRESH_INTERVAL_MS);
 }
 
