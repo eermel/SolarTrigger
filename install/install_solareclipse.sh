@@ -479,7 +479,15 @@ ACTION=="add", ATTRS{idVendor}=="03c3", ATTRS{idProduct}=="1f10", GROUP="users",
 EAFUDEV
     fi
     udevadm control --reload-rules 2>/dev/null || true
-    udevadm trigger 2>/dev/null || true
+
+    # Some Raspberry Pi kernels enumerate 03c3:1f10 as HID but leave its
+    # interface unbound. Install the SolarTrigger hot-plug rule and repair an
+    # already-connected EAF without touching unrelated HID devices.
+    if [ -f "$SCRIPT_DIR/install_zwo_eaf_hid.sh" ]; then
+        bash "$SCRIPT_DIR/install_zwo_eaf_hid.sh"
+    else
+        warning "EAF HID binding helper missing: $SCRIPT_DIR/install_zwo_eaf_hid.sh"
+    fi
 
     if ldconfig -p | grep -q libEAFFocuser; then
         success "ZWO EAF SDK installed (library + udev rule). Unplug/replug the EAF."
