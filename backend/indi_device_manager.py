@@ -58,27 +58,23 @@ def _text(prop: Mapping[str, Any], *names: str) -> str | None:
 
 
 def _first_serial(properties: Mapping[str, Mapping[str, Any]]) -> str | None:
+    """Return only an explicitly documented hardware serial field.
+
+    INDI property names containing words such as SERIAL are not necessarily
+    serial numbers: switch/status elements may contain values like On.
+    Do not heuristically promote arbitrary properties into physical identity.
+    """
     preferred = (
         ("DEVICE_INFO", ("SERIAL", "SERIAL_NUMBER", "SERIALNUMBER", "DEVICE_SERIAL")),
         ("MOUNTINFORMATION", ("MOUNT_SERIAL", "SERIAL", "SERIAL_NUMBER", "SERIALNUMBER")),
         ("VERSION", ("SN", "SERIAL", "SERIAL_NUMBER")),
     )
+    invalid = {"unknown", "n/a", "none", "on", "off", "true", "false"}
     for prop_name, elements in preferred:
         prop = properties.get(prop_name, {})
         value = _text(prop, *elements)
-        if value and value.casefold() not in {"unknown", "n/a", "none"}:
+        if value and value.casefold() not in invalid:
             return value
-
-    for prop_name, elements in properties.items():
-        if not isinstance(elements, Mapping):
-            continue
-        for element, raw_value in elements.items():
-            key = f"{prop_name}.{element}".casefold()
-            if "serial" not in key and str(element).casefold() != "sn":
-                continue
-            value = str(_raw(raw_value) or "").strip()
-            if value and value.casefold() not in {"unknown", "n/a", "none"}:
-                return value
     return None
 
 
