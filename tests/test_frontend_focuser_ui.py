@@ -54,7 +54,8 @@ def test_principal_focuser_ids_are_not_duplicated():
 
 
 def test_visibility_is_driven_by_active_focuser_device():
-    assert "updateControlsVisibility(devices)" in FOCUSER_JS
+    assert "updateControlsVisibility(devices)" not in FOCUSER_JS
+    assert "renderSelectedFocuserAvailability()" in SOLARTRIGGER_JS
     assert not re.search(r"section\.style\.display\s*=", FOCUSER_JS)
 
 
@@ -115,7 +116,7 @@ def test_backend_refresh_and_socket_resynchronization_are_present():
     assert re.search(r"displayFocuser\(\s*await\s+request\(\s*url\s*\)\s*\)", FOCUSER_JS)
     assert re.search(r"setTimeout\(\s*refreshFocuser\s*,", FOCUSER_JS)
     assert re.search(r"socket\.on\(\s*['\"]focuser_update['\"]", FOCUSER_JS)
-    assert re.search(r"socket\.on\(\s*['\"]status_update['\"]", FOCUSER_JS)
+    assert not re.search(r"socket\.on\(\s*['\"]status_update['\"]", FOCUSER_JS)
 
 
 def test_focuser_control_block_is_brand_neutral():
