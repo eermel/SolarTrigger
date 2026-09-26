@@ -111,6 +111,24 @@ def test_absolute_home_remains_cancelable_until_backend_clears_command():
     # The backend-owned motion_command is authoritative for an absolute move.\n    # A transient SDK moving=false sample must not stop UI monitoring early.\n    assert "if (absoluteMotion) schedulePoll(400);" in FOCUSER_JS\n    assert "data.moving === true && absoluteMotion" not in FOCUSER_JS
 
 
+
+def test_rig_binding_load_resynchronizes_controls_focuser():
+    render_function = re.search(
+        r"function\s+renderRigDevices\([^)]*\)\s*\{(?P<body>.*?)\n\}",
+        SOLARTRIGGER_JS,
+        re.DOTALL,
+    )
+    assert render_function
+    body = render_function.group("body")
+    assert "updateRigs(rigs);" in body
+    assert re.search(
+        r"updateRigs\(rigs\);.*?"
+        r"document\.dispatchEvent\(new CustomEvent\(['\"]controlsrigchange['\"]\)\)",
+        body,
+        re.DOTALL,
+    )
+
+
 def test_backend_refresh_and_socket_resynchronization_are_present():
     assert re.search(r"const\s+url\s*=\s*focuserUrl\(\s*['\"]status['\"]\s*\)", FOCUSER_JS)
     assert re.search(r"displayFocuser\(\s*await\s+request\(\s*url\s*\)\s*\)", FOCUSER_JS)
