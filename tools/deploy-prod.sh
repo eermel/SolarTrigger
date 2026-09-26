@@ -296,9 +296,9 @@ ensure_camera_persistent_links
 
 echo
 echo "=== runtime data ==="
-rsync "${RSYNC_OPTS[@]}" --delete \\
-    "$SRC/data/" \\
-    "$DST/data/"
+rsync "${RSYNC_OPTS[@]}" --delete \
+    "$SRC/data/" \
+    "$DST_HOST:$DST/data/"
 
 echo
 echo "=== system helpers (copied, never executed automatically) ==="
