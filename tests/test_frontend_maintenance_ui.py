@@ -135,18 +135,52 @@ def test_system_update_has_no_apt_explanatory_text():
 
 
 
-def test_system_camera_group_contains_camera_workflow():
+def test_system_page_has_camera_update_and_log_sections():
     source = frontend_source()
-    assert 'class="system-camera-group"' in source
-    assert 'class="system-camera-group-title">Camera</div>' in source
-    group_start = source.index('class="system-camera-group"')
-    persistent_start = source.index('<div class="card-title">Persistent data</div>')
-    camera_group = source[group_start:persistent_start]
-    assert '<div class="card-title">Device discovery</div>' in camera_group
-    assert '<div class="card-title">Camera</div>' in camera_group
-    assert "Characterize &amp; Validate" in camera_group
-    assert "Re-characterize Camera" not in camera_group
-    assert '<div class="card-title">Camera Validation</div>' not in camera_group
+
+    camera_start = source.index('data-system-section="camera"')
+    update_start = source.index('data-system-section="update"')
+    log_start = source.index('data-system-section="log"')
+
+    assert camera_start < update_start < log_start
+    assert 'class="system-section-title">Camera</div>' in source[camera_start:update_start]
+    assert 'class="system-section-title">Update</div>' in source[update_start:log_start]
+    assert 'class="system-section-title">Log</div>' in source[log_start:]
+
+
+def test_system_camera_section_contains_camera_workflow_only():
+    source = frontend_source()
+    camera_start = source.index('data-system-section="camera"')
+    update_start = source.index('data-system-section="update"')
+    camera_section = source[camera_start:update_start]
+
+    assert '<div class="card-title">Device discovery</div>' in camera_section
+    assert '<div class="card-title">Camera</div>' in camera_section
+    assert "Characterize &amp; Validate" in camera_section
+    assert "Persistent data" not in camera_section
+    assert "Update System" not in camera_section
+
+
+def test_system_update_section_contains_maintenance_tools():
+    source = frontend_source()
+    update_start = source.index('data-system-section="update"')
+    log_start = source.index('data-system-section="log"')
+    update_section = source[update_start:log_start]
+
+    assert '<div class="card-title">Persistent data</div>' in update_section
+    assert '<div class="card-title">Update System</div>' in update_section
+    assert '<div class="card-title">Update Solar Eclipse Trigger</div>' in update_section
+    assert 'id="camera-add-log"' not in update_section
+
+
+def test_system_log_section_contains_shared_log():
+    source = frontend_source()
+    log_start = source.index('data-system-section="log"')
+    log_section = source[log_start:]
+
+    assert 'id="camera-add-log"' in log_section
+    assert "clearCameraAddLog()" in log_section
+
 
 
 def test_unified_camera_select_has_chevron():
