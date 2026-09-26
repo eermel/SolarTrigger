@@ -102,9 +102,7 @@
 
     <div class="page" id="add-camera-panel">
       <section class="add-camera-section" aria-label="System">
-        <div class="system-camera-group">
-          <div class="system-camera-group-title">Camera</div>
-          <div class="system-camera-group-content">
+        <div class="system-section" data-system-section="camera">\n          <div class="system-section-title">Camera</div>\n          <div class="system-section-content">
         <div class="card">
           <div class="card-title">Device discovery</div>
           <button class="btn btn-primary btn-full" id="add-camera-rescan" onclick="refreshRigDevices()">↻ Refresh devices</button>
@@ -133,7 +131,7 @@
           <button class="btn btn-danger btn-full" id="camera-validation-delete-files" type="button" hidden style="margin-top:10px" onclick="deleteFailedCameraValidationFiles()">Delete generated camera profile/timing after FAIL</button>
         </div>
 
-        <div class="card devices-reset-card">
+          </div>\n        </div>\n\n        <div class="system-section" data-system-section="update">\n          <div class="system-section-title">Update</div>\n          <div class="system-section-content">\n        <div class="card devices-reset-card">
           <div class="card-title">Persistent data</div>
           <button
             class="btn btn-danger btn-full"
@@ -200,16 +198,12 @@
 
         </div>
 
-        <div class="card" style="flex-shrink:0">
-          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-            <span>Log</span>
+          </div>\n        </div>\n\n        <div class="system-section" data-system-section="log">\n          <div class="system-section-title">Log</div>\n          <div class="system-section-content">\n        <div class="card" style="flex-shrink:0">\n          <div class="card-title" style="display:flex;justify-content:flex-end;align-items:center">
             <button class="btn btn-secondary" type="button"
               style="font-size:10px;padding:4px 9px"
               onclick="clearCameraAddLog()">CLEAR</button>
           </div>
-          <pre id="camera-add-log" role="log"></pre>
-        </div>
-      </section>
+          <pre id="camera-add-log" role="log"></pre>\n        </div>\n          </div>\n        </div>\n      </section>
     </div>
 
 
