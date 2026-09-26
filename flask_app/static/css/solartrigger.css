@@ -1106,15 +1106,15 @@ header {
   text-align: center;
 }
 
-/* System / Camera group */
-.system-camera-group {
+/* System tab sections */
+.system-section {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 14px;
   margin-bottom: 16px;
 }
 
-.system-camera-group-title {
+.system-section-title {
   font-family: var(--mono);
   font-size: 14px;
   font-weight: 700;
@@ -1123,13 +1123,13 @@ header {
   margin-bottom: 12px;
 }
 
-.system-camera-group-content {
+.system-section-content {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.system-camera-group-content > .card {
+.system-section-content > .card {
   margin: 0;
 }
 
