@@ -829,3 +829,40 @@ def test_unwritable_binding_state_does_not_block_mount_probe(
 
     assert manager._autoconnect_mounts(devices) is True
     assert attempts == [("Mount A", "/dev/serial/by-id/A")]
+
+
+
+def test_ambiguous_connected_transport_is_not_persisted(monkeypatch, tmp_path):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    shared = "/dev/serial/by-id/SHARED"
+    devices = {
+        "Mount A": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "On"},
+            "DEVICE_PORT": {"PORT": shared},
+        },
+        "Mount B": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "On"},
+            "DEVICE_PORT": {"PORT": shared},
+        },
+    }
+    manager = IndiDeviceManager(
+        client=FakeClient(devices),
+        bindings_file=bindings_file,
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: path == shared,
+    )
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: [])
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert not bindings_file.exists()
+
+
+def test_default_binding_path_is_isolated_from_real_runtime_state(tmp_path):
+    manager = IndiDeviceManager(client=FakeClient({}))
+
+    assert manager.bindings_file.parent == tmp_path
+    assert manager.bindings_file.name == "default_indi_mount_bindings.json"
