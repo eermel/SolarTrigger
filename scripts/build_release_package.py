@@ -212,6 +212,7 @@ def build_release(
         "Sounds/contact.wav",
         "configs/photo_cfg/photo_default.json",
         "install/solartrigger-release-update",
+        "install/install_zwo_eaf_hid.sh",
     )
     missing = [name for name in required if name not in files]
     if missing:
