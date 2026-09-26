@@ -286,3 +286,17 @@ def test_installed_releases_rejects_legacy_manifest_without_hashes(tmp_path):
         "build_commit": "a" * 40,
         "rollback_eligible": False,
     }]
+
+
+def test_successful_system_upgrade_records_completion_in_log(monkeypatch):
+    class Process:
+        stdout = ["apt output\\n"]
+        def wait(self):
+            return 0
+    monkeypatch.setattr(system_maintenance.subprocess, "Popen", lambda *a, **k: Process())
+    job = system_maintenance.Job()
+    job._claim("apt-upgrade")
+    job._run(["helper", "upgrade"])
+    snapshot = job.snapshot()
+    assert snapshot["status"] == "success"
+    assert snapshot["logs"][-1] == "SUCCESS: System update completed successfully"
