@@ -21,11 +21,11 @@ if [[ ! -e "$USBHID_BIND" ]]; then
     exit 1
 fi
 
-cat > "$RULE_PATH" <<\'UDEVRULES\'
+cat > "$RULE_PATH" <<'UDEVRULES'
 # SolarTrigger - ZWO EAF (03c3:1f10)
 ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="03c3", ATTR{idProduct}=="1f10", GROUP="users", MODE="0666"
 # Bind only an unclaimed HID interface belonging to this exact VID/PID.
-ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", ATTR{bInterfaceClass}=="03", ATTRS{idVendor}=="03c3", ATTRS{idProduct}=="1f10", DRIVER=="", RUN+="/bin/sh -c \'echo %k > /sys/bus/usb/drivers/usbhid/bind\'"
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", ATTR{bInterfaceClass}=="03", ATTRS{idVendor}=="03c3", ATTRS{idProduct}=="1f10", DRIVER=="", RUN+="/bin/sh -c 'echo %k > /sys/bus/usb/drivers/usbhid/bind'"
 UDEVRULES
 
 chmod 0644 "$RULE_PATH"
