@@ -120,9 +120,7 @@ def test_inventory_excludes_loaded_driver_without_live_transport(monkeypatch):
     assert IndiDeviceManager.inventory_entries(catalog, "mount") == []
 
 
-def test_inventory_accepts_any_live_serial_transport_without_chipset_assumption(
-    monkeypatch,
-):
+def test_disconnected_serial_default_is_not_physical_presence(monkeypatch):
     devices = {
         "EQMod Mount": {
             "DRIVER_INFO": {
@@ -141,6 +139,32 @@ def test_inventory_accepts_any_live_serial_transport_without_chipset_assumption(
 
     manager = IndiDeviceManager(client=FakeClient(devices))
     catalog = manager.discover()
+
+    assert catalog[0]["present"] is False
+    assert catalog[0]["fallback_physical_path"] is None
+    assert IndiDeviceManager.inventory_entries(catalog, "mount") == []
+
+
+def test_connected_mount_keeps_stable_transport_without_chipset_assumption(
+    monkeypatch,
+):
+    devices = {
+        "EQMod Mount": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_eqmod_telescope",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "On"},
+            "DEVICE_PORT": {"PORT": "/dev/ttyUSB7"},
+        },
+    }
+    monkeypatch.setattr(
+        "backend.indi_device_manager._stable_serial_path",
+        lambda _p: "/dev/serial/by-id/usb-arbitrary-controller",
+    )
+
+    manager = IndiDeviceManager(client=FakeClient(devices))
+    catalog = manager.discover()
     mounts = IndiDeviceManager.inventory_entries(catalog, "mount")
 
     assert catalog[0]["present"] is True
@@ -148,3 +172,4 @@ def test_inventory_accepts_any_live_serial_transport_without_chipset_assumption(
     assert mounts[0]["fallback_physical_path"] == (
         "/dev/serial/by-id/usb-arbitrary-controller"
     )
+
