@@ -10,7 +10,7 @@ from .base import (
     RATE_SIDEREAL,
     RATE_SOLAR,
 )
-from .indi_client import IndiClientError, IndiSubprocessClient
+from .indi_client import IndiClientError, IndiSubprocessClient, IndiTcpSession
 
 
 _RATE_ELEMENTS = {
@@ -44,12 +44,14 @@ class IndiMount(MountPlugin):
         self.timeout = float(self.config.get("timeout", 3.0))
         self.home_timeout = float(self.config.get("home_timeout", 120.0))
         self.poll_interval = float(self.config.get("poll_interval", 0.05))
+        self._runtime_tcp_enabled = client is None
         self.client = client or IndiSubprocessClient(
             host=self.config.get("host", "127.0.0.1"),
             port=int(self.config.get("port", 7624)),
             device=self.device_name,
             timeout_s=float(self.config.get("client_timeout", 4.0)),
         )
+        self._control_session = None
         self._connected = False
         self._move_rate = None
 
@@ -249,12 +251,14 @@ class IndiMount(MountPlugin):
             if callable(start_monitor):
                 start_monitor()
 
+            self._open_control_session()
+
             if assignments:
-                self.client.set_props(assignments)
+                self._set_props(assignments)
 
             connection = props.get("CONNECTION", {})
             if connection:
-                self.client.set_props({
+                self._set_props({
                     "CONNECTION": {
                         "CONNECT": "On",
                         "DISCONNECT": "Off",
@@ -272,8 +276,10 @@ class IndiMount(MountPlugin):
                     )
             self._connected = True
         except IndiClientError:
+            self._close_control_session()
             raise
         except Exception as exc:
+            self._close_control_session()
             self._raise_mapped(
                 "CONNECTION_FAILED",
                 "Unable to connect to INDI mount",
@@ -282,11 +288,12 @@ class IndiMount(MountPlugin):
 
     def disconnect(self):
         try:
-            self.client.set_props({"CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}})
+            self._set_props({"CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}})
             self._wait_for(lambda p: not self._switch_on(p.get("CONNECTION", {}), "CONNECT"))
         except Exception:
             pass
         finally:
+            self._close_control_session()
             stop_monitor = getattr(self.client, "stop_monitor", None)
             if callable(stop_monitor):
                 stop_monitor()
@@ -371,7 +378,7 @@ class IndiMount(MountPlugin):
             element = self._rate_element(mode_prop, rate)
             if element is None:
                 raise IndiClientError("PROPERTY_UNSUPPORTED", f"Tracking rate is unsupported: {rate}")
-            self.client.set_props({
+            self._set_props({
                 "TELESCOPE_TRACK_MODE": {name: "On" if name == element else "Off" for name in mode_prop},
                 "TELESCOPE_TRACK_STATE": {"TRACK_ON": "On", "TRACK_OFF": "Off"},
             })
@@ -390,7 +397,7 @@ class IndiMount(MountPlugin):
             element = self._rate_element(props.get("TELESCOPE_TRACK_MODE", {}), mode)
             if element is None:
                 raise IndiClientError("PROPERTY_UNSUPPORTED", f"Tracking rate is unsupported: {mode}")
-            self.client.set_props({"TELESCOPE_TRACK_MODE": {
+            self._set_props({"TELESCOPE_TRACK_MODE": {
                 name: "On" if name == element else "Off" for name in props["TELESCOPE_TRACK_MODE"]
             }})
         except IndiClientError:
@@ -400,7 +407,7 @@ class IndiMount(MountPlugin):
 
     def stop_tracking(self):
         try:
-            self.client.set_props({"TELESCOPE_TRACK_STATE": {"TRACK_ON": "Off", "TRACK_OFF": "On"}})
+            self._set_props({"TELESCOPE_TRACK_STATE": {"TRACK_ON": "Off", "TRACK_OFF": "On"}})
             if not self._wait_for(
                 lambda p: not self._switch_on(p.get("TELESCOPE_TRACK_STATE", {}), "TRACK_ON")
             ):
@@ -474,7 +481,7 @@ class IndiMount(MountPlugin):
                     "INDI telescope Home property has no GO action",
                 )
 
-            self.client.set_props({
+            self._set_props({
                 "TELESCOPE_HOME": {
                     name: "On" if name == element else "Off"
                     for name in home_prop
@@ -518,7 +525,7 @@ class IndiMount(MountPlugin):
         try:
             # Stop manual slew without sending TELESCOPE_ABORT_MOTION.
             # An ABORT immediately before PARK can cancel the EQMod park slew.
-            self.client.set_props({
+            self._set_props({
                 "TELESCOPE_MOTION_NS": {
                     "MOTION_NORTH": "Off",
                     "MOTION_SOUTH": "Off",
@@ -573,7 +580,7 @@ class IndiMount(MountPlugin):
             )
 
             if not already_home:
-                self.client.set_props({
+                self._set_props({
                     "TELESCOPE_PARK": {
                         "PARK": "On",
                     }
@@ -628,7 +635,7 @@ class IndiMount(MountPlugin):
                     time.sleep(self.poll_interval)
 
             # Finish operational, not parked.
-            self.client.set_props({
+            self._set_props({
                 "TELESCOPE_PARK": {
                     "UNPARK": "On",
                 }
@@ -664,7 +671,7 @@ class IndiMount(MountPlugin):
             selected = self._find_element(prop, value)
             if selected is None:
                 raise IndiClientError("PROPERTY_UNSUPPORTED", f"Unsupported slew speed: {value}")
-            self.client.set_props({"TELESCOPE_SLEW_RATE": {
+            self._set_props({"TELESCOPE_SLEW_RATE": {
                 name: "On" if name == selected else "Off" for name in prop
             }})
             self._move_rate = value
@@ -686,13 +693,51 @@ class IndiMount(MountPlugin):
             prop = self._props(["GEOGRAPHIC_COORD.*"]).get("GEOGRAPHIC_COORD")
             if not prop:
                 raise IndiClientError("PROPERTY_UNSUPPORTED", "INDI geographic coordinates are unsupported")
-            self.client.set_props({"GEOGRAPHIC_COORD": {
+            self._set_props({"GEOGRAPHIC_COORD": {
                 "LAT": lat, "LONG": lon, "ELEV": elev,
             }})
         except IndiClientError:
             raise
         except Exception as exc:
             self._raise_mapped("CONNECTION_FAILED", "Unable to set INDI location", exc)
+
+    def _open_control_session(self):
+        """Open the runtime write channel once and keep it for the mount session."""
+        if not self._runtime_tcp_enabled or self._control_session is not None:
+            return
+        session = IndiTcpSession(
+            host=self.config.get("host", "127.0.0.1"),
+            port=int(self.config.get("port", 7624)),
+            device=self.device_name,
+            timeout_s=float(self.config.get("client_timeout", 4.0)),
+        )
+        session.__enter__()
+        self._control_session = session
+
+    def _close_control_session(self):
+        session, self._control_session = self._control_session, None
+        if session is not None:
+            session.close()
+
+    def _set_props(self, assignments):
+        """Write through the persistent TCP channel during normal runtime.
+
+        Injected clients retain the historical set_props contract for unit
+        tests and alternate callers. INDI vector type is explicit for the
+        standard properties SolarTrigger writes.
+        """
+        session = self._control_session
+        if session is None:
+            self.client.set_props(assignments)
+            return
+
+        for prop, elements in assignments.items():
+            if prop == "DEVICE_PORT":
+                session.set_text(prop, elements)
+            elif prop == "GEOGRAPHIC_COORD":
+                session.set_number(prop, elements)
+            else:
+                session.set_switch(prop, elements)
 
     def _props(self, patterns=None):
         return self.client.get_props(patterns)
@@ -708,7 +753,7 @@ class IndiMount(MountPlugin):
 
     def _set_mapped(self, assignments, message):
         try:
-            self.client.set_props(assignments)
+            self._set_props(assignments)
         except IndiClientError:
             raise
         except Exception as exc:
