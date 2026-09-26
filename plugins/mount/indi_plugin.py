@@ -484,7 +484,7 @@ class IndiMount(MountPlugin):
         Older EQMod deployments are kept compatible through the historical
         PARK/CURRENTSTEPPERS fallback.
         """
-        props = self._props(["TELESCOPE_HOME.*"])
+        props = self._props(["TELESCOPE_HOME.*", "DRIVER_INFO.*"])
         home_prop = props.get("TELESCOPE_HOME", {})
         if home_prop:
             element = None
@@ -540,6 +540,17 @@ class IndiMount(MountPlugin):
                             "INDI mount did not reach Home before timeout",
                         )
                 time.sleep(self.poll_interval)
+
+        # PARK is not a generic Home implementation.  In particular OnStep
+        # uses a distinct mechanical Home command and may refuse UNPARK until
+        # date/time/location have been initialised.  Falling through to the
+        # historical EQMod PARK sequence can therefore leave an OnStep mount
+        # parked and make all manual slew buttons appear dead.
+        if not self._is_eqmod_driver(props):
+            raise IndiClientError(
+                "PROPERTY_UNSUPPORTED",
+                "INDI mount does not expose native Home; refusing PARK fallback",
+            )
 
         return self._go_home_eqmod_legacy(is_cancelled=is_cancelled)
 
@@ -870,6 +881,20 @@ class IndiMount(MountPlugin):
         if isinstance(value, dict):
             return str(value.get("label", fallback))
         return fallback
+
+    def _is_eqmod_driver(self, props):
+        """True only for EQMod, the sole owner of the PARK-as-Home fallback."""
+        info = props.get("DRIVER_INFO", {}) if isinstance(props, dict) else {}
+        identity = " ".join(
+            value
+            for value in (
+                self._text(info, "DRIVER_EXEC"),
+                self._text(info, "DRIVER_NAME"),
+                self.device_name,
+            )
+            if value
+        ).casefold()
+        return "eqmod" in identity
 
     @staticmethod
     def _error_code(exc):
