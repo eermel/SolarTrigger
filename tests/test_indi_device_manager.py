@@ -704,3 +704,74 @@ def test_corrupt_mount_binding_file_is_ignored(tmp_path):
     )
 
     assert manager._load_mount_bindings() == {}
+
+
+
+def test_already_connected_mounts_are_learned_without_probing(
+    monkeypatch,
+    tmp_path,
+):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    devices = {
+        "EQMod Mount": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/serial/by-id/EQMOD"},
+        },
+        "LX200 OnStep": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/serial/by-id/ONSTEP"},
+        },
+    }
+    manager = IndiDeviceManager(
+        client=FakeClient(devices),
+        bindings_file=bindings_file,
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: path in {
+            "/dev/serial/by-id/EQMOD",
+            "/dev/serial/by-id/ONSTEP",
+        },
+    )
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: [])
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_probe_mount_transport",
+        lambda *args, **kwargs: attempts.append((args, kwargs)) or False,
+    )
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert attempts == []
+
+    import json
+    payload = json.loads(bindings_file.read_text(encoding="utf-8"))
+    assert payload["bindings"] == {
+        "EQMod Mount": "/dev/serial/by-id/EQMOD",
+        "LX200 OnStep": "/dev/serial/by-id/ONSTEP",
+    }
+
+
+def test_stale_connected_mount_transport_is_not_learned(monkeypatch, tmp_path):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    devices = {
+        "Mount A": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": { "PORT": "/dev/serial/by-id/UNPLUGGED" },
+        },
+    }
+    manager = IndiDeviceManager(
+        client=FakeClient(devices),
+        bindings_file=bindings_file,
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda _path: False,
+    )
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: [])
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert not bindings_file.exists()
