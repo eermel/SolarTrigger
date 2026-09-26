@@ -458,10 +458,11 @@ class IndiDeviceManager:
         candidates = self._serial_candidates()
         bindings = self._load_mount_bindings()
 
-        claimed = {
-            path
+        connected_bindings = {
+            name: path
             for name, properties in devices.items()
-            if "mount" in self._categories(properties)
+            if not self._is_photo_camera(properties)
+            and "mount" in self._categories(properties)
             and str(
                 _raw(properties.get("CONNECTION", {}).get("CONNECT", "Off"))
             ).casefold() in {"on", "true", "1"}
@@ -469,6 +470,20 @@ class IndiDeviceManager:
                 _text(properties.get("DEVICE_PORT", {}), "PORT")
             ))
         }
+        claimed = set(connected_bindings.values())
+
+        # A live INDI connection on an existing stable by-id transport is
+        # authoritative ownership evidence. Learn it even when the driver was
+        # already connected before SolarTrigger started, so upgrading an
+        # existing installation does not require disconnecting hardware.
+        bindings_changed = False
+        for name, path in connected_bindings.items():
+            if bindings.get(name) != path:
+                bindings[name] = path
+                bindings_changed = True
+        if bindings_changed:
+            self._save_mount_bindings(bindings)
+
         changed = False
 
         for device_name in sorted(devices):
