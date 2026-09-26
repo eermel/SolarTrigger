@@ -68,7 +68,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 try:
-    import gphoto2 as gp
+    from backend.gphoto_runtime import import_gphoto2
+    gp = import_gphoto2()
 except ModuleNotFoundError:
     gp = None
 from flask import Flask, jsonify, request, send_from_directory
