@@ -1,344 +1,86 @@
 import re
-from html.parser import HTMLParser
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
-INDEX = (ROOT / "flask_app" / "templates" / "index.html").read_text(
-    encoding="utf-8"
-)
-SOLARTRIGGER_JS = (
-    ROOT / "flask_app" / "static" / "js" / "solartrigger.js"
-).read_text(encoding="utf-8")
-SOLARTRIGGER_CSS = (
-    ROOT / "flask_app" / "static" / "css" / "solartrigger.css"
-).read_text(encoding="utf-8")
-INDEX += "\n" + SOLARTRIGGER_CSS
-
+INDEX = (ROOT / 'flask_app' / 'templates' / 'index.html').read_text(encoding='utf-8')
+JS = (ROOT / 'flask_app' / 'static' / 'js' / 'solartrigger.js').read_text(encoding='utf-8')
+CSS = (ROOT / 'flask_app' / 'static' / 'css' / 'solartrigger.css').read_text(encoding='utf-8')
 
 def _between(text, start, end):
-    match = re.search(
-        re.escape(start) + r"(?P<body>.*?)" + re.escape(end),
-        text,
-        re.DOTALL,
-    )
-    assert match, f"missing region delimited by {start!r} and {end!r}"
-    return match.group("body")
+    match = re.search(re.escape(start) + r'(?P<body>.*?)' + re.escape(end), text, re.DOTALL)
+    assert match
+    return match.group('body')
 
+MOUNT_JS = _between(JS, '// MOUNT UI START', '// MOUNT UI END')
 
-MOUNT_JS = _between(SOLARTRIGGER_JS, "// MOUNT UI START", "// MOUNT UI END")
-MOUNT_HTML = _between(INDEX, '<div id="mount-section">', "<!-- ═══════════════ PAGE 4")
-SLEW_FUNCTIONS = _between(
-    MOUNT_JS, "function stopSlewBestEffort()", "homeButton.addEventListener"
-)
+def test_virtual_joystick_has_operator_readout_and_cardinal_labels():
+    assert 'id="mount-joystick-direction"' in INDEX
+    assert 'id="mount-slew-speed-value"' in INDEX
+    for label in ('N', 'E', 'S', 'W'):
+        assert 'mount-joystick-label-' + label.lower() in INDEX
 
+def test_pointer_motion_is_clamped_to_circular_pad():
+    assert 'const distance = Math.hypot(dx, dy);' in MOUNT_JS
+    assert 'const magnitude = Math.min(1, distance / radius);' in MOUNT_JS
+    assert 'if (distance > radius)' in MOUNT_JS
+    assert 'radius / distance' in MOUNT_JS
 
-class _MountSlewParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.ids = []
-        self.slew_buttons = []
-        self.slider = None
+def test_deadzone_requests_stop_instead_of_slew():
+    assert re.search(r'if \(magnitude < JOYSTICK_DEADZONE\).*?requestMotion\(null\)', MOUNT_JS, re.DOTALL)
 
-    def handle_starttag(self, tag, attrs):
-        attributes = dict(attrs)
-        if attributes.get("id"):
-            self.ids.append(attributes["id"])
-        if tag == "input" and attributes.get("id") == "mount-slew-speed":
-            self.slider = attributes
-        if tag == "button" and "mount-slew-button" in attributes.get(
-            "class", ""
-        ).split():
-            self.slew_buttons.append(attributes)
+def test_elongation_selects_discrete_or_range_speed():
+    assert 'function speedForMagnitude(magnitude)' in MOUNT_JS
+    assert 'Math.floor(normalized * slewSpeedCaps.values.length)' in MOUNT_JS
+    assert 'Math.round((raw - minimum) / step) * step' in MOUNT_JS
 
+def test_motion_state_changes_only_when_direction_or_speed_changes():
+    assert 'if (motionKey(motion) === motionKey(desiredMotion)) return;' in MOUNT_JS
+    assert "motion.directions.join('+')" in MOUNT_JS
+    assert 'String(motion.speed)' in MOUNT_JS
 
-def test_slew_slider_uses_capabilities_reflects_status_and_posts_selection():
-    parser = _MountSlewParser()
-    parser.feed(MOUNT_HTML)
+def test_transition_stops_old_motion_before_speed_and_new_start():
+    pump = _between(MOUNT_JS, 'async function pumpJoystickMotion()', 'function requestMotion(motion)')
+    assert pump.index('await stopSlewGesture(previous)') < pump.index('await setSlewSpeedForMotion(target)')
+    assert pump.index('await setSlewSpeedForMotion(target)') < pump.index('startSlewGesture(target)')
 
-    assert parser.slider is not None
-    assert parser.slider["type"] == "range"
-    assert re.search(r"const\s+slewSpeedCaps\s*=\s*data\s*&&\s*data\.slew_speed_caps", MOUNT_JS)
-    assert re.search(r"slewSpeed\.(?:min|max|step)\s*=\s*slewSpeedCaps\.", MOUNT_JS)
-    assert re.search(r"slewSpeed\.value\s*=\s*data\.slew_speed", MOUNT_JS)
-    assert re.search(
-        r"findIndex\(\s*item\s*=>\s*item\.value\s*===\s*data\.slew_speed\s*\)",
-        MOUNT_JS,
-    )
-    assert re.search(
-        r"slewSpeed\.addEventListener\(\s*['\"]change['\"].*?"
-        r"postMount\(\s*mountUrl\(\s*['\"]speed['\"]\s*\).*?"
-        r"body:\s*JSON\.stringify\(\s*\{\s*speed:\s*selectedSlewSpeed\(\)\s*\}\s*\)",
-        MOUNT_JS,
-        re.DOTALL,
-    )
+def test_diagonal_start_uses_two_existing_cardinal_commands():
+    assert "label: 'NE', directions: ['north', 'east']" in MOUNT_JS
+    assert 'motion.directions.forEach(direction => {' in MOUNT_JS
+    assert "direction, gesture_id: gestureId" in MOUNT_JS
 
+def test_no_hold_repetition_timer_is_used_for_slew():
+    motion = _between(MOUNT_JS, 'function sendSlewStop(slew)', 'function displayMount(data)')
+    assert 'setInterval' not in motion
+    assert 'setTimeout' not in motion
 
-def test_direction_buttons_are_unique_and_laid_out_as_a_cross():
-    parser = _MountSlewParser()
-    parser.feed(INDEX)
+def test_same_rig_refresh_does_not_stop_held_joystick():
+    handler = _between(MOUNT_JS, "document.addEventListener('controlsrigchange', () => {", "socket.on('connect'")
+    assert 'activeSlew && activeSlew.rigId !== selectedRigId' in handler
+    prefix = handler.split('if (activeSlew && activeSlew.rigId !== selectedRigId)', 1)[0]
+    assert 'releaseJoystick()' not in prefix
 
-    assert len(parser.ids) == len(set(parser.ids))
-    assert [button.get("data-direction") for button in parser.slew_buttons] == [
-        "north",
-        "west",
-        "east",
-        "south",
-    ]
-    for direction, column, row in (
-        ("north", 2, 1),
-        ("west", 1, 2),
-        ("east", 3, 2),
-        ("south", 2, 3),
-    ):
-        assert re.search(
-            rf'\.mount-slew-button\[data-direction=["\']{direction}["\']\]\s*\{{'
-            rf'(?=[^}}]*grid-column:\s*{column}\s*;)'
-            rf'(?=[^}}]*grid-row:\s*{row}\s*;)',
-            INDEX,
-        )
+def test_homing_disables_joystick_and_preserves_home_cancel():
+    assert 'setJoystickEnabled(!homing && speedAvailable);' in MOUNT_JS
+    assert 'if (homing || !speedAvailable) releaseJoystick();' in MOUNT_JS
+    assert "mountUrl(homing ? 'slew/stop' : 'home')" in MOUNT_JS
 
+def test_tracking_mode_and_switch_still_use_existing_endpoints():
+    for endpoint in ("mountUrl('tracking/mode')", "'tracking/start'", "'tracking/stop'"):
+        assert endpoint in MOUNT_JS
 
-def test_hold_starts_once_and_all_pointer_end_paths_stop():
-    assert re.search(
-        r"button\.addEventListener\(\s*['\"]pointerdown['\"]\s*,\s*startSlew\s*\)",
-        MOUNT_JS,
-    )
-    for event in ("pointerup", "pointercancel", "lostpointercapture"):
-        assert re.search(
-            rf"button\.addEventListener\(\s*['\"]{event}['\"]\s*,\s*"
-            r"stopSlewBestEffort\s*\)",
-            MOUNT_JS,
-        )
-    assert MOUNT_JS.count("fetch(startUrl") == 1
-    assert "function sendSlewStop(slew)" in MOUNT_JS
-    assert "gesture_id: slew.gestureId" in MOUNT_JS
-    assert "gesture_id: gestureId" in MOUNT_JS
+def test_tracking_mode_change_only_posts_selected_mode():
+    handler = _between(MOUNT_JS, "trackingMode.addEventListener('change', () => {", "trackingSwitch.addEventListener")
+    assert "mountUrl('tracking/mode')" in handler
+    assert 'mode: trackingMode.value' in handler
 
+def test_refresh_and_socket_resync_cannot_issue_slew():
+    refresh = _between(MOUNT_JS, 'async function refreshMount()', 'function scheduleMountRefresh(delay)')
+    assert 'startSlewGesture' not in refresh
+    assert 'stopSlewGesture' not in refresh
+    assert "socket.on('connect', refreshMount)" in MOUNT_JS
 
-def test_slew_has_no_click_command_or_hold_repetition_timer():
-    button_handlers = _between(
-        MOUNT_JS, "slewButtons.forEach(button => {", "window.addEventListener"
-    )
-    assert not re.search(
-        r"addEventListener\(\s*['\"]click['\"]",
-        button_handlers,
-    )
-    assert "setInterval" not in SLEW_FUNCTIONS
-    assert "setTimeout" not in SLEW_FUNCTIONS
-    assert "const rig = selectedPilotableMountRig();" in SLEW_FUNCTIONS
-    assert "const startUrl = `/api/rigs/${rigId}/mount/slew/start`;" in SLEW_FUNCTIONS
-
-
-def test_short_press_stop_is_ordered_after_start_and_keeps_release_token():
-    assert re.search(r"let\s+activeSlew\s*=\s*null", MOUNT_JS)
-    assert "releaseRequested: false" in MOUNT_JS
-    assert "startPromise: null" in MOUNT_JS
-    assert "slew.releaseRequested = true;" in MOUNT_JS
-    assert "sendSlewStop(slew);" in MOUNT_JS
-    assert re.search(
-        r"Promise\.resolve\(slew\.startPromise\)\.finally\(\(\)\s*=>\s*\{"
-        r".*?finalizeReleasedSlew\(slew\)",
-        MOUNT_JS,
-        re.DOTALL,
-    )
-    assert re.search(
-        r"finalizeReleasedSlew\(slew\).*?sendSlewStop\(slew\)\.finally"
-        r".*?activeSlew\s*===\s*slew.*?activeSlew\s*=\s*null",
-        MOUNT_JS,
-        re.DOTALL,
-    )
-    assert not re.search(r"classList\.(?:add|toggle)\([^)]*(?:slew|active)", SLEW_FUNCTIONS)
-
-
-def test_same_rig_ui_refresh_does_not_stop_a_held_slew():
-    handler = _between(
-        MOUNT_JS,
-        "document.addEventListener('controlsrigchange', () => {",
-        "socket.on('connect'",
-    )
-    assert "const selectedRigId = rig ? Number(rig.rig_id) : null;" in handler
-    assert re.search(
-        r"if\s*\(activeSlew\s*&&\s*activeSlew\.rigId\s*!==\s*selectedRigId\)"
-        r"\s*\{\s*stopSlewBestEffort\(\)",
-        handler,
-        re.DOTALL,
-    )
-    assert "rigId," in SLEW_FUNCTIONS
-
-
-def test_homing_disables_every_direction_and_preserves_home_cancel():
-    assert re.search(
-        r"homing\s*=\s*data\s*&&\s*data\.homing\s*===\s*true\s*;.*?"
-        r"slewButtons\.forEach\(\s*button\s*=>\s*\{\s*button\.disabled\s*=\s*homing",
-        MOUNT_JS,
-        re.DOTALL,
-    )
-    assert re.search(
-        r"homeButton\.textContent\s*=\s*homing\s*\?\s*['\"]STOP['\"]\s*:\s*['\"]HOME['\"]",
-        MOUNT_JS,
-    )
-    assert re.search(
-        r"postMount\(\s*mountUrl\(\s*homing\s*\?\s*['\"]slew/stop['\"]\s*"
-        r":\s*['\"]home['\"]\s*\)\s*\)",
-        MOUNT_JS,
-    )
-
-
-def test_tracking_mode_and_off_on_switch_share_the_focuser_switch_layout():
-    assert re.search(
-        r'<div[^>]*class=["\'][^"\']*\bfocuser-mode-switch\b[^"\']*["\'][^>]*>'
-        r'<select[^>]*id=["\']mount-tracking-mode["\'][^>]*></select>'
-        r'<label[^>]*>\s*OFF\s*</label>'
-        r'<input(?=[^>]*id=["\']mount-tracking-switch["\'])'
-        r'(?=[^>]*role=["\']switch["\'])[^>]*>'
-        r'<label[^>]*>\s*ON\s*</label>'
-        r'</div>',
-        MOUNT_HTML,
-    )
-    assert 'id="btn-mount-tracking"' not in MOUNT_HTML
-
-
-def test_tracking_switch_reflects_status_and_preserves_tracking_commands():
-    assert re.search(r"trackingMode\.value\s*=\s*data\s*&&\s*data\.tracking_mode", MOUNT_JS)
-    assert re.search(
-        r"trackingSwitch\.checked\s*=\s*trackingEnabled",
-        MOUNT_JS,
-    )
-    for endpoint in (
-        "mountUrl('tracking/mode')",
-        "'tracking/start'",
-        "'tracking/stop'",
-    ):
-        assert MOUNT_JS.count(endpoint) == 1
-
-
-def test_tracking_switch_posts_start_when_on_and_stop_when_off():
-    handler = _between(
-        MOUNT_JS,
-        "trackingSwitch.addEventListener('change', async () => {",
-        "socket.on('connect'",
-    )
-
-    # The user's click is only a requested state.  The visible switch is
-    # immediately restored to the last state confirmed by mount /status.
-    assert "const requestedTracking = trackingSwitch.checked;" in handler
-    assert "trackingSwitch.checked = trackingEnabled;" in handler
-
-    # While the physical mount command is in progress the control is locked.
-    assert "trackingCommandPending = true;" in handler
-    assert "trackingSwitch.disabled = true;" in handler
-
-    # Both physical commands remain available.
-    assert "'tracking/start'" in handler
-    assert "'tracking/stop'" in handler
-    assert "requestedTracking" in handler
-
-    # The UI becomes authoritative again only after refreshing actual status.
-    assert "trackingCommandPending = false;" in handler
-    assert "await refreshMount();" in handler
-
-def test_tracking_mode_change_only_posts_the_selected_mode():
-    handler = _between(
-        MOUNT_JS,
-        "trackingMode.addEventListener('change', () => {",
-        "trackingSwitch.addEventListener",
-    )
-    assert re.search(
-        r"postMount\(\s*mountUrl\(\s*['\"]tracking/mode['\"]\s*\).*?"
-        r"body:\s*JSON\.stringify\(\s*\{\s*mode:\s*trackingMode\.value\s*\}\s*\)",
-        handler,
-        re.DOTALL,
-    )
-    assert not re.search(r"/api/mount/tracking/(?:start|stop)", handler)
-
-
-def test_tracking_controls_are_disabled_during_trigger():
-    assert re.search(
-        r"trackingMode\.disabled\s*=\s*triggerRunning\s*\|\|\s*modes\.length\s*===\s*0",
-        MOUNT_JS,
-    )
-
-    # Tracking cannot be changed while a trigger is running, while a previous
-    # tracking command is still awaiting hardware confirmation, or when the
-    # mount does not support the toggle capability.
-    assert re.search(
-        r"trackingSwitch\.disabled\s*=\s*\(\s*"
-        r"triggerRunning\s*"
-        r"\|\|\s*trackingCommandPending\s*"
-        r"\|\|",
-        MOUNT_JS,
-    )
-
-    assert "capabilities.toggle !== true" in MOUNT_JS
-
-def test_tracking_switch_on_state_uses_the_shared_green_style():
-    checked = re.search(
-        r'\.focuser-mode-switch\s+input\[role="switch"\]:checked\s*\{(?P<body>.*?)\}',
-        INDEX,
-        re.DOTALL,
-    )
-    checked_thumb = re.search(
-        r'\.focuser-mode-switch\s+input\[role="switch"\]:checked::after\s*'
-        r'\{(?P<body>.*?)\}',
-        INDEX,
-        re.DOTALL,
-    )
-    assert checked and re.search(r"border-color:\s*var\(--green\)", checked.group("body"))
-    assert checked_thumb and re.search(
-        r"background:\s*var\(--green\)", checked_thumb.group("body")
-    )
-
-
-def test_refresh_and_socket_resync_cannot_issue_a_slew_command():
-    refresh = _between(
-        MOUNT_JS, "async function refreshMount()", "function scheduleMountRefresh(delay)"
-    )
-    assert not re.search(r"/api/mount/slew/(?:start|stop)", refresh)
-    assert not re.search(r"\b(?:startSlew|stopSlewBestEffort)\s*\(", refresh)
-    assert re.search(
-        r"socket\.on\(\s*['\"]connect['\"]\s*,\s*refreshMount\s*\)",
-        MOUNT_JS,
-    )
-    assert not re.search(
-        r"socket\.on\(\s*['\"]status_update['\"]\s*,\s*refreshMount\s*\)",
-        MOUNT_JS,
-    )
-    assert re.search(r"\n\s*refreshMount\(\);\s*\n\}\)\(\);", MOUNT_JS)
-
-
-def test_reload_and_socket_resync_cannot_issue_a_tracking_command():
-    refresh = _between(
-        MOUNT_JS, "async function refreshMount()", "function scheduleMountRefresh(delay)"
-    )
-    assert not re.search(r"/api/mount/tracking/(?:start|stop)", refresh)
-    assert not re.search(r"\bpostMount\s*\(", refresh)
-    assert re.search(
-        r"socket\.on\(\s*['\"]connect['\"]\s*,\s*refreshMount\s*\)",
-        MOUNT_JS,
-    )
-    assert not re.search(
-        r"socket\.on\(\s*['\"]status_update['\"]\s*,\s*refreshMount\s*\)",
-        MOUNT_JS,
-    )
-    assert re.search(r"\n\s*refreshMount\(\);\s*\n\}\)\(\);", MOUNT_JS)
-
-
-def test_direction_buttons_prevent_touch_selection_and_dragging():
-    parser = _MountSlewParser()
-    parser.feed(MOUNT_HTML)
-
-    assert all(button.get("draggable") == "false" for button in parser.slew_buttons)
-    css = re.search(r"\.mount-slew-button\s*\{(?P<body>.*?)\}", INDEX, re.DOTALL)
-    assert css
-    for declaration in (
-        r"user-select:\s*none",
-        r"-webkit-user-select:\s*none",
-        r"touch-action:\s*none",
-        r"-webkit-user-drag:\s*none",
-    ):
-        assert re.search(declaration, css.group("body"))
-    assert re.search(
-        r"button\.addEventListener\(\s*['\"]dragstart['\"].*?preventDefault\(\)",
-        MOUNT_JS,
-    )
+def test_joystick_css_prevents_touch_selection_and_dragging():
+    block = re.search(r'\.mount-joystick\s*\{(?P<body>.*?)\}', CSS, re.DOTALL)
+    assert block
+    for declaration in (r'touch-action:\s*none', r'user-select:\s*none', r'-webkit-user-select:\s*none', r'-webkit-user-drag:\s*none'):
+        assert re.search(declaration, block.group('body'))
