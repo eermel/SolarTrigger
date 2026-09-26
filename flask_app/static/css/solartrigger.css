@@ -1136,10 +1136,7 @@ header {
 
 /* System / Camera group */
 .system-camera-group {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 14px;
-  margin-bottom: 16px;
+  margin: 0;
 }
 
 .system-camera-group-title {
