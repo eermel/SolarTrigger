@@ -2507,8 +2507,6 @@ socket.on('log_history', lines => {
     // alternate between their idle and Cancel states during one physical move.
     if (backendAbsoluteMotion) {
       commandedAbsoluteMotion = backendAbsoluteMotion;
-    } else if (commandedAbsoluteMotion && !data.moving) {
-      commandedAbsoluteMotion = null;
     }
     absoluteMotion = backendAbsoluteMotion || commandedAbsoluteMotion;
     const selectedRig = selectedControlsRig();
