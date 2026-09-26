@@ -32,6 +32,7 @@ CAMERA_VALIDATION_DIR = CAMERA_CHARACTERIZATION_DIR / "validation"
 
 LOGS_BUFFER_FILE = LOGS_DIR / "logs_buffer.jsonl"
 RIG_TRACES_FILE = LOGS_DIR / "rig_traces.jsonl"
+INDI_MOUNT_BINDINGS_FILE = STATE_DIR / "indi_mount_bindings.json"
 
 
 _VAR_DIRECTORIES = (
