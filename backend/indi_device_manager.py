@@ -88,7 +88,10 @@ def _stable_serial_path(serial_port: Any) -> str | None:
         return None
     prefix = "/dev/serial/by-id/"
     if raw.startswith(prefix):
-        return raw
+        # INDI may keep CONNECT=On and the configured DEVICE_PORT after a
+        # USB-serial device has been unplugged. A stable name is physical
+        # presence evidence only while the symlink still exists.
+        return raw if os.path.exists(raw) else None
 
     target = os.path.realpath(raw)
     root = "/dev/serial/by-id"
@@ -241,7 +244,19 @@ class IndiDeviceManager:
             if connected
             else None
         )
-        present = connected
+        # For serial INDI devices, CONNECT=On alone is insufficient: drivers
+        # can retain stale connection state after hot-unplug. When a serial
+        # transport is configured, require its stable by-id transport to
+        # still exist before publishing physical presence. Non-serial INDI
+        # devices keep the normal connection-state semantics.
+        serial_transport = bool(
+            configured_port
+            and (
+                configured_port.startswith("/dev/")
+                or configured_port.startswith("/dev/serial/")
+            )
+        )
+        present = connected and (serial_path is not None if serial_transport else True)
 
         return {
             "backend": "indi",
