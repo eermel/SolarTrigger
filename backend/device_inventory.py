@@ -31,6 +31,36 @@ def get_cached_inventory() -> dict[str, list[dict[str, Any]]]:
         return deepcopy(_cache)
 
 
+def usb_presence_signature() -> tuple[tuple[str, str, str, str], ...]:
+    """Return a cheap signature of the current USB device topology.
+
+    This intentionally reads sysfs only: no gphoto2, INDI, serial or vendor
+    SDK call is made.  The browser can therefore poll it at 1 Hz and request a
+    full inventory refresh only when the physical USB topology changes.
+    """
+
+    entries = []
+    try:
+        candidates = sorted(SYSFS_USB_DEVICES.iterdir(), key=lambda path: path.name)
+    except OSError:
+        return ()
+
+    for path in candidates:
+        if not re.fullmatch(r"\d+-[\d.]+", path.name):
+            continue
+        vendor = _read(path / "idVendor")
+        product = _read(path / "idProduct")
+        if not vendor or not product:
+            continue
+        entries.append((
+            path.name,
+            vendor.casefold(),
+            product.casefold(),
+            _read(path / "serial") or "",
+        ))
+    return tuple(entries)
+
+
 def refresh_inventory(
     *,
     reserved_mounts: Iterable[Mapping[str, Any]] | None = None,
@@ -600,4 +630,5 @@ __all__ = [
     "get_cached_inventory",
     "reclassify_cached_cameras",
     "refresh_inventory",
+    "usb_presence_signature",
 ]
