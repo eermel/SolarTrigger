@@ -318,3 +318,22 @@ def test_user_generated_data_and_characterization_survive_version_switch_and_rol
     ).is_file()
     assert (shared / "camera_characterization" / "validation").is_dir()
     assert (shared / "photo_cfg" / "user.json").is_file()
+
+
+def test_release_helper_hardens_runtime_identity_and_self_refresh():
+    root = Path(__file__).resolve().parents[1]
+    helper = (root / "install" / "solartrigger-release-update").read_text(
+        encoding="utf-8"
+    )
+
+    assert "User=root" in helper
+    assert "Group=$app_group" in helper
+    assert "RuntimeDirectory=solartrigger" in helper
+    assert "RuntimeDirectoryMode=0770" in helper
+    assert 'Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$app_group"' in helper
+    assert "refresh_installed_release_helper()" in helper
+    assert (
+        'refresh_installed_release_helper '
+        '"$final_destination/install/solartrigger-release-update"'
+        in helper
+    )
