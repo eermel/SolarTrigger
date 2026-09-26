@@ -91,15 +91,22 @@ class IndiSubprocessClient:
         return parsed.get(self.device, {})
 
     def get_all_devices(self) -> dict[str, dict[str, dict[str, str]]]:
-        """Return all logical devices currently advertised by indiserver.
-
-        This unscoped read is used only by explicit equipment discovery.
-        Runtime control remains device-scoped through get_props().
-        """
-        output = self._run("indi_getprop", [])
+        """Return discovery properties without an unscoped INDI read."""
+        patterns = [
+            "*.DRIVER_INFO.*", "*.CONNECTION.*", "*.DEVICE_PORT.*",
+            "*.DEVICE_INFO.*", "*.MOUNTINFORMATION.*", "*.VERSION.*",
+            "*.TELESCOPE_MOTION_NS.*", "*.TELESCOPE_MOTION_WE.*",
+            "*.TELESCOPE_PARK.*", "*.TELESCOPE_HOME.*",
+            "*.EQUATORIAL_EOD_COORD.*", "*.EQUATORIAL_COORD.*",
+            "*.CCD_EXPOSURE.*", "*.CCD_INFO.*", "*.FILTER_SLOT.*",
+            "*.ABS_ROTATOR_ANGLE.*", "*.ROTATOR_ANGLE.*",
+            "*.DOME_MOTION.*", "*.DOME_PARK.*", "*.WEATHER_PARAMETERS.*",
+        ]
+        output = self._run("indi_getprop", patterns)
         parsed = self._parse_props(output)
         self._merge_cache(parsed)
         return parsed
+
     def set_props(self, assignments: dict[str, dict[str, Any]]) -> None:
         """Set property elements on the configured device."""
         values = [
