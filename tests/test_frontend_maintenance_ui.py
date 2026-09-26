@@ -44,6 +44,22 @@ def test_system_tab_has_camera_update_and_log_sections():
     assert r"\n" not in system_section
 
 
+def test_system_sections_use_devices_spacing_without_outer_frames():
+    source = frontend_source()
+
+    assert ".add-camera-section,\n.devices-section {" in source
+    assert "gap: 12px;" in source
+
+    start = source.index(".system-section {")
+    end = source.index("}", start)
+    rule = source[start:end]
+
+    assert "gap: 12px;" in rule
+    assert "border:" not in rule
+    assert "padding:" not in rule
+    assert "margin-bottom:" not in rule
+
+
 def test_system_update_is_single_full_width_action():
     source = frontend_source()
 
