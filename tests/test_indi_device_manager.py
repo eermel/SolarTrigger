@@ -593,6 +593,7 @@ def test_successful_mount_probe_persists_stable_binding(monkeypatch, tmp_path):
     assert payload == {
         "version": 1,
         "bindings": {"Mount A": "/dev/serial/by-id/MOUNT-A"},
+        "reconnect_required": [],
     }
 
 
@@ -834,3 +835,147 @@ def test_default_binding_path_is_isolated_from_real_runtime_state(tmp_path):
 
     assert manager.bindings_file.parent == tmp_path
     assert manager.bindings_file.name == "default_indi_mount_bindings.json"
+
+
+def test_stale_connected_mount_marks_reconnect_required(monkeypatch, tmp_path):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    learned = "/dev/serial/by-id/ONSTEP"
+    bindings_file.write_text(
+        '{"version":1,"bindings":{"LX200 OnStep":"/dev/serial/by-id/ONSTEP"}}\n',
+        encoding="utf-8",
+    )
+    devices = {
+        "LX200 OnStep": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": learned},
+        },
+    }
+    manager = IndiDeviceManager(client=FakeClient(devices), bindings_file=bindings_file)
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: [])
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: False if path == learned else True,
+    )
+
+    assert manager._autoconnect_mounts(devices) is False
+
+    import json
+    payload = json.loads(bindings_file.read_text(encoding="utf-8"))
+    assert payload["bindings"]["LX200 OnStep"] == learned
+    assert payload["reconnect_required"] == ["LX200 OnStep"]
+
+
+def test_returned_stale_mount_forces_reconnect_and_clears_marker(monkeypatch, tmp_path):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    learned = "/dev/serial/by-id/ONSTEP"
+    bindings_file.write_text(
+        '{"version":1,"bindings":{"LX200 OnStep":"/dev/serial/by-id/ONSTEP"},'
+        '"reconnect_required":["LX200 OnStep"]}\n',
+        encoding="utf-8",
+    )
+    devices = {
+        "LX200 OnStep": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            # Deliberately stale: INDI still claims connected.
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": learned},
+        },
+    }
+    manager = IndiDeviceManager(client=FakeClient(devices), bindings_file=bindings_file)
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: [learned])
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: path == learned,
+    )
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_reconnect_mount_transport",
+        lambda device, candidate, **_kwargs: attempts.append(
+            (device, candidate)
+        ) or True,
+    )
+
+    assert manager._autoconnect_mounts(devices) is True
+    assert attempts == [("LX200 OnStep", learned)]
+
+    import json
+    payload = json.loads(bindings_file.read_text(encoding="utf-8"))
+    assert payload["reconnect_required"] == []
+
+
+def test_failed_stale_mount_recovery_remains_fail_closed(monkeypatch, tmp_path):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    learned = "/dev/serial/by-id/ONSTEP"
+    unrelated = "/dev/serial/by-id/OTHER"
+    bindings_file.write_text(
+        '{"version":1,"bindings":{"LX200 OnStep":"/dev/serial/by-id/ONSTEP"},'
+        '"reconnect_required":["LX200 OnStep"]}\n',
+        encoding="utf-8",
+    )
+    devices = {
+        "LX200 OnStep": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": learned},
+        },
+    }
+    manager = IndiDeviceManager(client=FakeClient(devices), bindings_file=bindings_file)
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: [learned, unrelated])
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: path in {learned, unrelated},
+    )
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_reconnect_mount_transport",
+        lambda device, candidate, **_kwargs: attempts.append(
+            (device, candidate)
+        ) or False,
+    )
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert attempts == [("LX200 OnStep", learned)]
+
+    import json
+    payload = json.loads(bindings_file.read_text(encoding="utf-8"))
+    assert payload["reconnect_required"] == ["LX200 OnStep"]
+
+
+def test_forced_reconnect_cycles_disconnect_port_connect_on_one_session(monkeypatch):
+    calls = []
+
+    class RecoverySession:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs["device"]))
+        def __enter__(self):
+            calls.append(("session", "start"))
+            return self
+        def __exit__(self, *_args):
+            calls.append(("session", "stop"))
+        def set_text(self, prop, values):
+            calls.append(("text", prop, values))
+        def set_switch(self, prop, values):
+            calls.append(("switch", prop, values))
+        def wait_for(self, prop, element, accepted, timeout_s):
+            calls.append(("wait", prop, element, frozenset(accepted)))
+            return True
+
+    monkeypatch.setattr("backend.indi_device_manager.IndiTcpSession", RecoverySession)
+    manager = IndiDeviceManager(client=FakeClient({}))
+
+    assert manager._reconnect_mount_transport(
+        "LX200 OnStep", "/dev/serial/by-id/ONSTEP"
+    ) is True
+    assert calls == [
+        ("init", "LX200 OnStep"),
+        ("session", "start"),
+        ("switch", "CONNECTION", {"CONNECT": "Off", "DISCONNECT": "On"}),
+        ("wait", "CONNECTION", "CONNECT", frozenset({"Off", "false", "0"})),
+        ("text", "DEVICE_PORT", {"PORT": "/dev/serial/by-id/ONSTEP"}),
+        ("switch", "CONNECTION", {"CONNECT": "On", "DISCONNECT": "Off"}),
+        ("wait", "CONNECTION", "CONNECT", frozenset({"On", "true", "1"})),
+        ("session", "stop"),
+    ]
