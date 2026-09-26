@@ -783,15 +783,17 @@ def characterize(camera, entry, job):
                     ev = CandidateEvidence(cid, {"path": path, "value": target}, 5)
                     evidence.append(ev)
                     candidate_by_id[cid] = (candidate, target, ev)
-                    if candidate["readonly"]:
-                        if require_set:
-                            ev.failures.append("widget is readonly")
-                            continue
+                    if candidate["readonly"] and not require_set:
                         ev.functional_ok = True
                         ev.expected_trials = 1
                         ev.durations_ms.append(0.0)
                         job.log(f"CANDIDATE {key}: {cid} qualified GET-only")
                         continue
+                    # Some PTP drivers (notably Sony) expose a setting as
+                    # readonly in the full configuration tree while
+                    # get_single_config/set_single_config can still write it.
+                    # For require_set actions, prove the production primitive
+                    # instead of trusting that advisory metadata.
                     # Qualify the exact production primitive:
                     # get_single_config is done once before timing, then each
                     # trial is one set_single_config followed by an untimed
@@ -826,21 +828,27 @@ def characterize(camera, entry, job):
             writable = []
             for ev in evidence:
                 candidate = candidate_by_id[ev.candidate_id][0]
-                if ev.reliable and not candidate["readonly"]:
+                # A reliable multi-trial result proves the direct writer even
+                # when the full-tree widget advertised readonly=True.
+                direct_set_proven = ev.reliable and ev.expected_trials > 1
+                if direct_set_proven:
                     writable.append(ev)
             selectable = writable or ([ev for ev in evidence if ev.reliable]
                                       if not require_set else [])
             if selectable:
                 selected = select_best(selectable)
-                candidate, target, _ = candidate_by_id[selected.candidate_id]
+                candidate, target, selected_ev = candidate_by_id[selected.candidate_id]
+                direct_set_proven = (
+                    selected_ev.reliable and selected_ev.expected_trials > 1
+                )
                 commands[key] = {
                     "path": candidate["path"],
                     "name": candidate["config_name"],
                     "value": target,
                     "get": True,
-                    "set": not candidate["readonly"],
+                    "set": direct_set_proven,
                 }
-                if not candidate["readonly"]:
+                if direct_set_proven:
                     commands[key]["writer"] = "single_config"
                 selection_evidence[key] = compact_selection(key, evidence, selected)
                 job.log(f"SELECT {key}: {selected.candidate_id}")
