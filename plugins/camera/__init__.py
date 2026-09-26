@@ -21,7 +21,8 @@ def get_camera_model(camera):
         except Exception:
             continue
     try:
-        import gphoto2 as gp
+        from backend.gphoto_runtime import import_gphoto2
+        gp = import_gphoto2()
         detected = list(gp.Camera.autodetect())
         port = camera.get_port_info().get_path() if camera is not None else None
         for model, detected_port in detected:
