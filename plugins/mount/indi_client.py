@@ -91,37 +91,17 @@ class IndiSubprocessClient:
         return parsed.get(self.device, {})
 
     def get_all_devices(self) -> dict[str, dict[str, dict[str, str]]]:
-        """Return discovery properties without an unscoped INDI read."""
-        patterns = [
-            "*.DRIVER_INFO.*", "*.CONNECTION.*", "*.DEVICE_PORT.*",
-            "*.DEVICE_INFO.*", "*.MOUNTINFORMATION.*", "*.VERSION.*",
-            "*.TELESCOPE_MOTION_NS.*", "*.TELESCOPE_MOTION_WE.*",
-            "*.TELESCOPE_PARK.*", "*.TELESCOPE_HOME.*",
-            "*.EQUATORIAL_EOD_COORD.*", "*.EQUATORIAL_COORD.*",
-            "*.CCD_EXPOSURE.*", "*.CCD_INFO.*", "*.FILTER_SLOT.*",
-            "*.ABS_ROTATOR_ANGLE.*", "*.ROTATOR_ANGLE.*",
-            "*.DOME_MOTION.*", "*.DOME_PARK.*", "*.WEATHER_PARAMETERS.*",
-        ]
-        parsed: dict[str, dict[str, dict[str, str]]] = {}
-        # One indi_getprop invocation containing many wildcard filters can
-        # remain open until the subprocess timeout on real indiserver builds.
-        # Query each bounded property family independently instead. This also
-        # lets unsupported/absent optional families fail without losing the
-        # essential DRIVER_INFO/CONNECTION catalogue.
-        for pattern in patterns:
-            try:
-                output = self._getprop_snapshot([pattern])
-            except IndiClientError as exc:
-                if pattern in {"*.DRIVER_INFO.*", "*.CONNECTION.*"}:
-                    raise
-                if exc.code in {"INDI_UNAVAILABLE", "CONNECTION_LOST"}:
-                    raise
-                continue
-            current = self._parse_props(output)
-            for device, properties in current.items():
-                target = parsed.setdefault(device, {})
-                for prop, elements in properties.items():
-                    target.setdefault(prop, {}).update(elements)
+        """Return one bounded snapshot of the INDI catalogue.
+
+        Real indiserver/indi_getprop combinations may need more than the
+        normal command timeout before emitting their initial catalogue and
+        may then remain attached instead of exiting. Discovery therefore
+        performs exactly one unfiltered read, allows a bounded startup window,
+        and accepts the snapshot collected when that window expires.
+        """
+        discovery_timeout_s = max(self.timeout_s, 5.0)
+        output = self._getprop_snapshot([], timeout_s=discovery_timeout_s)
+        parsed = self._parse_props(output)
         self._merge_cache(parsed)
         return parsed
 
@@ -293,7 +273,12 @@ class IndiSubprocessClient:
 
         return result
 
-    def _getprop_snapshot(self, arguments: list[str]) -> str:
+    def _getprop_snapshot(
+        self,
+        arguments: list[str],
+        *,
+        timeout_s: float | None = None,
+    ) -> str:
         """Capture the initial indi_getprop snapshot and stop the client.
 
         Some INDI builds keep indi_getprop attached after emitting matching
@@ -308,12 +293,13 @@ class IndiSubprocessClient:
             str(self.port),
             *arguments,
         ]
+        effective_timeout_s = self.timeout_s if timeout_s is None else float(timeout_s)
         try:
             result = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout_s,
+                timeout=effective_timeout_s,
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
@@ -323,7 +309,7 @@ class IndiSubprocessClient:
                 return stdout
             raise IndiClientError(
                 "TIMEOUT",
-                f"indi_getprop produced no snapshot within {self.timeout_s}s",
+                f"indi_getprop produced no snapshot within {effective_timeout_s}s",
                 command=command,
                 stderr=stderr,
             ) from exc
