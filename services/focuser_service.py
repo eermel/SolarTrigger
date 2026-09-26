@@ -200,58 +200,6 @@ class FocuserService:
             and raw.get("position") == self._target_position
         )
 
-        span = getattr(plugin, "max_async_move_span", None)
-        lookahead = getattr(plugin, "async_move_lookahead", None)
-        # Extend a segmented ZWO move before the current SDK target is reached.
-        # EAFMove is absolute, so updating its target while the motor is still
-        # moving avoids the visible/mechanical pause between segments.
-        if (
-            tracked_motion
-            and moving
-            and not at_target
-            and self._commanded_position is not None
-            and isinstance(span, int)
-            and not isinstance(span, bool)
-            and span > 0
-            and isinstance(lookahead, int)
-            and not isinstance(lookahead, bool)
-            and lookahead > 0
-            and abs(int(self._commanded_position) - int(raw.get("position"))) <= lookahead
-            and self._commanded_position != self._target_position
-        ):
-            current = int(raw.get("position"))
-            final = int(self._target_position)
-            delta = final - current
-            next_target = current + max(-span, min(span, delta))
-            if next_target != self._commanded_position:
-                plugin.move_to(next_target, wait=False)
-                self._commanded_position = next_target
-
-        # Some ZWO EAF firmware/SDK combinations stop a long asynchronous
-        # EAFMove after roughly ten seconds even though the requested absolute
-        # target is farther away.  ZwoFocuser advertises a conservative
-        # max_async_move_span so long Go/Home operations are issued as bounded
-        # absolute segments.  Advance to the next segment only after two
-        # consecutive stationary samples: one transient moving=False sample
-        # must never redirect a motor that is still travelling.
-        if (
-            tracked_motion
-            and not at_target
-            and not moving
-            and self._stationary_samples >= 2
-            and isinstance(span, int)
-            and not isinstance(span, bool)
-            and span > 0
-        ):
-            current = int(raw.get("position"))
-            final = int(self._target_position)
-            delta = final - current
-            next_target = current + max(-span, min(span, delta))
-            plugin.move_to(next_target, wait=False)
-            self._commanded_position = next_target
-            self._stationary_samples = 0
-            raw["moving"] = True
-            moving = True
         # Go and Home are both absolute moves.  Completion is determined by
         # the requested position, never by an inferred moving -> stopped edge.
         # The ZWO EAF has no mechanical homing operation in this abstraction:
@@ -333,17 +281,7 @@ class FocuserService:
             self._target_position = target_position
             self._motion_seen_moving = False
             self._stationary_samples = 0
-            span = getattr(plugin, "max_async_move_span", None)
             commanded_position = target_position
-            if (
-                not wait
-                and isinstance(span, int)
-                and not isinstance(span, bool)
-                and span > 0
-            ):
-                current = int(plugin.get_position())
-                delta = target_position - current
-                commanded_position = current + max(-span, min(span, delta))
             self._commanded_position = commanded_position
             try:
                 plugin.move_to(commanded_position, wait=wait)
