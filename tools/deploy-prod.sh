@@ -332,10 +332,11 @@ echo
 echo "--delete is used only inside disposable DEV code/config/static trees; var/ remains untouched."
 echo "var/ is never synchronized or deleted."
 echo "Service is NOT restarted automatically."
+echo "INDI/systemd migration is NOT executed automatically."
 echo "System helpers are copied but NEVER executed automatically."
 echo
 echo "Existing Pi: install/repair the persistent ZWO EAF HID hot-plug rule with:"
-echo "  sudo bash $ACTIVE_DST/install/install_zwo_eaf_hid.sh"
+echo "  $ACTIVE_DST/install/install_zwo_eaf_hid.sh   # run explicitly as root"
 echo
 echo "Standalone runtime/INDI systemd migration is ONLY for installations that"
 echo "have not already been migrated; do not rerun it as a normal deploy step."
