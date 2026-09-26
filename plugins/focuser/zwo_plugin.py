@@ -14,7 +14,6 @@ move_relative repetes tant que le bouton est "enfonce", avec deux garde-fous :
 """
 
 import threading
-import time
 
 from .base import (FocuserPlugin, DIR_IN, DIR_OUT, STEP_COARSE, STEP_FINE)
 
@@ -24,8 +23,6 @@ from .zwo_eaf import ZwoEaf, EafError
 # defauts (regles sur le vrai materiel ; surchargeables via config)
 DEFAULT_COARSE = 150       # bon compromis fluidite/rapidite (trouver la zone)
 DEFAULT_FINE = 20          # petit pas pour lunette rapide (WO Z73) -- affinage
-HOLD_TIMEOUT_S = 5.0       # securite : arret auto du maintien
-HOLD_INTERVAL_S = 0.02     # cadence des pas en maintien (quasi continu)
 
 
 class ZwoFocuser(FocuserPlugin):
@@ -37,9 +34,6 @@ class ZwoFocuser(FocuserPlugin):
         self.eaf = ZwoEaf()
         self.step_coarse = int(self.config.get("step_coarse", DEFAULT_COARSE))
         self.step_fine = int(self.config.get("step_fine", DEFAULT_FINE))
-        self.hold_timeout = float(self.config.get("hold_timeout", HOLD_TIMEOUT_S))
-        self.hold_interval = float(self.config.get("hold_interval",
-                                                   HOLD_INTERVAL_S))
         # limite haute logicielle (protection butee mecanique du focuseur).
         # None => on garde la valeur par defaut du SDK (pas de reduction).
         self.max_step_limit = self.config.get("max_step_limit", None)
