@@ -178,3 +178,97 @@ def test_stage_specific_timeout_keeps_camera_capture_budget(monkeypatch):
     proc.returncode = 0
     emitter.close()
     supervisor.stop()
+
+
+def test_capture_custom_timeout_can_exceed_generic_watchdog():
+    read_fd, write_fd = os.pipe()
+
+    class Proc:
+        returncode = None
+        terminated = False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    proc = Proc()
+    supervisor = HeartbeatSupervisor(
+        read_fd=read_fd,
+        proc=proc,
+        timeout_s=0.08,
+    ).start()
+    emitter = HeartbeatEmitter(write_fd)
+    emitter.pulse("capture.begin", timeout_s=0.25)
+
+    stage_deadline = time.monotonic() + 0.3
+    while time.monotonic() < stage_deadline:
+        if supervisor.snapshot()[0] == "capture.begin":
+            break
+        time.sleep(0.005)
+
+    time.sleep(0.12)
+    assert supervisor.timed_out is False
+    assert proc.terminated is False
+
+    timeout_deadline = time.monotonic() + 0.3
+    while not supervisor.timed_out and time.monotonic() < timeout_deadline:
+        time.sleep(0.005)
+
+    emitter.close()
+    supervisor.stop()
+
+    assert supervisor.timed_out is True
+    assert proc.terminated is True
+
+
+def test_invalid_custom_timeout_falls_back_to_stage_budget(monkeypatch):
+    read_fd, write_fd = os.pipe()
+    monkeypatch.setitem(
+        trigger_heartbeat.DEFAULT_STAGE_TIMEOUTS_S,
+        "capture.begin",
+        0.06,
+    )
+
+    class Proc:
+        returncode = None
+        terminated = False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    proc = Proc()
+    supervisor = HeartbeatSupervisor(
+        read_fd=read_fd,
+        proc=proc,
+        timeout_s=1.0,
+    ).start()
+    os.write(write_fd, b"capture.begin\tnot-a-number\n")
+
+    timeout_deadline = time.monotonic() + 0.3
+    while not supervisor.timed_out and time.monotonic() < timeout_deadline:
+        time.sleep(0.005)
+
+    os.close(write_fd)
+    supervisor.stop()
+
+    assert supervisor.timed_out is True
+    assert proc.terminated is True
