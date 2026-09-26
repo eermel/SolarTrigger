@@ -139,22 +139,30 @@ def test_refresh_posts_once_then_rerenders_with_response(mocked_backend_response
     assert "renderRigDevices(payload, inventory)" in loader
 
 
-def test_devices_are_automatically_refreshed_every_second_without_overlap():
+def test_devices_poll_usb_presence_every_second_and_refresh_only_on_change():
     assert "const DEVICE_AUTO_REFRESH_INTERVAL_MS = 1000;" in INDEX_HTML
     assert "let deviceAutoRefreshInFlight = false;" in INDEX_HTML
+    assert "let deviceUsbPresenceSignature = null;" in INDEX_HTML
+    assert "let deviceUsbPresencePollInFlight = false;" in INDEX_HTML
 
     refresh = _function("refreshRigDevices", async_function=True)
     assert "if (deviceAutoRefreshInFlight) return;" in refresh
     assert "deviceAutoRefreshInFlight = true;" in refresh
     assert "deviceAutoRefreshInFlight = false;" in refresh
 
+    poll = _function("pollDeviceUsbPresence", async_function=True)
+    assert "/api/rigs/devices/usb-presence" in poll
+    assert "deviceUsbPresencePollInFlight || deviceAutoRefreshInFlight" in poll
+    assert "if (signature === deviceUsbPresenceSignature) return;" in poll
+    assert "await refreshRigDevices(true);" in poll
+
     auto_refresh = _function("startDeviceAutoRefresh")
-    assert "refreshRigDevices(true);" in auto_refresh
+    assert "pollDeviceUsbPresence();" in auto_refresh
     assert "DEVICE_AUTO_REFRESH_INTERVAL_MS" in auto_refresh
     assert "setInterval" in auto_refresh
+    assert "refreshRigDevices(true)" not in auto_refresh
 
     assert "loadRigDevices();\nstartDeviceAutoRefresh();" in INDEX_HTML
-
 
 def test_non_pilotable_camera_is_visible_but_disabled():
     renderer = _function("renderRigDevices")
