@@ -102,8 +102,26 @@ class IndiSubprocessClient:
             "*.ABS_ROTATOR_ANGLE.*", "*.ROTATOR_ANGLE.*",
             "*.DOME_MOTION.*", "*.DOME_PARK.*", "*.WEATHER_PARAMETERS.*",
         ]
-        output = self._run("indi_getprop", patterns)
-        parsed = self._parse_props(output)
+        parsed: dict[str, dict[str, dict[str, str]]] = {}
+        # One indi_getprop invocation containing many wildcard filters can
+        # remain open until the subprocess timeout on real indiserver builds.
+        # Query each bounded property family independently instead. This also
+        # lets unsupported/absent optional families fail without losing the
+        # essential DRIVER_INFO/CONNECTION catalogue.
+        for pattern in patterns:
+            try:
+                output = self._run("indi_getprop", [pattern])
+            except IndiClientError as exc:
+                if pattern in {"*.DRIVER_INFO.*", "*.CONNECTION.*"}:
+                    raise
+                if exc.code in {"INDI_UNAVAILABLE", "CONNECTION_LOST"}:
+                    raise
+                continue
+            current = self._parse_props(output)
+            for device, properties in current.items():
+                target = parsed.setdefault(device, {})
+                for prop, elements in properties.items():
+                    target.setdefault(prop, {}).update(elements)
         self._merge_cache(parsed)
         return parsed
 
