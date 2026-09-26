@@ -1874,7 +1874,19 @@ async function characterizationRequest(action, payload = {}) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload)
   });
-  const data = await response.json();
+  const contentType = response.headers.get('content-type') || '';
+  let data = null;
+  if (contentType.includes('application/json')) {
+    data = await response.json();
+  } else {
+    const body = (await response.text()).trim();
+    if (!response.ok) {
+      throw new Error(body
+        ? `HTTP ${response.status}: ${body.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 300)}`
+        : `HTTP ${response.status}`);
+    }
+    throw new Error(`Invalid server response (HTTP ${response.status}, expected JSON)`);
+  }
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
 }
