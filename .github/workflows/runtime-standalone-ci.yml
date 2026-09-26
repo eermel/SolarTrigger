@@ -5,7 +5,6 @@ on:
     branches:
       - hardening/standalone-runtime-20260922
       - refactor/indi-astro-device-manager
-      - fix/p0-capture-heartbeat-budget
   workflow_dispatch:
 
 jobs:
