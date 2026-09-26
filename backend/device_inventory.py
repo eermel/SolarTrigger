@@ -311,9 +311,17 @@ def _discover_mounts(
         ]
         return [*reserved_entries, *discovered]
 
-    if _has_reserved_indi(reserved_mounts):
-        # Do not open a direct serial backend merely because an assigned INDI
-        # device disappeared from one catalogue refresh.
+    advertised_indi_mount = any(
+        isinstance(entry, Mapping)
+        and "mount" in (entry.get("categories") or ())
+        for entry in (indi_catalog or ())
+    )
+    if advertised_indi_mount or _has_reserved_indi(reserved_mounts):
+        # Once an INDI mount driver is advertised, INDI owns mount discovery.
+        # A temporarily absent/hot-unplugged INDI mount must not make the
+        # inventory fall through to legacy direct serial probing (which could
+        # race INDI or accidentally probe unrelated serial devices such as
+        # the GPS receiver).
         return reserved_entries
 
     try:
