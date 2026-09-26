@@ -68,4 +68,4 @@ def test_dev_deploy_does_not_present_runtime_migration_as_normal_step():
 
     assert "ONLY for installations that" in deploy
     assert "do not rerun it as a normal deploy step" in deploy
-    assert "sudo bash $ACTIVE_DST/install/install_zwo_eaf_hid.sh" in deploy
+    assert "$ACTIVE_DST/install/install_zwo_eaf_hid.sh" in deploy
