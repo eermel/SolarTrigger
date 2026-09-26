@@ -285,6 +285,34 @@ def test_segmented_absolute_motion_advances_only_after_confirmed_stop():
     assert calls[-1] == (4990, False)
 
 
+
+def test_segmented_absolute_motion_retargets_before_segment_stop():
+    service, store, plugin = make_service(recent_settings())
+    plugin.max_async_move_span = 2500
+    plugin.async_move_lookahead = 750
+    calls = []
+
+    def move_to(position, wait=False):
+        calls.append((position, wait))
+        plugin.moving = True
+
+    plugin.position = 0
+    plugin.move_to = move_to
+    service.move_to(8000)
+    assert calls == [(2500, False)]
+
+    # Still moving and within lookahead of the current SDK target: extend the
+    # absolute target before the motor can stop at the segment boundary.
+    plugin.position = 1800
+    plugin.moving = True
+    status = service.status()
+
+    assert calls[-1] == (4300, False)
+    assert status["motion_command"] == "go"
+    assert status["target_position"] == 8000
+    assert status["moving"] is True
+
+
 def test_segmented_home_moves_toward_existing_zero_without_resetting_counter():
     service, store, plugin = make_service(recent_settings())
     plugin.max_async_move_span = 2500
