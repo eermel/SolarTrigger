@@ -2714,57 +2714,274 @@ socket.on('log_history', lines => {
 // MOUNT UI START
 (() => {
   const homeButton = document.getElementById('btn-mount-home');
-  const slewSpeed = document.getElementById('mount-slew-speed');
+  const joystick = document.getElementById('mount-joystick');
+  const joystickKnob = document.getElementById('mount-joystick-knob');
+  const joystickDirection = document.getElementById('mount-joystick-direction');
   const slewSpeedValue = document.getElementById('mount-slew-speed-value');
   const trackingMode = document.getElementById('mount-tracking-mode');
   const trackingSwitch = document.getElementById('mount-tracking-switch');
-  const slewButtons = Array.from(document.querySelectorAll('.mount-slew-button'));
+  const JOYSTICK_DEADZONE = 0.15;
   let homing = false;
   let trackingEnabled = false;
   let trackingCommandPending = false;
+  let slewSpeedCaps = null;
+  let currentSlewSpeed = null;
+  let activeSlew = null;
+  let desiredMotion = null;
+  let transitionRunning = false;
+  let slewGestureSequence = 0;
+  let joystickPointerId = null;
 
   function selectedMountTriggerRunning() {
     const rig = selectedControlsRig();
     if (!rig) return false;
-
     const triggerState = state.triggerRigs[String(rig.rig_id)] || {};
     return triggerState.running === true;
   }
 
   let triggerRunning = selectedMountTriggerRunning();
   let pollTimer = null;
-  let slewSpeedValues = null;
-  let activeSlew = null;
-  let slewGestureSequence = 0;
 
   function mountUrl(path) {
     const rig = selectedPilotableMountRig();
     return rig ? `/api/rigs/${rig.rig_id}/mount/${path}` : null;
   }
 
+  function setJoystickEnabled(enabled) {
+    joystick.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+  }
+
+  function resetJoystickVisual() {
+    joystick.classList.remove('active');
+    joystickKnob.style.transform = 'translate(-50%, -50%)';
+    joystickDirection.textContent = 'STOP';
+  }
+
   function disableMountControls() {
     homeButton.disabled = true;
-    slewSpeed.disabled = true;
     trackingMode.disabled = true;
     trackingSwitch.disabled = true;
-    slewButtons.forEach(button => { button.disabled = true; });
+    setJoystickEnabled(false);
+    releaseJoystick();
   }
 
-  function selectedSlewSpeed() {
-    return slewSpeedValues
-      ? slewSpeedValues[Number(slewSpeed.value)].value
-      : Number(slewSpeed.value);
+  function speedLabel(value) {
+    if (!slewSpeedCaps) return value == null ? '—' : String(value);
+    const unit = slewSpeedCaps.unit || '';
+    if (slewSpeedCaps.kind === 'discrete' && Array.isArray(slewSpeedCaps.values)) {
+      const item = slewSpeedCaps.values.find(candidate => candidate.value === value);
+      if (item) return `${item.label ?? item.value}${unit}`;
+    }
+    return value == null ? '—' : `${value}${unit}`;
   }
 
-  function displaySlewSpeedValue() {
-    if (slewSpeedValues) {
-      const selected = slewSpeedValues[Number(slewSpeed.value)];
-      slewSpeedValue.textContent = selected
-        ? `${selected.label ?? selected.value}${slewSpeed.dataset.unit || ''}`
-        : '';
+  function displaySlewSpeedValue(value = currentSlewSpeed) {
+    slewSpeedValue.textContent = speedLabel(value);
+  }
+
+  function speedForMagnitude(magnitude) {
+    if (!slewSpeedCaps) return null;
+    const normalized = Math.max(0, Math.min(1,
+      (magnitude - JOYSTICK_DEADZONE) / (1 - JOYSTICK_DEADZONE)
+    ));
+    if (slewSpeedCaps.kind === 'discrete' && Array.isArray(slewSpeedCaps.values)) {
+      if (!slewSpeedCaps.values.length) return null;
+      const index = Math.min(
+        slewSpeedCaps.values.length - 1,
+        Math.floor(normalized * slewSpeedCaps.values.length)
+      );
+      return slewSpeedCaps.values[index].value;
+    }
+    if (slewSpeedCaps.kind === 'range') {
+      const minimum = Number(slewSpeedCaps.min);
+      const maximum = Number(slewSpeedCaps.max);
+      const step = Number(slewSpeedCaps.step) || 1;
+      if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) return null;
+      const raw = minimum + normalized * (maximum - minimum);
+      const snapped = minimum + Math.round((raw - minimum) / step) * step;
+      return Math.max(minimum, Math.min(maximum, snapped));
+    }
+    return null;
+  }
+
+  function directionsForVector(dx, dy) {
+    const angle = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+    if (angle < 22.5 || angle >= 337.5) return {label: 'N', directions: ['north']};
+    if (angle < 67.5) return {label: 'NE', directions: ['north', 'east']};
+    if (angle < 112.5) return {label: 'E', directions: ['east']};
+    if (angle < 157.5) return {label: 'SE', directions: ['south', 'east']};
+    if (angle < 202.5) return {label: 'S', directions: ['south']};
+    if (angle < 247.5) return {label: 'SW', directions: ['south', 'west']};
+    if (angle < 292.5) return {label: 'W', directions: ['west']};
+    return {label: 'NW', directions: ['north', 'west']};
+  }
+
+  function motionKey(motion) {
+    return motion
+      ? `${motion.rigId}:${motion.directions.join('+')}:${String(motion.speed)}`
+      : '';
+  }
+
+  function sendSlewStop(slew) {
+    if (!slew || !slew.stopUrl) return Promise.resolve();
+    return fetch(slew.stopUrl, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({gesture_id: slew.gestureId}),
+    }).catch(() => {});
+  }
+
+  async function stopSlewGesture(gesture) {
+    if (!gesture || gesture.releaseRequested) return;
+    gesture.releaseRequested = true;
+    gesture.slews.forEach(sendSlewStop);
+    await Promise.allSettled(gesture.slews.map(slew => Promise.resolve(slew.startPromise)));
+    await Promise.allSettled(gesture.slews.map(sendSlewStop));
+  }
+
+  async function setSlewSpeedForMotion(motion) {
+    if (motion.speed === currentSlewSpeed) return true;
+    const url = `/api/rigs/${motion.rigId}/mount/speed`;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({speed: motion.speed}),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP error ${response.status}`);
+      }
+      currentSlewSpeed = motion.speed;
+      displaySlewSpeedValue();
+      return true;
+    } catch (error) {
+      flash(`Mount : ${error.message}`, 'red');
+      return false;
+    }
+  }
+
+  function startSlewGesture(motion) {
+    const startUrl = `/api/rigs/${motion.rigId}/mount/slew/start`;
+    const stopUrl = `/api/rigs/${motion.rigId}/mount/slew/stop`;
+    const gesture = {
+      rigId: motion.rigId,
+      key: motionKey(motion),
+      releaseRequested: false,
+      slews: [],
+    };
+    motion.directions.forEach(direction => {
+      const gestureId = `${Date.now()}-${++slewGestureSequence}`;
+      const slew = {
+        rigId: motion.rigId,
+        direction,
+        stopUrl,
+        gestureId,
+        releaseRequested: false,
+        startPromise: null,
+      };
+      slew.startPromise = fetch(startUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({direction, gesture_id: gestureId}),
+      }).catch(() => null);
+      gesture.slews.push(slew);
+    });
+    return gesture;
+  }
+
+  async function pumpJoystickMotion() {
+    if (transitionRunning) return;
+    transitionRunning = true;
+    try {
+      while (true) {
+        const target = desiredMotion;
+        const targetKey = motionKey(target);
+        if (activeSlew && activeSlew.key === targetKey) break;
+
+        if (activeSlew) {
+          const previous = activeSlew;
+          activeSlew = null;
+          await stopSlewGesture(previous);
+          continue;
+        }
+
+        if (!target) break;
+        if (motionKey(desiredMotion) !== targetKey) continue;
+        if (!await setSlewSpeedForMotion(target)) {
+          desiredMotion = null;
+          resetJoystickVisual();
+          break;
+        }
+        if (motionKey(desiredMotion) !== targetKey) continue;
+        activeSlew = startSlewGesture(target);
+      }
+    } finally {
+      transitionRunning = false;
+      if (motionKey(desiredMotion) !== (activeSlew ? activeSlew.key : '')) {
+        pumpJoystickMotion();
+      }
+    }
+  }
+
+  function requestMotion(motion) {
+    if (motionKey(motion) === motionKey(desiredMotion)) return;
+    desiredMotion = motion;
+    pumpJoystickMotion();
+  }
+
+  function stopSlewBestEffort() {
+    desiredMotion = null;
+    pumpJoystickMotion();
+  }
+
+  function releaseJoystick() {
+    joystickPointerId = null;
+    resetJoystickVisual();
+    stopSlewBestEffort();
+  }
+
+  function updateJoystickFromPointer(event) {
+    if (joystickPointerId !== event.pointerId) return;
+    const rig = selectedPilotableMountRig();
+    if (!rig || homing || joystick.getAttribute('aria-disabled') === 'true') {
+      releaseJoystick();
       return;
     }
-    slewSpeedValue.textContent = `${slewSpeed.value}${slewSpeed.dataset.unit || ''}`;
+    const rect = joystick.getBoundingClientRect();
+    const radius = Math.min(rect.width, rect.height) / 2;
+    if (radius <= 0) return;
+    let dx = event.clientX - (rect.left + rect.width / 2);
+    let dy = event.clientY - (rect.top + rect.height / 2);
+    const distance = Math.hypot(dx, dy);
+    const magnitude = Math.min(1, distance / radius);
+    if (distance > radius) {
+      dx *= radius / distance;
+      dy *= radius / distance;
+    }
+    joystickKnob.style.transform =
+      `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+
+    if (magnitude < JOYSTICK_DEADZONE) {
+      joystickDirection.textContent = 'STOP';
+      displaySlewSpeedValue();
+      requestMotion(null);
+      return;
+    }
+
+    const vector = directionsForVector(dx, dy);
+    const speed = speedForMagnitude(magnitude);
+    if (speed == null) {
+      requestMotion(null);
+      return;
+    }
+    joystickDirection.textContent = vector.label;
+    displaySlewSpeedValue(speed);
+    requestMotion({
+      rigId: Number(rig.rig_id),
+      directions: vector.directions,
+      speed,
+    });
   }
 
   function displayMount(data) {
@@ -2776,32 +2993,22 @@ socket.on('log_history', lines => {
     homeButton.disabled = false;
     homeButton.textContent = homing ? 'STOP' : 'HOME';
     homeButton.classList.toggle('focuser-cancel', homing);
-    slewButtons.forEach(button => { button.disabled = homing; });
     if (data && typeof data.trigger_running === 'boolean') {
       triggerRunning = data.trigger_running;
     }
 
-    const slewSpeedCaps = data && data.slew_speed_caps;
-    slewSpeedValues = slewSpeedCaps && slewSpeedCaps.kind === 'discrete'
-      && Array.isArray(slewSpeedCaps.values)
-      ? slewSpeedCaps.values
-      : null;
-    if (slewSpeedValues && slewSpeedValues.length > 0) {
-      slewSpeed.min = 0;
-      slewSpeed.max = slewSpeedValues.length - 1;
-      slewSpeed.step = 1;
-      const selectedIndex = slewSpeedValues.findIndex(item => item.value === data.slew_speed);
-      if (selectedIndex >= 0) slewSpeed.value = selectedIndex;
-      slewSpeed.dataset.unit = slewSpeedCaps.unit || '';
-    } else if (slewSpeedCaps && slewSpeedCaps.kind === 'range') {
-      slewSpeed.min = slewSpeedCaps.min;
-      slewSpeed.max = slewSpeedCaps.max;
-      slewSpeed.step = slewSpeedCaps.step;
-      slewSpeed.value = data.slew_speed;
-      slewSpeed.dataset.unit = slewSpeedCaps.unit || '';
-    }
-    slewSpeed.disabled = triggerRunning || !slewSpeedCaps
-      || (slewSpeedValues && slewSpeedValues.length === 0);
+    slewSpeedCaps = data && data.slew_speed_caps;
+    currentSlewSpeed = data && data.slew_speed;
+    const speedAvailable = Boolean(
+      slewSpeedCaps && (
+        (slewSpeedCaps.kind === 'discrete'
+          && Array.isArray(slewSpeedCaps.values)
+          && slewSpeedCaps.values.length > 0)
+        || slewSpeedCaps.kind === 'range'
+      )
+    );
+    setJoystickEnabled(!homing && speedAvailable);
+    if (homing || !speedAvailable) releaseJoystick();
     displaySlewSpeedValue();
 
     const capabilities = data && data.tracking_caps;
@@ -2866,98 +3073,33 @@ socket.on('log_history', lines => {
     refreshMount();
   }
 
-  function sendSlewStop(slew) {
-    if (!slew || !slew.stopUrl) return Promise.resolve();
-    return fetch(slew.stopUrl, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({gesture_id: slew.gestureId}),
-    }).catch(() => {});
-  }
-
-  function finalizeReleasedSlew(slew) {
-    if (!slew || !slew.releaseRequested) return;
-    sendSlewStop(slew).finally(() => {
-      if (activeSlew === slew) activeSlew = null;
-    });
-  }
-
-  function stopSlewBestEffort() {
-    const slew = activeSlew;
-    if (!slew || slew.releaseRequested) return;
-
-    slew.releaseRequested = true;
-
-    // Send one STOP immediately so the server can mark the gesture released
-    // even if this request reaches it before START.
-    sendSlewStop(slew);
-
-    // Send another STOP only after START has settled.  This closes the
-    // short-press race where independent HTTP requests are reordered.
-    Promise.resolve(slew.startPromise).finally(() => {
-      finalizeReleasedSlew(slew);
-    });
-  }
-
-  function startSlew(event) {
-    const rig = selectedPilotableMountRig();
-    if (!rig || homing || activeSlew) return;
-
-    const rigId = Number(rig.rig_id);
-    const startUrl = `/api/rigs/${rigId}/mount/slew/start`;
-    const stopUrl = `/api/rigs/${rigId}/mount/slew/stop`;
+  joystick.addEventListener('pointerdown', event => {
+    if (joystick.getAttribute('aria-disabled') === 'true' || joystickPointerId !== null) return;
     event.preventDefault();
-
-    const button = event.currentTarget;
-    const gestureId = `${Date.now()}-${++slewGestureSequence}`;
-    const slew = {
-      button,
-      pointerId: event.pointerId,
-      rigId,
-      stopUrl,
-      gestureId,
-      releaseRequested: false,
-      startPromise: null,
-    };
-    activeSlew = slew;
-    button.setPointerCapture(event.pointerId);
-
-    slew.startPromise = fetch(startUrl, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        direction: button.dataset.direction,
-        gesture_id: gestureId,
-      }),
-    }).catch(() => null);
-  }
-
-  slewButtons.forEach(button => {
-    button.addEventListener('pointerdown', startSlew);
-    button.addEventListener('pointerup', stopSlewBestEffort);
-    button.addEventListener('pointercancel', stopSlewBestEffort);
-    button.addEventListener('lostpointercapture', stopSlewBestEffort);
-    button.addEventListener('dragstart', event => event.preventDefault());
+    joystickPointerId = event.pointerId;
+    joystick.setPointerCapture(event.pointerId);
+    joystick.classList.add('active');
+    updateJoystickFromPointer(event);
   });
-  window.addEventListener('pointerup', stopSlewBestEffort, true);
-  window.addEventListener('pointercancel', stopSlewBestEffort, true);
-  window.addEventListener('blur', stopSlewBestEffort);
-  window.addEventListener('pagehide', stopSlewBestEffort);
+  joystick.addEventListener('pointermove', event => {
+    if (joystickPointerId !== event.pointerId) return;
+    event.preventDefault();
+    updateJoystickFromPointer(event);
+  });
+  joystick.addEventListener('pointerup', releaseJoystick);
+  joystick.addEventListener('pointercancel', releaseJoystick);
+  joystick.addEventListener('lostpointercapture', releaseJoystick);
+  joystick.addEventListener('dragstart', event => event.preventDefault());
+  window.addEventListener('pointerup', releaseJoystick, true);
+  window.addEventListener('pointercancel', releaseJoystick, true);
+  window.addEventListener('blur', releaseJoystick);
+  window.addEventListener('pagehide', releaseJoystick);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopSlewBestEffort();
+    if (document.hidden) releaseJoystick();
   });
 
   homeButton.addEventListener('click', () => {
     postMount(mountUrl(homing ? 'slew/stop' : 'home'));
-  });
-
-  slewSpeed.addEventListener('input', displaySlewSpeedValue);
-  slewSpeed.addEventListener('change', () => {
-    postMount(mountUrl('speed'), {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({speed: selectedSlewSpeed()}),
-    });
   });
 
   trackingMode.addEventListener('change', () => {
@@ -2970,18 +3112,11 @@ socket.on('log_history', lines => {
 
   trackingSwitch.addEventListener('change', async () => {
     const requestedTracking = trackingSwitch.checked;
-
-    // A checkbox changes visually before the "change" handler runs.
-    // Restore the last authoritative mount state immediately. The switch
-    // becomes green only when /status confirms tracking_enabled=true.
     trackingSwitch.checked = trackingEnabled;
     trackingCommandPending = true;
     trackingSwitch.disabled = true;
-
     try {
-      await postMount(mountUrl(requestedTracking
-        ? 'tracking/start'
-        : 'tracking/stop'));
+      await postMount(mountUrl(requestedTracking ? 'tracking/start' : 'tracking/stop'));
     } finally {
       trackingCommandPending = false;
       await refreshMount();
@@ -2991,13 +3126,7 @@ socket.on('log_history', lines => {
   document.addEventListener('controlsrigchange', () => {
     const rig = selectedPilotableMountRig();
     const selectedRigId = rig ? Number(rig.rig_id) : null;
-
-    // renderControlsRigSelection() also emits controlsrigchange during normal
-    // UI refreshes.  A refresh of the SAME RIG must never stop a held slew.
-    if (activeSlew && activeSlew.rigId !== selectedRigId) {
-      stopSlewBestEffort();
-    }
-
+    if (activeSlew && activeSlew.rigId !== selectedRigId) releaseJoystick();
     triggerRunning = selectedMountTriggerRunning();
     refreshMount();
   });
@@ -3005,9 +3134,7 @@ socket.on('log_history', lines => {
   socket.on('trigger_phase', data => {
     const rigId = Number(data && data.rig_id);
     const rig = selectedControlsRig();
-
     if (!rig || Number(rig.rig_id) !== rigId) return;
-
     triggerRunning = data.phase !== 'idle';
     refreshMount();
   });

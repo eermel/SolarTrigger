@@ -39,34 +39,24 @@ def test_focuser_movement_buttons_are_double_height():
     assert re.search(r"font-size\s*:\s*26px\s*;", body)
 
 
-def test_mount_slew_pad_is_double_size():
-    body = _css_block(".mount-slew-pad")
+def test_mount_virtual_joystick_has_large_touch_surface():
+    body = _css_block(".mount-joystick")
 
-    assert re.search(
-        r"grid-template-columns\s*:\s*repeat\(3,\s*96px\)\s*;",
-        body,
-    )
-    assert re.search(
-        r"grid-template-rows\s*:\s*repeat\(3,\s*60px\)\s*;",
-        body,
-    )
-    assert re.search(r"gap\s*:\s*10px\s*;", body)
+    assert re.search(r"width\s*:\s*min\(280px,\s*82vw\)\s*;", body)
+    assert re.search(r"aspect-ratio\s*:\s*1\s*;", body)
+    assert re.search(r"border-radius\s*:\s*50%\s*;", body)
+    assert re.search(r"touch-action\s*:\s*none\s*;", body)
 
 
-def test_mount_movement_buttons_are_double_size():
-    body = _css_block(".mount-slew-button")
+def test_mount_virtual_joystick_knob_is_large_and_centered():
+    body = _css_block(".mount-joystick-knob")
 
-    assert re.search(r"width\s*:\s*96px\s*;", body)
-    assert re.search(r"min-width\s*:\s*96px\s*;", body)
-    assert re.search(
-        r"height\s*:\s*calc\(var\(--btn-h\)\s*\*\s*2\)\s*;",
-        body,
-    )
-    assert re.search(
-        r"min-height\s*:\s*calc\(var\(--btn-h\)\s*\*\s*2\)\s*;",
-        body,
-    )
-    assert re.search(r"font-size\s*:\s*26px\s*;", body)
+    assert re.search(r"width\s*:\s*64px\s*;", body)
+    assert re.search(r"height\s*:\s*64px\s*;", body)
+    assert re.search(r"left\s*:\s*50%\s*;", body)
+    assert re.search(r"top\s*:\s*50%\s*;", body)
+    assert re.search(r"border-radius\s*:\s*50%\s*;", body)
+
 
 def test_operator_action_buttons_match_mount_movement_height():
     match = re.search(
