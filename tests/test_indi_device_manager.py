@@ -775,3 +775,46 @@ def test_stale_connected_mount_transport_is_not_learned(monkeypatch, tmp_path):
 
     assert manager._autoconnect_mounts(devices) is False
     assert not bindings_file.exists()
+
+
+
+def test_unwritable_binding_state_does_not_block_mount_probe(
+    monkeypatch,
+    tmp_path,
+):
+    devices = {
+        "Mount A": {
+            "DRIVER_INFO": {"DRIVER_INTERFACE": "1"},
+            "CONNECTION": {"CONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/ttyUSB0"},
+        },
+    }
+    manager = IndiDeviceManager(
+        client=FakeClient(devices),
+        bindings_file=tmp_path / "state" / "bindings.json",
+    )
+    monkeypatch.setattr(
+        manager,
+        "_serial_candidates",
+        lambda: ["/dev/serial/by-id/A"],
+    )
+    monkeypatch.setattr(
+        manager,
+        "_save_mount_bindings",
+        lambda _bindings: (_ for _ in ()).throw(OSError("read-only")),
+    )
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_probe_mount_transport",
+        lambda device, candidate, **_kwargs: attempts.append(
+            (device, candidate)
+        ) or True,
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager._stable_serial_path",
+        lambda path: path,
+    )
+
+    assert manager._autoconnect_mounts(devices) is True
+    assert attempts == [("Mount A", "/dev/serial/by-id/A")]
