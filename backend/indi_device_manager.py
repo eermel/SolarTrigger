@@ -685,10 +685,67 @@ class IndiDeviceManager:
                     break
         return changed
 
+    def _disable_tracking_on_detected_mounts(
+        self,
+        devices: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    ) -> None:
+        """Force tracking OFF as soon as a connected mount is detected.
+
+        Discovery is a safety boundary: a mount may have retained tracking
+        from a previous INDI/client session or from its own controller. Only
+        mounts that explicitly advertise TELESCOPE_TRACK_STATE are touched.
+        Already-stopped mounts generate no write.
+        """
+        for device_name in sorted(devices):
+            properties = devices.get(device_name)
+            if not isinstance(properties, Mapping):
+                continue
+            if self._is_photo_camera(properties):
+                continue
+            if "mount" not in self._categories(properties):
+                continue
+            connected = str(
+                _raw(properties.get("CONNECTION", {}).get("CONNECT", "Off"))
+            ).casefold() in {"on", "true", "1"}
+            if not connected:
+                continue
+            tracking = properties.get("TELESCOPE_TRACK_STATE", {})
+            if not isinstance(tracking, Mapping) or not tracking:
+                continue
+            track_on = str(_raw(tracking.get("TRACK_ON", "Off"))).casefold()
+            if track_on not in {"on", "true", "1"}:
+                continue
+            try:
+                with IndiTcpSession(
+                    host=self.host,
+                    port=self.port,
+                    device=str(device_name),
+                    timeout_s=self.timeout_s,
+                ) as session:
+                    session.set_switch(
+                        "TELESCOPE_TRACK_STATE",
+                        {"TRACK_ON": "Off", "TRACK_OFF": "On"},
+                    )
+                    session.wait_for(
+                        "TELESCOPE_TRACK_STATE",
+                        "TRACK_ON",
+                        {"Off", "false", "0"},
+                        max(self.timeout_s, 1.0),
+                    )
+            except Exception:
+                # Discovery must remain available even if a driver disappears
+                # between the snapshot and this safety write. Runtime connect
+                # enforces the same invariant before publishing connected.
+                continue
+
     def discover(self) -> list[dict[str, Any]]:
         devices = self.client.get_all_devices()
         if self._autoconnect_mounts(devices):
             devices = self.client.get_all_devices()
+        self._disable_tracking_on_detected_mounts(devices)
+        # Refresh after a safety write so the published catalogue reflects
+        # the driver's actual post-detection state.
+        devices = self.client.get_all_devices()
         result = []
         for device_name in sorted(devices):
             properties = devices.get(device_name)
