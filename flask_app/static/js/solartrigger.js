@@ -1851,13 +1851,30 @@ function renderCameraCharacterizationStatus(status) {
   }
 }
 
+async function cameraJsonResponse(response, context) {
+  const contentType = response.headers.get('content-type') || '';
+  const body = await response.text();
+  if (!contentType.includes('application/json')) {
+    const clean = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+    throw new Error(clean
+      ? `${context}: HTTP ${response.status}: ${clean}`
+      : `${context}: HTTP ${response.status}: empty non-JSON response`);
+  }
+  try {
+    return JSON.parse(body);
+  } catch (error) {
+    throw new Error(`${context}: invalid JSON response (HTTP ${response.status}): ${error.message}`);
+  }
+}
+
 async function pollCameraCharacterization() {
   if (cameraCharacterizationPolling) return;
   cameraCharacterizationPolling = true;
   try {
     const response = await fetch('/api/camera-characterization');
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    renderCameraCharacterizationStatus(await response.json());
+    const data = await cameraJsonResponse(response, 'Characterization status');
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    renderCameraCharacterizationStatus(data);
   } catch (error) {
     updateCameraAddLog(
       'characterization',
@@ -1874,19 +1891,7 @@ async function characterizationRequest(action, payload = {}) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload)
   });
-  const contentType = response.headers.get('content-type') || '';
-  let data = null;
-  if (contentType.includes('application/json')) {
-    data = await response.json();
-  } else {
-    const body = (await response.text()).trim();
-    if (!response.ok) {
-      throw new Error(body
-        ? `HTTP ${response.status}: ${body.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 300)}`
-        : `HTTP ${response.status}`);
-    }
-    throw new Error(`Invalid server response (HTTP ${response.status}, expected JSON)`);
-  }
+  const data = await cameraJsonResponse(response, `Camera characterization ${action}`);
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
 }
@@ -6346,7 +6351,7 @@ async function pollCameraValidation() {
   cameraValidationPolling = true;
   try {
     const response = await fetch('/api/camera-validation');
-    const status = await response.json();
+    const status = await cameraJsonResponse(response, 'Camera validation status');
     if (!response.ok) throw new Error(status.error || `HTTP ${response.status}`);
     renderCameraValidationStatus(status);
   } catch (error) {
@@ -6366,13 +6371,13 @@ async function startAutomaticCameraValidation(locator) {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({locator}),
     });
-    const prepared = await response.json();
+    const prepared = await cameraJsonResponse(response, 'Camera validation prepare');
     if (!response.ok) throw new Error(prepared.error || `HTTP ${response.status}`);
     const startResponse = await fetch('/api/camera-validation/start', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({token: prepared.token}),
     });
-    const started = await startResponse.json();
+    const started = await cameraJsonResponse(startResponse, 'Camera validation start');
     if (!startResponse.ok) throw new Error(started.error || `HTTP ${startResponse.status}`);
     appendCameraAddLogLine('validation', `SUCCESS: Validation started — ${prepared.expected_photos} photos expected`);
     flash(`Camera validation started — ${prepared.expected_photos} photos expected`, 'green');
@@ -6410,7 +6415,7 @@ async function prepareCameraValidation() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({locator: select.value}),
     });
-    const prepared = await response.json();
+    const prepared = await cameraJsonResponse(response, 'Camera validation prepare');
     if (!response.ok) throw new Error(prepared.error || `HTTP ${response.status}`);
 
     const bracketText = Array.isArray(prepared.supported_bracket_frames) && prepared.supported_bracket_frames.length
@@ -6439,7 +6444,7 @@ async function prepareCameraValidation() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({token: prepared.token}),
     });
-    const started = await startResponse.json();
+    const started = await cameraJsonResponse(startResponse, 'Camera validation start');
     if (!startResponse.ok) throw new Error(started.error || `HTTP ${startResponse.status}`);
     flash(`Camera validation started — ${prepared.expected_photos} photos expected`, 'green');
     await pollCameraValidation();
@@ -6456,7 +6461,7 @@ async function prepareCameraValidation() {
 async function cancelCameraValidation() {
   try {
     const response = await fetch('/api/camera-validation/cancel', {method: 'POST'});
-    const data = await response.json();
+    const data = await cameraJsonResponse(response, 'Camera validation cancel');
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     await pollCameraValidation();
   } catch (error) {
@@ -6472,7 +6477,7 @@ async function answerCameraValidation(outcome) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({question_id: cameraValidationQuestionId, outcome}),
     });
-    const data = await response.json();
+    const data = await cameraJsonResponse(response, 'Camera validation answer');
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     cameraValidationQuestionId = null;
     await pollCameraValidation();
