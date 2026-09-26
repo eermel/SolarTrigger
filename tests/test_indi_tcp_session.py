@@ -98,3 +98,30 @@ def test_tcp_session_emits_valid_indi_xml(monkeypatch):
     root = ET.fromstring(sock.sent[1])
     assert root.attrib["device"] == "Mount & A"
     assert root.find("oneText").text == "/dev/a&b"
+
+
+def test_tcp_session_preserves_fragmented_opening_tag(monkeypatch):
+    sock = FakeSocket([
+        b'<setSwitchVec',
+        b'tor device="Mount A" name="CONNECTION"><oneSwitch name="CONNECT">On</oneSwitch></setSwitchVector>',
+    ])
+    monkeypatch.setattr(
+        "plugins.mount.indi_client.socket.create_connection",
+        lambda *args, **kwargs: sock,
+    )
+    with IndiTcpSession(device="Mount A") as session:
+        assert session.wait_for("CONNECTION", "CONNECT", {"On"}, 1.0) is True
+
+
+def test_tcp_session_consumes_multiple_vectors_with_whitespace(monkeypatch):
+    sock = FakeSocket([
+        b' \n<setTextVector device="Mount A" name="DEVICE_PORT"><oneText name="PORT">/dev/A</oneText></setTextVector>\n'
+        b'<setSwitchVector device="Mount A" name="CONNECTION"><oneSwitch name="CONNECT">On</oneSwitch></setSwitchVector>\n'
+    ])
+    monkeypatch.setattr(
+        "plugins.mount.indi_client.socket.create_connection",
+        lambda *args, **kwargs: sock,
+    )
+    with IndiTcpSession(device="Mount A") as session:
+        assert session.wait_for("CONNECTION", "CONNECT", {"On"}, 1.0) is True
+        assert session.props["DEVICE_PORT"]["PORT"] == "/dev/A"
