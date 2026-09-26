@@ -197,7 +197,10 @@ def test_idle_ui_does_not_poll_mount_focuser_or_global_status():
     assert "setInterval(loadCameraStatus, 10000)" not in INDEX_HTML
     assert "setInterval(loadMaintenanceStatus,2000)" not in INDEX_HTML
 
-    assert "if (absoluteMotion) schedulePoll(400);" in INDEX_HTML
+    assert "if (absoluteMotion || jogPolling) schedulePoll(250);" in INDEX_HTML
+    assert "let jogPolling = false;" in INDEX_HTML
+    assert "jogPolling = true;" in INDEX_HTML
+    assert "jogPolling = false;" in INDEX_HTML
     assert "data.moving === true && absoluteMotion" not in INDEX_HTML
     assert "if (homing) scheduleMountRefresh(400);" in INDEX_HTML
     assert "socket.on('focuser_update', refreshFocuser);" in INDEX_HTML
