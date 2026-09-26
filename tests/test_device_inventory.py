@@ -172,6 +172,37 @@ def test_reserved_indi_binding_presence_comes_from_current_catalog():
     assert discovered[0]["present"] is True
 
 
+def test_usb_presence_signature_reads_sysfs_without_hardware_probes(
+    monkeypatch, tmp_path
+):
+    _write_usb_device(tmp_path, "1-2", 1, 6, "CAMERA-1")
+    camera = tmp_path / "1-2"
+    (camera / "idVendor").write_text("054c\n", encoding="utf-8")
+    (camera / "idProduct").write_text("0fc6\n", encoding="utf-8")
+
+    _write_usb_device(tmp_path, "1-3", 1, 7)
+    focuser = tmp_path / "1-3"
+    (focuser / "idVendor").write_text("03c3\n", encoding="utf-8")
+    (focuser / "idProduct").write_text("1f10\n", encoding="utf-8")
+
+    monkeypatch.setattr(device_inventory, "SYSFS_USB_DEVICES", tmp_path)
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_cameras",
+        lambda: (_ for _ in ()).throw(AssertionError("must not probe camera")),
+    )
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_indi_catalog",
+        lambda: (_ for _ in ()).throw(AssertionError("must not query INDI")),
+    )
+
+    assert device_inventory.usb_presence_signature() == (
+        ("1-2", "054c", "0fc6", "CAMERA-1"),
+        ("1-3", "03c3", "1f10", ""),
+    )
+
+
 def test_cached_inventory_returns_last_refresh_without_probing(monkeypatch):
     _mock_discovery(monkeypatch)
     refreshed = device_inventory.refresh_inventory()
