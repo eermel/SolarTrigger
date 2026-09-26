@@ -2505,7 +2505,10 @@ socket.on('log_history', lines => {
     slowStep.disabled = disableOtherControls;
     fastStep.disabled = disableOtherControls;
     speedSwitch.disabled = disableOtherControls;
-    if (data.moving === true) schedulePoll(400);
+    // Poll only motion initiated by this UI.  Some focuser SDKs can report
+    // a stale/ambiguous moving flag while idle; using moving alone would turn
+    // that into permanent 400 ms HTTP polling.
+    if (data.moving === true && absoluteMotion) schedulePoll(400);
     else clearTimeout(pollTimer);
   }
 
