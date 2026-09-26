@@ -35,7 +35,10 @@ from backend.camera_profiles import discover_profiles
 from backend.rig_runtime import load_rig_configuration
 from backend.timeline import build_timeline
 from backend.trigger_runtime import RuntimeClock
-from backend.trigger_heartbeat import HeartbeatEmitter
+from backend.trigger_heartbeat import (
+    DEFAULT_STAGE_TIMEOUTS_S,
+    HeartbeatEmitter,
+)
 from plugins.camera.base import CaptureResult
 from scripts.camera_ipc_client import CameraIpcClient, CameraIpcError
 from scripts.fanout_camera_adapter import FanoutCameraAdapter
@@ -131,6 +134,47 @@ def _speed_seconds(value: str) -> float:
         numerator, denominator = text.split("/", 1)
         return float(numerator) / float(denominator)
     return float(text)
+
+
+CAPTURE_WATCHDOG_MARGIN_S = 30.0
+
+
+def _capture_watchdog_timeout_s(
+    prepared: PreparedCapture,
+    *,
+    wait_s: float = 0.0,
+) -> float:
+    """Budget one synchronous prepared capture without masking real hangs."""
+    floor_s = float(DEFAULT_STAGE_TIMEOUTS_S["capture.begin"])
+    estimate = getattr(prepared, "estimated_total_s", None)
+    if (
+        isinstance(estimate, bool)
+        or not isinstance(estimate, (int, float))
+        or not isfinite(float(estimate))
+        or float(estimate) < 0.0
+    ):
+        return floor_s
+    return max(
+        floor_s,
+        max(0.0, float(wait_s))
+        + float(estimate)
+        + CAPTURE_WATCHDOG_MARGIN_S,
+    )
+
+
+def _pulse_capture_begin(
+    heartbeat_fn,
+    prepared: PreparedCapture,
+    *,
+    wait_s: float = 0.0,
+) -> None:
+    timeout_s = _capture_watchdog_timeout_s(prepared, wait_s=wait_s)
+    try:
+        heartbeat_fn("capture.begin", timeout_s=timeout_s)
+    except TypeError:
+        # Compatibility for tests/standalone callers that provide the legacy
+        # one-argument observational callback.
+        heartbeat_fn("capture.begin")
 
 
 def _camera_prepare_lead_s(rig_snapshot: dict) -> float:
@@ -570,7 +614,7 @@ def run_emergency_totality(
         try:
             heartbeat_fn("capture.prepare.begin")
             prepared = camera.prepare_capture(intent)
-            heartbeat_fn("capture.begin")
+            _pulse_capture_begin(heartbeat_fn, prepared)
             result = camera.trigger_prepared(prepared, deadline=None)
             heartbeat_fn("capture.end")
             frames = max(0, int(getattr(result, "frames", 0) or 0))
@@ -901,7 +945,15 @@ def main() -> int:
             heartbeat.pulse("capture.prepare.begin")
             try:
                 prepared = camera.prepare_capture(intent)
-                heartbeat.pulse("capture.begin")
+                target_wait_s = max(
+                    0.0,
+                    (photo_instant - clock.now()).total_seconds(),
+                )
+                _pulse_capture_begin(
+                    heartbeat.pulse,
+                    prepared,
+                    wait_s=target_wait_s,
+                )
                 result = camera.trigger_prepared(prepared, deadline=deadline)
             except Exception:
                 heartbeat.pulse("capture.error")
