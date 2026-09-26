@@ -144,6 +144,7 @@ def test_devices_poll_usb_presence_every_second_and_refresh_only_on_change():
     assert "let deviceAutoRefreshInFlight = false;" in INDEX_HTML
     assert "let deviceUsbPresenceSignature = null;" in INDEX_HTML
     assert "let deviceUsbPresencePollInFlight = false;" in INDEX_HTML
+    assert "let deviceAutoRefreshTimer = null;" in INDEX_HTML
 
     refresh = _function("refreshRigDevices", async_function=True)
     assert "if (deviceAutoRefreshInFlight) return;" in refresh
@@ -157,12 +158,33 @@ def test_devices_poll_usb_presence_every_second_and_refresh_only_on_change():
     assert "await refreshRigDevices(true);" in poll
 
     auto_refresh = _function("startDeviceAutoRefresh")
+    assert "if (deviceAutoRefreshTimer !== null) return;" in auto_refresh
     assert "pollDeviceUsbPresence();" in auto_refresh
+    assert "deviceAutoRefreshTimer = setInterval" in auto_refresh
     assert "DEVICE_AUTO_REFRESH_INTERVAL_MS" in auto_refresh
     assert "setInterval" in auto_refresh
     assert "refreshRigDevices(true)" not in auto_refresh
 
     assert "loadRigDevices();\nstartDeviceAutoRefresh();" in INDEX_HTML
+
+
+
+def test_rig_render_does_not_emit_controls_change_or_restart_status_polling():
+    controls = _function("renderControlsRigSelection")
+    assert "controlsrigchange" not in controls
+
+    selector = _function("selectControlsRig")
+    assert "renderControlsRigSelection();" in selector
+    assert "document.dispatchEvent(new CustomEvent('controlsrigchange'));" in selector
+
+    assert re.search(
+        r"document\.addEventListener\('controlsrigchange',\s*\(\)\s*=>\s*\{"
+        r".*?clearTimeout\(pollTimer\);"
+        r".*?refreshFocuser\(\);",
+        INDEX_HTML,
+        flags=re.DOTALL,
+    )
+
 
 def test_non_pilotable_camera_is_visible_but_disabled():
     renderer = _function("renderRigDevices")
