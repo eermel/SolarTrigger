@@ -334,3 +334,65 @@ def test_structured_client_error_keeps_its_code():
 
     error = assert_code("CONNECTION_LOST", mount(client).status)
     assert str(error) == "server disconnected"
+
+
+def test_runtime_control_routes_writes_by_indi_vector_type(full_props):
+    client = StubIndiClient(full_props)
+    plugin = mount(client)
+
+    class ControlSession:
+        def __init__(self):
+            self.calls = []
+
+        def set_text(self, prop, elements):
+            self.calls.append(("text", prop, deepcopy(elements)))
+
+        def set_number(self, prop, elements):
+            self.calls.append(("number", prop, deepcopy(elements)))
+
+        def set_switch(self, prop, elements):
+            self.calls.append(("switch", prop, deepcopy(elements)))
+
+    session = ControlSession()
+    plugin._control_session = session
+
+    plugin._set_props({
+        "DEVICE_PORT": {"PORT": "/dev/serial/by-id/test"},
+        "GEOGRAPHIC_COORD": {"LAT": 48.5, "LONG": 2.25, "ELEV": 120},
+        "TELESCOPE_SLEW_RATE": {"SLEW_MAX": "On"},
+        "TELESCOPE_MOTION_WE": {
+            "MOTION_EAST": "On",
+            "MOTION_WEST": "Off",
+        },
+    })
+
+    assert client.set_calls == []
+    assert session.calls == [
+        ("text", "DEVICE_PORT", {"PORT": "/dev/serial/by-id/test"}),
+        ("number", "GEOGRAPHIC_COORD", {"LAT": 48.5, "LONG": 2.25, "ELEV": 120}),
+        ("switch", "TELESCOPE_SLEW_RATE", {"SLEW_MAX": "On"}),
+        (
+            "switch",
+            "TELESCOPE_MOTION_WE",
+            {"MOTION_EAST": "On", "MOTION_WEST": "Off"},
+        ),
+    ]
+
+
+def test_injected_client_keeps_legacy_set_props_path(full_props):
+    client = StubIndiClient(full_props)
+    plugin = mount(client)
+
+    plugin._set_props({
+        "TELESCOPE_MOTION_NS": {
+            "MOTION_NORTH": "On",
+            "MOTION_SOUTH": "Off",
+        }
+    })
+
+    assert client.set_calls == [{
+        "TELESCOPE_MOTION_NS": {
+            "MOTION_NORTH": "On",
+            "MOTION_SOUTH": "Off",
+        }
+    }]
