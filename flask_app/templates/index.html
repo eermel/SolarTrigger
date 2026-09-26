@@ -1125,15 +1125,20 @@
             <label for="mount-tracking-mode">TRACKING MODE</label>
             <div class="focuser-mode-switch"><select id="mount-tracking-mode" disabled></select><label for="mount-tracking-switch">OFF</label><input type="checkbox" id="mount-tracking-switch" role="switch" aria-label="Mount tracking" disabled><label for="mount-tracking-switch">ON</label></div>
           </div>
-          <div class="field" style="margin-bottom:12px">
-            <label for="mount-slew-speed">Slew speed: <span id="mount-slew-speed-value"></span></label>
-            <input id="mount-slew-speed" type="range" disabled>
-          </div>
-          <div class="mount-slew-pad" id="mount-slew-pad" aria-label="Mount slew controls">
-            <button class="btn btn-primary mount-slew-button" data-direction="north" draggable="false" aria-label="Slew north" disabled>N</button>
-            <button class="btn btn-primary mount-slew-button" data-direction="west" draggable="false" aria-label="Slew west" disabled>W</button>
-            <button class="btn btn-primary mount-slew-button" data-direction="east" draggable="false" aria-label="Slew east" disabled>E</button>
-            <button class="btn btn-primary mount-slew-button" data-direction="south" draggable="false" aria-label="Slew south" disabled>S</button>
+          <div class="mount-joystick-wrap">
+            <div class="mount-joystick-readout" aria-live="polite">
+              <span id="mount-joystick-direction">STOP</span>
+              <span id="mount-slew-speed-value">—</span>
+            </div>
+            <div class="mount-joystick" id="mount-joystick" role="application" aria-label="Mount virtual joystick" aria-disabled="true">
+              <span class="mount-joystick-label mount-joystick-label-n">N</span>
+              <span class="mount-joystick-label mount-joystick-label-e">E</span>
+              <span class="mount-joystick-label mount-joystick-label-s">S</span>
+              <span class="mount-joystick-label mount-joystick-label-w">W</span>
+              <div class="mount-joystick-deadzone" aria-hidden="true"></div>
+              <div class="mount-joystick-knob" id="mount-joystick-knob" aria-hidden="true"></div>
+            </div>
+            <div class="mount-joystick-hint">Direction = angle · Speed = distance</div>
           </div>
           <button class="btn btn-primary btn-full" id="btn-mount-home" disabled>HOME</button>
         </div>
