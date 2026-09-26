@@ -20,7 +20,7 @@ def test_device_discovery_waits_for_operator_refresh():
 
 
 def test_devices_refresh_also_reload_gps_state():
-    start = HTML.index("async function refreshRigDevices(silent = false)")
+    start = HTML.index("async function refreshRigDevices(silent = false, fullLegacyDetect = true)")
     end = HTML.index("// ── AUDIO", start)
     function = HTML[start:end]
 
@@ -158,7 +158,7 @@ def test_system_camera_status_is_event_driven_without_periodic_http_polling():
 
 
 def test_operator_refresh_updates_characterization_and_validation_from_cache_once():
-    start = HTML.index("async function refreshRigDevices(silent = false)")
+    start = HTML.index("async function refreshRigDevices(silent = false, fullLegacyDetect = true)")
     end = HTML.index("let cameraCharacterizationQuestion = null;", start)
     refresh = HTML[start:end]
 
