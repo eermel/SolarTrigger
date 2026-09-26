@@ -102,7 +102,7 @@
 
     <div class="page" id="add-camera-panel">
       <section class="add-camera-section" aria-label="System">
-        <div class="system-camera-group">
+        <div class="system-section system-camera-group" data-system-section="camera">
           <div class="system-camera-group-title">Camera</div>
           <div class="system-camera-group-content">
         <div class="card">
@@ -133,7 +133,7 @@
           <button class="btn btn-danger btn-full" id="camera-validation-delete-files" type="button" hidden style="margin-top:10px" onclick="deleteFailedCameraValidationFiles()">Delete generated camera profile/timing after FAIL</button>
         </div>
 
-        <div class="card devices-reset-card">
+          </div>\n        </div>\n\n        <div class="system-section system-update-group" data-system-section="update">\n          <div class="system-section-title">Update</div>\n          <div class="system-section-content">\n        <div class="card devices-reset-card">
           <div class="card-title">Persistent data</div>
           <button
             class="btn btn-danger btn-full"
@@ -200,7 +200,7 @@
 
         </div>
 
-        <div class="card" style="flex-shrink:0">
+          </div>\n        </div>\n\n        <div class="system-section system-log-group" data-system-section="log">\n          <div class="system-section-title">Log</div>\n          <div class="system-section-content">\n        <div class="card" style="flex-shrink:0">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
             <span>Log</span>
             <button class="btn btn-secondary" type="button"
@@ -209,7 +209,7 @@
           </div>
           <pre id="camera-add-log" role="log"></pre>
         </div>
-      </section>
+          </div>\n        </div>\n      </section>
     </div>
 
 
