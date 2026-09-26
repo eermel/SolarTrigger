@@ -396,3 +396,37 @@ def test_injected_client_keeps_legacy_set_props_path(full_props):
             "MOTION_SOUTH": "Off",
         }
     }]
+
+
+def test_runtime_control_session_is_opened_drained_and_closed(monkeypatch, full_props):
+    events = []
+
+    class Session:
+        def __init__(self, **kwargs):
+            events.append(("init", kwargs))
+
+        def __enter__(self):
+            events.append(("enter",))
+            return self
+
+        def start_reader(self):
+            events.append(("reader",))
+
+        def close(self):
+            events.append(("close",))
+
+    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", Session)
+
+    plugin = mount(StubIndiClient(full_props))
+    plugin._runtime_tcp_enabled = True
+    plugin._open_control_session()
+    plugin._open_control_session()
+    plugin._close_control_session()
+
+    assert [event[0] for event in events] == [
+        "init",
+        "enter",
+        "reader",
+        "close",
+    ]
+    assert events[0][1]["device"] == "Test Mount"
