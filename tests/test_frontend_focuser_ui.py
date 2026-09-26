@@ -108,7 +108,7 @@ def test_absolute_home_remains_cancelable_until_backend_clears_command():
         r"\|\|\s*data\.motion_command\s*===\s*['\"]home['\"]\)",
         FOCUSER_JS,
     )
-    # Keep polling while a tracked Go/Home is physically moving, but do not\n    # let an idle/stale SDK moving flag create permanent HTTP polling.\n    assert "data.moving === true && absoluteMotion" in FOCUSER_JS
+    # The backend-owned motion_command is authoritative for an absolute move.\n    # A transient SDK moving=false sample must not stop UI monitoring early.\n    assert "if (absoluteMotion) schedulePoll(400);" in FOCUSER_JS\n    assert "data.moving === true && absoluteMotion" not in FOCUSER_JS
 
 
 def test_backend_refresh_and_socket_resynchronization_are_present():
