@@ -139,18 +139,21 @@ def test_refresh_posts_once_then_rerenders_with_response(mocked_backend_response
     assert "renderRigDevices(payload, inventory)" in loader
 
 
-def test_devices_tab_does_not_refresh_or_poll():
-    show_tab = _function("showTab")
-    assert "loadRigDevices" not in show_tab
-    assert "/api/rigs/devices/refresh" not in show_tab
+def test_devices_are_automatically_refreshed_every_second_without_overlap():
+    assert "const DEVICE_AUTO_REFRESH_INTERVAL_MS = 1000;" in INDEX_HTML
+    assert "let deviceAutoRefreshInFlight = false;" in INDEX_HTML
 
-    devices_logic = re.search(
-        r"const\s+DEFAULT_RIGS\b(?P<body>.*?)function\s+updateControlsVisibility",
-        INDEX_HTML,
-        flags=re.DOTALL,
-    )
-    assert devices_logic, "Devices selector logic is missing"
-    assert "setInterval" not in devices_logic.group("body")
+    refresh = _function("refreshRigDevices", async_function=True)
+    assert "if (deviceAutoRefreshInFlight) return;" in refresh
+    assert "deviceAutoRefreshInFlight = true;" in refresh
+    assert "deviceAutoRefreshInFlight = false;" in refresh
+
+    auto_refresh = _function("startDeviceAutoRefresh")
+    assert "refreshRigDevices(true);" in auto_refresh
+    assert "DEVICE_AUTO_REFRESH_INTERVAL_MS" in auto_refresh
+    assert "setInterval" in auto_refresh
+
+    assert "loadRigDevices();\nstartDeviceAutoRefresh();" in INDEX_HTML
 
 
 def test_non_pilotable_camera_is_visible_but_disabled():
