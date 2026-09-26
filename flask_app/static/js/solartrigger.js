@@ -1214,6 +1214,10 @@ function renderRigDevices(payload, inventoryOverride) {
     });
   });
   updateRigs(rigs);
+  // Device bindings are loaded asynchronously after the Controls widgets have
+  // already initialized.  Notify them now so they resolve the newly persisted
+  // RIG binding and fetch the RIG-specific status endpoint immediately.
+  document.dispatchEvent(new CustomEvent('controlsrigchange'));
   updateControlsVisibility();
 }
 
