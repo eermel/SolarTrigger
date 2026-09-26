@@ -261,90 +261,58 @@ def test_mount_autoconnect_never_reuses_transport_claimed_by_connected_mount(
 def test_mount_transport_probe_disconnects_failed_candidate(monkeypatch):
     calls = []
 
-    class ProbeClient:
+    class ProbeSession:
         def __init__(self, **kwargs):
             calls.append(("init", kwargs["device"]))
+        def __enter__(self):
+            calls.append(("session", "start"))
+            return self
+        def __exit__(self, *_args):
+            calls.append(("session", "stop"))
+        def set_text(self, prop, values):
+            calls.append(("text", prop, values))
+        def set_switch(self, prop, values):
+            calls.append(("switch", prop, values))
+        def wait_for(self, *args):
+            calls.append(("wait", args))
+            return False
 
-        def start_monitor(self):
-            calls.append(("monitor", "start"))
-
-        def stop_monitor(self):
-            calls.append(("monitor", "stop"))
-
-        def set_props(self, assignments):
-            calls.append(("set", assignments))
-
-        def get_props(self, patterns):
-            calls.append(("get", tuple(patterns)))
-            return {"CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}}
-
-    monkeypatch.setattr(
-        "backend.indi_device_manager.IndiSubprocessClient",
-        ProbeClient,
-    )
-    monkeypatch.setattr(
-        "backend.indi_device_manager.time.monotonic",
-        iter([0.0, 4.0]).__next__,
-    )
-
+    monkeypatch.setattr("backend.indi_device_manager.IndiTcpSession", ProbeSession)
     manager = IndiDeviceManager(client=FakeClient({}))
-    assert manager._probe_mount_transport(
-        "EQMod Mount",
-        "/dev/serial/by-id/test",
-        timeout_s=3.0,
-    ) is False
-
-    assert ("monitor", "start") in calls
-    assert ("set", {
-        "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}
-    }) in calls
-    assert calls[-1] == ("monitor", "stop")
+    assert manager._probe_mount_transport("EQMod Mount", "/dev/serial/by-id/test") is False
+    assert calls[0:3] == [
+        ("init", "EQMod Mount"),
+        ("session", "start"),
+        ("text", "DEVICE_PORT", {"PORT": "/dev/serial/by-id/test"}),
+    ]
+    assert ("switch", "CONNECTION", {"CONNECT": "Off", "DISCONNECT": "On"}) in calls
+    assert calls[-1] == ("session", "stop")
 
 
-def test_mount_transport_probe_keeps_success_connected_and_stops_monitor(
-    monkeypatch,
-):
+def test_mount_transport_probe_keeps_success_connected(monkeypatch):
     calls = []
 
-    class ProbeClient:
+    class ProbeSession:
         def __init__(self, **kwargs):
             calls.append(("init", kwargs["device"]))
+        def __enter__(self):
+            calls.append(("session", "start"))
+            return self
+        def __exit__(self, *_args):
+            calls.append(("session", "stop"))
+        def set_text(self, prop, values):
+            calls.append(("text", prop, values))
+        def set_switch(self, prop, values):
+            calls.append(("switch", prop, values))
+        def wait_for(self, *args):
+            calls.append(("wait", args))
+            return True
 
-        def start_monitor(self):
-            calls.append(("monitor", "start"))
-
-        def stop_monitor(self):
-            calls.append(("monitor", "stop"))
-
-        def set_props(self, assignments):
-            calls.append(("set", assignments))
-
-        def get_props(self, patterns):
-            calls.append(("get", tuple(patterns)))
-            return {"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}}
-
-    monkeypatch.setattr(
-        "backend.indi_device_manager.IndiSubprocessClient",
-        ProbeClient,
-    )
-    monkeypatch.setattr(
-        "backend.indi_device_manager.time.monotonic",
-        iter([0.0, 0.1]).__next__,
-    )
-
+    monkeypatch.setattr("backend.indi_device_manager.IndiTcpSession", ProbeSession)
     manager = IndiDeviceManager(client=FakeClient({}))
-    assert manager._probe_mount_transport(
-        "EQMod Mount",
-        "/dev/serial/by-id/test",
-        timeout_s=3.0,
-    ) is True
-
-    disconnect = ("set", {
-        "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}
-    })
-    assert disconnect not in calls
-    assert calls[-1] == ("monitor", "stop")
-
+    assert manager._probe_mount_transport("EQMod Mount", "/dev/serial/by-id/test") is True
+    assert ("switch", "CONNECTION", {"CONNECT": "Off", "DISCONNECT": "On"}) not in calls
+    assert calls[-1] == ("session", "stop")
 
 
 def test_stale_connected_by_id_transport_is_not_present(monkeypatch):
