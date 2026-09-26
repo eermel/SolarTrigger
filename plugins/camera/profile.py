@@ -125,7 +125,8 @@ def wait_camera_idle(
 
     This is characterization-only. Trigger never calls it.
     """
-    import gphoto2 as gp
+    from backend.gphoto_runtime import import_gphoto2
+    gp = import_gphoto2()
 
     started = last_event = time.monotonic()
     while True:
@@ -825,7 +826,8 @@ class ProfilePlugin(CameraPlugin):
         if method == "trigger_capture":
             self.camera.trigger_capture()
         elif method == "capture":
-            import gphoto2 as gp
+            from backend.gphoto_runtime import import_gphoto2
+            gp = import_gphoto2()
             return self.camera.capture(gp.GP_CAPTURE_IMAGE)
         elif method == "widget":
             if spec.get("writer") == "single_config":
@@ -847,7 +849,8 @@ class ProfilePlugin(CameraPlugin):
         check=None,
     ):
         """A PHOTO is atomic; release a held shutter even after failure."""
-        import gphoto2 as gp
+        from backend.gphoto_runtime import import_gphoto2
+        gp = import_gphoto2()
 
         count = int(params.get("frames", 1))
         views = (
