@@ -197,3 +197,20 @@ def test_sony_bracket_selection_rejects_slow_bulb_usb_tail():
 
     assert selected["command_id"] == "capture"
     assert selected["spec"]["peak_capture_ms"] == 1263.7
+
+
+def test_bracket_timing_calibration_retries_rejected_samples_but_requires_five_valid():
+    source = inspect.getsource(characterization.characterize)
+    assert "BRACKET TIMING RETRY" in source
+    assert "BRACKET TIMING PASS" in source
+    assert "max_retry_failures = target_trials" in source
+    assert "while len(samples) < target_trials:" in source
+    assert "could not collect {target_trials} valid samples" in source
+
+
+def test_bracket_timing_retry_always_restores_single_mode():
+    source = inspect.getsource(characterization.characterize)
+    marker = "# Always converge to the production baseline after a"
+    assert marker in source
+    tail = source[source.index(marker):]
+    assert 'runtime_set(\n                        "capture_mode",' in tail
