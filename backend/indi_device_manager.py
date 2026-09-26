@@ -385,7 +385,10 @@ class IndiDeviceManager:
         if bindings.get(device_name) == stable:
             return False
         bindings[device_name] = stable
-        self._save_mount_bindings(bindings)
+        try:
+            self._save_mount_bindings(bindings)
+        except OSError:
+            return False
         return True
 
     def _probe_mount_transport(
@@ -482,7 +485,13 @@ class IndiDeviceManager:
                 bindings[name] = path
                 bindings_changed = True
         if bindings_changed:
-            self._save_mount_bindings(bindings)
+            # Persistence is an optimisation/safety memory, not a prerequisite
+            # for live mount discovery. A read-only or temporarily unavailable
+            # state directory must never suppress INDI probing.
+            try:
+                self._save_mount_bindings(bindings)
+            except OSError:
+                pass
 
         changed = False
 
