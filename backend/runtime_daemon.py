@@ -735,6 +735,16 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
             pass
         super().__init__(str(path), _RuntimeRequestHandler)
         os.chmod(path, 0o660)
+        socket_group = os.environ.get("SOLARTRIGGER_RUNTIME_SOCKET_GROUP")
+        if socket_group:
+            import grp
+            try:
+                gid = grp.getgrnam(socket_group).gr_gid
+            except KeyError as exc:
+                raise RuntimeError(
+                    f"runtime socket group does not exist: {socket_group}"
+                ) from exc
+            os.chown(path, -1, gid)
         self.socket_path = path
 
     def server_close(self):
