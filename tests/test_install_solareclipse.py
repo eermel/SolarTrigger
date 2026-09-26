@@ -91,3 +91,28 @@ def test_installer_keeps_zwo_indi_package_optional():
     assert "apt-cache show indi-asi" in installer_source
     assert "apt install -y indi-asi" in installer_source
 
+
+
+def test_installer_checks_a7v_without_python_binding_before_venv():
+    installer_source = INSTALLER_PATH.read_text(encoding="utf-8")
+    step3b = installer_source.split(
+        'step "STEP 3b — Build libgphoto2 from git (Sony A7V)"', 1
+    )[1].split(
+        'step "STEP 3c — ZWO EAF SDK (focuser, optional)"', 1
+    )[0]
+
+    assert "import gphoto2" not in step3b
+    assert "print-camera-list human-readable" in step3b
+    assert "gphoto2 --list-cameras" in step3b
+
+
+def test_installer_makes_install_base_writable_before_user_venv_creation():
+    installer_source = INSTALLER_PATH.read_text(encoding="utf-8")
+    chown_pos = installer_source.index(
+        'chown "$CURRENT_USER:$CURRENT_USER" "$INSTALL_BASE"'
+    )
+    venv_pos = installer_source.index(
+        'sudo -u "$CURRENT_USER" HOME="$USER_HOME" python3 -m venv "$VENV_DIR"'
+    )
+
+    assert chown_pos < venv_pos
