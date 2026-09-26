@@ -319,20 +319,25 @@ step "STEP 3b — Build libgphoto2 from git (Sony A7V)"
 GPHOTO_VERSION="2.5.34"
 GPHOTO_SO="/usr/local/lib/libgphoto2.so"
 
-# On ne recompile pas si le support A7V est déjà présent dans la lib locale.
-# Critère réel : le driver Sony ILCE-7M5 est-il connu par la libgphoto2 locale ?
-A7V_PRESENT="False"
-if [ -f /usr/local/lib/libgphoto2.so ]; then
-    A7V_PRESENT=$(LD_LIBRARY_PATH=/usr/local/lib \
-        CAMLIBS=$(find /usr/local/lib/libgphoto2 -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1) \
-        python3 -c "
-import gphoto2 as gp
-al = gp.CameraAbilitiesList(); al.load()
-print(any('ILCE-7M5' in al.get_abilities(i).model for i in range(al.count())))
-" 2>/dev/null)
-fi
+# STEP 3b runs before the Python venv exists. Check camera support directly
+# from native libgphoto2 tables instead of importing python-gphoto2.
+local_a7v_supported() {
+    local camlibs
+    camlibs=$(find /usr/local/lib/libgphoto2 -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1)
+    [ -n "$camlibs" ] || return 1
+    [ -x /usr/local/lib/libgphoto2/print-camera-list ] || return 1
+    LD_LIBRARY_PATH=/usr/local/lib \
+        CAMLIBS="$camlibs" \
+        /usr/local/lib/libgphoto2/print-camera-list human-readable 2>/dev/null \
+        | grep -q 'Sony ILCE-7M5 (PC Control)'
+}
 
-if [ "$A7V_PRESENT" = "True" ]; then
+system_a7v_supported() {
+    gphoto2 --list-cameras 2>/dev/null \
+        | grep -q 'Sony ILCE-7M5 (PC Control)'
+}
+
+if [ -f "$GPHOTO_SO" ] && local_a7v_supported; then
     success "libgphoto2 with Sony A7V support already installed in /usr/local — step skipped."
 else
     # Décision apt vs compilation, par NUMÉRO DE VERSION.
@@ -358,13 +363,8 @@ else
     if [ "$USE_APT" = "yes" ]; then
         info "apt provides libgphoto2 $APT_VER (> $GPHOTO_THRESHOLD) — installation via apt (pas de compilation)."
         apt install -y libgphoto2-dev libgphoto2-6 gphoto2
-        # Vérifier que le A7V est bien là dans la version apt
-        APT_A7V=$(python3 -c "
-import gphoto2 as gp
-al = gp.CameraAbilitiesList(); al.load()
-print(any('ILCE-7M5' in al.get_abilities(i).model for i in range(al.count())))
-" 2>/dev/null)
-        if [ "$APT_A7V" = "True" ]; then
+        # Verify the apt camera table natively; python-gphoto2 is installed later.
+        if system_a7v_supported; then
             success "libgphoto2 $APT_VER (apt) installed — Sony A7V support CONFIRMED. No build required."
         else
             warning "libgphoto2 $APT_VER (apt) installed but A7V NOT detected — switching to git build."
@@ -409,22 +409,11 @@ print(any('ILCE-7M5' in al.get_abilities(i).model for i in range(al.count())))
             make install >/tmp/gphoto_install.log 2>&1 \
                 || error "libgphoto2 make install failed (see /tmp/gphoto_install.log)"
 
-            # Vérification : on teste la LIBRAIRIE via Python (le binding gphoto2),
-            # PAS le binaire CLI /usr/local/bin/gphoto2 qui n'est pas produit par
-            # la compilation de libgphoto2 (outil CLI = dépôt source séparé).
-            # Le git rapporte une version type "2.5.34.1" — on vérifie surtout
-            # que le driver Sony A7V (ILCE-7M5) est bien présent, c'est le but réel.
-            NEWVER=$(LD_LIBRARY_PATH=/usr/local/lib python3 -c \
-                "import gphoto2 as gp; print(gp.gp_library_version(0)[0])" 2>/dev/null)
-            A7V_OK=$(LD_LIBRARY_PATH=/usr/local/lib \
-                CAMLIBS=$(find /usr/local/lib/libgphoto2 -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1) \
-                IOLIBS=$(find /usr/local/lib/libgphoto2_port -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort -V | tail -1) \
-                python3 -c "
-import gphoto2 as gp
-al = gp.CameraAbilitiesList(); al.load()
-print(any('ILCE-7M5' in al.get_abilities(i).model for i in range(al.count())))
-" 2>/dev/null)
-            if [ "$A7V_OK" = "True" ]; then
+            # Verify the freshly installed native camera table directly.
+            # python-gphoto2 is installed only in STEP 5.
+            ldconfig
+            NEWVER=$(/usr/local/bin/gphoto2-config --version 2>/dev/null || true)
+            if local_a7v_supported; then
                 success "libgphoto2 $NEWVER built — Sony A7V (ILCE-7M5) support CONFIRMED."
                 info "The Flask venv will use it through LD_LIBRARY_PATH (configured in step 5)."
             else
@@ -506,6 +495,11 @@ fi
 step "STEP 4 — Install SolarEclipse runtime"
 
 mkdir -p "$INSTALL_BASE" "$RELEASES_DIR"
+
+# STEP 5 creates the persistent venv as CURRENT_USER. The installer itself is
+# root, so the persistent container must be writable before sudo -u is used.
+chown "$CURRENT_USER:$CURRENT_USER" "$INSTALL_BASE"
+chmod 755 "$INSTALL_BASE"
 
 if [ -e "$ACTIVE_LINK" ] || [ -L "$ACTIVE_LINK" ]; then
     if [ ! -L "$ACTIVE_LINK" ] ||        [ "$(readlink -f "$ACTIVE_LINK")" != "$(readlink -m "$RELEASE_DIR")" ]; then
