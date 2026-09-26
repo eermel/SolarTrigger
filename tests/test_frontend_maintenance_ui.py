@@ -121,6 +121,19 @@ def test_system_update_button_tracks_ethernet_link():
     assert "data.ethernet && data.ethernet.connected" in source
 
 
+def test_system_update_starts_without_confirmation_popup():
+    source = frontend_source()
+    start = source.index("async function checkAndUpdateSystem()")
+    end = source.index(
+        "async function validateInstallSolarTriggerRelease()",
+        start,
+    )
+    function = source[start:end]
+
+    assert "confirm(" not in function
+    assert "/api/system/maintenance/update-system" in function
+
+
 def test_system_update_polls_logs_only_while_maintenance_is_running():
     source = frontend_source()
 
