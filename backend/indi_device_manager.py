@@ -345,6 +345,62 @@ class IndiDeviceManager:
                 bindings[name] = path
         return bindings
 
+    def _load_reconnect_required(self) -> set[str]:
+        """Load mounts whose INDI connection survived a physical USB loss."""
+        try:
+            payload = json.loads(self.bindings_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return set()
+        if not isinstance(payload, Mapping):
+            return set()
+        raw = payload.get("reconnect_required", [])
+        if not isinstance(raw, list):
+            return set()
+        return {
+            str(name).strip()
+            for name in raw
+            if str(name or "").strip()
+        }
+
+    def _persist_mount_state(
+        self,
+        bindings: Mapping[str, str],
+        reconnect_required: set[str],
+    ) -> None:
+        """Persist bindings and hot-plug recovery state atomically."""
+        clean = {
+            str(name): str(path)
+            for name, path in bindings.items()
+            if str(name).strip()
+            and str(path).startswith("/dev/serial/by-id/")
+        }
+        reconnect = sorted(
+            name for name in reconnect_required if name in clean
+        )
+        self.bindings_file.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": 1,
+            "bindings": clean,
+            "reconnect_required": reconnect,
+        }
+        fd, temporary = tempfile.mkstemp(
+            prefix=self.bindings_file.name + ".",
+            dir=str(self.bindings_file.parent),
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.bindings_file)
+        finally:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+
     def _save_mount_bindings(self, bindings: Mapping[str, str]) -> None:
         """Atomically persist only stable by-id bindings."""
         clean = {
@@ -354,7 +410,14 @@ class IndiDeviceManager:
             and str(path).startswith("/dev/serial/by-id/")
         }
         self.bindings_file.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"version": 1, "bindings": clean}
+        payload = {
+            "version": 1,
+            "bindings": clean,
+            "reconnect_required": sorted(
+                name for name in self._load_reconnect_required()
+                if name in clean
+            ),
+        }
         fd, temporary = tempfile.mkstemp(
             prefix=self.bindings_file.name + ".",
             dir=str(self.bindings_file.parent),
@@ -431,6 +494,49 @@ class IndiDeviceManager:
             connected = False
         return connected
 
+    def _reconnect_mount_transport(
+        self,
+        device_name: str,
+        candidate: str,
+        *,
+        timeout_s: float = 3.0,
+    ) -> bool:
+        """Recover a stale CONNECT=On after physical serial hot-unplug.
+
+        Some INDI drivers retain CONNECT=On when their USB serial transport
+        disappears. A plain CONNECT request can then succeed from stale cached
+        state without reopening the serial device. Force a complete
+        DISCONNECT -> DEVICE_PORT -> CONNECT cycle on the learned transport.
+        """
+        try:
+            with IndiTcpSession(
+                host=self.host,
+                port=self.port,
+                device=device_name,
+                timeout_s=self.timeout_s,
+            ) as session:
+                session.set_switch(
+                    "CONNECTION",
+                    {"CONNECT": "Off", "DISCONNECT": "On"},
+                )
+                if not session.wait_for(
+                    "CONNECTION", "CONNECT", {"Off", "false", "0"}, timeout_s
+                ):
+                    return False
+                session.set_text("DEVICE_PORT", {"PORT": candidate})
+                session.set_switch(
+                    "CONNECTION",
+                    {"CONNECT": "On", "DISCONNECT": "Off"},
+                )
+                return session.wait_for(
+                    "CONNECTION",
+                    "CONNECT",
+                    {"On", "true", "1"},
+                    timeout_s,
+                )
+        except Exception:
+            return False
+
     def _autoconnect_mounts(
         self,
         devices: dict[str, dict[str, dict[str, str]]],
@@ -442,6 +548,7 @@ class IndiDeviceManager:
         """
         candidates = self._serial_candidates()
         bindings = self._load_mount_bindings()
+        reconnect_required = self._load_reconnect_required()
 
         connected_bindings = {
             name: path
@@ -484,6 +591,31 @@ class IndiDeviceManager:
             except OSError:
                 pass
 
+        # CONNECT=On is not trustworthy after a serial transport vanishes.
+        # Persist that observation so a later discovery (even in a new
+        # process/manager instance) knows it must force a full reconnect.
+        recovery_changed = False
+        for device_name, properties in devices.items():
+            if self._is_photo_camera(properties):
+                continue
+            if "mount" not in self._categories(properties):
+                continue
+            learned = bindings.get(device_name)
+            if not learned:
+                continue
+            connected = str(
+                _raw(properties.get("CONNECTION", {}).get("CONNECT", "Off"))
+            ).casefold() in {"on", "true", "1"}
+            if connected and not os.path.exists(learned):
+                if device_name not in reconnect_required:
+                    reconnect_required.add(device_name)
+                    recovery_changed = True
+        if recovery_changed:
+            try:
+                self._persist_mount_state(bindings, reconnect_required)
+            except OSError:
+                pass
+
         changed = False
 
         for device_name in sorted(devices):
@@ -493,12 +625,31 @@ class IndiDeviceManager:
             if "mount" not in self._categories(properties):
                 continue
             connection = properties.get("CONNECTION", {})
-            if str(_raw(connection.get("CONNECT", "Off"))).casefold() in {
-                "on", "true", "1",
-            }:
+            connected = str(
+                _raw(connection.get("CONNECT", "Off"))
+            ).casefold() in {"on", "true", "1"}
+            learned = bindings.get(device_name)
+
+            if connected and device_name not in reconnect_required:
                 continue
 
-            learned = bindings.get(device_name)
+            # A previous discovery observed CONNECT=On while the learned USB
+            # transport was physically absent. When that exact transport
+            # returns, force a complete driver reconnect instead of trusting
+            # the stale INDI switch state.
+            if device_name in reconnect_required:
+                if learned and learned in candidates and learned not in claimed:
+                    if self._reconnect_mount_transport(device_name, learned):
+                        claimed.add(learned)
+                        reconnect_required.discard(device_name)
+                        try:
+                            self._persist_mount_state(
+                                bindings, reconnect_required
+                            )
+                        except OSError:
+                            pass
+                        changed = True
+                continue
 
             # Once a logical mount has a learned stable transport, never probe
             # other serial devices merely because that transport is absent.
