@@ -2515,6 +2515,12 @@ socket.on('log_history', lines => {
     // alternate between their idle and Cancel states during one physical move.
     if (backendAbsoluteMotion) {
       commandedAbsoluteMotion = backendAbsoluteMotion;
+    } else if (commandedAbsoluteMotion) {
+      // The backend is authoritative for absolute-move lifetime.  Once it
+      // clears motion_command, the requested target has been reached or the
+      // motion was explicitly stopped.  Clear the UI latch here rather than
+      // waiting on the SDK's transient moving flag.
+      commandedAbsoluteMotion = null;
     }
     absoluteMotion = backendAbsoluteMotion || commandedAbsoluteMotion;
     const selectedRig = selectedControlsRig();
