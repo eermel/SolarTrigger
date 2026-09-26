@@ -117,8 +117,20 @@ def test_system_update_button_tracks_ethernet_link():
 
     assert "CHECK AND UPDATE SYSTEM" in source
     assert "Eth need to be connected" in source
-    assert "button.disabled = !ethernetConnected" in source
+    assert "button.disabled = Boolean(data.running) || !ethernetConnected" in source
     assert "data.ethernet && data.ethernet.connected" in source
+
+
+def test_system_update_polls_logs_only_while_maintenance_is_running():
+    source = frontend_source()
+
+    assert "const MAINTENANCE_POLL_INTERVAL_MS = 1000;" in source
+    assert "async function pollMaintenanceStatus()" in source
+    assert "if (data && data.running)" in source
+    assert "scheduleMaintenancePoll();" in source
+    assert "stopMaintenancePolling();" in source
+    assert "startMaintenancePolling();" in source
+    assert "setInterval(loadMaintenanceStatus" not in source
 
 
 def test_system_update_has_no_network_status_line():
