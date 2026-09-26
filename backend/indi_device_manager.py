@@ -694,7 +694,7 @@ class IndiDeviceManager:
         Discovery is a safety boundary: a mount may have retained tracking
         from a previous INDI/client session or from its own controller. Only
         mounts that explicitly advertise TELESCOPE_TRACK_STATE are touched.
-        Already-stopped mounts generate no write.
+        The write is unconditional because the discovery snapshot may be stale.
         """
         changed = False
         for device_name in sorted(devices):
@@ -713,9 +713,10 @@ class IndiDeviceManager:
             tracking = properties.get("TELESCOPE_TRACK_STATE", {})
             if not isinstance(tracking, Mapping) or not tracking:
                 continue
-            track_on = str(_raw(tracking.get("TRACK_ON", "Off"))).casefold()
-            if track_on not in {"on", "true", "1"}:
-                continue
+            # Do not trust the value in the discovery snapshot here. Runtime
+            # controls may have changed tracking after that snapshot was
+            # collected. Detection is an explicit safety boundary: every
+            # connected mount advertising TRACK_STATE receives TRACK_OFF.
             try:
                 with IndiTcpSession(
                     host=self.host,
