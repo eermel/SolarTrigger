@@ -58,7 +58,7 @@ def test_add_camera_long_actions_disable_before_network_work():
     assert (
         characterize.index("button.disabled = true")
         < characterize.index("await waitForBrowserPaint()")
-        < characterize.index("await characterizationRequest('start'")
+        < characterize.index("await characterizationRequest(characterized ? 'recharacterize' : 'start'")
     )
     assert "select.disabled = true" in characterize
 
@@ -66,7 +66,7 @@ def test_add_camera_long_actions_disable_before_network_work():
 
 def test_camera_validation_ui_does_not_describe_plan_runtime():
     assert (
-        "End-to-end real run · scheduler · IPC · camera worker · "
+        "A successful characterization automatically starts end-to-end validation. "
         "RAW files remain on the card."
         in HTML
     )
@@ -89,7 +89,7 @@ def test_characterization_and_validation_show_immediate_starting_feedback():
     assert (
         characterization.index("appendCameraAddLogLine(")
         < characterization.index("await waitForBrowserPaint()")
-        < characterization.index("await characterizationRequest('start'")
+        < characterization.index("await characterizationRequest(characterized ? 'recharacterize' : 'start'")
     )
 
     validation = _between(
