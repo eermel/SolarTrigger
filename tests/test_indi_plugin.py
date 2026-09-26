@@ -521,6 +521,10 @@ def test_onstep_legacy_home_uses_indi_setprop_transport(monkeypatch, full_props)
         "RETURN_HOME": "Off",
         "SET_HOME": "Off",
     }
+    props["TELESCOPE_PARK"] = {
+        "PARK": "Off",
+        "UNPARK": "On",
+    }
     props["OnStep Status"] = {
         "Park": "Unparked, at Home",
     }
