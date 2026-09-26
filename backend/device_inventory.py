@@ -191,7 +191,8 @@ def build_display_labels(
 
 def _discover_cameras() -> list[dict[str, Any]]:
     try:
-        import gphoto2 as gp
+        from backend.gphoto_runtime import import_gphoto2
+        gp = import_gphoto2()
     except Exception:
         return []
 
