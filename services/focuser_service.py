@@ -192,38 +192,20 @@ class FocuserService:
             and self._target_position is not None
             and raw.get("position") == self._target_position
         )
-        # Absolute Go and Home have different completion semantics.
+        # Go and Home are both absolute moves.  Completion is determined by
+        # the requested position, never by an inferred moving -> stopped edge.
+        # The ZWO EAF has no mechanical homing operation in this abstraction:
+        # Home means "move to the existing absolute zero".  It must therefore
+        # never rewrite the controller's position counter.
         #
-        # Go: the requested absolute position is authoritative.  Some EAF/SDK
-        # status reads can transiently report moving=False while travel is
-        # still in progress, so never retire Go before the target is reached.
-        #
-        # Home: the hardware home operation establishes a new mechanical
-        # reference.  Its pre-reset counter is therefore not expected to be
-        # zero.  Once motion has genuinely been observed and then stops, the
-        # successful Home path resets that counter to zero below.
-        if self._motion_command == "home":
-            motion_finished = (
-                tracked_motion
-                and not moving
-                and self._motion_seen_moving
-            )
-        else:
-            motion_finished = (
-                tracked_motion
-                and not moving
-                and at_target
-            )
-        home_succeeded = (
-            motion_finished
-            and self._motion_command == "home"
+        # Some EAF/SDK status reads can transiently report moving=False while
+        # travel is still in progress, so keep the command active until the
+        # physical position reaches the requested target.
+        motion_finished = (
+            tracked_motion
+            and not moving
+            and at_target
         )
-        if home_succeeded:
-            reset_position = getattr(plugin, "set_current_position", None)
-            if callable(reset_position):
-                reset_position(0)
-                raw["position"] = plugin.get_position()
-                self._log("   [focuser] HOME complete: position reset to 0")
         if motion_finished:
             self._motion_command = None
             self._target_position = None
