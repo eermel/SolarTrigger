@@ -711,9 +711,17 @@ def characterize(camera, entry, job):
         )
         errors, evidence, candidate_by_id = [], [], {}
 
-        def read_value(path):
-            _, node = widget(camera, path)
-            return node.get_value()
+        def read_value(candidate):
+            name = candidate["config_name"]
+            getter = getattr(camera, "get_single_config", None)
+            if not callable(getter):
+                raise RuntimeError("gphoto2 get_single_config is unavailable")
+            job.checkpoint(
+                phase="setting_read_single_config",
+                setting=key,
+                path=candidate["path"],
+            )
+            return getter(name).get_value()
 
         def direct_spec(candidate):
             return {
@@ -740,7 +748,7 @@ def characterize(camera, entry, job):
             deadline = time.monotonic() + 5.0
             for attempt in range(20):
                 job.check()
-                actual = read_value(candidate["path"])
+                actual = read_value(candidate)
                 if str(actual) == str(value):
                     return elapsed_ms
                 if time.monotonic() >= deadline or attempt == 19:
@@ -751,12 +759,17 @@ def characterize(camera, entry, job):
             raise AssertionError("unreachable")
 
         for operator_pass in range(2):
-            candidates = [item for item in enumerate_widgets(camera)
-                          if item["name"] in names]
+            # Reuse the initial discovery tree. Rebuilding the complete gphoto2
+            # configuration tree between individual SETs is both unnecessary
+            # and unsafe on cameras whose native driver invalidates parts of
+            # that tree after a setting change. Only an operator intervention
+            # justifies refreshing discovery on the second pass.
+            source = initial if operator_pass == 0 else enumerate_widgets(camera)
+            candidates = [item for item in source if item["name"] in names]
             for candidate in candidates:
                 path = candidate["path"]
                 try:
-                    original = read_value(path)
+                    original = read_value(candidate)
                 except Exception as exc:
                     errors.append(f"GET {path}: {exc}")
                     continue
@@ -806,7 +819,7 @@ def characterize(camera, entry, job):
                             errors.append(f"SET {cid} trial {trial+1}: {exc}")
                             break
                     ev.functional_ok = (len(ev.durations_ms) == 5
-                                        and str(read_value(path)) == str(target))
+                                        and str(read_value(candidate)) == str(target))
                     job.log(f"CANDIDATE {key}: {cid} reliable={ev.reliable} "
                             f"trials={len(ev.durations_ms)}/5 "
                             f"peak_ms={ev.peak_ms if ev.durations_ms else None}")
