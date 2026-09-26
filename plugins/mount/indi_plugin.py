@@ -280,10 +280,10 @@ class IndiMount(MountPlugin):
             self._ensure_tracking_stopped()
             self._connected = True
         except IndiClientError:
-            self._close_control_session()
+            self._cleanup_runtime_channels()
             raise
         except Exception as exc:
-            self._close_control_session()
+            self._cleanup_runtime_channels()
             self._raise_mapped(
                 "CONNECTION_FAILED",
                 "Unable to connect to INDI mount",
@@ -297,10 +297,7 @@ class IndiMount(MountPlugin):
         except Exception:
             pass
         finally:
-            self._close_control_session()
-            stop_monitor = getattr(self.client, "stop_monitor", None)
-            if callable(stop_monitor):
-                stop_monitor()
+            self._cleanup_runtime_channels()
             self._connected = False
 
     @property
@@ -728,6 +725,13 @@ class IndiMount(MountPlugin):
             raise
         except Exception as exc:
             self._raise_mapped("CONNECTION_FAILED", "Unable to set INDI location", exc)
+
+    def _cleanup_runtime_channels(self):
+        """Close every runtime channel, including partial connect failures."""
+        self._close_control_session()
+        stop_monitor = getattr(self.client, "stop_monitor", None)
+        if callable(stop_monitor):
+            stop_monitor()
 
     def _open_control_session(self):
         """Open the runtime write channel once and keep it for the mount session."""
