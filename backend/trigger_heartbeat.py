@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from math import isfinite
 import subprocess
 import threading
 import time
@@ -60,7 +61,7 @@ class HeartbeatEmitter:
             )
             if timeout_s is not None:
                 value = float(timeout_s)
-                if value > 0.0:
+                if isfinite(value) and value > 0.0:
                     text = f"{text}\t{value:.3f}"
             os.write(self.fd, (text + "\n").encode("utf-8", errors="replace"))
         except (BlockingIOError, BrokenPipeError, OSError):
@@ -141,7 +142,7 @@ class HeartbeatSupervisor:
                     if separator:
                         try:
                             parsed_timeout = float(raw_timeout)
-                            if parsed_timeout > 0.0:
+                            if isfinite(parsed_timeout) and parsed_timeout > 0.0:
                                 custom_timeout_s = parsed_timeout
                         except (TypeError, ValueError):
                             custom_timeout_s = None
