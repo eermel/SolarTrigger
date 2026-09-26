@@ -419,7 +419,7 @@ def _shutter_capability(camera, items, log):
         return result, {}
 
 
-def characterize_auxiliary_capabilities(camera, job=None):
+def characterize_auxiliary_capabilities(camera, job=None, *, items=None):
     """Characterize optional clock/shutter capabilities without fatal policy."""
     def log(message):
         if job is not None:
@@ -429,7 +429,7 @@ def characterize_auxiliary_capabilities(camera, job=None):
                 pass
 
     try:
-        items = _walk(camera)
+        items = _walk(camera) if items is None else items
     except Exception as exc:
         log(f"OPTIONAL CAPABILITIES unavailable: {exc}")
         return {
