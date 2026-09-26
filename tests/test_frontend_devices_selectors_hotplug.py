@@ -210,7 +210,10 @@ def test_idle_ui_does_not_poll_mount_focuser_or_global_status():
     assert "if (homing) scheduleMountRefresh(400);" in INDEX_HTML
     assert "socket.on('focuser_update', refreshFocuser);" in INDEX_HTML
     assert "socket.on('connect', refreshMount);" in INDEX_HTML
-    assert "setTimeout(loadMaintenanceStatus, 250);" in INDEX_HTML
+    assert "setTimeout(() => { void pollMaintenanceStatus(); }, 250);" in INDEX_HTML
+    assert "if (data && data.running)" in INDEX_HTML
+    assert "scheduleMaintenancePoll();" in INDEX_HTML
+    assert "setInterval(loadMaintenanceStatus" not in INDEX_HTML
 
 
 def test_non_pilotable_camera_is_visible_but_disabled():
