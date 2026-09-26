@@ -336,7 +336,12 @@ def _discover_focusers(
     reserved_focusers: Iterable[Mapping[str, Any]] | None = None,
     indi_catalog: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Prefer INDI focusers; vendor SDK plugins remain migration fallbacks."""
+    """Discover focusers through vendor SDKs; INDI is mount-only for now.
+
+    ``indi_catalog`` is deliberately ignored for focusers. ZWO EAF discovery
+    and control stay on the official ZWO SDK path, independently of whether
+    the INDI catalogue is available.
+    """
 
     reserved_entries, _reserved_paths, reserved_ids = _reserved_entries(
         "focuser",
@@ -344,39 +349,12 @@ def _discover_focusers(
     )
 
     try:
-        from backend.indi_device_manager import IndiDeviceManager
-
-        indi_focusers = IndiDeviceManager.inventory_entries(
-            indi_catalog or [],
-            "focuser",
-        )
-    except Exception:
-        indi_focusers = []
-
-    if indi_focusers:
-        discovered = [
-            entry for entry in indi_focusers
-            if _text(entry.get("device_id")) not in reserved_ids
-        ]
-        return [*reserved_entries, *discovered]
-
-    if _has_reserved_indi(reserved_focusers):
-        # Avoid taking the same focuser through a vendor SDK after a transient
-        # INDI catalogue failure.
-        return reserved_entries
-
-    try:
         from plugins.focuser import inventory_focusers
 
-        if reserved_ids:
-            discovered = list(inventory_focusers(
-                log_fn=lambda *_args: None,
-                exclude_device_ids=reserved_ids,
-            ))
-        else:
-            discovered = list(inventory_focusers(
-                log_fn=lambda *_args: None,
-            ))
+        discovered = list(inventory_focusers(
+            log_fn=lambda *_args: None,
+            exclude_device_ids=reserved_ids,
+        ))
         if discovered or reserved_entries:
             return [*reserved_entries, *discovered]
     except Exception:
@@ -384,6 +362,7 @@ def _discover_focusers(
             return reserved_entries
         return _discover_legacy_category("focuser")
 
+    return _discover_legacy_category("focuser")
 
 
 def _discover_legacy_category(category: str) -> list[dict[str, Any]]:
