@@ -669,6 +669,26 @@ prepare_dev_workspace() {
     log "SolarTrigger DEV workspace prepared: $DEV_ACTIVE"
 }
 
+ensure_runtime_ipc_permissions() {
+    local app_group
+    app_group=$(id -gn "$APP_USER")
+
+    mkdir -p /etc/systemd/system/solartrigger-runtime.service.d
+    cat > /etc/systemd/system/solartrigger-runtime.service.d/runtime-directory-group.conf <<EOF
+[Service]
+Group=$app_group
+Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$app_group"
+EOF
+
+    mkdir -p /etc/tmpfiles.d
+    cat > /etc/tmpfiles.d/solartrigger.conf <<EOF
+d /run/solartrigger 0770 root $app_group -
+EOF
+
+    /usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/solartrigger.conf
+    /usr/bin/systemctl daemon-reload
+}
+
 request_reboot() {
     sync
     log "Release switch complete. Rebooting Raspberry Pi."
@@ -712,6 +732,7 @@ install_release() {
     mv -- "$temporary" "$final_destination"
     alink "$final_destination" "$ACTIVE"
     rm -f -- "$install_package"
+    ensure_runtime_ipc_permissions
     log "Installed SolarTrigger release: $install_version"
     request_reboot
 }
@@ -744,6 +765,7 @@ rollback_release() {
     seal_release "$rollback_destination"
 
     alink "$rollback_destination" "$ACTIVE"
+    ensure_runtime_ipc_permissions
     log "Rolled back SolarTrigger to: $rollback_version"
     request_reboot
 }
