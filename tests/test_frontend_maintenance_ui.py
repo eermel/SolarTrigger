@@ -7,9 +7,9 @@ def test_system_tab_contains_camera_and_maintenance_tools():
     assert "<span>SYSTEM</span>" in source
     assert "<span>ADD CAMERA</span>" not in source
 
-    assert "Camera Characterization" in source
-    assert "Re-characterize Camera" in source
-    assert "Camera Validation" in source
+    assert "Characterize &amp; Validate" in source
+    assert "Re-characterize Camera" not in source
+    assert '<div class="card-title">Camera Validation</div>' not in source
 
     assert "Persistent data" in source
     assert "Update System" in source
@@ -72,13 +72,12 @@ def test_system_maintenance_cards_have_requested_colours():
     assert "system-maintenance-card--blue" in source
 
 
-def test_add_camera_contains_recharacterization():
+def test_add_camera_uses_unified_characterize_validate_action():
     source = frontend_source()
-
-    assert "Re-characterize Camera" in source
-    assert "startCameraRecharacterization" in source
+    assert "Characterize &amp; Validate" in source
+    assert "startCameraCharacterization" in source
     assert "/api/camera-characterization/recharacterize" in source
-
+    assert "startAutomaticCameraValidation" in source
 
 
 def test_system_page_uses_one_shared_log():
@@ -138,38 +137,24 @@ def test_system_update_has_no_apt_explanatory_text():
 
 def test_system_camera_group_contains_camera_workflow():
     source = frontend_source()
-
     assert 'class="system-camera-group"' in source
     assert 'class="system-camera-group-title">Camera</div>' in source
-
     group_start = source.index('class="system-camera-group"')
-    persistent_start = source.index(
-        '<div class="card-title">Persistent data</div>'
-    )
-
+    persistent_start = source.index('<div class="card-title">Persistent data</div>')
     camera_group = source[group_start:persistent_start]
-
-    expected = [
-        '<div class="card-title">Device discovery</div>',
-        '<div class="card-title">Camera Characterization</div>',
-        '<div class="card-title">Re-characterize Camera</div>',
-        '<div class="card-title">Camera Validation</div>',
-    ]
-
-    positions = [camera_group.index(item) for item in expected]
-
-    assert positions == sorted(positions)
+    assert '<div class="card-title">Device discovery</div>' in camera_group
+    assert '<div class="card-title">Camera</div>' in camera_group
+    assert "Characterize &amp; Validate" in camera_group
+    assert "Re-characterize Camera" not in camera_group
+    assert '<div class="card-title">Camera Validation</div>' not in camera_group
 
 
-def test_recharacterization_select_has_chevron():
+def test_unified_camera_select_has_chevron():
     source = frontend_source()
-
-    marker = 'id="camera-recharacterization-select"'
+    marker = 'id="camera-characterization-select"'
     start = source.index(marker)
     select = source[start:source.index(">", start)]
-
     assert "file-select-chevron" in select
-
 
 
 def test_release_rollback_can_select_any_installed_version():
@@ -193,37 +178,11 @@ def test_release_actions_warn_that_pi_reboots():
     assert "Raspberry Pi will reboot" in source
     assert "Pi reboot requested" in source
 
-def test_camera_maintenance_buttons_follow_camera_selection_without_refresh():
+def test_camera_maintenance_button_uses_unified_selection_without_refresh():
     source = frontend_source()
-
-    characterization_start = source.index(
-        "function renderCameraCharacterizationStatus(status)"
-    )
-    characterization_end = source.index(
-        "async function pollCameraCharacterization()",
-        characterization_start,
-    )
-    characterization = source[
-        characterization_start:characterization_end
-    ]
-
-    assert "recharacterizationSelect.onchange = () => {" in characterization
-    assert (
-        "recharacterizationButton.disabled =" in characterization
-    )
-    assert "!recharacterizationSelect.value" in characterization
-
-    validation_start = source.index(
-        "function renderCameraValidationStatus(status)"
-    )
-    validation_end = source.index(
-        "async function pollCameraValidation()",
-        validation_start,
-    )
-    validation = source[validation_start:validation_end]
-
-    assert "select.onchange = () => {" in validation
-    assert (
-        "start.disabled = select.disabled || !select.value;"
-        in validation
-    )
+    start = source.index("function renderCameraCharacterizationStatus(status)")
+    end = source.index("async function pollCameraCharacterization()", start)
+    characterization = source[start:end]
+    assert "status.qualification_candidates" in characterization
+    assert "option.dataset.characterized" in characterization
+    assert "camera-characterization-start" in characterization
