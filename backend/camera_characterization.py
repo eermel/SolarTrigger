@@ -11,7 +11,9 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+import multiprocessing
 from pathlib import Path
+import queue
 import re
 import statistics
 import threading
@@ -52,6 +54,8 @@ class CharacterizationJob:
         self.measurement_path = None
         self.measurement_state = {}
         self._notify_fn = None
+        self._process = None
+        self._command_queue = None
 
     def set_notify_fn(self, notify_fn):
         self._notify_fn = notify_fn
@@ -125,6 +129,8 @@ class CharacterizationJob:
             if type(answer) is not bool or not self.question or self.question["id"] != question_id:
                 raise ValueError("Stale or invalid operator confirmation")
             self.answer = answer
+            if self._command_queue is not None:
+                self._command_queue.put(("answer", (question_id, answer)))
             self.condition.notify_all()
         self._notify()
 
@@ -141,9 +147,35 @@ class CharacterizationJob:
             self.question = self.result = None
             self.logs.clear()
             self.job_id = uuid.uuid4().hex
+            self.measurement_state = {}
+            self.measurement_path = (
+                Path(root) / "configs/camera_characterization/measurements"
+                / f"{self.job_id}.json"
+            )
+
+            # libgphoto2 is native code. A SIGSEGV cannot be contained by a
+            # Python thread, so qualification must not run inside Gunicorn.
+            ctx = multiprocessing.get_context("spawn")
+            events = ctx.Queue()
+            commands = ctx.Queue()
+            process = ctx.Process(
+                target=_characterization_process_main,
+                args=(
+                    deepcopy(entry),
+                    str(Path(root)),
+                    bool(replace_existing),
+                    events,
+                    commands,
+                ),
+                name=f"camera-characterization-{self.job_id[:8]}",
+                daemon=True,
+            )
+            process.start()
+            self._process = process
+            self._command_queue = commands
             threading.Thread(
-                target=self._run,
-                args=(deepcopy(entry), Path(root), bool(replace_existing)),
+                target=self._monitor_process,
+                args=(process, events),
                 daemon=True,
             ).start()
         self._notify()
@@ -151,68 +183,194 @@ class CharacterizationJob:
     def cancel(self):
         with self.condition:
             self.cancelled = True
+            if self._command_queue is not None:
+                self._command_queue.put(("cancel", None))
             self.condition.notify_all()
         self._notify()
 
-    def _run(self, entry, root, replace_existing=False):
-        camera = None
-        self.measurement_state = {}
-        self.measurement_path = root / "configs/camera_characterization/measurements" / f"{self.job_id or uuid.uuid4().hex}.json"
-        summary = {"date_utc": datetime.now(timezone.utc).isoformat(),
-                   "manufacturer": entry["manufacturer"], "model": entry["model"],
-                   "status": "FAILED", "files": [], "schema_version": 1}
-        try:
-            from backend.gphoto_runtime import import_gphoto2
-            gp = import_gphoto2()
-            camera = gp.Camera()
-            ports = gp.PortInfoList()
-            ports.load()
-            camera.set_port_info(ports[ports.lookup_path(entry["transport_locator"])])
-            camera.init()
-            profile, timing = characterize(camera, entry, self)
-            self.check()
-            summary.update(status="PARTIAL" if profile["warnings"] else "SUCCESS",
-                           strategy=profile["strategy"], warnings=profile["warnings"])
-            summary["files"] = publish(
-                profile,
-                timing,
-                root,
-                replace_existing=replace_existing,
-            )
-            self.log(
-                f"{'Profile replaced' if replace_existing else 'Profile installed'}: "
-                f"{profile['backend']} ({profile['strategy']})"
-            )
-        except Exception as exc:
-            summary["status"] = "FAILED"
-            summary["files"] = []
-            summary["error"] = str(exc)
-            self.log(f"FAILED: {exc}")
-        finally:
-            self.checkpoint(outcome=summary)
-            if camera is not None:
-                try:
-                    camera.exit()
-                except Exception as exc:
-                    self.log(f"Camera close: {exc}")
+    def _monitor_process(self, process, events):
+        result = None
+        while process.is_alive() or not events.empty():
             try:
-                history = root / "configs/camera_characterization/history.jsonl"
-                history.parent.mkdir(parents=True, exist_ok=True)
-                with history.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(summary, ensure_ascii=False) + "\n")
-                    handle.flush()
-                    import os
-                    os.fsync(handle.fileno())
-            except OSError as exc:
-                summary["history_error"] = str(exc)
-                self.log(f"History write failed: {exc}")
-            with self.condition:
-                self.result = summary
-                self.running = False
-                self.question = None
-                self.condition.notify_all()
-            self._notify()
+                kind, payload = events.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if kind == "log":
+                self.log(payload)
+            elif kind == "checkpoint":
+                self.checkpoint(**payload)
+            elif kind == "question":
+                with self.condition:
+                    self.question = payload
+                    self.answer = None
+                    self.condition.notify_all()
+                self._notify()
+            elif kind == "question_done":
+                with self.condition:
+                    self.question = None
+                    self.condition.notify_all()
+                self._notify()
+            elif kind == "result":
+                result = payload
 
+        process.join(timeout=1.0)
+        if result is None:
+            if process.exitcode is not None and process.exitcode < 0:
+                result = {
+                    "status": "FAILED",
+                    "files": [],
+                    "schema_version": 1,
+                    "error": (
+                        "Camera characterization native worker terminated by "
+                        f"signal {-process.exitcode}"
+                    ),
+                }
+            else:
+                result = {
+                    "status": "FAILED",
+                    "files": [],
+                    "schema_version": 1,
+                    "error": (
+                        "Camera characterization worker exited without a result "
+                        f"(exitcode={process.exitcode})"
+                    ),
+                }
+            self.log(result["error"])
+            self.checkpoint(outcome=result)
+
+        with self.condition:
+            self.result = result
+            self.running = False
+            self.question = None
+            self._process = None
+            self._command_queue = None
+            self.condition.notify_all()
+        self._notify()
+
+
+class _ProcessJobProxy:
+    def __init__(self, events, commands):
+        self.events = events
+        self.commands = commands
+        self.cancelled = False
+        self._pending_answers = {}
+
+    def log(self, message):
+        self.events.put(("log", str(message)))
+
+    def checkpoint(self, **data):
+        self.events.put(("checkpoint", data))
+
+    def _drain_commands(self):
+        while True:
+            try:
+                kind, payload = self.commands.get_nowait()
+            except queue.Empty:
+                return
+            if kind == "cancel":
+                self.cancelled = True
+            elif kind == "answer":
+                question_id, answer = payload
+                self._pending_answers[question_id] = answer
+
+    def check(self):
+        self._drain_commands()
+        if self.cancelled:
+            raise Cancelled("Characterization cancelled")
+
+    def ask(self, message, kind="result"):
+        question_id = uuid.uuid4().hex
+        self.events.put((
+            "question",
+            {"id": question_id, "message": message, "kind": kind},
+        ))
+        until = time.monotonic() + 600
+        while True:
+            self.check()
+            if question_id in self._pending_answers:
+                answer = self._pending_answers.pop(question_id)
+                self.events.put(("question_done", question_id))
+                return answer
+            if time.monotonic() >= until:
+                raise RuntimeError("Operator confirmation timed out")
+            time.sleep(0.1)
+
+
+def _characterization_process_main(
+    entry, root_text, replace_existing, events, commands
+):
+    """Run native camera qualification outside the web-server process."""
+    root = Path(root_text)
+    job = _ProcessJobProxy(events, commands)
+    camera = None
+    summary = {
+        "date_utc": datetime.now(timezone.utc).isoformat(),
+        "manufacturer": entry["manufacturer"],
+        "model": entry["model"],
+        "status": "FAILED",
+        "files": [],
+        "schema_version": 1,
+    }
+    try:
+        job.checkpoint(
+            phase="open_camera",
+            manufacturer=entry["manufacturer"],
+            model=entry["model"],
+            timing_trials=[],
+            commands={},
+        )
+        from backend.gphoto_runtime import import_gphoto2
+        gp = import_gphoto2()
+        camera = gp.Camera()
+        ports = gp.PortInfoList()
+        ports.load()
+        camera.set_port_info(
+            ports[ports.lookup_path(entry["transport_locator"])]
+        )
+        camera.init()
+        job.checkpoint(phase="characterize")
+        profile, timing = characterize(camera, entry, job)
+        job.check()
+        summary.update(
+            status="PARTIAL" if profile["warnings"] else "SUCCESS",
+            strategy=profile["strategy"],
+            warnings=profile["warnings"],
+        )
+        job.checkpoint(phase="publish")
+        summary["files"] = publish(
+            profile,
+            timing,
+            root,
+            replace_existing=replace_existing,
+        )
+        job.log(
+            f"{'Profile replaced' if replace_existing else 'Profile installed'}: "
+            f"{profile['backend']} ({profile['strategy']})"
+        )
+    except Exception as exc:
+        summary["status"] = "FAILED"
+        summary["files"] = []
+        summary["error"] = str(exc)
+        job.log(f"FAILED: {exc}")
+    finally:
+        job.checkpoint(outcome=summary)
+        if camera is not None:
+            try:
+                camera.exit()
+            except Exception as exc:
+                job.log(f"Camera close: {exc}")
+        try:
+            history = root / "configs/camera_characterization/history.jsonl"
+            history.parent.mkdir(parents=True, exist_ok=True)
+            with history.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(summary, ensure_ascii=False) + "\n")
+                handle.flush()
+                import os
+                os.fsync(handle.fileno())
+        except OSError as exc:
+            summary["history_error"] = str(exc)
+            job.log(f"History write failed: {exc}")
+        events.put(("result", summary))
 
 def enumerate_widgets(camera):
     result = []
