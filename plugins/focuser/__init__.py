@@ -12,10 +12,10 @@ from collections.abc import Mapping
 
 from .base import FocuserPlugin
 
-# id -> (module, classe, nom_affichage)
+# Current focuser policy: ZWO EAF is discovered and controlled directly with
+# the official ZWO SDK. INDI is reserved for mounts for now.
 _PLUGIN_CLASSES = {
-    "indi": ("indi_plugin", "IndiFocuser", "INDI focuser"),
-    "zwo_eaf": ("zwo_plugin", "ZwoFocuser", "ZWO EAF (SDK USB fallback)"),
+    "zwo_eaf": ("zwo_plugin", "ZwoFocuser", "ZWO EAF (SDK USB)"),
     # a venir : autres focuseurs (Pegasus, Moonlite...) = un fichier chacun.
 }
 
@@ -67,7 +67,6 @@ def detect_focuser(candidates=None, log_fn=print, config_by_id=None):
             log_fn(f"probe {pid} : {e}")
     log_fn("No focuser detected.")
     return None
-
 
 
 def inventory_focusers(
