@@ -445,6 +445,110 @@ def test_injected_client_keeps_legacy_set_props_path(full_props):
     }]
 
 
+def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
+    props = deepcopy(full_props)
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_lx200_OnStep",
+        "DRIVER_NAME": "LX200 OnStep",
+    }
+    props["TELESCOPE_SLEW_RATE"] = {
+        str(index): "On" if index == 7 else "Off"
+        for index in range(10)
+    }
+    client = StubIndiClient(props)
+    session_attempts = []
+
+    class ForbiddenSession:
+        def __init__(self, **kwargs):
+            session_attempts.append(kwargs)
+            raise AssertionError("OnStep must not open the persistent write session")
+
+    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", ForbiddenSession)
+
+    plugin = mount(client)
+    plugin._runtime_tcp_enabled = True
+    plugin.connect()
+
+    assert session_attempts == []
+    assert plugin._control_session is None
+
+    plugin.set_speed("9")
+    plugin.move("north")
+    plugin.stop()
+    plugin.set_tracking_mode("solar")
+    plugin.start_tracking("solar")
+    plugin.stop_tracking()
+    plugin.set_location(48.8736388889, 2.3796666667, 0)
+
+    assert {
+        "TELESCOPE_SLEW_RATE": {
+            str(index): "On" if index == 9 else "Off"
+            for index in range(10)
+        }
+    } in client.set_calls
+    assert {
+        "TELESCOPE_MOTION_NS": {
+            "MOTION_NORTH": "On",
+            "MOTION_SOUTH": "Off",
+        }
+    } in client.set_calls
+    assert any(
+        call.get("TELESCOPE_ABORT_MOTION") == {"ABORT": "On"}
+        for call in client.set_calls
+    )
+    assert {
+        "TELESCOPE_TRACK_STATE": {
+            "TRACK_ON": "Off",
+            "TRACK_OFF": "On",
+        }
+    } in client.set_calls
+    assert {
+        "GEOGRAPHIC_COORD": {
+            "LAT": 48.8736388889,
+            "LONG": 2.3796666667,
+            "ELEV": 0,
+        }
+    } in client.set_calls
+
+
+def test_onstep_legacy_home_uses_indi_setprop_transport(monkeypatch, full_props):
+    props = deepcopy(full_props)
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_lx200_OnStep",
+        "DRIVER_NAME": "LX200 OnStep",
+    }
+    props["HOME_INIT"] = {
+        "RETURN_HOME": "Off",
+        "SET_HOME": "Off",
+    }
+    props["OnStep Status"] = {
+        "Park": "Unparked, at Home",
+    }
+    client = StubIndiClient(props)
+
+    class ForbiddenSession:
+        def __init__(self, **_kwargs):
+            raise AssertionError("OnStep Home must not use persistent TCP writes")
+
+    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", ForbiddenSession)
+
+    plugin = mount(client)
+    plugin._runtime_tcp_enabled = True
+    plugin.connect()
+    plugin.go_home()
+
+    assert {
+        "HOME_INIT": {
+            "RETURN_HOME": "On",
+            "SET_HOME": "Off",
+        }
+    } in client.set_calls
+    assert not any(
+        call.get("TELESCOPE_PARK", {}).get("PARK") == "On"
+        for call in client.set_calls
+    )
+
+
 def test_runtime_control_session_is_opened_drained_and_closed(monkeypatch, full_props):
     events = []
 
