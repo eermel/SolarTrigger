@@ -673,6 +673,13 @@ ensure_runtime_ipc_permissions() {
     local app_group
     app_group=$(id -gn "$APP_USER")
 
+    # The installed helper runs as root. Unit tests source these functions as an
+    # ordinary user; do not let a release-layout test mutate the host system.
+    if [[ "$(id -u)" -ne 0 ]]; then
+        log "Skipping runtime IPC system configuration (root required)"
+        return 0
+    fi
+
     mkdir -p /etc/systemd/system/solartrigger-runtime.service.d
     cat > /etc/systemd/system/solartrigger-runtime.service.d/runtime-directory-group.conf <<EOF
 [Service]
