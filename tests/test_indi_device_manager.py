@@ -254,6 +254,12 @@ def test_mount_transport_probe_disconnects_failed_candidate(monkeypatch):
         def __init__(self, **kwargs):
             calls.append(("init", kwargs["device"]))
 
+        def start_monitor(self):
+            calls.append(("monitor", "start"))
+
+        def stop_monitor(self):
+            calls.append(("monitor", "stop"))
+
         def set_props(self, assignments):
             calls.append(("set", assignments))
 
@@ -277,6 +283,53 @@ def test_mount_transport_probe_disconnects_failed_candidate(monkeypatch):
         timeout_s=3.0,
     ) is False
 
+    assert ("monitor", "start") in calls
     assert ("set", {
         "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}
     }) in calls
+    assert calls[-1] == ("monitor", "stop")
+
+
+def test_mount_transport_probe_keeps_success_connected_and_stops_monitor(
+    monkeypatch,
+):
+    calls = []
+
+    class ProbeClient:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs["device"]))
+
+        def start_monitor(self):
+            calls.append(("monitor", "start"))
+
+        def stop_monitor(self):
+            calls.append(("monitor", "stop"))
+
+        def set_props(self, assignments):
+            calls.append(("set", assignments))
+
+        def get_props(self, patterns):
+            calls.append(("get", tuple(patterns)))
+            return {"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}}
+
+    monkeypatch.setattr(
+        "backend.indi_device_manager.IndiSubprocessClient",
+        ProbeClient,
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.time.monotonic",
+        iter([0.0, 0.1]).__next__,
+    )
+
+    manager = IndiDeviceManager(client=FakeClient({}))
+    assert manager._probe_mount_transport(
+        "EQMod Mount",
+        "/dev/serial/by-id/test",
+        timeout_s=3.0,
+    ) is True
+
+    disconnect = ("set", {
+        "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}
+    })
+    assert disconnect not in calls
+    assert calls[-1] == ("monitor", "stop")
