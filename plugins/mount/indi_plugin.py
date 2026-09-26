@@ -274,6 +274,10 @@ class IndiMount(MountPlugin):
                         "CONNECTION_FAILED",
                         f"INDI device did not connect: {self.device_name}",
                     )
+
+            # Safety invariant: selecting/connecting a mount in SolarTrigger
+            # must never inherit tracking left active by a previous client.
+            self._ensure_tracking_stopped()
             self._connected = True
         except IndiClientError:
             self._close_control_session()
@@ -404,6 +408,30 @@ class IndiMount(MountPlugin):
             raise
         except Exception as exc:
             self._raise_mapped("CONNECTION_FAILED", "Unable to set INDI tracking mode", exc)
+
+    def _ensure_tracking_stopped(self):
+        props = self._props(["TELESCOPE_TRACK_STATE.*"])
+        tracking = props.get("TELESCOPE_TRACK_STATE", {})
+        if not tracking:
+            return
+        if not self._switch_on(tracking, "TRACK_ON"):
+            return
+        self._set_props({
+            "TELESCOPE_TRACK_STATE": {
+                "TRACK_ON": "Off",
+                "TRACK_OFF": "On",
+            }
+        })
+        if not self._wait_for(
+            lambda current: not self._switch_on(
+                current.get("TELESCOPE_TRACK_STATE", {}),
+                "TRACK_ON",
+            )
+        ):
+            raise IndiClientError(
+                "CONNECTION_FAILED",
+                "INDI mount tracking could not be disabled safely",
+            )
 
     def stop_tracking(self):
         try:
