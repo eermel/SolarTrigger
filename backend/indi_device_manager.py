@@ -13,6 +13,7 @@ drivers.
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, Mapping
 
 from plugins.mount.indi_client import IndiSubprocessClient
@@ -261,8 +262,119 @@ class IndiDeviceManager:
             "present": present,
         }
 
+    @staticmethod
+    def _serial_candidates() -> list[str]:
+        """Return stable serial transports without assuming a USB chipset."""
+        root = "/dev/serial/by-id"
+        try:
+            names = sorted(os.listdir(root))
+        except OSError:
+            return []
+        return [
+            os.path.join(root, name)
+            for name in names
+            if os.path.exists(os.path.join(root, name))
+        ]
+
+    def _probe_mount_transport(
+        self,
+        device_name: str,
+        candidate: str,
+        *,
+        timeout_s: float = 3.0,
+        poll_interval: float = 0.10,
+    ) -> bool:
+        """Ask INDI itself whether one serial transport belongs to a mount."""
+        client = IndiSubprocessClient(
+            host=self.host,
+            port=self.port,
+            device=device_name,
+            timeout_s=self.timeout_s,
+        )
+        try:
+            client.set_props({"DEVICE_PORT": {"PORT": candidate}})
+            client.set_props({
+                "CONNECTION": {
+                    "CONNECT": "On",
+                    "DISCONNECT": "Off",
+                }
+            })
+            deadline = time.monotonic() + timeout_s
+            while time.monotonic() < deadline:
+                props = client.get_props(["CONNECTION.*"])
+                connection = props.get("CONNECTION", {})
+                if str(_raw(connection.get("CONNECT", "Off"))).casefold() in {
+                    "on", "true", "1",
+                }:
+                    return True
+                time.sleep(poll_interval)
+        except Exception:
+            pass
+
+        # A failed candidate must not remain connected before another driver
+        # or candidate is allowed to try the same physical transport.
+        try:
+            client.set_props({
+                "CONNECTION": {
+                    "CONNECT": "Off",
+                    "DISCONNECT": "On",
+                }
+            })
+        except Exception:
+            pass
+        return False
+
+    def _autoconnect_mounts(
+        self,
+        devices: dict[str, dict[str, dict[str, str]]],
+    ) -> bool:
+        """Connect disconnected mount drivers to distinct serial transports.
+
+        Returns True when at least one connection was established, so the
+        caller can refresh the catalogue and publish the live INDI state.
+        """
+        candidates = self._serial_candidates()
+        if not candidates:
+            return False
+
+        claimed = {
+            path
+            for name, properties in devices.items()
+            if "mount" in self._categories(properties)
+            and str(
+                _raw(properties.get("CONNECTION", {}).get("CONNECT", "Off"))
+            ).casefold() in {"on", "true", "1"}
+            if (path := _stable_serial_path(
+                _text(properties.get("DEVICE_PORT", {}), "PORT")
+            ))
+        }
+        changed = False
+
+        for device_name in sorted(devices):
+            properties = devices[device_name]
+            if self._is_photo_camera(properties):
+                continue
+            if "mount" not in self._categories(properties):
+                continue
+            connection = properties.get("CONNECTION", {})
+            if str(_raw(connection.get("CONNECT", "Off"))).casefold() in {
+                "on", "true", "1",
+            }:
+                continue
+
+            for candidate in candidates:
+                if candidate in claimed:
+                    continue
+                if self._probe_mount_transport(device_name, candidate):
+                    claimed.add(candidate)
+                    changed = True
+                    break
+        return changed
+
     def discover(self) -> list[dict[str, Any]]:
         devices = self.client.get_all_devices()
+        if self._autoconnect_mounts(devices):
+            devices = self.client.get_all_devices()
         result = []
         for device_name in sorted(devices):
             properties = devices.get(device_name)
