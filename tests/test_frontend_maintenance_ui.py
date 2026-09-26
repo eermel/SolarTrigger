@@ -84,7 +84,7 @@ def test_system_page_uses_one_shared_log():
     source = frontend_source()
 
     assert "<span>Camera log</span>" not in source
-    assert "<span>Log</span>" in source
+    assert 'class="system-section-title">Log</div>' in source
 
     assert 'id="camera-add-log"' in source
     assert 'id="system-update-log"' not in source
