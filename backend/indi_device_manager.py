@@ -21,7 +21,7 @@ import time
 from typing import Any, Mapping
 
 from backend.runtime_paths import INDI_MOUNT_BINDINGS_FILE
-from plugins.mount.indi_client import IndiSubprocessClient
+from plugins.mount.indi_client import IndiSubprocessClient, IndiTcpSession
 
 
 INTERFACE_BITS = {
@@ -399,54 +399,36 @@ class IndiDeviceManager:
         timeout_s: float = 3.0,
         poll_interval: float = 0.10,
     ) -> bool:
-        """Ask INDI itself whether one serial transport belongs to a mount."""
-        client = IndiSubprocessClient(
-            host=self.host,
-            port=self.port,
-            device=device_name,
-            timeout_s=self.timeout_s,
-        )
+        """Probe one mount using one persistent duplex INDI TCP session."""
         connected = False
         try:
-            # Keep exactly one read-side INDI client alive for the complete
-            # probe. Repeated short-lived indi_getprop clients can generate
-            # broken pipes and, on some indiserver builds, destabilise the
-            # driver being probed.
-            client.start_monitor()
-            client.set_props({"DEVICE_PORT": {"PORT": candidate}})
-            client.set_props({
-                "CONNECTION": {
-                    "CONNECT": "On",
-                    "DISCONNECT": "Off",
-                }
-            })
-            deadline = time.monotonic() + timeout_s
-            while time.monotonic() < deadline:
-                props = client.get_props(["CONNECTION.*"])
-                connection = props.get("CONNECTION", {})
-                if str(_raw(connection.get("CONNECT", "Off"))).casefold() in {
-                    "on", "true", "1",
-                }:
-                    connected = True
-                    break
-                time.sleep(poll_interval)
+            with IndiTcpSession(
+                host=self.host,
+                port=self.port,
+                device=device_name,
+                timeout_s=self.timeout_s,
+            ) as session:
+                session.set_text("DEVICE_PORT", {"PORT": candidate})
+                session.set_switch(
+                    "CONNECTION",
+                    {"CONNECT": "On", "DISCONNECT": "Off"},
+                )
+                connected = session.wait_for(
+                    "CONNECTION",
+                    "CONNECT",
+                    {"On", "true", "1"},
+                    timeout_s,
+                )
+                if not connected:
+                    try:
+                        session.set_switch(
+                            "CONNECTION",
+                            {"CONNECT": "Off", "DISCONNECT": "On"},
+                        )
+                    except Exception:
+                        pass
         except Exception:
             connected = False
-        finally:
-            if not connected:
-                # A failed candidate must not remain connected before another
-                # driver or candidate is allowed to try the same transport.
-                try:
-                    client.set_props({
-                        "CONNECTION": {
-                            "CONNECT": "Off",
-                            "DISCONNECT": "On",
-                        }
-                    })
-                except Exception:
-                    pass
-            client.stop_monitor()
-
         return connected
 
     def _autoconnect_mounts(
