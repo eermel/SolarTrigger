@@ -116,3 +116,33 @@ def test_installer_makes_install_base_writable_before_user_venv_creation():
     )
 
     assert chown_pos < venv_pos
+
+
+
+def test_installer_builds_python_gphoto2_against_native_libgphoto2():
+    installer_source = INSTALLER_PATH.read_text(encoding="utf-8")
+    step5 = installer_source.split(
+        'step "STEP 5 — Configure Flask / Nginx / gunicorn"', 1
+    )[1]
+
+    assert "python3-dev" in installer_source
+    assert 'GPHOTO_PYTHON_VERSION="2.6.4"' in step5
+    assert 'GPHOTO_PKGCONFIG_DIR="/usr/local/lib/pkgconfig"' in step5
+    assert "--no-binary gphoto2" in step5
+    assert '"gphoto2==$GPHOTO_PYTHON_VERSION"' in step5
+    assert "/site-packages/gphoto2/libgphoto2/" in step5
+    assert "/usr/local/lib/libgphoto2" in step5
+    assert 'success "python-gphoto2 native linkage verified."' in step5
+
+
+def test_installer_does_not_install_python_gphoto2_from_binary_wheel():
+    installer_source = INSTALLER_PATH.read_text(encoding="utf-8")
+    step5 = installer_source.split(
+        'step "STEP 5 — Configure Flask / Nginx / gunicorn"', 1
+    )[1]
+
+    dependency_block = step5.split(
+        'success "Virtual environment → $VENV_DIR"', 1
+    )[0]
+    assert "\\n    gphoto2 \\\\n" not in dependency_block
+    assert "--no-binary gphoto2" in dependency_block
