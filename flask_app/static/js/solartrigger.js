@@ -2468,6 +2468,7 @@ socket.on('log_history', lines => {
   const directionButtons = document.querySelectorAll('[data-focuser-direction]');
   let active = false;
   let absoluteMotion = null;
+  let commandedAbsoluteMotion = null;
   let press = null;
   let pollTimer = null;
   let jogPolling = false;
@@ -2498,9 +2499,25 @@ socket.on('log_history', lines => {
     if (data.mode === 'slow' || data.mode === 'fast') {
       speedSwitch.checked = data.mode === 'fast';
     }
-    absoluteMotion = (data.motion_command === 'go' || data.motion_command === 'home')
+    const backendAbsoluteMotion = (data.motion_command === 'go' || data.motion_command === 'home')
       ? data.motion_command
       : null;
+    // Keep the operator command latched while its target has not been reached.
+    // This prevents transient/stale status samples from making Go/Home buttons
+    // alternate between their idle and Cancel states during one physical move.
+    if (backendAbsoluteMotion) {
+      commandedAbsoluteMotion = backendAbsoluteMotion;
+    } else if (
+      commandedAbsoluteMotion
+      && Number.isFinite(data.position)
+      && Number.isFinite(data.target_position)
+      && data.position === data.target_position
+    ) {
+      commandedAbsoluteMotion = null;
+    } else if (!data.moving && data.motion_command !== 'go' && data.motion_command !== 'home') {
+      commandedAbsoluteMotion = null;
+    }
+    absoluteMotion = backendAbsoluteMotion || commandedAbsoluteMotion;
     const selectedRig = selectedControlsRig();
     const triggerState = selectedRig
       ? (state.triggerRigs[String(selectedRig.rig_id)] || {})
@@ -2583,12 +2600,16 @@ socket.on('log_history', lines => {
   }
 
   function cancelAbsoluteMotion() {
+    commandedAbsoluteMotion = null;
     post('stop');
   }
 
   homeButton.addEventListener('click', () => {
     if (absoluteMotion === 'home') cancelAbsoluteMotion();
-    else post('home');
+    else {
+      commandedAbsoluteMotion = 'home';
+      post('home');
+    }
   });
   goButton.addEventListener('click', () => {
     if (absoluteMotion === 'go') {
@@ -2596,7 +2617,10 @@ socket.on('log_history', lines => {
       return;
     }
     const requestedPosition = Number.parseInt(target.value, 10);
-    if (Number.isInteger(requestedPosition)) post('move_to', {position: requestedPosition});
+    if (Number.isInteger(requestedPosition)) {
+      commandedAbsoluteMotion = 'go';
+      post('move_to', {position: requestedPosition});
+    }
   });
 
   function saveSteps() {
