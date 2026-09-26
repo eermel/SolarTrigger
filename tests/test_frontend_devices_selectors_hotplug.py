@@ -186,6 +186,24 @@ def test_rig_render_does_not_emit_controls_change_or_restart_status_polling():
     )
 
 
+
+
+def test_idle_ui_does_not_poll_mount_focuser_or_global_status():
+    # Idle hardware state is pushed over Socket.IO.  HTTP status polling is
+    # reserved for active motion and explicit user actions.
+    assert "schedulePoll(data.moving === true ? 400 : 1500)" not in INDEX_HTML
+    assert "scheduleMountRefresh(homing ? 400 : 1500)" not in INDEX_HTML
+    assert "socket.on('status_update', refreshMount)" not in INDEX_HTML
+    assert "setInterval(loadCameraStatus, 10000)" not in INDEX_HTML
+    assert "setInterval(loadMaintenanceStatus,2000)" not in INDEX_HTML
+
+    assert "if (data.moving === true) schedulePoll(400);" in INDEX_HTML
+    assert "if (homing) scheduleMountRefresh(400);" in INDEX_HTML
+    assert "socket.on('focuser_update', refreshFocuser);" in INDEX_HTML
+    assert "socket.on('connect', refreshMount);" in INDEX_HTML
+    assert "setTimeout(loadMaintenanceStatus, 250);" in INDEX_HTML
+
+
 def test_non_pilotable_camera_is_visible_but_disabled():
     renderer = _function("renderRigDevices")
 
