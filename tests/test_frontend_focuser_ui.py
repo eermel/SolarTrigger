@@ -103,13 +103,16 @@ def test_movement_does_not_use_set_interval():
 
 
 def test_absolute_home_remains_cancelable_until_backend_clears_command():
-    assert re.search(
-        r"absoluteMotion\s*=\s*\(data\.motion_command\s*===\s*['\"]go['\"]\s*"
-        r"\|\|\s*data\.motion_command\s*===\s*['\"]home['\"]\)",
-        FOCUSER_JS,
-    )
-    # The backend-owned motion_command is authoritative for an absolute move.\n    # A transient SDK moving=false sample must not stop UI monitoring early.\n    assert "if (absoluteMotion) schedulePoll(400);" in FOCUSER_JS\n    assert "data.moving === true && absoluteMotion" not in FOCUSER_JS
-
+    # The backend command remains authoritative when present, while the UI
+    # latches the operator's Go/Home intent across transient status samples.
+    assert "const backendAbsoluteMotion = (data.motion_command === 'go' || data.motion_command === 'home')" in FOCUSER_JS
+    assert "commandedAbsoluteMotion = backendAbsoluteMotion;" in FOCUSER_JS
+    assert "absoluteMotion = backendAbsoluteMotion || commandedAbsoluteMotion;" in FOCUSER_JS
+    assert "commandedAbsoluteMotion = 'home';" in FOCUSER_JS
+    assert "commandedAbsoluteMotion = 'go';" in FOCUSER_JS
+    assert "commandedAbsoluteMotion = null;" in FOCUSER_JS
+    assert "if (absoluteMotion || jogPolling) schedulePoll(250);" in FOCUSER_JS
+    assert "data.moving === true && absoluteMotion" not in FOCUSER_JS
 
 
 def test_rig_binding_load_resynchronizes_controls_focuser():
