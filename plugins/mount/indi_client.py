@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import fnmatch
+import socket
 import subprocess
 import threading
+import time
+import xml.etree.ElementTree as ET
 from typing import Any
 
 
@@ -25,6 +28,131 @@ class IndiClientError(Exception):
         self.returncode = returncode
         self.stderr = stderr
         super().__init__(message)
+
+
+class IndiTcpSession:
+    """Minimal persistent duplex INDI session for mount transport probing."""
+
+    def __init__(self, host="127.0.0.1", port=7624, device="EQMod Mount", timeout_s=4.0):
+        self.host, self.port, self.device = host, int(port), device
+        self.timeout_s = float(timeout_s)
+        self.sock = None
+        self.buffer = ""
+        self.props = {}
+
+    def __enter__(self):
+        try:
+            self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout_s)
+            self.sock.settimeout(self.timeout_s)
+            self._send(ET.Element("getProperties", {"version": "1.7", "device": self.device}))
+            return self
+        except OSError as exc:
+            self.close()
+            raise IndiClientError("INDI_UNAVAILABLE", f"Unable to open INDI session: {exc}", stderr=str(exc)) from exc
+
+    def __exit__(self, *_args):
+        self.close()
+
+    def close(self):
+        sock, self.sock = self.sock, None
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+    def set_text(self, prop, elements):
+        root = ET.Element("newTextVector", {"device": self.device, "name": prop})
+        for name, value in elements.items():
+            node = ET.SubElement(root, "oneText", {"name": str(name)})
+            node.text = str(value)
+        self._send(root)
+
+    def set_switch(self, prop, elements):
+        root = ET.Element("newSwitchVector", {"device": self.device, "name": prop})
+        for name, value in elements.items():
+            node = ET.SubElement(root, "oneSwitch", {"name": str(name)})
+            node.text = str(value)
+        self._send(root)
+
+    def wait_for(self, prop, element, accepted, timeout_s):
+        wanted = {str(value).casefold() for value in accepted}
+        deadline = time.monotonic() + float(timeout_s)
+        while time.monotonic() < deadline:
+            value = self.props.get(prop, {}).get(element)
+            if value is not None and value.casefold() in wanted:
+                return True
+            self._recv(max(0.01, deadline - time.monotonic()))
+        return False
+
+    def _send(self, element):
+        if self.sock is None:
+            raise IndiClientError("CONNECTION_LOST", "INDI session is closed")
+        try:
+            self.sock.sendall(ET.tostring(element, encoding="utf-8") + b"\n")
+        except OSError as exc:
+            raise IndiClientError("CONNECTION_LOST", f"INDI write failed: {exc}", stderr=str(exc)) from exc
+
+    def _recv(self, timeout_s):
+        if self.sock is None:
+            raise IndiClientError("CONNECTION_LOST", "INDI session is closed")
+        self.sock.settimeout(timeout_s)
+        try:
+            chunk = self.sock.recv(65536)
+        except socket.timeout:
+            return
+        except OSError as exc:
+            raise IndiClientError("CONNECTION_LOST", f"INDI read failed: {exc}", stderr=str(exc)) from exc
+        if not chunk:
+            raise IndiClientError("CONNECTION_LOST", "INDI server closed the session")
+        self.buffer += chunk.decode("utf-8", errors="replace")
+        self._parse_buffer()
+
+    def _parse_buffer(self):
+        # INDI is a stream of sibling XML elements. Wrapping the accumulated
+        # fragment lets us consume every complete vector while retaining the
+        # final incomplete element for the next recv().
+        while self.buffer:
+            data = self.buffer.lstrip()
+            leading = len(self.buffer) - len(data)
+            if not data:
+                self.buffer = ""
+                return
+            parser = ET.XMLPullParser(events=("end",))
+            depth = 0
+            consumed = None
+            try:
+                for i, ch in enumerate(data):
+                    parser.feed(ch)
+                    for _event, elem in parser.read_events():
+                        # A top-level INDI vector ends when its element closes.
+                        if elem.tag.startswith(("def", "set")) and elem.tag.endswith("Vector"):
+                            consumed = i + 1
+                            self._record(elem)
+                            break
+                    if consumed is not None:
+                        break
+            except ET.ParseError as exc:
+                raise IndiClientError("CONNECTION_FAILED", f"Malformed INDI XML: {exc}") from exc
+            if consumed is None:
+                return
+            self.buffer = self.buffer[leading + consumed:]
+
+    def _record(self, root):
+        if root.attrib.get("device") != self.device:
+            return
+        prop = root.attrib.get("name")
+        if not prop:
+            return
+        values = self.props.setdefault(prop, {})
+        for child in root:
+            name = child.attrib.get("name")
+            if name:
+                values[name] = (child.text or "").strip()
 
 
 class IndiSubprocessClient:
@@ -440,4 +568,4 @@ class IndiSubprocessClient:
         return value or ""
 
 
-__all__ = ["IndiClientError", "IndiSubprocessClient"]
+__all__ = ["IndiClientError", "IndiSubprocessClient", "IndiTcpSession"]
