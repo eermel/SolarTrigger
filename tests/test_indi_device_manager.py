@@ -1,4 +1,15 @@
+import pytest
+
 from backend.indi_device_manager import IndiDeviceManager
+
+
+@pytest.fixture(autouse=True)
+def _isolate_indi_mount_binding_state(monkeypatch, tmp_path):
+    """Unit tests must never read or write the developer machine's var/ state."""
+    monkeypatch.setattr(
+        "backend.indi_device_manager.INDI_MOUNT_BINDINGS_FILE",
+        tmp_path / "default_indi_mount_bindings.json",
+    )
 
 
 class FakeClient:
