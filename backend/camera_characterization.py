@@ -906,7 +906,7 @@ def characterize(camera, entry, job):
 
     if any(
         item["name"] in ("whitebalance", "whitebalance2", "wb")
-        for item in enumerate_widgets(camera)
+        for item in initial
     ):
         find_setting(
             "white_balance",
@@ -923,7 +923,7 @@ def characterize(camera, entry, job):
     ):
         if any(
             item["name"] in names
-            for item in enumerate_widgets(camera)
+            for item in initial
         ):
             find_setting(
                 key,
@@ -977,7 +977,9 @@ def characterize(camera, entry, job):
 
     aperture_reference = None
 
-    current_widgets = enumerate_widgets(camera)
+    # The initial discovery already contains the metadata needed here.
+    # Avoid another full get_config() after a sequence of native SETs.
+    current_widgets = initial
 
     for item in current_widgets:
         if item["name"] in ("batterylevel", "battery"):
