@@ -45,3 +45,27 @@ def test_dev_deploy_ships_but_does_not_execute_eaf_hid_helper():
     assert '"$SRC/install/install_zwo_eaf_hid.sh"' in deploy
     assert '"$DST_HOST:$DST/install/install_zwo_eaf_hid.sh"' in deploy
     assert "sudo bash" not in deploy
+
+
+def test_fresh_package_requires_eaf_hid_helper():
+    source = (ROOT / "tools" / "build_fresh_install_package.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"install/install_zwo_eaf_hid.sh"' in source
+
+
+def test_release_package_requires_eaf_hid_helper():
+    source = (ROOT / "scripts" / "build_release_package.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"install/install_zwo_eaf_hid.sh"' in source
+
+
+def test_dev_deploy_does_not_present_runtime_migration_as_normal_step():
+    deploy = (ROOT / "tools" / "deploy-prod.sh").read_text(encoding="utf-8")
+
+    assert "ONLY for installations that" in deploy
+    assert "do not rerun it as a normal deploy step" in deploy
+    assert "sudo bash $ACTIVE_DST/install/install_zwo_eaf_hid.sh" in deploy
