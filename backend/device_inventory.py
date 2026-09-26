@@ -376,12 +376,14 @@ def _discover_focusers(
 ) -> list[dict[str, Any]]:
     """Discover focusers through vendor SDKs; INDI is mount-only for now.
 
-    ``indi_catalog`` is deliberately ignored for focusers. ZWO EAF discovery
-    and control stay on the official ZWO SDK path, independently of whether
-    the INDI catalogue is available.
+    Persisted bindings are configuration, not proof of live presence.  Vendor
+    inventory enumeration is therefore still performed for an already-bound
+    focuser and the reserved metadata is retained only when that physical
+    device is actually enumerated.  This is important for USB hot-unplug:
+    otherwise a bound EAF would be synthesized as permanently present.
     """
 
-    reserved_entries, _reserved_paths, reserved_ids = _reserved_entries(
+    reserved_entries, _reserved_paths, _reserved_ids = _reserved_entries(
         "focuser",
         reserved_focusers,
     )
@@ -389,18 +391,49 @@ def _discover_focusers(
     try:
         from plugins.focuser import inventory_focusers
 
-        kwargs = {"log_fn": lambda *_args: None}
-        if reserved_ids:
-            kwargs["exclude_device_ids"] = reserved_ids
-        discovered = list(inventory_focusers(**kwargs))
-        if discovered or reserved_entries:
-            return [*reserved_entries, *discovered]
-    except Exception:
-        if reserved_entries:
-            return reserved_entries
-        return _discover_legacy_category("focuser")
+        discovered = list(inventory_focusers(log_fn=lambda *_args: None))
 
-    return _discover_legacy_category("focuser")
+        reserved_by_id = {
+            _text(entry.get("device_id")): entry
+            for entry in reserved_entries
+            if _text(entry.get("device_id"))
+        }
+        merged = []
+        seen_reserved_ids = set()
+        for live in discovered:
+            if not isinstance(live, Mapping):
+                continue
+            live_entry = dict(live)
+            device_id = _text(live_entry.get("device_id") or live_entry.get("sdk_id"))
+            reserved = reserved_by_id.get(device_id)
+            if reserved is not None:
+                combined = dict(reserved)
+                combined.update(live_entry)
+                combined["present"] = True
+                merged.append(combined)
+                seen_reserved_ids.add(device_id)
+            else:
+                merged.append(live_entry)
+
+        # Bindings without a vendor identity can still use a stable physical
+        # path.  Keep those only while that path is currently present.
+        for reserved in reserved_entries:
+            device_id = _text(reserved.get("device_id"))
+            if device_id:
+                continue
+            physical_path = _text(reserved.get("fallback_physical_path"))
+            if physical_path:
+                try:
+                    if Path(physical_path).exists():
+                        merged.append(reserved)
+                except OSError:
+                    pass
+
+        return merged
+    except Exception:
+        # Do not turn persisted configuration into a false-positive presence
+        # result when vendor enumeration itself failed.
+        return []
 
 
 def _discover_legacy_category(category: str) -> list[dict[str, Any]]:
