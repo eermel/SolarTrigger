@@ -132,19 +132,21 @@ class IndiTcpSession:
         return False
 
     def _send(self, element):
-        if self.sock is None:
+        sock = self.sock
+        if sock is None:
             raise IndiClientError("CONNECTION_LOST", "INDI session is closed")
         try:
-            self.sock.sendall(ET.tostring(element, encoding="utf-8") + b"\n")
+            sock.sendall(ET.tostring(element, encoding="utf-8") + b"\n")
         except OSError as exc:
             raise IndiClientError("CONNECTION_LOST", f"INDI write failed: {exc}", stderr=str(exc)) from exc
 
     def _recv(self, timeout_s):
-        if self.sock is None:
+        sock = self.sock
+        if sock is None:
             raise IndiClientError("CONNECTION_LOST", "INDI session is closed")
-        self.sock.settimeout(timeout_s)
+        sock.settimeout(timeout_s)
         try:
-            chunk = self.sock.recv(65536)
+            chunk = sock.recv(65536)
         except socket.timeout:
             return
         except OSError as exc:
