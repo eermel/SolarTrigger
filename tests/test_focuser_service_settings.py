@@ -243,3 +243,26 @@ def test_transient_motion_state_tracks_go_home_and_jog():
         status = service.stop_jog()
         assert status["motion_command"] is None
         assert status["target_position"] is None
+
+
+def test_absolute_motion_survives_transient_false_moving_until_target():
+    service, store, plugin = make_service(recent_settings())
+
+    # Simulate real EAF behaviour: the command starts moving, then one SDK
+    # status sample reports moving=False before the requested position has
+    # actually been reached.
+    plugin.move_to = lambda position, wait=False: setattr(plugin, "moving", True)
+    status = service.move_to(321)
+    assert status["motion_command"] == "go"
+    assert status["target_position"] == 321
+
+    plugin.position = 250
+    plugin.moving = False
+    status = service.status()
+    assert status["motion_command"] == "go"
+    assert status["target_position"] == 321
+
+    plugin.position = 321
+    status = service.status()
+    assert status["motion_command"] is None
+    assert status["target_position"] is None
