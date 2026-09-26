@@ -98,6 +98,7 @@ Environment="PYTHONPATH=$APP_DIR"
 Environment="LD_LIBRARY_PATH=/usr/local/lib"
 Environment="SOLARTRIGGER_ROOT=$APP_DIR"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
+Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$CURRENT_GROUP"
 $CAMLIBS_ENV
 $IOLIBS_ENV
 ExecStart=$VENV_DIR/bin/python -m backend.runtime_daemon \
