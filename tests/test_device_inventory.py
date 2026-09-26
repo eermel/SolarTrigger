@@ -520,3 +520,53 @@ def test_reclassify_cached_camera_after_characterization_does_not_probe(monkeypa
     assert updated["camera"][0]["backend"] == "profile-sony-test-camera"
     assert updated["camera"][0]["pilotable"] is True
     assert updated["camera"][0]["transport_locator"] == "usb:001,002"
+
+
+def test_focuser_discovery_uses_vendor_sdk_even_when_indi_catalog_exists(
+    monkeypatch,
+):
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_mounts",
+        lambda reserved_mounts=None, indi_catalog=None: [],
+    )
+
+    from plugins import focuser as focuser_registry
+
+    calls = []
+
+    def fake_inventory_focusers(*, log_fn, exclude_device_ids):
+        calls.append(set(exclude_device_ids))
+        return [{
+            "category": "focuser",
+            "backend": "zwo_eaf",
+            "manufacturer": "ZWO",
+            "model": "EAF",
+            "device_id": "zwo_eaf:3",
+            "present": True,
+        }]
+
+    monkeypatch.setattr(
+        focuser_registry,
+        "inventory_focusers",
+        fake_inventory_focusers,
+    )
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_indi_catalog",
+        lambda: [{
+            "backend": "indi",
+            "device_name": "EQMod Mount",
+            "device_id": "indi:127.0.0.1:7624:EQMod Mount",
+            "categories": ["mount"],
+            "present": True,
+        }],
+    )
+
+    inventory = device_inventory.refresh_inventory()
+
+    assert calls == [set()]
+    assert len(inventory["focuser"]) == 1
+    assert inventory["focuser"][0]["backend"] == "zwo_eaf"
+    assert inventory["focuser"][0]["device_id"] == "zwo_eaf:3"
