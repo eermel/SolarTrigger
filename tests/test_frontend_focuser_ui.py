@@ -259,14 +259,12 @@ def test_go_and_home_are_adjacent_in_target_position_row():
         re.DOTALL,
     )
 
-def test_socket_updates_refresh_from_backend_status():
+def test_socket_updates_refresh_from_focuser_specific_event_only():
     assert re.search(
         r"socket\.on\(\s*['\"]focuser_update['\"]\s*,\s*refreshFocuser\s*\)",
         FOCUSER_JS,
     )
-    assert re.search(
-        r"socket\.on\(\s*['\"]status_update['\"].*?"
-        r"if\s*\(\s*data\.focuser\s*\)\s*refreshFocuser\(\s*\)",
+    assert not re.search(
+        r"socket\.on\(\s*['\"]status_update['\"]",
         FOCUSER_JS,
-        re.DOTALL,
     )
