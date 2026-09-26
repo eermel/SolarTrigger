@@ -70,11 +70,13 @@ def make_service():
     return service, plugin
 
 
-def test_successful_home_resets_eaf_counter_to_zero():
+
+def test_home_moves_to_existing_zero_without_resetting_counter():
     service, plugin = make_service()
 
     started = service.home()
     assert started["motion_command"] == "home"
+    assert started["target_position"] == 0
     assert started["moving"] is True
 
     plugin.position = 0
@@ -84,7 +86,38 @@ def test_successful_home_resets_eaf_counter_to_zero():
     assert completed["position"] == 0
     assert completed["motion_command"] is None
     assert completed["target_position"] is None
-    assert plugin.reset_positions == [0]
+    assert plugin.reset_positions == []
+
+
+def test_home_never_rewrites_counter_if_motion_stops_away_from_zero():
+    service, plugin = make_service()
+
+    service.home()
+    plugin.position = 7333
+    plugin.moving = False
+    interrupted = service.status()
+
+    assert interrupted["position"] == 7333
+    assert interrupted["motion_command"] == "home"
+    assert interrupted["target_position"] == 0
+    assert plugin.reset_positions == []
+
+
+def test_home_does_not_finish_before_motion_has_actually_started():
+    service, plugin = make_service()
+    plugin.report_motion_on_move = False
+
+    started = service.home()
+    assert started["position"] == 100
+    assert started["moving"] is False
+    assert started["motion_command"] == "home"
+    assert plugin.reset_positions == []
+
+    plugin.position = 0
+    completed = service.status()
+    assert completed["position"] == 0
+    assert completed["motion_command"] is None
+    assert plugin.reset_positions == []
 
 
 def test_cancelled_home_does_not_reset_eaf_counter():
@@ -110,46 +143,6 @@ def test_go_to_zero_does_not_reset_eaf_counter():
     assert completed["position"] == 0
     assert completed["motion_command"] is None
     assert plugin.reset_positions == []
-
-
-def test_home_that_finishes_with_nonzero_counter_resets_reference_to_zero():
-    service, plugin = make_service()
-
-    service.home()
-    plugin.position = 7333
-    plugin.moving = False
-    completed = service.status()
-
-    assert completed["position"] == 0
-    assert completed["motion_command"] is None
-    assert completed["target_position"] is None
-    assert plugin.reset_positions == [0]
-
-
-def test_home_does_not_finish_before_motion_has_actually_started():
-    service, plugin = make_service()
-    plugin.report_motion_on_move = False
-
-    started = service.home()
-
-    assert started["position"] == 100
-    assert started["moving"] is False
-    assert started["motion_command"] == "home"
-    assert started["target_position"] == 0
-    assert plugin.reset_positions == []
-
-    plugin.moving = True
-    moving = service.status()
-    assert moving["motion_command"] == "home"
-
-    plugin.position = 7333
-    plugin.moving = False
-    completed = service.status()
-
-    assert completed["position"] == 0
-    assert completed["motion_command"] is None
-    assert plugin.reset_positions == [0]
-
 
 
 def test_inventory_keeps_sdk_visible_eaf_when_open_is_busy():
