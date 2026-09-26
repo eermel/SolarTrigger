@@ -16,6 +16,31 @@ def test_system_tab_contains_camera_and_maintenance_tools():
     assert "Update Solar Eclipse Trigger" in source
 
 
+def test_system_tab_has_camera_update_and_log_sections():
+    source = frontend_source()
+
+    camera = source.index('data-system-section="camera"')
+    update = source.index('data-system-section="update"')
+    log = source.index('data-system-section="log"')
+
+    assert camera < update < log
+    assert source.count('data-system-section=') == 3
+
+    camera_section = source[camera:update]
+    assert "Device discovery" in camera_section
+    assert '<div class="card-title">Camera</div>' in camera_section
+
+    update_section = source[update:log]
+    assert "Persistent data" in update_section
+    assert "Update System" in update_section
+    assert "Update Solar Eclipse Trigger" in update_section
+
+    log_end = source.index("</section>", log)
+    log_section = source[log:log_end]
+    assert '<div class="system-section-title">Log</div>' in log_section
+    assert 'id="camera-add-log"' in log_section
+
+
 def test_system_update_is_single_full_width_action():
     source = frontend_source()
 
