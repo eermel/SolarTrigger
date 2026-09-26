@@ -39,6 +39,10 @@ def _fake_repo(tmp_path):
         "#!/bin/sh\n",
         encoding="utf-8",
     )
+    (root / "install" / "install_zwo_eaf_hid.sh").write_text(
+        "#!/bin/bash\nexit 0\n",
+        encoding="utf-8",
+    )
     (root / "data" / "sample.dat").write_text("data\n", encoding="utf-8")
     (root / "vendor" / "README").write_text("vendor\n", encoding="utf-8")
 
