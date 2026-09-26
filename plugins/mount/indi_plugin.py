@@ -251,7 +251,13 @@ class IndiMount(MountPlugin):
             if callable(start_monitor):
                 start_monitor()
 
-            self._open_control_session()
+            # The legacy LX200 OnStep driver accepts the same standard INDI
+            # vectors as EQMod, but field testing with driver 1.17 shows that
+            # manual slew writes sent on our persistent XML/TCP session can be
+            # acknowledged without reaching the controller.  Keep OnStep on
+            # the proven indi_setprop transport for every runtime write.  This
+            # also keeps speed, tracking, Home and STOP on one transport.
+            self._open_control_session(props)
 
             if assignments:
                 self._set_props(assignments)
@@ -795,9 +801,17 @@ class IndiMount(MountPlugin):
         if callable(stop_monitor):
             stop_monitor()
 
-    def _open_control_session(self):
-        """Open the runtime write channel once and keep it for the mount session."""
+    def _open_control_session(self, props=None):
+        """Open the persistent write channel for drivers proven compatible.
+
+        LX200 OnStep deliberately keeps the subprocess/indi_setprop path.
+        OnStep 1.17 has been observed accepting persistent XML/TCP slew writes
+        without forwarding the motion to the physical controller, while the
+        same vectors sent by indi_setprop work immediately.
+        """
         if not self._runtime_tcp_enabled or self._control_session is not None:
+            return
+        if props is not None and self._is_onstep_driver(props):
             return
         session = IndiTcpSession(
             host=self.config.get("host", "127.0.0.1"),
