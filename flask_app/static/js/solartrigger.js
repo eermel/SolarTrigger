@@ -2507,14 +2507,7 @@ socket.on('log_history', lines => {
     // alternate between their idle and Cancel states during one physical move.
     if (backendAbsoluteMotion) {
       commandedAbsoluteMotion = backendAbsoluteMotion;
-    } else if (
-      commandedAbsoluteMotion
-      && Number.isFinite(data.position)
-      && Number.isFinite(data.target_position)
-      && data.position === data.target_position
-    ) {
-      commandedAbsoluteMotion = null;
-    } else if (!data.moving && data.motion_command !== 'go' && data.motion_command !== 'home') {
+    } else if (commandedAbsoluteMotion && !data.moving) {
       commandedAbsoluteMotion = null;
     }
     absoluteMotion = backendAbsoluteMotion || commandedAbsoluteMotion;
