@@ -50,3 +50,11 @@ def test_held_in_uses_one_native_move_to_zero_then_stop():
 def test_zwo_plugin_does_not_advertise_segmented_absolute_moves():
     assert not hasattr(ZwoFocuser, "max_async_move_span")
     assert not hasattr(ZwoFocuser, "async_move_lookahead")
+
+
+def test_active_focuser_registry_keeps_zwo_on_vendor_sdk_only():
+    from plugins import focuser
+
+    plugins = {item["id"] for item in focuser.available_plugins()}
+    assert "zwo_eaf" in plugins
+    assert "indi" not in plugins
