@@ -7256,11 +7256,6 @@ function startMaintenancePolling() {
   void pollMaintenanceStatus();
 }
 async function checkAndUpdateSystem(){
-  if(!confirm(
-    'Check for system updates and install them now?\n\n'
-    + 'This runs apt-get update + apt-get upgrade -y.'
-  )) return;
-
   cameraAddLogState.systemUpdate = [
     'Starting system update...'
   ];
