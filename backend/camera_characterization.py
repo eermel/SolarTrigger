@@ -1565,7 +1565,11 @@ def characterize(camera, entry, job):
         {"method": "capture"},
     ]
 
-    for item in enumerate_widgets(camera):
+    # Reuse the initial discovery here as well. A fresh full get_config() after
+    # the SET/dependency stress phase can invalidate native Sony/PTP widget state
+    # and has caused reproducible SIGSEGVs on the A7V. The capture/bulb entries
+    # were already discovered before any camera mutation.
+    for item in initial:
         if (
             item["name"] in ("capture", "bulb")
             and not item["readonly"]
