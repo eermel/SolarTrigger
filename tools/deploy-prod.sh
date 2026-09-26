@@ -23,21 +23,33 @@ remote_helper_supports_dev_prepare() {
 }
 
 bootstrap_remote_helper() {
-    local remote_tmp="/tmp/solartrigger-release-update.$$"
+    local remote_tmp="/tmp/solartrigger-release-update.$"
+    local local_hash
+    local remote_hash
 
-    if remote_helper_supports_dev_prepare; then
+    local_hash="$(sha256sum "$SRC/install/solartrigger-release-update" | awk '{print $1}')"
+    remote_hash="$(ssh "$DST_HOST" "sha256sum '$REMOTE_HELPER' 2>/dev/null | awk '{print \\$1}'" || true)"
+
+    if [[ "$remote_hash" == "$local_hash" ]] && remote_helper_supports_dev_prepare; then
         return 0
     fi
 
-    echo "Remote release helper is older than the DEV workspace workflow."
-    echo "Installing the current helper once; sudo may request the Pi password."
+    echo "Synchronizing the current release helper; sudo may request the Pi password."
 
-    scp "$SRC/install/solartrigger-release-update"         "$DST_HOST:$remote_tmp"
+    scp "$SRC/install/solartrigger-release-update" \
+        "$DST_HOST:$remote_tmp"
 
-    ssh -t "$DST_HOST"         "sudo install -o root -g root -m 0755 '$remote_tmp' '$REMOTE_HELPER' && rm -f '$remote_tmp'"
+    ssh -t "$DST_HOST" \
+        "sudo install -o root -g root -m 0755 '$remote_tmp' '$REMOTE_HELPER' && rm -f '$remote_tmp'"
+
+    remote_hash="$(ssh "$DST_HOST" "sha256sum '$REMOTE_HELPER' 2>/dev/null | awk '{print \\$1}'" || true)"
+    if [[ "$remote_hash" != "$local_hash" ]]; then
+        echo "ERROR: remote release helper does not match the current source." >&2
+        exit 1
+    fi
 
     if ! remote_helper_supports_dev_prepare; then
-        echo "ERROR: remote helper upgrade did not expose dev-prepare." >&2
+        echo "ERROR: remote helper does not expose dev-prepare." >&2
         exit 1
     fi
 }
