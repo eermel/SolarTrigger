@@ -78,7 +78,8 @@ def _is_date_widget(node):
     if value == 8:  # libgphoto2 GP_WIDGET_DATE
         return True
     try:
-        import gphoto2 as gp
+        from backend.gphoto_runtime import import_gphoto2
+        gp = import_gphoto2()
         return value == int(gp.GP_WIDGET_DATE)
     except Exception:
         return False
