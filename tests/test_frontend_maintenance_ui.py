@@ -60,6 +60,19 @@ def test_system_sections_keep_outlines_with_devices_spacing():
     assert "margin-bottom:" not in rule
 
 
+def test_system_camera_section_has_no_legacy_extra_spacing():
+    source = frontend_source()
+
+    start = source.index(".system-camera-group {")
+    end = source.index("}", start)
+    rule = source[start:end]
+
+    assert "margin: 0;" in rule
+    assert "margin-bottom:" not in rule
+    assert "padding:" not in rule
+    assert "border:" not in rule
+
+
 def test_system_update_is_single_full_width_action():
     source = frontend_source()
 
