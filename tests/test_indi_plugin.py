@@ -451,3 +451,43 @@ def test_connect_disables_inherited_tracking(full_props):
     } in client.set_calls
     assert plugin.connected is True
     assert plugin.tracking is False
+
+
+def test_connect_failure_cleans_monitor_and_persistent_session(monkeypatch, full_props):
+    events = []
+
+    class Client(StubIndiClient):
+        def start_monitor(self):
+            events.append("monitor-start")
+        def stop_monitor(self):
+            events.append("monitor-stop")
+
+    class Session:
+        def __init__(self, **_kwargs):
+            pass
+        def __enter__(self):
+            events.append("session-open")
+            return self
+        def start_reader(self):
+            events.append("reader-start")
+        def close(self):
+            events.append("session-close")
+        def set_switch(self, *_args, **_kwargs):
+            raise IndiClientError("CONNECTION_LOST", "forced")
+
+    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", Session)
+    client = Client(full_props)
+    plugin = mount(client)
+    plugin._runtime_tcp_enabled = True
+
+    with pytest.raises(IndiClientError):
+        plugin.connect()
+
+    assert events == [
+        "monitor-start",
+        "session-open",
+        "reader-start",
+        "session-close",
+        "monitor-stop",
+    ]
+    assert plugin._control_session is None
