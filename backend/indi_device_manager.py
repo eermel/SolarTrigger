@@ -479,8 +479,17 @@ class IndiDeviceManager:
         # authoritative ownership evidence. Learn it even when the driver was
         # already connected before SolarTrigger started, so upgrading an
         # existing installation does not require disconnecting hardware.
+        binding_owners: dict[str, list[str]] = {}
+        for name, path in connected_bindings.items():
+            binding_owners.setdefault(path, []).append(name)
+
         bindings_changed = False
         for name, path in connected_bindings.items():
+            # Never learn ambiguous ownership if two logical drivers claim the
+            # same live transport. Keep the transport claimed for this scan,
+            # but require a later unambiguous observation before persisting it.
+            if len(binding_owners[path]) != 1:
+                continue
             if bindings.get(name) != path:
                 bindings[name] = path
                 bindings_changed = True
