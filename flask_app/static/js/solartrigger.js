@@ -2500,7 +2500,8 @@ socket.on('log_history', lines => {
     slowStep.disabled = disableOtherControls;
     fastStep.disabled = disableOtherControls;
     speedSwitch.disabled = disableOtherControls;
-    schedulePoll(data.moving === true ? 400 : 1500);
+    if (data.moving === true) schedulePoll(400);
+    else clearTimeout(pollTimer);
   }
 
   async function request(url, options = {}) {
@@ -2647,14 +2648,6 @@ socket.on('log_history', lines => {
   });
 
   socket.on('focuser_update', refreshFocuser);
-  socket.on('status_update', data => {
-    if (data.devices) {
-      const devices = data.devices;
-      updateControlsVisibility(devices);
-      applyDevices(devices);
-    }
-    if (data.focuser) refreshFocuser();
-  });
 })();
 // FOCUSER UI END
 
@@ -2772,7 +2765,8 @@ socket.on('log_history', lines => {
       || !capabilities
       || capabilities.toggle !== true
     );
-    scheduleMountRefresh(homing ? 400 : 1500);
+    if (homing) scheduleMountRefresh(400);
+    else clearTimeout(pollTimer);
   }
 
   async function refreshMount() {
@@ -2948,7 +2942,6 @@ socket.on('log_history', lines => {
     refreshMount();
   });
   socket.on('connect', refreshMount);
-  socket.on('status_update', refreshMount);
   socket.on('trigger_phase', data => {
     const rigId = Number(data && data.rig_id);
     const rig = selectedControlsRig();
@@ -6298,7 +6291,8 @@ async function loadCameraStatus() {
 // Countdown toutes les secondes
 setInterval(() => { if (state.eclipse) updateCountdowns(state.eclipse); }, 1000);
 // Camera toutes les 10s
-setInterval(loadCameraStatus, 10000);
+// Camera status is refreshed by Socket.IO status_update.  Keep the explicit
+// load at startup, but do not add a second periodic /api/status poll.
 
 // Init
 
@@ -7160,4 +7154,6 @@ async function rollbackSolarTriggerRelease() {
     flash(error.message, 'red');
   }
 }
-setInterval(loadMaintenanceStatus,2000);setTimeout(loadMaintenanceStatus,250);
+// Maintenance state is only relevant while an update/rollback operation is
+// active.  Do not poll it continuously from every idle browser.
+setTimeout(loadMaintenanceStatus, 250);
