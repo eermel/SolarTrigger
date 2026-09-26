@@ -171,6 +171,42 @@ def test_timeout_is_structured(monkeypatch):
     assert raised.value.stderr == "late"
 
 
+def test_getprop_timeout_with_snapshot_returns_partial_stdout(monkeypatch):
+    def fake_run(command, **kwargs):
+        raise subprocess.TimeoutExpired(
+            command,
+            kwargs["timeout"],
+            output=b"EQMod Mount.DRIVER_INFO.DRIVER_INTERFACE=5\n",
+        )
+
+    monkeypatch.setattr("plugins.mount.indi_client.subprocess.run", fake_run)
+
+    props = IndiSubprocessClient(timeout_s=0.25).get_props(
+        ["DRIVER_INFO.*"]
+    )
+
+    assert props["DRIVER_INFO"]["DRIVER_INTERFACE"] == "5"
+
+
+def test_getprop_timeout_without_snapshot_remains_structured_timeout(
+    monkeypatch,
+):
+    def fake_run(command, **kwargs):
+        raise subprocess.TimeoutExpired(
+            command,
+            kwargs["timeout"],
+            stderr=b"late",
+        )
+
+    monkeypatch.setattr("plugins.mount.indi_client.subprocess.run", fake_run)
+
+    with pytest.raises(IndiClientError) as raised:
+        IndiSubprocessClient(timeout_s=0.25).get_props(["DRIVER_INFO.*"])
+
+    assert raised.value.code == "TIMEOUT"
+    assert raised.value.stderr == "late"
+
+
 def test_os_error_is_indi_unavailable(monkeypatch):
     def fake_run(command, **kwargs):
         raise OSError("executable unavailable")
