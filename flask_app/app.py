@@ -2145,7 +2145,10 @@ def api_rig_focuser_status(rig_id):
     worker, error = _rig_focuser_worker(rig_id)
     if error is not None:
         return error
-    return _rig_focuser_result(rig_id, worker.status())
+    # A read-only status request must not publish focuser_update.  The browser
+    # handles focuser_update by refreshing this endpoint; emitting here would
+    # therefore create an HTTP -> Socket.IO -> HTTP feedback loop.
+    return jsonify(worker.status())
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/mode", methods=["POST"])
