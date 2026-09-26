@@ -34,6 +34,8 @@ class ZwoFocuser(FocuserPlugin):
     # Keep each asynchronous SDK command comfortably below the ~10 s
     # long-move stop observed on real EAF hardware (~365 steps/s).
     max_async_move_span = 2500
+    # Retarget before the current segment ends so chained moves stay continuous.
+    async_move_lookahead = 750
 
     def __init__(self, log_fn=print, config=None):
         super().__init__(log_fn, config)
