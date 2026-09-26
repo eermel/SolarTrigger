@@ -2470,6 +2470,7 @@ socket.on('log_history', lines => {
   let absoluteMotion = null;
   let press = null;
   let pollTimer = null;
+  let jogPolling = false;
 
   function focuserUrl(path) {
     const rig = selectedControlsRig();
@@ -2523,7 +2524,7 @@ socket.on('log_history', lines => {
     // while the SDK's instantaneous moving flag is true.  The backend clears
     // motion_command only once the requested target is physically reached or
     // an explicit stop/cancel occurs.
-    if (absoluteMotion) schedulePoll(400);
+    if (absoluteMotion || jogPolling) schedulePoll(250);
     else clearTimeout(pollTimer);
   }
 
@@ -2620,8 +2621,11 @@ socket.on('log_history', lines => {
     press.timer = setTimeout(() => {
       if (!press || press.pointerId !== event.pointerId) return;
       press.jogStarted = true;
+      jogPolling = true;
       post('jog/start', {
         direction: sign < 0 ? 'decrease' : 'increase',
+      }).then(data => {
+        if (data && press && press.pointerId === event.pointerId) schedulePoll(250);
       });
     }, 400);
   }
@@ -2632,10 +2636,14 @@ socket.on('log_history', lines => {
     press = null;
     clearTimeout(ended.timer);
     if (ended.jogStarted) {
+      jogPolling = false;
+      clearTimeout(pollTimer);
       if (!ended.stopSent) {
         ended.stopSent = true;
         const url = focuserUrl('jog/stop');
-        if (url) fetch(url, {method: 'POST'}).catch(() => {});
+        if (url) fetch(url, {method: 'POST'})
+          .then(() => refreshFocuser())
+          .catch(() => {});
       }
     } else if (singleStep && active) {
       post('step', {direction: ended.sign < 0 ? 'decrease' : 'increase'});
