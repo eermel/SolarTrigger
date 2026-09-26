@@ -46,6 +46,8 @@ class FocuserService:
         self._motion_command: str | None = None
         self._target_position: int | None = None
         self._motion_seen_moving = False
+        self._commanded_position: int | None = None
+        self._stationary_samples = 0
         self._load_settings()
 
     @staticmethod
@@ -154,6 +156,8 @@ class FocuserService:
         self._motion_command = None
         self._target_position = None
         self._motion_seen_moving = False
+        self._commanded_position = None
+        self._stationary_samples = 0
         if plugin is not None and getattr(plugin, "connected", False):
             plugin.disconnect()
 
@@ -186,12 +190,42 @@ class FocuserService:
         moving = bool(raw.get("moving", False))
         if tracked_motion and moving:
             self._motion_seen_moving = True
+            self._stationary_samples = 0
+        elif tracked_motion:
+            self._stationary_samples += 1
 
         at_target = (
             tracked_motion
             and self._target_position is not None
             and raw.get("position") == self._target_position
         )
+
+        # Some ZWO EAF firmware/SDK combinations stop a long asynchronous
+        # EAFMove after roughly ten seconds even though the requested absolute
+        # target is farther away.  ZwoFocuser advertises a conservative
+        # max_async_move_span so long Go/Home operations are issued as bounded
+        # absolute segments.  Advance to the next segment only after two
+        # consecutive stationary samples: one transient moving=False sample
+        # must never redirect a motor that is still travelling.
+        span = getattr(plugin, "max_async_move_span", None)
+        if (
+            tracked_motion
+            and not at_target
+            and not moving
+            and self._stationary_samples >= 2
+            and isinstance(span, int)
+            and not isinstance(span, bool)
+            and span > 0
+        ):
+            current = int(raw.get("position"))
+            final = int(self._target_position)
+            delta = final - current
+            next_target = current + max(-span, min(span, delta))
+            plugin.move_to(next_target, wait=False)
+            self._commanded_position = next_target
+            self._stationary_samples = 0
+            raw["moving"] = True
+            moving = True
         # Go and Home are both absolute moves.  Completion is determined by
         # the requested position, never by an inferred moving -> stopped edge.
         # The ZWO EAF has no mechanical homing operation in this abstraction:
@@ -210,6 +244,8 @@ class FocuserService:
             self._motion_command = None
             self._target_position = None
             self._motion_seen_moving = False
+            self._commanded_position = None
+            self._stationary_samples = 0
         return {
             "connected": bool(plugin.connected),
             "position": raw.get("position"),
@@ -270,12 +306,27 @@ class FocuserService:
             self._motion_command = _motion_command
             self._target_position = target_position
             self._motion_seen_moving = False
+            self._stationary_samples = 0
+            span = getattr(plugin, "max_async_move_span", None)
+            commanded_position = target_position
+            if (
+                not wait
+                and isinstance(span, int)
+                and not isinstance(span, bool)
+                and span > 0
+            ):
+                current = int(plugin.get_position())
+                delta = target_position - current
+                commanded_position = current + max(-span, min(span, delta))
+            self._commanded_position = commanded_position
             try:
-                plugin.move_to(target_position, wait=wait)
+                plugin.move_to(commanded_position, wait=wait)
             except Exception:
                 self._motion_command = None
                 self._target_position = None
                 self._motion_seen_moving = False
+                self._commanded_position = None
+                self._stationary_samples = 0
                 raise
             return self._status_locked(plugin)
 
