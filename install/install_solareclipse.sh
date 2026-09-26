@@ -1030,17 +1030,19 @@ Wants=network.target solartrigger-indi.service
 
 [Service]
 Type=simple
-User=$CURRENT_USER
+User=root
 Group=$CURRENT_USER
 WorkingDirectory=$APP_DIR
 RuntimeDirectory=solartrigger
 RuntimeDirectoryMode=0770
+RuntimeDirectoryPreserve=yes
 Environment="PATH=$VENV_DIR/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="PYTHONUNBUFFERED=1"
 Environment="PYTHONPATH=$APP_DIR"
 Environment="LD_LIBRARY_PATH=/usr/local/lib"
 Environment="SOLARTRIGGER_ROOT=$APP_DIR"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
+Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$CURRENT_USER"
 ${CAMLIBS_ENV_LINE}
 ${IOLIBS_ENV_LINE}
 ExecStart=$VENV_DIR/bin/python -m backend.runtime_daemon \
