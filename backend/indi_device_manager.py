@@ -4,15 +4,17 @@ INDI is the primary discovery layer for astronomical equipment. DSLR/mirrorless
 cameras controlled through the INDI gphoto driver are deliberately excluded:
 SolarTrigger keeps those cameras on its characterized gphoto2 pipeline.
 
-The manager is read-only. It enumerates properties advertised by an already
-running indiserver and classifies logical INDI devices from the standard
-DRIVER_INTERFACE bitmask, with property-signature fallbacks for incomplete
-drivers.
+The manager enumerates properties advertised by an already running indiserver,
+classifies logical INDI devices, and may ask INDI mount drivers to connect to
+safe serial candidates. Candidate filtering is deliberately transport-based:
+known non-mount resources are excluded without inferring device roles from USB
+chipset/vendor names.
 """
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import time
 from typing import Any, Mapping
 
@@ -274,18 +276,48 @@ class IndiDeviceManager:
         }
 
     @staticmethod
-    def _serial_candidates() -> list[str]:
-        """Return stable serial transports without assuming a USB chipset."""
+    def _reserved_serial_transports() -> set[str]:
+        """Return serial transports owned by known non-mount subsystems.
+
+        /dev/gps0 is the stable OS-level GPS resource created by the SolarTrigger
+        udev configuration. Resolve it back to /dev/serial/by-id when possible so
+        INDI mount probing never writes to the GPS. No VID/PID or USB chipset is
+        used here to guess a device role.
+        """
+        reserved: set[str] = set()
+        gps_alias = "/dev/gps0"
+        if os.path.exists(gps_alias):
+            stable = _stable_serial_path(gps_alias)
+            if stable:
+                reserved.add(stable)
+            else:
+                # Keep the resolved tty as a fallback for systems where a
+                # by-id alias is unavailable.
+                reserved.add(os.path.realpath(gps_alias))
+        return reserved
+
+    @classmethod
+    def _serial_candidates(cls) -> list[str]:
+        """Return unreserved stable serial transports, chipset-agnostic."""
         root = "/dev/serial/by-id"
         try:
             names = sorted(os.listdir(root))
         except OSError:
             return []
-        return [
-            os.path.join(root, name)
-            for name in names
-            if os.path.exists(os.path.join(root, name))
-        ]
+
+        reserved = cls._reserved_serial_transports()
+        reserved_real = {os.path.realpath(path) for path in reserved}
+        candidates = []
+        for name in names:
+            candidate = os.path.join(root, name)
+            if not os.path.exists(candidate):
+                continue
+            if candidate in reserved:
+                continue
+            if os.path.realpath(candidate) in reserved_real:
+                continue
+            candidates.append(candidate)
+        return candidates
 
     def _probe_mount_transport(
         self,
