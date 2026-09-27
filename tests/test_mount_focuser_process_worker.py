@@ -388,3 +388,54 @@ def test_hardware_child_arms_parent_death_before_worker_construction(
         ("construct", worker_name),
         ("serve", worker_name),
     ]
+
+
+class _CloseTrackingConn:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class _StartFailProcess:
+    def start(self):
+        raise RuntimeError("synthetic process spawn failure")
+
+
+class _StartFailContext:
+    def __init__(self):
+        self.parent = _CloseTrackingConn()
+        self.child = _CloseTrackingConn()
+        self.process = _StartFailProcess()
+
+    def Pipe(self, duplex=True):
+        assert duplex is True
+        return self.parent, self.child
+
+    def Process(self, **_kwargs):
+        return self.process
+
+
+def test_mount_process_spawn_failure_rolls_back_and_closes_pipe():
+    worker = ProcessMountWorker(
+        rig_id=9,
+        backend="indi",
+        device_config={"serial": "mount-9"},
+        state_path="/tmp/process-worker-test-state.json",
+        call_timeout_s=0.05,
+        log_fn=lambda _message: None,
+        process_target=_fake_device_child,
+    )
+    context = _StartFailContext()
+    worker._ctx = context
+
+    with pytest.raises(RuntimeError, match="synthetic process spawn failure"):
+        worker.start()
+
+    assert worker._started is False
+    assert worker._process is None
+    assert worker._conn is None
+    assert worker.generation == 0
+    assert context.parent.closed is True
+    assert context.child.closed is True
