@@ -387,8 +387,20 @@ class ZwoEaf:
 
         return devices
 
+    def _current_sdk_ids(self, count):
+        """Return the SDK IDs from the device list refreshed by EAFGetNum()."""
+        ids = []
+        for current_index in range(int(count)):
+            cid = ctypes.c_int(0)
+            self._check(
+                self.lib.EAFGetID(current_index, ctypes.byref(cid)),
+                "EAFGetID",
+            )
+            ids.append(int(cid.value))
+        return ids
+
     def connect(self, index=0, device_id=None):
-        """Ouvre un EAF par device_id explicite ou, en legacy, par index."""
+        """Open one EAF and recover a stale SDK ID after USB re-enumeration."""
         n = self.lib.EAFGetNum()
         if n <= 0:
             raise EafError(
@@ -398,18 +410,30 @@ class ZwoEaf:
         if self._session_acquired:
             self.disconnect()
 
+        current_ids = self._current_sdk_ids(n)
+
         if device_id is None:
             if index >= n:
                 raise EafError(msg=f"Index {index} hors bornes (n={n})")
-
-            cid = ctypes.c_int(0)
-            self._check(
-                self.lib.EAFGetID(index, ctypes.byref(cid)),
-                "EAFGetID",
-            )
-            sdk_id = cid.value
+            sdk_id = current_ids[index]
         else:
-            sdk_id = self._sdk_id_from_device_id(device_id)
+            requested_id = self._sdk_id_from_device_id(device_id)
+            if requested_id in current_ids:
+                sdk_id = requested_id
+            elif len(current_ids) == 1:
+                # The ZWO SDK can assign a new runtime ID after a USB
+                # remove/re-add cycle. With exactly one EAF connected there
+                # is no ambiguity: rebind the persisted logical selection to
+                # the only physical focuser currently exposed by the SDK.
+                sdk_id = current_ids[0]
+            else:
+                visible = ", ".join(str(value) for value in current_ids)
+                raise EafError(
+                    EAF_ERROR_INVALID_ID,
+                    "Configured EAF SDK ID "
+                    f"{requested_id} is no longer present; visible IDs: "
+                    f"{visible}. Refusing ambiguous automatic rebind.",
+                )
 
         self.id = sdk_id
 
