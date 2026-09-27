@@ -264,6 +264,30 @@ def test_connect_refuses_ambiguous_rebind_when_multiple_eafs_are_visible(
     assert sdk.open_calls == []
 
 
+def test_connect_retries_once_after_transient_invalid_id(monkeypatch):
+    class TransientInvalidIdSdk(FakeSdk):
+        def __init__(self):
+            super().__init__(ids=(7,))
+            self.open_attempts = 0
+
+        def EAFOpen(self, sdk_id):
+            self.open_attempts += 1
+            if self.open_attempts == 1:
+                return zwo_eaf.EAF_ERROR_INVALID_ID
+            return super().EAFOpen(sdk_id)
+
+    sdk = TransientInvalidIdSdk()
+    driver = make_driver(monkeypatch, sdk)
+
+    info = driver.connect(device_id="zwo_eaf:7")
+
+    assert sdk.open_attempts == 2
+    assert info["device_id"] == "zwo_eaf:7"
+    assert driver.connected is True
+
+    driver.disconnect()
+
+
 def test_plugin_passes_bound_device_id_to_driver(monkeypatch):
     from plugins.focuser import zwo_plugin
 
