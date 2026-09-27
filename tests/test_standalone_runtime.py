@@ -733,3 +733,122 @@ def test_runtime_main_binds_endpoint_before_trigger_recovery(
         ("shutdown", True),
     ]
     assert not socket_path.exists()
+
+
+def _shutdown_test_controller(trigger, camera_runtime):
+    controller = RuntimeController.__new__(RuntimeController)
+    controller.trigger = trigger
+    controller.camera_runtime = camera_runtime
+    controller._shutdown_lock = threading.Lock()
+    controller._shutdown = False
+    return controller
+
+
+def test_runtime_shutdown_retries_camera_cleanup_after_failure():
+    class IdleTrigger:
+        def is_active_or_starting(self, _rig_id):
+            return False
+
+    class RetryCameraRuntime:
+        def __init__(self):
+            self.calls = 0
+
+        def shutdown(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("camera owner still alive")
+
+    camera = RetryCameraRuntime()
+    controller = _shutdown_test_controller(IdleTrigger(), camera)
+
+    with pytest.raises(RuntimeError, match="camera owner still alive"):
+        controller.shutdown()
+
+    assert controller._shutdown is False
+    assert camera.calls == 1
+
+    controller.shutdown()
+
+    assert controller._shutdown is True
+    assert camera.calls == 2
+
+    controller.shutdown()
+    assert camera.calls == 2
+
+
+def test_runtime_shutdown_keeps_camera_ownership_while_trigger_survives_force_stop():
+    class SurvivingTrigger:
+        def __init__(self):
+            self.active = True
+            self.stop_calls = []
+
+        def is_active_or_starting(self, rig_id):
+            return rig_id == 1 and self.active
+
+        def stop(self, rig_id, force=False):
+            self.stop_calls.append((rig_id, force))
+            return {
+                "status": "stopping",
+                "rig_id": rig_id,
+                "forced": force,
+                "still_running": True,
+            }
+
+    class CameraRuntime:
+        def __init__(self):
+            self.calls = 0
+
+        def shutdown(self):
+            self.calls += 1
+
+    trigger = SurvivingTrigger()
+    camera = CameraRuntime()
+    controller = _shutdown_test_controller(trigger, camera)
+
+    with pytest.raises(RuntimeError, match="Trigger still owns runtime state"):
+        controller.shutdown()
+
+    assert trigger.stop_calls == [(1, True)]
+    assert camera.calls == 0
+    assert controller._shutdown is False
+
+    trigger.active = False
+    controller.shutdown()
+
+    assert camera.calls == 1
+    assert controller._shutdown is True
+
+
+def test_runtime_shutdown_does_not_release_camera_after_force_stop_exception():
+    class FailingStopTrigger:
+        def __init__(self):
+            self.active = True
+
+        def is_active_or_starting(self, rig_id):
+            return rig_id == 1 and self.active
+
+        def stop(self, rig_id, force=False):
+            self.active = False
+            raise RuntimeError("synthetic stop failure")
+
+    class CameraRuntime:
+        def __init__(self):
+            self.calls = 0
+
+        def shutdown(self):
+            self.calls += 1
+
+    trigger = FailingStopTrigger()
+    camera = CameraRuntime()
+    controller = _shutdown_test_controller(trigger, camera)
+
+    with pytest.raises(RuntimeError, match="FORCE STOP failed"):
+        controller.shutdown()
+
+    assert camera.calls == 0
+    assert controller._shutdown is False
+
+    controller.shutdown()
+
+    assert camera.calls == 1
+    assert controller._shutdown is True
