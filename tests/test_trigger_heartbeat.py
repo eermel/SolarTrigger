@@ -275,3 +275,24 @@ def test_invalid_custom_timeout_falls_back_to_stage_budget(monkeypatch):
 
     assert supervisor.timed_out is True
     assert proc.terminated is True
+
+
+def test_heartbeat_emitter_never_blocks_when_pipe_is_full():
+    read_fd, write_fd = os.pipe()
+    os.set_blocking(write_fd, False)
+    try:
+        while True:
+            try:
+                os.write(write_fd, b"x" * 4096)
+            except BlockingIOError:
+                break
+
+        emitter = HeartbeatEmitter(write_fd)
+        before = time.monotonic()
+        emitter.pulse("capture.end")
+        elapsed = time.monotonic() - before
+
+        assert elapsed < 0.1
+        assert emitter.fd is None
+    finally:
+        os.close(read_fd)
