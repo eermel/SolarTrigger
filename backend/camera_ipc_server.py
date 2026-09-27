@@ -421,21 +421,57 @@ class CameraIpcServer:
                 listener.close()
                 self._unlink_own_socket()
                 raise
+            pool = None
+            accept_thread = None
             self._stopping.clear()
             self._stop_complete.clear()
             self._socket = listener
-            self._pool = ThreadPoolExecutor(
-                max_workers=MAX_WORKERS, thread_name_prefix="camera-ipc"
-            )
-            # ThreadPoolExecutor has an unbounded pending-work queue.  Limit
-            # accepted live connections to the number of handlers so slow or
-            # broken local clients cannot accumulate sockets/file descriptors
-            # faster than their per-connection timeout can drain them.
-            self._connection_slots = threading.BoundedSemaphore(MAX_WORKERS)
-            self._accept_thread = threading.Thread(
-                target=self._accept_loop, name="camera-ipc-accept", daemon=True
-            )
-            self._accept_thread.start()
+            try:
+                pool = ThreadPoolExecutor(
+                    max_workers=MAX_WORKERS, thread_name_prefix="camera-ipc"
+                )
+                self._pool = pool
+                # ThreadPoolExecutor has an unbounded pending-work queue.  Limit
+                # accepted live connections to the number of handlers so slow or
+                # broken local clients cannot accumulate sockets/file descriptors
+                # faster than their per-connection timeout can drain them.
+                self._connection_slots = threading.BoundedSemaphore(MAX_WORKERS)
+                accept_thread = threading.Thread(
+                    target=self._accept_loop,
+                    name="camera-ipc-accept",
+                    daemon=True,
+                )
+                self._accept_thread = accept_thread
+                accept_thread.start()
+            except BaseException:
+                # Startup is transactional.  The runtime does not publish this
+                # server until start() returns, so release every local resource
+                # here or a failed accept-thread launch can leave a stale socket
+                # pathname and executor behind.
+                self._stopping.set()
+                self._socket = None
+                self._accept_thread = None
+                self._pool = None
+                self._connection_slots = None
+                try:
+                    listener.close()
+                except OSError:
+                    pass
+                if pool is not None:
+                    try:
+                        pool.shutdown(wait=False, cancel_futures=True)
+                    except BaseException:
+                        pass
+                self._unlink_own_socket()
+                if accept_thread is not None:
+                    try:
+                        if accept_thread.is_alive():
+                            accept_thread.join(0.5)
+                    except BaseException:
+                        pass
+                self._stopping.clear()
+                self._stop_complete.set()
+                raise
         return self._socket_path
 
     def stop(self, timeout: float | None = 5.0) -> bool:
