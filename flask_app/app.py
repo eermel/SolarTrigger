@@ -2137,6 +2137,17 @@ def _rig_focuser_result(rig_id, result):
     return jsonify(result)
 
 
+def _rig_focuser_error(rig_id, exc, *, status=503):
+    """Keep focuser API failures JSON so the controls UI can report them."""
+    code = getattr(exc, "code", None) or "FOCUSER_IO_ERROR"
+    return jsonify({
+        "error": str(exc),
+        "code": code,
+        "rig_id": rig_id,
+        "device_type": "focuser",
+    }), status
+
+
 def _rig_focuser_service_call(worker, method, *args):
     operation = getattr(worker, method, None)
     if callable(operation):
@@ -2152,7 +2163,11 @@ def api_rig_focuser_status(rig_id):
     # A read-only status request must not publish focuser_update.  The browser
     # handles focuser_update by refreshing this endpoint; emitting here would
     # therefore create an HTTP -> Socket.IO -> HTTP feedback loop.
-    return jsonify(worker.status())
+    try:
+        return jsonify(worker.status())
+    except Exception as exc:
+        log.info("focuser status for rig %s failed: %s", rig_id, exc)
+        return _rig_focuser_error(rig_id, exc)
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/mode", methods=["POST"])
