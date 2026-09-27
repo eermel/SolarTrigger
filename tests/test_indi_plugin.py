@@ -75,6 +75,25 @@ def assert_code(code, call):
     return raised.value
 
 
+def test_onstep_default_client_timeout_keeps_startup_margin():
+    assert IndiMount._client_timeout_s({}, "LX200 OnStep") == 5.0
+    assert IndiMount._client_timeout_s(
+        {"driver_exec": "indi_lx200_OnStep"},
+        "Custom Mount",
+    ) == 5.0
+
+
+def test_eqmod_default_client_timeout_remains_four_seconds():
+    assert IndiMount._client_timeout_s({}, "EQMod Mount") == 4.0
+
+
+def test_explicit_client_timeout_overrides_driver_default():
+    assert IndiMount._client_timeout_s(
+        {"client_timeout": 6.25},
+        "LX200 OnStep",
+    ) == 6.25
+
+
 def test_connect_configures_serial_baud_auto_search_and_connection(tmp_path, full_props):
     serial_port = tmp_path / "ttyUSB0"
     serial_port.touch(mode=0o600)
