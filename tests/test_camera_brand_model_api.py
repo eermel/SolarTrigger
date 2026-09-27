@@ -67,16 +67,44 @@ def camera_api(tmp_path, monkeypatch):
 
 
 def _install_camera(monkeypatch, model, source="abilities"):
-    if source == "abilities":
-        camera = _FakeCamera(abilities_model=model)
-    else:
-        camera = _FakeCamera(config_model=model)
+    class Worker:
+        def probe_info(self):
+            return {
+                "model": model,
+                "battery": "87%",
+                "plugin": "test",
+            }
+
+    class Runtime:
+        def __init__(self):
+            self.reconciled = []
+
+        def reconcile(self, config):
+            self.reconciled.append(config)
+
+        def get_for_rig(self, rig_id):
+            return Worker() if rig_id == 1 else None
+
+    runtime = Runtime()
+    monkeypatch.setattr(
+        flask_module,
+        "load_rig_configuration",
+        lambda: {"rigs": []},
+    )
+    monkeypatch.setattr(
+        flask_module,
+        "get_camera_worker_runtime",
+        lambda **_kwargs: runtime,
+    )
     monkeypatch.setattr(
         flask_module.gp,
         "Camera",
-        lambda: camera,
+        lambda: pytest.fail(
+            "legacy /api/camera/probe must not open gphoto2 directly"
+        ),
         raising=False,
     )
+    return runtime
 
 
 def _assert_separated(camera, brand, model, *, connected=None):
@@ -186,3 +214,41 @@ def test_camera_brand_model_persist_across_status_and_probe_calls(camera_api):
         model,
         connected=False,
     )
+
+
+def test_camera_probe_requires_rig1_owner_and_never_direct_gphoto(camera_api):
+    client, monkeypatch = camera_api
+
+    class Runtime:
+        def reconcile(self, _config):
+            return None
+
+        def get_for_rig(self, _rig_id):
+            return None
+
+    monkeypatch.setattr(
+        flask_module,
+        "load_rig_configuration",
+        lambda: {"rigs": []},
+    )
+    monkeypatch.setattr(
+        flask_module,
+        "get_camera_worker_runtime",
+        lambda **_kwargs: Runtime(),
+    )
+    monkeypatch.setattr(
+        flask_module.gp,
+        "Camera",
+        lambda: pytest.fail("direct gphoto2 probe is forbidden"),
+        raising=False,
+    )
+
+    response = client.post("/api/camera/probe")
+
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "error": "camera is not configured for rig 1",
+        "code": "DEVICE_NOT_CONFIGURED",
+        "rig_id": 1,
+        "device_type": "camera",
+    }
