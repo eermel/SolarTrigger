@@ -204,3 +204,45 @@ def test_manual_location_rejects_out_of_range_values(tmp_path):
 
     assert plugin.location_calls == []
     service.close()
+
+
+class SyncMountPlugin(LocationMountPlugin):
+    def __init__(self):
+        super().__init__()
+        self.sync_calls = []
+
+    def sync_site_time(self, lat, lon, elev, utc_iso, utc_offset_hours):
+        self.sync_calls.append((lat, lon, elev, utc_iso, utc_offset_hours))
+        return {
+            "latitude": lat,
+            "longitude": lon,
+            "elevation": elev,
+            "utc": utc_iso,
+            "utc_offset_hours": utc_offset_hours,
+        }
+
+
+def test_mount_site_time_sync_validates_and_delegates(tmp_path):
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices", {"mount": {"plugin": "fake", "active": True}}
+    )
+    plugin = SyncMountPlugin()
+    service = MountService(
+        state_store,
+        plugin_loader=lambda *_args, **_kwargs: plugin,
+    )
+
+    result = service.sync_site_time(
+        48.87379,
+        2.37972,
+        78.0,
+        "2026-09-27T02:02:31",
+        2.0,
+    )
+
+    assert plugin.sync_calls == [
+        (48.87379, 2.37972, 78.0, "2026-09-27T02:02:31", 2.0)
+    ]
+    assert result["synchronization"]["utc"] == "2026-09-27T02:02:31"
+    service.close()
