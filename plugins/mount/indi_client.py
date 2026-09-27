@@ -365,6 +365,10 @@ class IndiSubprocessClient:
         with self._monitor_lock:
             self._monitor_cache.clear()
 
+    def seed_monitor_cache(self, properties: dict[str, dict[str, Any]]) -> None:
+        """Merge one fresh device snapshot into the runtime monitor cache."""
+        self._merge_cache({self.device: properties})
+
     def stop_monitor(self) -> None:
         """Stop the persistent monitor if one is active."""
         with self._monitor_lock:
