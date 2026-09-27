@@ -44,6 +44,9 @@ INTERFACE_BITS = {
 }
 
 _PHOTO_DRIVER_TOKENS = ("gphoto", "dslr")
+_DEFAULT_MOUNT_CONNECT_TIMEOUT_S = 3.0
+_ONSTEP_MOUNT_CONNECT_TIMEOUT_S = 15.0
+_ONSTEP_DRIVER_EXEC = "indi_lx200_OnStep"
 
 
 def _raw(value: Any) -> Any:
@@ -60,6 +63,21 @@ def _text(prop: Mapping[str, Any], *names: str) -> str | None:
             if text:
                 return text
     return None
+
+
+def _mount_connect_timeout_s(
+    properties: Mapping[str, Mapping[str, Any]],
+) -> float:
+    """Return the driver-specific mount connection grace period.
+
+    The OnStep INDI driver can need several seconds after a Raspberry Pi cold
+    boot before it publishes CONNECTION=On.  Keep the historical short probe
+    for other drivers so EQMod discovery remains responsive.
+    """
+    driver_exec = _text(properties.get("DRIVER_INFO", {}), "DRIVER_EXEC")
+    if driver_exec == _ONSTEP_DRIVER_EXEC:
+        return _ONSTEP_MOUNT_CONNECT_TIMEOUT_S
+    return _DEFAULT_MOUNT_CONNECT_TIMEOUT_S
 
 
 def _first_serial(properties: Mapping[str, Mapping[str, Any]]) -> str | None:
@@ -459,7 +477,7 @@ class IndiDeviceManager:
         device_name: str,
         candidate: str,
         *,
-        timeout_s: float = 3.0,
+        timeout_s: float = _DEFAULT_MOUNT_CONNECT_TIMEOUT_S,
         poll_interval: float = 0.10,
     ) -> bool:
         """Probe one mount using one persistent duplex INDI TCP session."""
@@ -499,7 +517,7 @@ class IndiDeviceManager:
         device_name: str,
         candidate: str,
         *,
-        timeout_s: float = 3.0,
+        timeout_s: float = _DEFAULT_MOUNT_CONNECT_TIMEOUT_S,
     ) -> bool:
         """Recover a stale CONNECT=On after physical serial hot-unplug.
 
@@ -637,6 +655,7 @@ class IndiDeviceManager:
                 _raw(connection.get("CONNECT", "Off"))
             ).casefold() in {"on", "true", "1"}
             learned = bindings.get(device_name)
+            connect_timeout_s = _mount_connect_timeout_s(properties)
 
             if connected and device_name not in reconnect_required:
                 continue
@@ -647,7 +666,11 @@ class IndiDeviceManager:
             # the stale INDI switch state.
             if device_name in reconnect_required:
                 if learned and learned in candidates and learned not in claimed:
-                    if self._reconnect_mount_transport(device_name, learned):
+                    if self._reconnect_mount_transport(
+                        device_name,
+                        learned,
+                        timeout_s=connect_timeout_s,
+                    ):
                         claimed.add(learned)
                         reconnect_required.discard(device_name)
                         try:
@@ -666,7 +689,11 @@ class IndiDeviceManager:
             # which have never been learned.
             if learned:
                 if learned in candidates and learned not in claimed:
-                    if self._probe_mount_transport(device_name, learned):
+                    if self._probe_mount_transport(
+                        device_name,
+                        learned,
+                        timeout_s=connect_timeout_s,
+                    ):
                         claimed.add(learned)
                         changed = True
                 continue
@@ -674,7 +701,11 @@ class IndiDeviceManager:
             for candidate in candidates:
                 if candidate in claimed:
                     continue
-                if self._probe_mount_transport(device_name, candidate):
+                if self._probe_mount_transport(
+                    device_name,
+                    candidate,
+                    timeout_s=connect_timeout_s,
+                ):
                     claimed.add(candidate)
                     self._remember_mount_binding(
                         device_name,
