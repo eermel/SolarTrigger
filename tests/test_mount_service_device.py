@@ -28,13 +28,18 @@ class LocationMountPlugin:
         return None
 
 
-def test_status_passes_through_device_and_pushes_gps_once(tmp_path):
+def test_status_never_pushes_gps_location_automatically(tmp_path):
     state_store = StateStore(tmp_path / "state.json")
     state_store.update_section(
         "devices", {"mount": {"plugin": "fake", "active": True}}
     )
     state_store.update_section(
-        "gps", {"lat": 48.8566, "lon": 2.3522, "alt": 35.0}
+        "gps", {
+            "synced": True,
+            "lat": 48.8566,
+            "lon": 2.3522,
+            "alt": 35.0,
+        }
     )
     plugins = []
 
@@ -53,13 +58,13 @@ def test_status_passes_through_device_and_pushes_gps_once(tmp_path):
         "port": "/dev/test",
     }
     assert second_status["device"] == first_status["device"]
-    assert plugins[0].location_calls == [(48.8566, 2.3522, 35.0)]
+    assert plugins[0].location_calls == []
 
     service.close()
     service.status()
 
     assert len(plugins) == 2
-    assert plugins[1].location_calls == [(48.8566, 2.3522, 35.0)]
+    assert plugins[1].location_calls == []
 
     service.close()
 
