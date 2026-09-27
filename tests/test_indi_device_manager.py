@@ -220,6 +220,44 @@ def test_mount_autoconnect_tries_stable_transports_and_stops_on_success(
     ]
 
 
+def test_mount_autoconnect_skips_direct_mount_transports(monkeypatch):
+    devices = {
+        "EQMod Mount": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_eqmod_telescope",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": "/dev/ttyUSB0"},
+        },
+    }
+    manager = IndiDeviceManager(
+        client=FakeClient(devices),
+        excluded_serial_paths={"/dev/serial/by-id/ONSTEP"},
+    )
+    monkeypatch.setattr(
+        manager,
+        "_serial_candidates",
+        lambda: [
+            "/dev/serial/by-id/ONSTEP",
+            "/dev/serial/by-id/EQMOD",
+        ],
+    )
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_probe_mount_transport",
+        lambda device, candidate, **_kwargs: attempts.append(
+            (device, candidate)
+        ) or False,
+    )
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert attempts == [
+        ("EQMod Mount", "/dev/serial/by-id/EQMOD"),
+    ]
+
+
 def test_mount_autoconnect_never_reuses_transport_claimed_by_connected_mount(
     monkeypatch,
 ):
