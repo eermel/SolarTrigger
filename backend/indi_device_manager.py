@@ -65,17 +65,19 @@ def _text(prop: Mapping[str, Any], *names: str) -> str | None:
     return None
 
 
+def _is_onstep_driver(
+    properties: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    """Identify the OnStep driver from its advertised executable."""
+    driver_exec = _text(properties.get("DRIVER_INFO", {}), "DRIVER_EXEC")
+    return driver_exec == _ONSTEP_DRIVER_EXEC
+
+
 def _mount_connect_timeout_s(
     properties: Mapping[str, Mapping[str, Any]],
 ) -> float:
-    """Return the driver-specific mount connection grace period.
-
-    The OnStep INDI driver can need several seconds after a Raspberry Pi cold
-    boot before it publishes CONNECTION=On.  Keep the historical short probe
-    for other drivers so EQMod discovery remains responsive.
-    """
-    driver_exec = _text(properties.get("DRIVER_INFO", {}), "DRIVER_EXEC")
-    if driver_exec == _ONSTEP_DRIVER_EXEC:
+    """Return the driver-specific mount connection grace period."""
+    if _is_onstep_driver(properties):
         return _ONSTEP_MOUNT_CONNECT_TIMEOUT_S
     return _DEFAULT_MOUNT_CONNECT_TIMEOUT_S
 
@@ -472,6 +474,70 @@ class IndiDeviceManager:
             return False
         return True
 
+    def _wait_subprocess_connection(
+        self,
+        client: IndiSubprocessClient,
+        accepted: set[str],
+        timeout_s: float,
+        *,
+        poll_interval: float = 0.10,
+    ) -> bool:
+        """Poll CONNECTION through indi_getprop after an indi_setprop write."""
+        wanted = {str(value).casefold() for value in accepted}
+        deadline = time.monotonic() + float(timeout_s)
+        while True:
+            try:
+                props = client.get_props(["CONNECTION.*"])
+                value = _raw(props.get("CONNECTION", {}).get("CONNECT"))
+                if value is not None and str(value).casefold() in wanted:
+                    return True
+            except Exception:
+                pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(float(poll_interval), remaining))
+
+    def _probe_mount_transport_setprop(
+        self,
+        device_name: str,
+        candidate: str,
+        *,
+        timeout_s: float,
+        poll_interval: float = 0.10,
+    ) -> bool:
+        """Probe OnStep through the field-proven indi_setprop transport."""
+        client = IndiSubprocessClient(
+            host=self.host,
+            port=self.port,
+            device=device_name,
+            timeout_s=self.timeout_s,
+        )
+        try:
+            client.set_props({"DEVICE_PORT": {"PORT": candidate}})
+            client.set_props({
+                "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            })
+            connected = self._wait_subprocess_connection(
+                client,
+                {"On", "true", "1"},
+                timeout_s,
+                poll_interval=poll_interval,
+            )
+            if not connected:
+                try:
+                    client.set_props({
+                        "CONNECTION": {
+                            "CONNECT": "Off",
+                            "DISCONNECT": "On",
+                        },
+                    })
+                except Exception:
+                    pass
+            return connected
+        except Exception:
+            return False
+
     def _probe_mount_transport(
         self,
         device_name: str,
@@ -479,8 +545,17 @@ class IndiDeviceManager:
         *,
         timeout_s: float = _DEFAULT_MOUNT_CONNECT_TIMEOUT_S,
         poll_interval: float = 0.10,
+        use_setprop: bool = False,
     ) -> bool:
-        """Probe one mount using one persistent duplex INDI TCP session."""
+        """Probe one mount using its proven INDI write transport."""
+        if use_setprop:
+            return self._probe_mount_transport_setprop(
+                device_name,
+                candidate,
+                timeout_s=timeout_s,
+                poll_interval=poll_interval,
+            )
+
         connected = False
         try:
             with IndiTcpSession(
@@ -512,20 +587,61 @@ class IndiDeviceManager:
             connected = False
         return connected
 
+    def _reconnect_mount_transport_setprop(
+        self,
+        device_name: str,
+        candidate: str,
+        *,
+        timeout_s: float,
+        poll_interval: float = 0.10,
+    ) -> bool:
+        """Recover OnStep through indi_setprop after serial hot-plug."""
+        client = IndiSubprocessClient(
+            host=self.host,
+            port=self.port,
+            device=device_name,
+            timeout_s=self.timeout_s,
+        )
+        try:
+            client.set_props({
+                "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"},
+            })
+            if not self._wait_subprocess_connection(
+                client,
+                {"Off", "false", "0"},
+                timeout_s,
+                poll_interval=poll_interval,
+            ):
+                return False
+            client.set_props({"DEVICE_PORT": {"PORT": candidate}})
+            client.set_props({
+                "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            })
+            return self._wait_subprocess_connection(
+                client,
+                {"On", "true", "1"},
+                timeout_s,
+                poll_interval=poll_interval,
+            )
+        except Exception:
+            return False
+
     def _reconnect_mount_transport(
         self,
         device_name: str,
         candidate: str,
         *,
         timeout_s: float = _DEFAULT_MOUNT_CONNECT_TIMEOUT_S,
+        use_setprop: bool = False,
     ) -> bool:
-        """Recover a stale CONNECT=On after physical serial hot-unplug.
+        """Recover a stale CONNECT=On after physical serial hot-unplug."""
+        if use_setprop:
+            return self._reconnect_mount_transport_setprop(
+                device_name,
+                candidate,
+                timeout_s=timeout_s,
+            )
 
-        Some INDI drivers retain CONNECT=On when their USB serial transport
-        disappears. A plain CONNECT request can then succeed from stale cached
-        state without reopening the serial device. Force a complete
-        DISCONNECT -> DEVICE_PORT -> CONNECT cycle on the learned transport.
-        """
         try:
             with IndiTcpSession(
                 host=self.host,
@@ -656,6 +772,7 @@ class IndiDeviceManager:
             ).casefold() in {"on", "true", "1"}
             learned = bindings.get(device_name)
             connect_timeout_s = _mount_connect_timeout_s(properties)
+            use_setprop = _is_onstep_driver(properties)
 
             if connected and device_name not in reconnect_required:
                 continue
@@ -670,6 +787,7 @@ class IndiDeviceManager:
                         device_name,
                         learned,
                         timeout_s=connect_timeout_s,
+                        use_setprop=use_setprop,
                     ):
                         claimed.add(learned)
                         reconnect_required.discard(device_name)
@@ -693,6 +811,7 @@ class IndiDeviceManager:
                         device_name,
                         learned,
                         timeout_s=connect_timeout_s,
+                        use_setprop=use_setprop,
                     ):
                         claimed.add(learned)
                         changed = True
@@ -705,6 +824,7 @@ class IndiDeviceManager:
                     device_name,
                     candidate,
                     timeout_s=connect_timeout_s,
+                    use_setprop=use_setprop,
                 ):
                     claimed.add(candidate)
                     self._remember_mount_binding(
