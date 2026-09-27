@@ -797,6 +797,49 @@ class IndiMount(MountPlugin):
         except Exception as exc:
             self._raise_mapped("CONNECTION_FAILED", "Unable to set INDI location", exc)
 
+    def sync_site_time(self, lat, lon, elev, utc_iso, utc_offset_hours):
+        """Synchronize standard INDI site coordinates and UTC time."""
+        try:
+            props = self._props(["GEOGRAPHIC_COORD.*", "TIME_UTC.*"])
+            location = props.get("GEOGRAPHIC_COORD")
+            time_prop = props.get("TIME_UTC")
+            if not location:
+                raise IndiClientError(
+                    "PROPERTY_UNSUPPORTED",
+                    "INDI geographic coordinates are unsupported",
+                )
+            if not time_prop or "UTC" not in time_prop or "OFFSET" not in time_prop:
+                raise IndiClientError(
+                    "PROPERTY_UNSUPPORTED",
+                    "INDI UTC time synchronization is unsupported",
+                )
+            self._set_props({
+                "GEOGRAPHIC_COORD": {
+                    "LAT": lat,
+                    "LONG": lon,
+                    "ELEV": elev,
+                },
+                "TIME_UTC": {
+                    "UTC": str(utc_iso),
+                    "OFFSET": f"{float(utc_offset_hours):+.2f}",
+                },
+            })
+            return {
+                "latitude": float(lat),
+                "longitude": float(lon),
+                "elevation": float(elev),
+                "utc": str(utc_iso),
+                "utc_offset_hours": float(utc_offset_hours),
+            }
+        except IndiClientError:
+            raise
+        except Exception as exc:
+            self._raise_mapped(
+                "CONNECTION_FAILED",
+                "Unable to synchronize INDI mount site/time",
+                exc,
+            )
+
     def _cleanup_runtime_channels(self):
         """Close every runtime channel, including partial connect failures."""
         self._close_control_session()
@@ -852,6 +895,8 @@ class IndiMount(MountPlugin):
                 session.set_text(prop, elements)
             elif prop == "GEOGRAPHIC_COORD":
                 session.set_number(prop, elements)
+            elif prop == "TIME_UTC":
+                session.set_text(prop, elements)
             else:
                 session.set_switch(prop, elements)
 
