@@ -477,10 +477,14 @@ def test_onstep_probe_uses_setprop_without_persistent_tcp(monkeypatch):
         def get_props(self, patterns=None):
             calls.append(("get", tuple(patterns or ())))
             props = {
+                "DRIVER_INFO": {
+                    "DRIVER_EXEC": "indi_lx200_OnStep",
+                    "DRIVER_INTERFACE": "1",
+                },
                 "CONNECTION": {
                     "CONNECT": "On" if self.connected else "Off",
                     "DISCONNECT": "Off" if self.connected else "On",
-                }
+                },
             }
             if self.connected:
                 props.update({
@@ -543,10 +547,14 @@ def test_onstep_reconnect_uses_setprop_without_persistent_tcp(monkeypatch):
         def get_props(self, patterns=None):
             calls.append(("get", tuple(patterns or ())))
             props = {
+                "DRIVER_INFO": {
+                    "DRIVER_EXEC": "indi_lx200_OnStep",
+                    "DRIVER_INTERFACE": "1",
+                },
                 "CONNECTION": {
                     "CONNECT": "On" if self.connected else "Off",
                     "DISCONNECT": "Off" if self.connected else "On",
-                }
+                },
             }
             if self.connected:
                 props.update({
