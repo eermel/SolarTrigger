@@ -373,3 +373,26 @@ def test_refresh_reserves_direct_onstep_before_indi_discovery(monkeypatch):
 
     assert captured["excluded"] == {onstep_path}
     assert result["mount"][0]["backend"] == "onstep"
+
+
+
+def test_bound_direct_onstep_is_not_synthesized_after_unplug(monkeypatch):
+    path = "/dev/serial/by-id/usb-OnStep-missing"
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+
+    import plugins.mount as mount_registry
+    monkeypatch.setattr(
+        mount_registry,
+        "inventory_mounts",
+        lambda **kwargs: [],
+    )
+
+    result = device_inventory._discover_direct_onstep_mounts([{
+        "category": "mount",
+        "backend": "onstep",
+        "manufacturer": "OnStep",
+        "model": "On-Step",
+        "fallback_physical_path": path,
+    }])
+
+    assert result == []
