@@ -43,6 +43,9 @@ class FakeFocuserWorker:
         self.calls.append((method, args))
         return {"status": "ok", "worker_rig_id": self.rig_id}
 
+    def status(self):
+        return self._call("status")
+
     def stop(self):
         return self._call("stop")
 
@@ -128,3 +131,24 @@ def test_jog_stop_rig1_focuser_does_not_affect_rig2(monkeypatch):
     assert rig_2_worker.calls == []
     assert runtime.reconciled_config is not None
     _assert_single_rig_1_update(emitted)
+
+
+def test_focuser_status_failure_remains_json_and_does_not_emit(monkeypatch):
+    class FailingStatusWorker(FakeFocuserWorker):
+        def status(self):
+            raise RuntimeError("EAFGetPosition a echoue (code 4)")
+
+    worker = FailingStatusWorker(1)
+    client, _runtime, emitted = _client(monkeypatch, {1: worker})
+
+    response = client.get("/api/rigs/1/focuser/status")
+
+    assert response.status_code == 503
+    assert response.is_json
+    assert response.get_json() == {
+        "error": "EAFGetPosition a echoue (code 4)",
+        "code": "FOCUSER_IO_ERROR",
+        "rig_id": 1,
+        "device_type": "focuser",
+    }
+    assert emitted == []
