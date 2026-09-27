@@ -149,3 +149,42 @@ def test_shutdown_policy_drain():
     assert executed == list(range(4))
     assert not worker.running
     assert not _worker_threads("drain-test-worker-r106")
+
+
+def test_thread_start_failure_rolls_back_and_allows_clean_retry(monkeypatch):
+    real_thread = threading.Thread
+
+    class FailingThread:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("synthetic thread start failure")
+
+        def is_alive(self):
+            return False
+
+    worker = GenericWorker(
+        rig_id=107,
+        device_kind="startup-rollback",
+    )
+    monkeypatch.setattr(
+        "backend.generic_worker.threading.Thread",
+        FailingThread,
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic thread start failure"):
+        worker.start()
+
+    assert worker._thread is None
+    assert worker.running is False
+
+    monkeypatch.setattr(
+        "backend.generic_worker.threading.Thread",
+        real_thread,
+    )
+    worker.start()
+    try:
+        assert worker.running is True
+    finally:
+        assert worker.stop(timeout=1.0) is True
