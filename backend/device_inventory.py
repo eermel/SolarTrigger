@@ -110,15 +110,21 @@ def refresh_inventory(
 
         discovered_indi = indi_catalog is None
         if discovered_indi:
-            indi_catalog = _discover_indi_catalog(
-                excluded_serial_paths=direct_paths,
+            indi_catalog = (
+                _discover_indi_catalog(
+                    excluded_serial_paths=direct_paths,
+                )
+                if direct_paths
+                else _discover_indi_catalog()
             )
 
-        mount_entries = _discover_mounts(
-            reserved_mounts=reserved_mounts,
-            indi_catalog=indi_catalog,
-            direct_mounts=direct_mounts,
-        )
+        mount_kwargs = {
+            "reserved_mounts": reserved_mounts,
+            "indi_catalog": indi_catalog,
+        }
+        if direct_mounts:
+            mount_kwargs["direct_mounts"] = direct_mounts
+        mount_entries = _discover_mounts(**mount_kwargs)
         focuser_entries = (
             _discover_focusers()
             if reserved_focusers is None and not indi_catalog
