@@ -602,3 +602,52 @@ def test_independent_connections_are_handled_concurrently(tmp_path):
         {"ok": True, "result": {"ok": True}},
         {"ok": True, "result": {"ok": True}},
     ]
+
+
+def test_accept_thread_start_failure_rolls_back_socket_and_allows_retry(
+    tmp_path,
+    monkeypatch,
+):
+    server = make_server(tmp_path)
+    real_thread = camera_ipc_server.threading.Thread
+
+    class FailingThread:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("synthetic accept thread start failure")
+
+        def is_alive(self):
+            return False
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(
+            camera_ipc_server.threading,
+            "Thread",
+            FailingThread,
+        )
+        with pytest.raises(
+            RuntimeError,
+            match="synthetic accept thread start failure",
+        ):
+            server.start()
+
+    assert server._socket is None
+    assert server._pool is None
+    assert server._connection_slots is None
+    assert server._accept_thread is None
+    assert server.stopping is False
+    assert server.stopped is True
+    assert not server.socket_path.exists()
+
+    assert camera_ipc_server.threading.Thread is real_thread
+    path = server.start()
+    try:
+        assert path.is_socket()
+        assert server.stopped is False
+    finally:
+        assert server.stop(timeout=1.0) is True
+
+    assert not path.exists()
+    assert server.stopped is True
