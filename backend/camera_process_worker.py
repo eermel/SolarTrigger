@@ -11,6 +11,7 @@ starts a fresh child process.
 from __future__ import annotations
 
 import multiprocessing
+import os
 import secrets
 import threading
 import time
@@ -20,6 +21,7 @@ from typing import Any
 
 from backend.camera_timeout_policy import camera_operation_timeout_s
 from backend.camera_worker import CameraWorker
+from backend.device_process_worker import arm_parent_death_signal
 from backend.generic_worker import (
     BusyDeviceError,
     ExpiredJobError,
@@ -66,6 +68,27 @@ def _safe_send(conn: Connection, payload: dict[str, Any]) -> None:
         conn.send(payload)
     except (BrokenPipeError, EOFError, OSError):
         pass
+
+
+def _camera_process_bootstrap(
+    process_target,
+    conn: Connection,
+    rig_id: int,
+    camera_entry: dict[str, Any],
+    clock_spec: dict[str, Any] | None,
+    call_timeout_s: float,
+    expected_parent_pid: int,
+) -> None:
+    """Arm parent-death protection before any camera target touches hardware."""
+
+    arm_parent_death_signal(expected_parent_pid)
+    process_target(
+        conn,
+        rig_id,
+        camera_entry,
+        clock_spec,
+        call_timeout_s,
+    )
 
 
 def _camera_process_main(
@@ -396,13 +419,15 @@ class ProcessCameraWorker:
         parent_conn, child_conn = self._ctx.Pipe(duplex=True)
 
         process = self._ctx.Process(
-            target=self._process_target,
+            target=_camera_process_bootstrap,
             args=(
+                self._process_target,
                 child_conn,
                 self.rig_id,
                 dict(self._camera_entry),
                 _clock_snapshot(self._clock),
                 self._call_timeout_s,
+                os.getpid(),
             ),
             name=f"camera-rig-{self.rig_id}",
             daemon=True,
