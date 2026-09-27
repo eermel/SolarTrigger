@@ -491,7 +491,37 @@ class ZwoEaf:
         self.id = sdk_id
 
         try:
-            _acquire_sdk_session(self.lib, sdk_id)
+            try:
+                _acquire_sdk_session(self.lib, sdk_id)
+            except EafError as exc:
+                if exc.code not in (
+                    EAF_ERROR_INVALID_ID,
+                    EAF_ERROR_REMOVED,
+                ):
+                    raise
+
+                refreshed_n = self.lib.EAFGetNum()
+                if refreshed_n <= 0:
+                    raise
+
+                refreshed_ids = self._current_sdk_ids(refreshed_n)
+                if device_id is None:
+                    if index >= refreshed_n:
+                        raise
+                    retry_id = refreshed_ids[index]
+                else:
+                    requested_id = self._sdk_id_from_device_id(device_id)
+                    if requested_id in refreshed_ids:
+                        retry_id = requested_id
+                    elif len(refreshed_ids) == 1:
+                        retry_id = refreshed_ids[0]
+                    else:
+                        raise
+
+                sdk_id = retry_id
+                self.id = sdk_id
+                _acquire_sdk_session(self.lib, sdk_id)
+
             self._session_acquired = True
 
             info = EAF_INFO()
