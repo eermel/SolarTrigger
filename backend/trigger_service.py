@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+import hashlib
 import json, os, signal, subprocess, sys, threading
 from threading import Thread as _HeartbeatThread
 from datetime import datetime, timezone
@@ -302,6 +303,44 @@ class TriggerService:
             "exposure_opt_file": exposure.name if exposure else None,
         }
 
+    def _active_input_fingerprints(self, rig_id):
+        paths = {
+            "circumstances": self._active_circumstances_paths.get(rig_id),
+            "photo": self._active_photo_paths.get(rig_id),
+            "exposure_opt": self._active_exposure_opt_paths.get(rig_id),
+        }
+        fingerprints = {}
+        for role, path in paths.items():
+            if path is None:
+                continue
+            data = path.read_bytes()
+            fingerprints[role] = {
+                "name": path.name,
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+        return fingerprints
+
+    def _verify_recovery_input_fingerprints(self, rig_id, expected):
+        if not isinstance(expected, dict) or not expected:
+            raise TriggerValidationError(
+                "Persisted trigger inputs cannot be verified.",
+                "RECOVERY_INPUTS_UNVERIFIED",
+            )
+
+        try:
+            actual = self._active_input_fingerprints(rig_id)
+        except OSError as exc:
+            raise TriggerValidationError(
+                "Persisted trigger inputs are unreadable during recovery.",
+                "RECOVERY_INPUTS_CHANGED",
+            ) from exc
+
+        if actual != expected:
+            raise TriggerValidationError(
+                "Persisted trigger inputs changed after the original start.",
+                "RECOVERY_INPUTS_CHANGED",
+            )
+
     def _journal_begin(self, rig_id, mode, selected, *, totality_only=False):
         if self.run_journal is None:
             return None
@@ -312,6 +351,7 @@ class TriggerService:
                 selected=selected,
                 speed=1.0,
                 totality_only=totality_only,
+                input_fingerprints=self._active_input_fingerprints(rig_id),
             )
             return entry.get("run_id")
         except Exception as exc:
@@ -430,11 +470,18 @@ class TriggerService:
         run_id = entry.get("run_id")
         if not isinstance(run_id, str) or not run_id:
             raise TriggerValidationError("Recovery run_id is missing.", "RECOVERY_INVALID")
+        input_fingerprints = entry.get("input_fingerprints")
+        if not isinstance(input_fingerprints, dict) or not input_fingerprints:
+            raise TriggerValidationError(
+                "Recovery journal has no verifiable trigger input fingerprints.",
+                "RECOVERY_INPUTS_UNVERIFIED",
+            )
         if entry.get("totality_only") is True or entry.get("mode") == "totality_override":
             return self.start_totality_only(
                 rig_id=rig_id,
                 _recovery=True,
                 _run_id=run_id,
+                _recovery_input_fingerprints=input_fingerprints,
             )
         if entry.get("mode") != "real":
             raise TriggerValidationError(
@@ -462,6 +509,7 @@ class TriggerService:
             selected=selected,
             _recovery=True,
             _run_id=run_id,
+            _recovery_input_fingerprints=input_fingerprints,
         )
 
     def _log_rig(self, rig_id, text, level="info"):
@@ -825,7 +873,7 @@ class TriggerService:
 
     def start(self, rig_id=1, simulate=False, speed=60.0, dry_run=False,
               selected=None, _recovery=False, _run_id=None,
-              _child_recovery_attempt=0):
+              _child_recovery_attempt=0, _recovery_input_fingerprints=None):
         if (
             not isinstance(rig_id, int)
             or isinstance(rig_id, bool)
@@ -867,6 +915,11 @@ class TriggerService:
                     selected=selected,
                     strict_circumstances_date=not (simulate or dry_run),
                 )
+                if _recovery_input_fingerprints is not None:
+                    self._verify_recovery_input_fingerprints(
+                        rig_id,
+                        _recovery_input_fingerprints,
+                    )
             except Exception:
                 self._starting_by_rig[rig_id] = False
                 raise
@@ -1709,7 +1762,8 @@ class TriggerService:
         return True
 
     def start_totality_only(self, rig_id=1, _recovery=False, _run_id=None,
-                            _child_recovery_attempt=0):
+                            _child_recovery_attempt=0,
+                            _recovery_input_fingerprints=None):
         """Start emergency Totality now, or preempt an existing photo run."""
         if (
             not isinstance(rig_id, int)
@@ -1747,6 +1801,11 @@ class TriggerService:
         ipc_session = None
         try:
             self._resolve_totality_input(rig_id)
+            if _recovery_input_fingerprints is not None:
+                self._verify_recovery_input_fingerprints(
+                    rig_id,
+                    _recovery_input_fingerprints,
+                )
             if self.rig_config_loader is not None:
                 config = self.rig_config_loader()
                 validate_execution_rig(config, rig_id)
