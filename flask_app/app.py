@@ -2212,8 +2212,12 @@ def api_rig_focuser_mode(rig_id):
     mode = payload.get("mode")
     if mode not in ("slow", "fast"):
         return jsonify({"error": "Field 'mode' must be 'slow' or 'fast'."}), 400
-    return _rig_focuser_result(
-        rig_id, _rig_focuser_service_call(worker, "set_mode", mode)
+    return _rig_focuser_action(
+        rig_id,
+        _rig_focuser_service_call,
+        worker,
+        "set_mode",
+        mode,
     )
 
 
@@ -2351,8 +2355,11 @@ def api_rig_focuser_set_step(rig_id):
         return jsonify({"error": str(exc)}), 400
     if coarse is None and fine is None:
         return jsonify({"error": "At least one step value is required."}), 400
-    return _rig_focuser_result(
-        rig_id, worker.set_step(coarse=coarse, fine=fine)
+    return _rig_focuser_action(
+        rig_id,
+        worker.set_step,
+        coarse=coarse,
+        fine=fine,
     )
 
 
