@@ -137,7 +137,7 @@ def test_status_connects_without_gps_location(tmp_path):
     service.close()
 
 
-def test_status_refuses_zero_zero_gps_location(tmp_path):
+def test_status_ignores_zero_zero_gps_until_operator_sync(tmp_path):
     state_store = StateStore(tmp_path / "state.json")
     state_store.update_section(
         "devices", {"mount": {"plugin": "fake", "active": True}}
@@ -157,7 +157,7 @@ def test_status_refuses_zero_zero_gps_location(tmp_path):
 
     assert status["connected"] is True
     assert plugin.location_calls == []
-    assert any("refusing invalid mount location 0/0" in line for line in logs)
+    assert logs == []
 
     service.close()
 
