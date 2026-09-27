@@ -83,6 +83,28 @@ def _mount_connect_timeout_s(
     return _DEFAULT_MOUNT_CONNECT_TIMEOUT_S
 
 
+def _connected(properties: Mapping[str, Mapping[str, Any]]) -> bool:
+    return str(
+        _raw(properties.get("CONNECTION", {}).get("CONNECT", "Off"))
+    ).casefold() in {"on", "true", "1"}
+
+
+def _onstep_operational(
+    properties: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    """Require the control vectors needed by the SolarTrigger joystick."""
+    if not _is_onstep_driver(properties) or not _connected(properties):
+        return False
+    return all(
+        bool(properties.get(name))
+        for name in (
+            "TELESCOPE_SLEW_RATE",
+            "TELESCOPE_MOTION_NS",
+            "TELESCOPE_MOTION_WE",
+        )
+    )
+
+
 def _first_serial(properties: Mapping[str, Mapping[str, Any]]) -> str | None:
     """Return only an explicitly documented hardware serial field.
 
@@ -254,9 +276,7 @@ class IndiDeviceManager:
         )
         serial = _first_serial(properties)
         categories = self._categories(properties)
-        connected = str(_raw(connection.get("CONNECT", "Off"))).casefold() in {
-            "on", "true", "1"
-        }
+        connected = _connected(properties)
         # A disconnected driver's DEVICE_PORT is only a configured/default
         # value; it is not proof that the advertised mount owns that serial
         # transport. Another USB serial device may currently occupy the same
@@ -281,6 +301,12 @@ class IndiDeviceManager:
             )
         )
         present = connected and (serial_path is not None if serial_transport else True)
+        if present and _is_onstep_driver(properties):
+            # LX200 OnStep can retain CONNECT=On while startup has not
+            # published the manual-control vectors. Treat that state as not
+            # operational so discovery forces recovery instead of exposing a
+            # dead joystick.
+            present = _onstep_operational(properties)
 
         return {
             "backend": "indi",
@@ -501,6 +527,32 @@ class IndiDeviceManager:
                 return False
             time.sleep(min(float(poll_interval), remaining))
 
+    def _wait_onstep_operational(
+        self,
+        client: IndiSubprocessClient,
+        timeout_s: float,
+        *,
+        poll_interval: float = 0.10,
+    ) -> bool:
+        """Wait until OnStep has published every manual-slew control vector."""
+        deadline = time.monotonic() + float(timeout_s)
+        patterns = [
+            "CONNECTION.*",
+            "TELESCOPE_SLEW_RATE.*",
+            "TELESCOPE_MOTION_NS.*",
+            "TELESCOPE_MOTION_WE.*",
+        ]
+        while True:
+            try:
+                if _onstep_operational(client.get_props(patterns)):
+                    return True
+            except Exception:
+                pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(float(poll_interval), remaining))
+
     def _probe_mount_transport_setprop(
         self,
         device_name: str,
@@ -529,7 +581,15 @@ class IndiDeviceManager:
                 timeout_s,
                 poll_interval=poll_interval,
             )
-            if not connected:
+            ready = (
+                connected
+                and self._wait_onstep_operational(
+                    client,
+                    timeout_s,
+                    poll_interval=poll_interval,
+                )
+            )
+            if not ready:
                 try:
                     client.set_props({
                         "CONNECTION": {
@@ -539,7 +599,7 @@ class IndiDeviceManager:
                     })
                 except Exception:
                     pass
-            return connected
+            return ready
         except Exception:
             return False
 
@@ -624,11 +684,17 @@ class IndiDeviceManager:
             client.set_props({
                 "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
             })
-            return self._wait_subprocess_value(
+            if not self._wait_subprocess_value(
                 client,
                 "CONNECTION",
                 "CONNECT",
                 {"On", "true", "1"},
+                timeout_s,
+                poll_interval=poll_interval,
+            ):
+                return False
+            return self._wait_onstep_operational(
+                client,
                 timeout_s,
                 poll_interval=poll_interval,
             )
@@ -754,10 +820,14 @@ class IndiDeviceManager:
             learned = bindings.get(device_name)
             if not learned:
                 continue
-            connected = str(
-                _raw(properties.get("CONNECTION", {}).get("CONNECT", "Off"))
-            ).casefold() in {"on", "true", "1"}
-            if connected and not os.path.exists(learned):
+            connected = _connected(properties)
+            stale_transport = connected and not os.path.exists(learned)
+            half_connected_onstep = (
+                connected
+                and _is_onstep_driver(properties)
+                and not _onstep_operational(properties)
+            )
+            if stale_transport or half_connected_onstep:
                 if device_name not in reconnect_required:
                     reconnect_required.add(device_name)
                     recovery_changed = True
@@ -776,9 +846,7 @@ class IndiDeviceManager:
             if "mount" not in self._categories(properties):
                 continue
             connection = properties.get("CONNECTION", {})
-            connected = str(
-                _raw(connection.get("CONNECT", "Off"))
-            ).casefold() in {"on", "true", "1"}
+            connected = _connected(properties)
             learned = bindings.get(device_name)
             connect_timeout_s = _mount_connect_timeout_s(properties)
             use_setprop = _is_onstep_driver(properties)
