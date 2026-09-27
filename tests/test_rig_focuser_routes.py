@@ -152,3 +152,67 @@ def test_focuser_status_failure_remains_json_and_does_not_emit(monkeypatch):
         "device_type": "focuser",
     }
     assert emitted == []
+
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "payload"),
+    [
+        ("/api/rigs/1/focuser/home", None),
+        ("/api/rigs/1/focuser/move_to", {"position": 100}),
+        ("/api/rigs/1/focuser/step", {"direction": "increase"}),
+        ("/api/rigs/1/focuser/jog/start", {"direction": "increase"}),
+    ],
+)
+def test_focuser_motion_guard_failure_is_structured_json(
+    monkeypatch,
+    endpoint,
+    payload,
+):
+    class FailingStatusWorker(FakeFocuserWorker):
+        def status(self):
+            raise RuntimeError("EAFGetPosition a echoue (code 4)")
+
+    worker = FailingStatusWorker(1)
+    client, _runtime, emitted = _client(monkeypatch, {1: worker})
+
+    response = client.post(endpoint, json=payload)
+
+    assert response.status_code == 503
+    assert response.is_json
+    assert response.get_json() == {
+        "error": "EAFGetPosition a echoue (code 4)",
+        "code": "FOCUSER_IO_ERROR",
+        "rig_id": 1,
+        "device_type": "focuser",
+    }
+    assert emitted == []
+
+
+def test_focuser_move_failure_after_guard_is_structured_json(monkeypatch):
+    class FailingMoveWorker(FakeFocuserWorker):
+        def status(self):
+            return {
+                "moving": False,
+                "motion_command": None,
+            }
+
+        def move_to(self, _position):
+            raise RuntimeError("EAFMove a echoue (code 4)")
+
+    worker = FailingMoveWorker(1)
+    client, _runtime, emitted = _client(monkeypatch, {1: worker})
+
+    response = client.post(
+        "/api/rigs/1/focuser/move_to",
+        json={"position": 100},
+    )
+
+    assert response.status_code == 503
+    assert response.get_json() == {
+        "error": "EAFMove a echoue (code 4)",
+        "code": "FOCUSER_IO_ERROR",
+        "rig_id": 1,
+        "device_type": "focuser",
+    }
+    assert emitted == []
