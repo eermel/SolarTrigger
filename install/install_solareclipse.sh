@@ -1130,6 +1130,7 @@ ExecStart=$VENV_DIR/bin/gunicorn \
 
 Restart=on-failure
 RestartSec=5
+KillMode=control-group
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=solareclipse-portal
