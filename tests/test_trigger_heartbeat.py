@@ -1,6 +1,8 @@
 import os
 import time
 
+import pytest
+
 import backend.trigger_heartbeat as trigger_heartbeat
 from backend.trigger_heartbeat import HeartbeatEmitter, HeartbeatSupervisor
 
@@ -296,3 +298,57 @@ def test_heartbeat_emitter_never_blocks_when_pipe_is_full():
         assert emitter.fd is None
     finally:
         os.close(read_fd)
+
+
+def test_heartbeat_reader_start_failure_rolls_back_watchdog_without_closing_fd():
+    read_fd, write_fd = os.pipe()
+    created = []
+
+    class FakeThread:
+        def __init__(self, *, target, name, daemon):
+            self.target = target
+            self.name = name
+            self.daemon = daemon
+            self.started = False
+            self.joined = False
+            created.append(self)
+
+        def start(self):
+            if self.name == "trigger-heartbeat-reader":
+                raise RuntimeError("synthetic reader start failure")
+            self.started = True
+
+        def join(self, timeout=None):
+            self.joined = True
+
+    class Proc:
+        def poll(self):
+            return None
+
+    supervisor = HeartbeatSupervisor(
+        read_fd=read_fd,
+        proc=Proc(),
+        timeout_s=1.0,
+        thread_factory=FakeThread,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="synthetic reader start failure",
+    ):
+        supervisor.start()
+
+    by_name = {thread.name: thread for thread in created}
+    assert by_name["trigger-heartbeat-watchdog"].started is True
+    assert by_name["trigger-heartbeat-watchdog"].joined is True
+    assert by_name["trigger-heartbeat-reader"].started is False
+    assert supervisor._watchdog_thread is None
+    assert supervisor._reader_thread is None
+    assert supervisor._stop.is_set() is True
+
+    # Startup rollback deliberately leaves read_fd to the caller.
+    os.write(write_fd, b"x")
+    assert os.read(read_fd, 1) == b"x"
+
+    os.close(write_fd)
+    os.close(read_fd)
