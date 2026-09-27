@@ -1807,10 +1807,12 @@ def _bound_focuser_inventory_reservations():
 
 @app.route("/api/rigs/devices/refresh", methods=["POST"])
 def api_rig_device_inventory_refresh():
-    """Refresh INDI/gphoto inventory without reprobeing owned devices."""
+    """Refresh hardware inventory without reprobeing owned devices."""
+    reuse_recent_indi = request.args.get("reuse_recent_indi") == "1"
     return jsonify(refresh_inventory(
         reserved_mounts=_bound_mount_inventory_reservations(),
         reserved_focusers=_bound_focuser_inventory_reservations(),
+        reuse_recent_indi_s=30.0 if reuse_recent_indi else 0.0,
     ))
 
 
