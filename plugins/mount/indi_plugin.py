@@ -786,21 +786,36 @@ class IndiMount(MountPlugin):
 
     def set_location(self, lat, lon, elev):
         try:
-            prop = self._props(["GEOGRAPHIC_COORD.*"]).get("GEOGRAPHIC_COORD")
+            props = self._props(["GEOGRAPHIC_COORD.*", "DRIVER_INFO.*"])
+            prop = props.get("GEOGRAPHIC_COORD")
             if not prop:
-                raise IndiClientError("PROPERTY_UNSUPPORTED", "INDI geographic coordinates are unsupported")
-            self._set_props({"GEOGRAPHIC_COORD": {
-                "LAT": lat, "LONG": lon, "ELEV": elev,
-            }})
+                raise IndiClientError(
+                    "PROPERTY_UNSUPPORTED",
+                    "INDI geographic coordinates are unsupported",
+                )
+            assignments = {
+                "LAT": lat,
+                "LONG": lon,
+                "ELEV": elev,
+            }
+            if self._is_onstep_driver(props):
+                self._set_onstep_vector_atomic("GEOGRAPHIC_COORD", assignments)
+                self._verify_onstep_location(lat, lon, elev)
+            else:
+                self._set_props({"GEOGRAPHIC_COORD": assignments})
         except IndiClientError:
             raise
         except Exception as exc:
             self._raise_mapped("CONNECTION_FAILED", "Unable to set INDI location", exc)
 
     def sync_site_time(self, lat, lon, elev, utc_iso, utc_offset_hours):
-        """Synchronize standard INDI site coordinates and UTC time."""
+        """Synchronize site/time only after an explicit operator request."""
         try:
-            props = self._props(["GEOGRAPHIC_COORD.*", "TIME_UTC.*"])
+            props = self._props([
+                "GEOGRAPHIC_COORD.*",
+                "TIME_UTC.*",
+                "DRIVER_INFO.*",
+            ])
             location = props.get("GEOGRAPHIC_COORD")
             time_prop = props.get("TIME_UTC")
             if not location:
@@ -813,17 +828,34 @@ class IndiMount(MountPlugin):
                     "PROPERTY_UNSUPPORTED",
                     "INDI UTC time synchronization is unsupported",
                 )
-            self._set_props({
-                "GEOGRAPHIC_COORD": {
-                    "LAT": lat,
-                    "LONG": lon,
-                    "ELEV": elev,
-                },
-                "TIME_UTC": {
-                    "UTC": str(utc_iso),
-                    "OFFSET": f"{float(utc_offset_hours):+.2f}",
-                },
-            })
+
+            location_values = {
+                "LAT": lat,
+                "LONG": lon,
+                "ELEV": elev,
+            }
+            time_values = {
+                "UTC": str(utc_iso),
+                "OFFSET": f"{float(utc_offset_hours):+.2f}",
+            }
+
+            if self._is_onstep_driver(props):
+                # OnStep driver 1.17 is sensitive to split indi_setprop writes:
+                # LAT/LONG may be acknowledged but not reach the controller.
+                # Send complete INDI vectors atomically over a one-shot TCP
+                # client while keeping the normal runtime transport unchanged.
+                self._set_onstep_vector_atomic(
+                    "GEOGRAPHIC_COORD",
+                    location_values,
+                )
+                self._set_onstep_vector_atomic("TIME_UTC", time_values)
+                self._verify_onstep_location(lat, lon, elev)
+            else:
+                self._set_props({
+                    "GEOGRAPHIC_COORD": location_values,
+                    "TIME_UTC": time_values,
+                })
+
             return {
                 "latitude": float(lat),
                 "longitude": float(lon),
@@ -839,6 +871,53 @@ class IndiMount(MountPlugin):
                 "Unable to synchronize INDI mount site/time",
                 exc,
             )
+
+    def _set_onstep_vector_atomic(self, prop, elements):
+        """Send one complete INDI vector to OnStep without changing runtime I/O."""
+        with IndiTcpSession(
+            host=self.config.get("host", "127.0.0.1"),
+            port=int(self.config.get("port", 7624)),
+            device=self.device_name,
+            timeout_s=float(self.config.get("client_timeout", 4.0)),
+        ) as session:
+            if prop == "GEOGRAPHIC_COORD":
+                session.set_number(prop, elements)
+            elif prop == "TIME_UTC":
+                session.set_text(prop, elements)
+            else:
+                raise IndiClientError(
+                    "PROPERTY_UNSUPPORTED",
+                    f"Unsupported atomic OnStep property: {prop}",
+                )
+
+    @staticmethod
+    def _readback_close(actual, expected, tolerance):
+        try:
+            return abs(float(actual) - float(expected)) <= float(tolerance)
+        except (TypeError, ValueError):
+            return False
+
+    def _verify_onstep_location(self, lat, lon, elev):
+        """Require the driver readback to match the requested OnStep site."""
+        deadline = time.monotonic() + self.timeout
+        last = {}
+        while time.monotonic() < deadline:
+            last = self._props(["GEOGRAPHIC_COORD.*"]).get(
+                "GEOGRAPHIC_COORD",
+                {},
+            )
+            if (
+                self._readback_close(last.get("LAT"), lat, 0.02)
+                and self._readback_close(last.get("LONG"), lon, 0.02)
+                and self._readback_close(last.get("ELEV"), elev, 5.0)
+            ):
+                return
+            time.sleep(self.poll_interval)
+        raise IndiClientError(
+            "CONNECTION_FAILED",
+            "OnStep site synchronization was not confirmed by readback "
+            f"(requested LAT={lat}, LONG={lon}, ELEV={elev}; readback={last})",
+        )
 
     def _cleanup_runtime_channels(self):
         """Close every runtime channel, including partial connect failures."""
