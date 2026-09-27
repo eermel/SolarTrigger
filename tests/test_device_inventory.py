@@ -604,15 +604,20 @@ def test_focuser_discovery_uses_vendor_sdk_even_when_indi_catalog_exists(
 
 
 
-def test_two_present_indi_mounts_are_exposed_without_legacy_probe(monkeypatch):
+def test_eqmod_indi_and_direct_onstep_can_coexist(monkeypatch):
     from plugins import mount as mount_registry
 
+    direct_onstep = {
+        "category": "mount",
+        "backend": "onstep",
+        "manufacturer": "OnStep",
+        "model": "On-Step",
+        "fallback_physical_path": "/dev/serial/by-id/usb-ch340",
+    }
     monkeypatch.setattr(
         mount_registry,
         "inventory_mounts",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("legacy mount probing must not run")
-        ),
+        lambda **kwargs: [direct_onstep],
     )
     catalog = [
         {
@@ -620,17 +625,21 @@ def test_two_present_indi_mounts_are_exposed_without_legacy_probe(monkeypatch):
             "device_name": "EQMod Mount",
             "device_id": "indi:127.0.0.1:7624:EQMod Mount",
             "model": "EQMod Mount",
+            "driver_exec": "indi_eqmod_telescope",
             "categories": ["guider", "mount"],
             "present": True,
             "connected": True,
             "fallback_physical_path": "/dev/serial/by-id/usb-ftdi",
         },
         {
+            # A stale/legacy INDI OnStep advertisement must never become the
+            # pilotable OnStep backend again.
             "backend": "indi",
             "device_name": "LX200 OnStep",
             "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
             "model": "LX200 OnStep",
-            "categories": ["focuser", "guider", "mount", "weather"],
+            "driver_exec": "indi_lx200_OnStep",
+            "categories": ["mount"],
             "present": True,
             "connected": True,
             "fallback_physical_path": "/dev/serial/by-id/usb-ch340",
@@ -639,37 +648,50 @@ def test_two_present_indi_mounts_are_exposed_without_legacy_probe(monkeypatch):
 
     mounts = device_inventory._discover_mounts(indi_catalog=catalog)
 
-    assert [entry["device_name"] for entry in mounts] == [
-        "EQMod Mount",
-        "LX200 OnStep",
-    ]
-    assert all(entry["backend"] == "indi" for entry in mounts)
-    assert all(entry["pilotable"] is True for entry in mounts)
+    assert [entry["backend"] for entry in mounts] == ["indi", "onstep"]
+    assert mounts[0]["device_name"] == "EQMod Mount"
+    assert mounts[1]["fallback_physical_path"] == (
+        "/dev/serial/by-id/usb-ch340"
+    )
 
 
-def test_absent_advertised_indi_mount_never_falls_back_to_legacy_serial(
-    monkeypatch,
-):
+def test_absent_legacy_indi_onstep_falls_back_to_direct_serial(monkeypatch):
     from plugins import mount as mount_registry
 
     calls = []
+    direct_onstep = {
+        "category": "mount",
+        "backend": "onstep",
+        "manufacturer": "OnStep",
+        "model": "On-Step",
+        "fallback_physical_path": "/dev/serial/by-id/usb-ch340",
+    }
+
+    def inventory_mounts(**kwargs):
+        calls.append(kwargs)
+        return [direct_onstep]
+
     monkeypatch.setattr(
         mount_registry,
         "inventory_mounts",
-        lambda **_kwargs: calls.append("legacy") or [],
+        inventory_mounts,
     )
     catalog = [{
         "backend": "indi",
         "device_name": "LX200 OnStep",
         "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+        "driver_exec": "indi_lx200_OnStep",
         "categories": ["mount"],
         "present": False,
-        "connected": True,
+        "connected": False,
         "fallback_physical_path": None,
     }]
 
-    assert device_inventory._discover_mounts(indi_catalog=catalog) == []
-    assert calls == []
+    assert device_inventory._discover_mounts(
+        indi_catalog=catalog,
+    ) == [direct_onstep]
+    assert calls[0]["candidates"] == ["onstep"]
+
 
 
 def test_bound_focuser_is_not_synthesized_present_after_usb_unplug(monkeypatch):
