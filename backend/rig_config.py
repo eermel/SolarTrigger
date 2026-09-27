@@ -130,7 +130,8 @@ def migrate_indi_onstep_bindings(obj: Any) -> bool:
             continue
 
         mount["backend"] = "onstep"
-        mount.setdefault("manufacturer", "OnStep")
+        if not str(mount.get("manufacturer") or "").strip():
+            mount["manufacturer"] = "OnStep"
         for field in indi_only_fields:
             mount.pop(field, None)
         changed = True
