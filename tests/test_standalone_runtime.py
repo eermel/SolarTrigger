@@ -852,3 +852,26 @@ def test_runtime_shutdown_does_not_release_camera_after_force_stop_exception():
 
     assert camera.calls == 1
     assert controller._shutdown is True
+
+
+def test_runtime_server_close_does_not_unlink_replacement_socket(tmp_path):
+    socket_path = tmp_path / "runtime-race.sock"
+    server = RuntimeUnixServer(str(socket_path), _StaticController())
+
+    # Simulate a replacement endpoint appearing in the close/unlink window.
+    socket_path.unlink()
+    replacement = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    replacement.bind(str(socket_path))
+    try:
+        replacement_stat = socket_path.lstat()
+
+        server.server_close()
+
+        current = socket_path.lstat()
+        assert (current.st_dev, current.st_ino) == (
+            replacement_stat.st_dev,
+            replacement_stat.st_ino,
+        )
+    finally:
+        replacement.close()
+        socket_path.unlink(missing_ok=True)
