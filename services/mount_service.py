@@ -33,7 +33,6 @@ class MountService:
         self._plugin_access_lock = threading.RLock()
         self._plugin = None
         self._plugin_id: str | None = None
-        self._location_pushed = False
         self._moving = False
         self._direction: str | None = None
         self._homing = False
@@ -57,7 +56,6 @@ class MountService:
     def _close_locked(self) -> None:
         plugin, self._plugin = self._plugin, None
         self._plugin_id = None
-        self._location_pushed = False
         self._clear_motion_locked()
         if plugin is not None and getattr(plugin, "connected", False):
             plugin.disconnect()
@@ -81,7 +79,6 @@ class MountService:
             plugin = self._plugin
             try:
                 plugin.connect()
-                self._push_gps_location(plugin)
                 get_tracking_capabilities = getattr(
                     plugin, "get_tracking_capabilities", None
                 )
@@ -105,7 +102,6 @@ class MountService:
             except Exception:
                 self._plugin = None
                 self._plugin_id = None
-                self._location_pushed = False
                 self._clear_motion_locked()
                 try:
                     plugin.disconnect()
@@ -150,24 +146,6 @@ class MountService:
             setter(latitude, longitude)
         else:
             setter(latitude, longitude, elevation)
-
-    def _push_gps_location(self, plugin) -> None:
-        if self._location_pushed:
-            return
-        setter = getattr(plugin, "set_location", None)
-        gps = self._state_store.snapshot("gps") or {}
-        if not isinstance(gps, dict):
-            return
-        location = (gps.get("lat"), gps.get("lon"), gps.get("alt"))
-        if not callable(setter):
-            return
-        try:
-            self._validate_location(*location)
-        except ValueError as exc:
-            self._log(f"mount GPS location skipped: {exc}")
-            return
-        self._set_plugin_location(plugin, *location)
-        self._location_pushed = True
 
     def _status_locked(self, plugin) -> dict:
         # Hardware I/O must happen without holding self._lock.
@@ -426,7 +404,6 @@ class MountService:
                 utc_iso,
                 utc_offset_hours,
             )
-            self._location_pushed = True
             status = self._status_locked(plugin)
             status["synchronization"] = dict(applied or {})
             return status
