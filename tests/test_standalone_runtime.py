@@ -986,3 +986,80 @@ def test_runtime_main_skips_controller_cleanup_if_rpc_handlers_do_not_drain(
 
     assert ("controller.shutdown", True) not in events
     assert any(item[0] == "server.drain" for item in events)
+
+
+def test_runtime_server_signal_exit_request_stops_serve_forever_without_helper_thread(
+    tmp_path,
+):
+    socket_path = tmp_path / "signal-exit-runtime.sock"
+    server = RuntimeUnixServer(str(socket_path), _StaticController())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        assert RuntimeClient(str(socket_path), timeout=0.5).call("ping") == {
+            "status": "ok",
+            "pid": 4242,
+        }
+
+        server.request_serve_forever_exit()
+        thread.join(timeout=1.0)
+
+        assert not thread.is_alive()
+        assert server._closing is True
+    finally:
+        server.server_close()
+        thread.join(timeout=1.0)
+
+    assert not socket_path.exists()
+
+
+def test_runtime_shutdown_does_not_release_camera_if_force_stop_thread_cannot_start(
+    monkeypatch,
+):
+    class ActiveTrigger:
+        def __init__(self):
+            self.active = True
+            self.stop_calls = []
+
+        def is_active_or_starting(self, rig_id):
+            return rig_id == 1 and self.active
+
+        def stop(self, rig_id, force=False):
+            self.stop_calls.append((rig_id, force))
+            self.active = False
+
+    class CameraRuntime:
+        def __init__(self):
+            self.calls = 0
+
+        def shutdown(self):
+            self.calls += 1
+
+    class FailingThread:
+        def __init__(self, **kwargs):
+            self.name = kwargs.get("name")
+
+        def start(self):
+            raise RuntimeError("synthetic shutdown thread start failure")
+
+    trigger = ActiveTrigger()
+    camera = CameraRuntime()
+    controller = _shutdown_test_controller(trigger, camera)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(runtime_daemon.threading, "Thread", FailingThread)
+        with pytest.raises(
+            RuntimeError,
+            match="FORCE STOP worker failed to start",
+        ):
+            controller.shutdown()
+
+    assert trigger.stop_calls == []
+    assert camera.calls == 0
+    assert controller._shutdown is False
+
+    trigger.active = False
+    controller.shutdown()
+
+    assert camera.calls == 1
+    assert controller._shutdown is True
