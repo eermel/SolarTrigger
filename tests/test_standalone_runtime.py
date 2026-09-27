@@ -875,3 +875,114 @@ def test_runtime_server_close_does_not_unlink_replacement_socket(tmp_path):
     finally:
         replacement.close()
         socket_path.unlink(missing_ok=True)
+
+
+def test_runtime_shutdown_waits_for_admitted_rpc_handler(tmp_path):
+    class BlockingController:
+        def __init__(self):
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def dispatch(self, operation, payload):
+            if operation != "block":
+                return {"status": "ok"}
+            self.entered.set()
+            self.release.wait(2.0)
+            return {"done": True}
+
+    controller = BlockingController()
+    socket_path = tmp_path / "drain-runtime.sock"
+    server = RuntimeUnixServer(
+        str(socket_path),
+        controller,
+        max_connections=2,
+        io_timeout_s=1.0,
+    )
+    server_thread = _serve_runtime_server(server)
+    client_errors = []
+
+    def call_blocking_rpc():
+        try:
+            RuntimeClient(str(socket_path), timeout=1.0).call("block")
+        except Exception as exc:
+            client_errors.append(exc)
+
+    client_thread = threading.Thread(target=call_blocking_rpc)
+    client_thread.start()
+    try:
+        assert controller.entered.wait(0.5)
+
+        server.begin_shutdown()
+
+        assert server.wait_for_idle(0.05) is False
+
+        with pytest.raises(RuntimeUnavailableError):
+            RuntimeClient(str(socket_path), timeout=0.2).call("ping")
+
+        controller.release.set()
+        assert server.wait_for_idle(1.0) is True
+    finally:
+        controller.release.set()
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=2)
+        client_thread.join(timeout=2)
+
+    assert not client_thread.is_alive()
+
+
+def test_runtime_main_skips_controller_cleanup_if_rpc_handlers_do_not_drain(
+    tmp_path,
+    monkeypatch,
+):
+    events = []
+
+    class FakeController:
+        def __init__(self, _root, *, restore_recovery=True):
+            events.append(("controller.construct", restore_recovery))
+
+        def _restore_trigger_journal_state(self):
+            events.append(("controller.restore", True))
+
+        def shutdown(self):
+            events.append(("controller.shutdown", True))
+
+    class FakeServer:
+        def __init__(self, _socket, controller):
+            self.controller = controller
+            events.append(("server.construct", controller))
+
+        def begin_shutdown(self):
+            events.append(("server.begin_shutdown", True))
+
+        def shutdown(self):
+            events.append(("server.shutdown", True))
+
+        def serve_forever(self, poll_interval=0.2):
+            events.append(("server.serve", poll_interval))
+
+        def server_close(self):
+            events.append(("server.close", True))
+
+        def wait_for_idle(self, timeout):
+            events.append(("server.drain", timeout))
+            return False
+
+    monkeypatch.setattr(runtime_daemon, "RuntimeController", FakeController)
+    monkeypatch.setattr(runtime_daemon, "RuntimeUnixServer", FakeServer)
+
+    with pytest.raises(
+        RuntimeError,
+        match="runtime RPC handlers did not drain before shutdown",
+    ):
+        runtime_daemon.main(
+            [
+                "--socket",
+                str(tmp_path / "runtime.sock"),
+                "--root",
+                str(tmp_path),
+            ]
+        )
+
+    assert ("controller.shutdown", True) not in events
+    assert any(item[0] == "server.drain" for item in events)
