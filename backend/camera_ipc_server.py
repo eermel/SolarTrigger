@@ -175,6 +175,10 @@ class CameraIpcServer:
         self._pool: ThreadPoolExecutor | None = None
         self._connection_slots: threading.BoundedSemaphore | None = None
         self._stopping = threading.Event()
+        self._stop_complete = threading.Event()
+        self._stop_complete.set()
+        self._handler_state = threading.Condition()
+        self._active_connections: set[socket.socket] = set()
         self._state_lock = threading.RLock()
         self._active_sessions: dict[str, frozenset[int] | None] = {}
         # Identity token for each active lease incarnation.  A session_id may
@@ -202,6 +206,14 @@ class CameraIpcServer:
         """Compatibility name for callers which treat the path as an endpoint."""
 
         return self._socket_path
+
+    @property
+    def stopping(self) -> bool:
+        return self._stopping.is_set() and not self._stop_complete.is_set()
+
+    @property
+    def stopped(self) -> bool:
+        return self._stop_complete.is_set()
 
     @property
     def _active_session(self):
@@ -386,6 +398,11 @@ class CameraIpcServer:
         with self._state_lock:
             if self._socket is not None:
                 return self._socket_path
+            if self.stopping:
+                raise IpcError(
+                    "SHUTDOWN_IN_PROGRESS",
+                    "camera IPC shutdown is still in progress",
+                )
             self._remove_stale_socket()
             listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
@@ -404,6 +421,7 @@ class CameraIpcServer:
                 self._unlink_own_socket()
                 raise
             self._stopping.clear()
+            self._stop_complete.clear()
             self._socket = listener
             self._pool = ThreadPoolExecutor(
                 max_workers=MAX_WORKERS, thread_name_prefix="camera-ipc"
@@ -419,28 +437,68 @@ class CameraIpcServer:
             self._accept_thread.start()
         return self._socket_path
 
-    def stop(self, timeout: float | None = 5.0) -> None:
+    def stop(self, timeout: float | None = 5.0) -> bool:
+        """Stop admission and drain already admitted handlers boundedly.
+
+        A handler may already be inside a camera worker call when shutdown
+        starts.  Never clear server state or let the runtime release workers
+        while such a handler can still use them.
+        """
+
+        effective_timeout = 5.0 if timeout is None else max(0.0, float(timeout))
         self._stopping.set()
+
         with self._state_lock:
             listener, self._socket = self._socket, None
             thread, self._accept_thread = self._accept_thread, None
             pool, self._pool = self._pool, None
             self._connection_slots = None
+
         if listener is not None:
             listener.close()
         if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout)
+            thread.join(effective_timeout)
+
+        with self._handler_state:
+            active = tuple(self._active_connections)
+        for connection in active:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
         if pool is not None:
-            # A request handler may be waiting on a hardware call that never
-            # returns. Stopping the IPC endpoint itself must remain bounded.
-            pool.shutdown(wait=False, cancel_futures=True)
+            # Accepted connections are already bounded to MAX_WORKERS, so
+            # there is no unbounded queue to abandon.  Let admitted handlers
+            # leave normally after their sockets are interrupted.
+            pool.shutdown(wait=False, cancel_futures=False)
+
         self._unlink_own_socket()
+
+        deadline = time.monotonic() + effective_timeout
+        with self._handler_state:
+            while self._active_connections:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    return False
+                self._handler_state.wait(remaining)
+
+        self._finalize_stop()
+        return True
+
+    def _finalize_stop(self) -> bool:
+        with self._handler_state:
+            if self._active_connections:
+                return False
+
         with self._state_lock:
             self._active_sessions.clear()
             self._session_leases.clear()
             self._tokens.clear()
             self._prepare_reservations.clear()
             self._rig_iso_targets.clear()
+        self._stop_complete.set()
+        return True
 
     def _remove_stale_socket(self) -> None:
         try:
@@ -522,11 +580,22 @@ class CameraIpcServer:
                 # camera handlers already in progress remain unaffected.
                 connection.close()
                 continue
+
+            with self._handler_state:
+                if self._stopping.is_set():
+                    connection.close()
+                    slots.release()
+                    continue
+                self._active_connections.add(connection)
+
             try:
                 pool.submit(self._serve_connection_bounded, connection, slots)
             except RuntimeError:
                 # Pool may have been shut down between the snapshots above and
                 # submit().  Never leak either the socket or its capacity slot.
+                with self._handler_state:
+                    self._active_connections.discard(connection)
+                    self._handler_state.notify_all()
                 connection.close()
                 slots.release()
 
@@ -535,10 +604,20 @@ class CameraIpcServer:
         connection: socket.socket,
         slots: threading.BoundedSemaphore,
     ) -> None:
+        finalize = False
         try:
             self._serve_connection(connection)
         finally:
+            with self._handler_state:
+                self._active_connections.discard(connection)
+                finalize = (
+                    self._stopping.is_set()
+                    and not self._active_connections
+                )
+                self._handler_state.notify_all()
             slots.release()
+            if finalize:
+                self._finalize_stop()
 
     def _serve_connection(self, connection: socket.socket) -> None:
         with connection:
