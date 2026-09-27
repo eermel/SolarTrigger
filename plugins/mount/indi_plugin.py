@@ -764,10 +764,21 @@ class IndiMount(MountPlugin):
 
     def set_speed(self, value):
         try:
-            prop = self._props(["TELESCOPE_SLEW_RATE.*"]).get("TELESCOPE_SLEW_RATE", {})
+            identity = self._props(["DRIVER_INFO.*"])
+            if self._runtime_tcp_enabled and self._is_onstep_driver(identity):
+                self._set_onstep_speed_live(value)
+                return
+
+            prop = self._props(["TELESCOPE_SLEW_RATE.*"]).get(
+                "TELESCOPE_SLEW_RATE",
+                {},
+            )
             selected = self._find_element(prop, value)
             if selected is None:
-                raise IndiClientError("PROPERTY_UNSUPPORTED", f"Unsupported slew speed: {value}")
+                raise IndiClientError(
+                    "PROPERTY_UNSUPPORTED",
+                    f"Unsupported slew speed: {value}",
+                )
             self._set_props({"TELESCOPE_SLEW_RATE": {
                 name: "On" if name == selected else "Off" for name in prop
             }})
@@ -775,7 +786,56 @@ class IndiMount(MountPlugin):
         except IndiClientError:
             raise
         except Exception as exc:
-            self._raise_mapped("CONNECTION_FAILED", "Unable to set INDI slew speed", exc)
+            self._raise_mapped(
+                "CONNECTION_FAILED",
+                "Unable to set INDI slew speed",
+                exc,
+            )
+
+    def _set_onstep_speed_live(self, value):
+        """Write an OnStep slew rate only against freshly advertised INDI state.
+
+        The persistent monitor deliberately keeps the last known vector so UI
+        status stays cheap.  That cache must never authorize a write after the
+        OnStep driver has disconnected and withdrawn TELESCOPE_SLEW_RATE.
+        """
+        client = self._fresh_subprocess_client()
+        props = self._ensure_onstep_indi_live(
+            client,
+            require_slew_rate=True,
+        )
+        prop = props.get("TELESCOPE_SLEW_RATE", {})
+        selected = self._find_element(prop, value)
+        if selected is None:
+            raise IndiClientError(
+                "PROPERTY_UNSUPPORTED",
+                f"Unsupported slew speed: {value}",
+            )
+
+        # For an INDI 1-of-many vector, setting only the selected element is
+        # sufficient.  Avoid replaying cached OFF values for elements that may
+        # no longer be advertised by the live driver generation.
+        client.set_props({
+            "TELESCOPE_SLEW_RATE": {
+                selected: "On",
+            }
+        })
+
+        if not self._wait_fresh_for(
+            client,
+            lambda current: self._switch_on(
+                current.get("TELESCOPE_SLEW_RATE", {}),
+                selected,
+            ),
+            ["TELESCOPE_SLEW_RATE.*", "CONNECTION.*"],
+        ):
+            raise IndiClientError(
+                "CONNECTION_FAILED",
+                "OnStep slew speed change was not confirmed by live readback",
+            )
+
+        self._connected = True
+        self._move_rate = value
 
     def get_slew_speed_capabilities(self):
         try:
@@ -817,6 +877,17 @@ class IndiMount(MountPlugin):
                 "TIME_UTC.*",
                 "DRIVER_INFO.*",
             ])
+            onstep = self._is_onstep_driver(props)
+
+            if onstep:
+                return self._sync_onstep_direct(
+                    lat,
+                    lon,
+                    elev,
+                    utc_iso,
+                    utc_offset_hours,
+                )
+
             location = props.get("GEOGRAPHIC_COORD")
             time_prop = props.get("TIME_UTC")
             if not location:
@@ -840,36 +911,19 @@ class IndiMount(MountPlugin):
                 "OFFSET": f"{float(utc_offset_hours):+.2f}",
             }
 
-            onstep = self._is_onstep_driver(props)
-            if onstep:
-                # OnStep driver 1.17 is sensitive to split indi_setprop writes:
-                # LAT/LONG may be acknowledged but not reach the controller.
-                # Send complete INDI vectors atomically over a one-shot TCP
-                # client while keeping the normal runtime transport unchanged.
-                self._set_onstep_vector_atomic(
-                    "GEOGRAPHIC_COORD",
-                    location_values,
-                )
-                self._set_onstep_vector_atomic("TIME_UTC", time_values)
-            else:
-                # EQMod and other standard INDI telescope drivers use the
-                # normal vector transport.
-                self._set_props({
-                    "GEOGRAPHIC_COORD": location_values,
-                    "TIME_UTC": time_values,
-                })
-
-            # A successful write acknowledgement is not sufficient.  Require
-            # the driver to publish the requested site and UTC values back.
-            # This catches EQMod/INDI writes that were accepted by the client
-            # but not applied by the mount/driver.
+            # EQMod and other standard INDI telescope drivers use the normal
+            # vector transport and must confirm every applied value.
+            self._set_props({
+                "GEOGRAPHIC_COORD": location_values,
+                "TIME_UTC": time_values,
+            })
             self._verify_site_time(
                 lat,
                 lon,
                 elev,
                 utc_iso,
                 utc_offset_hours,
-                driver_label="OnStep" if onstep else "INDI",
+                driver_label="INDI",
             )
 
             return {
@@ -888,23 +942,241 @@ class IndiMount(MountPlugin):
                 exc,
             )
 
-    def _set_onstep_vector_atomic(self, prop, elements):
-        """Send one complete INDI vector to OnStep without changing runtime I/O."""
-        with IndiTcpSession(
+    def _fresh_subprocess_client(self):
+        """Return a one-shot client that never reads the persistent monitor cache."""
+        return IndiSubprocessClient(
             host=self.config.get("host", "127.0.0.1"),
             port=int(self.config.get("port", 7624)),
             device=self.device_name,
             timeout_s=float(self.config.get("client_timeout", 4.0)),
-        ) as session:
-            if prop == "GEOGRAPHIC_COORD":
-                session.set_number(prop, elements)
-            elif prop == "TIME_UTC":
-                session.set_text(prop, elements)
-            else:
-                raise IndiClientError(
-                    "PROPERTY_UNSUPPORTED",
-                    f"Unsupported atomic OnStep property: {prop}",
+        )
+
+    def _wait_fresh_for(self, client, predicate, patterns):
+        deadline = time.monotonic() + self.timeout
+        first = True
+        while first or time.monotonic() < deadline:
+            first = False
+            current = client.get_props(patterns)
+            if predicate(current):
+                return True
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(self.poll_interval)
+        return False
+
+    def _onstep_serial_port(self, client):
+        configured = (
+            self.config.get("serial_port")
+            or self.config.get("fallback_physical_path")
+        )
+        if configured:
+            return str(configured)
+
+        live = client.get_props(["DEVICE_PORT.PORT"])
+        port = self._text(live.get("DEVICE_PORT", {}), "PORT")
+        if not port:
+            raise IndiClientError(
+                "SERIAL_PORT_MISSING",
+                "OnStep serial transport is unavailable for direct synchronization",
+            )
+        return port
+
+    def _set_onstep_indi_connection(self, client, connected, serial_port=None):
+        if connected and serial_port:
+            client.set_props({"DEVICE_PORT": {"PORT": serial_port}})
+
+        client.set_props({
+            "CONNECTION": {
+                "CONNECT": "On" if connected else "Off",
+                "DISCONNECT": "Off" if connected else "On",
+            }
+        })
+
+        expected = "CONNECT" if connected else "DISCONNECT"
+        if not self._wait_fresh_for(
+            client,
+            lambda current: self._switch_on(
+                current.get("CONNECTION", {}),
+                expected,
+            ),
+            ["CONNECTION.*"],
+        ):
+            state = "connect" if connected else "disconnect"
+            raise IndiClientError(
+                "CONNECTION_FAILED",
+                f"Unable to {state} OnStep INDI driver for direct synchronization",
+            )
+        self._connected = bool(connected)
+
+    def _ensure_onstep_indi_live(self, client, *, require_slew_rate=False):
+        patterns = [
+            "CONNECTION.*",
+            "DEVICE_PORT.*",
+            "DRIVER_INFO.*",
+        ]
+        if require_slew_rate:
+            patterns.append("TELESCOPE_SLEW_RATE.*")
+
+        props = client.get_props(patterns)
+        connection = props.get("CONNECTION", {})
+        connected = self._switch_on(connection, "CONNECT")
+        has_required = (
+            not require_slew_rate
+            or bool(props.get("TELESCOPE_SLEW_RATE"))
+        )
+        if connected and has_required:
+            return props
+
+        # The monitor may still contain a rate vector from an older driver
+        # generation.  Force a clean live reconnect when the one-shot client
+        # cannot see the operational vector.
+        serial_port = self._onstep_serial_port(client)
+        if connected:
+            self._set_onstep_indi_connection(
+                client,
+                False,
+                serial_port=serial_port,
+            )
+        self._set_onstep_indi_connection(
+            client,
+            True,
+            serial_port=serial_port,
+        )
+
+        if not self._wait_fresh_for(
+            client,
+            lambda current: (
+                self._switch_on(current.get("CONNECTION", {}), "CONNECT")
+                and (
+                    not require_slew_rate
+                    or bool(current.get("TELESCOPE_SLEW_RATE"))
                 )
+            ),
+            patterns,
+        ):
+            raise IndiClientError(
+                "CONNECTION_FAILED",
+                "OnStep INDI driver reconnected but did not advertise "
+                "its operational properties",
+            )
+        self._connected = True
+        return client.get_props(patterns)
+
+    def _sync_onstep_direct(
+        self,
+        lat,
+        lon,
+        elev,
+        utc_iso,
+        utc_offset_hours,
+    ):
+        """Hand serial ownership to the proven direct OnStep LX200 setup path."""
+        from .onstep import OnStep
+
+        client = self._fresh_subprocess_client()
+        monitor_active = bool(getattr(self.client, "monitor_active", False))
+        stop_monitor = getattr(self.client, "stop_monitor", None)
+        start_monitor = getattr(self.client, "start_monitor", None)
+
+        if monitor_active and callable(stop_monitor):
+            stop_monitor()
+
+        serial_port = self._onstep_serial_port(client)
+        sync_error = None
+        reconnect_error = None
+
+        try:
+            live = client.get_props(["CONNECTION.*"])
+            if self._switch_on(live.get("CONNECTION", {}), "CONNECT"):
+                self._set_onstep_indi_connection(
+                    client,
+                    False,
+                    serial_port=serial_port,
+                )
+
+            try:
+                parsed_utc = datetime.fromisoformat(
+                    str(utc_iso).replace("Z", "+00:00")
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"invalid UTC synchronization value: {utc_iso!r}"
+                ) from exc
+            if parsed_utc.tzinfo is None:
+                parsed_utc = parsed_utc.replace(tzinfo=timezone.utc)
+            else:
+                parsed_utc = parsed_utc.astimezone(timezone.utc)
+
+            controller = OnStep(
+                port=serial_port,
+                baudrate=int(
+                    self.config.get(
+                        "baudrate",
+                        self.config.get("baud", 9600),
+                    )
+                ),
+                timeout=float(self.config.get("onstep_serial_timeout", 1.0)),
+            )
+            controller.connect()
+            try:
+                accepted = controller.set_datetime_location(
+                    parsed_utc,
+                    float(lat),
+                    float(lon),
+                    float(utc_offset_hours),
+                )
+            finally:
+                controller.disconnect()
+
+            if not accepted:
+                raise IndiClientError(
+                    "CONNECTION_FAILED",
+                    "OnStep rejected direct site/time synchronization",
+                )
+        except Exception as exc:
+            sync_error = exc
+        finally:
+            try:
+                self._set_onstep_indi_connection(
+                    client,
+                    True,
+                    serial_port=serial_port,
+                )
+            except Exception as exc:
+                reconnect_error = exc
+                self._connected = False
+            finally:
+                if monitor_active and callable(start_monitor):
+                    try:
+                        start_monitor()
+                    except Exception as exc:
+                        if reconnect_error is None:
+                            reconnect_error = exc
+
+        if reconnect_error is not None:
+            raise IndiClientError(
+                "CONNECTION_FAILED",
+                "OnStep direct synchronization finished but the INDI driver "
+                f"could not be restored: {reconnect_error}",
+            ) from reconnect_error
+
+        if sync_error is not None:
+            if isinstance(sync_error, IndiClientError):
+                raise sync_error
+            raise IndiClientError(
+                "CONNECTION_FAILED",
+                f"Direct OnStep synchronization failed: {sync_error}",
+            ) from sync_error
+
+        self._connected = True
+        return {
+            "latitude": float(lat),
+            "longitude": float(lon),
+            "elevation": float(elev),
+            "utc": str(utc_iso),
+            "utc_offset_hours": float(utc_offset_hours),
+            "transport": "onstep_direct",
+        }
 
     @staticmethod
     def _readback_close(actual, expected, tolerance):
