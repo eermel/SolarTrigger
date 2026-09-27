@@ -1261,6 +1261,11 @@ class TriggerService:
                 stdout_read_fd = None
             with self._lock:
                 cancel_start = self._cancel_start_requested_by_rig[rig_id]
+                if not cancel_start:
+                    # Startup ownership is now fully supervised.  From this
+                    # point the live process itself is sufficient to report
+                    # activity, and Emergency Totality may safely preempt it.
+                    self._starting_by_rig[rig_id] = False
             if cancel_start:
                 # The STOP raced with Popen().  Do not publish this process as
                 # active; terminate it before it can enter the capture runtime.
