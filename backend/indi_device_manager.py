@@ -822,7 +822,21 @@ class IndiDeviceManager:
             if not learned:
                 continue
             connected = _connected(properties)
-            stale_transport = connected and not os.path.exists(learned)
+            configured_transport = _text(
+                properties.get("DEVICE_PORT", {}),
+                "PORT",
+            )
+            live_transport = (
+                _stable_serial_path(configured_transport)
+                if connected and configured_transport
+                else None
+            )
+            # _stable_serial_path() is the single authority for physical
+            # presence. It resolves ttyUSB paths to their current by-id
+            # identity and already returns None when that transport vanished.
+            # Do not perform a second raw os.path.exists() check here: doing so
+            # can release a transport that discovery has just proven live.
+            stale_transport = connected and live_transport != learned
             half_connected_onstep = (
                 connected
                 and _is_onstep_driver(properties)
