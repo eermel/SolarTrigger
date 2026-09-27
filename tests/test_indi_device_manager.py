@@ -1248,6 +1248,58 @@ def test_detected_connected_mount_forces_tracking_off(monkeypatch):
     }) in calls
 
 
+def test_onstep_tracking_safety_uses_setprop_without_persistent_tcp(monkeypatch):
+    devices = {
+        "LX200 OnStep": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_lx200_OnStep",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "TELESCOPE_TRACK_STATE": {"TRACK_ON": "On", "TRACK_OFF": "Off"},
+        },
+    }
+    calls = []
+
+    class SetpropClient:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs["device"]))
+            self.track_on = True
+
+        def set_props(self, assignments):
+            calls.append(("set", assignments))
+            tracking = assignments.get("TELESCOPE_TRACK_STATE", {})
+            if tracking.get("TRACK_ON") == "Off":
+                self.track_on = False
+
+        def get_props(self, patterns=None):
+            calls.append(("get", tuple(patterns or ())))
+            return {
+                "TELESCOPE_TRACK_STATE": {
+                    "TRACK_ON": "On" if self.track_on else "Off",
+                    "TRACK_OFF": "Off" if self.track_on else "On",
+                }
+            }
+
+    monkeypatch.setattr(
+        "backend.indi_device_manager.IndiSubprocessClient",
+        SetpropClient,
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.IndiTcpSession",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("OnStep tracking safety must not use persistent TCP")
+        ),
+    )
+
+    manager = IndiDeviceManager(client=FakeClient(devices))
+
+    assert manager._disable_tracking_on_detected_mounts(devices) is True
+    assert ("set", {
+        "TELESCOPE_TRACK_STATE": {"TRACK_ON": "Off", "TRACK_OFF": "On"},
+    }) in calls
+
+
 def test_detected_mount_already_not_tracking_is_still_forced_off(monkeypatch):
     devices = {
         "Mount A": {
