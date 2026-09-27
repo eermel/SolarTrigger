@@ -233,16 +233,29 @@ def _clock_capability(camera, items, log):
     for semantic, item in (("local_datetime", local), ("utc_datetime", utc)):
         if item is None:
             continue
+
+        widget_type = item.get("widget_type")
+        date_widget = item.get("date_widget")
+        if widget_type is None or date_widget is None:
+            try:
+                _config, live_node = _node(camera, item["path"])
+                widget_type = _widget_type(live_node)
+                date_widget = _is_date_widget(live_node)
+            except Exception:
+                # Optional capability only: missing metadata must degrade to
+                # unsupported rather than fail the whole auxiliary probe.
+                date_widget = False if date_widget is None else date_widget
+
         cap = {
             "detected": True,
             "path": item["path"],
             "readonly": item["readonly"],
-            "widget_type": item["widget_type"],
-            "date_widget": item["date_widget"],
+            "widget_type": widget_type,
+            "date_widget": bool(date_widget),
             "set_proven": False,
         }
         result[semantic] = cap
-        if item["readonly"] or not item["date_widget"]:
+        if item["readonly"] or not cap["date_widget"]:
             continue
         current = item["value"]
         if isinstance(current, bool) or not isinstance(current, (int, float)):
