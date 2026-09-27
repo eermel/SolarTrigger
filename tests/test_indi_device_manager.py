@@ -383,6 +383,81 @@ def test_onstep_forced_reconnect_uses_long_cold_boot_timeout(monkeypatch, tmp_pa
     assert attempts == [("LX200 OnStep", learned, 5.0, True)]
 
 
+def test_half_connected_onstep_forces_reconnect_before_inventory(
+    monkeypatch,
+    tmp_path,
+):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    learned = "/dev/serial/by-id/ONSTEP"
+    bindings_file.write_text(
+        '{"version":1,"bindings":{"LX200 OnStep":"/dev/serial/by-id/ONSTEP"}}\n',
+        encoding="utf-8",
+    )
+    devices = {
+        "LX200 OnStep": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_lx200_OnStep",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": learned},
+            # Regression state observed on hardware: CONNECT=On but none of
+            # the joystick control vectors have been published.
+        },
+    }
+    manager = IndiDeviceManager(
+        client=FakeClient(devices),
+        bindings_file=bindings_file,
+    )
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: [learned])
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: path == learned,
+    )
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_reconnect_mount_transport",
+        lambda device, candidate, **kwargs: attempts.append(
+            (
+                device,
+                candidate,
+                kwargs.get("timeout_s"),
+                kwargs.get("use_setprop"),
+            )
+        ) or True,
+    )
+
+    assert manager._autoconnect_mounts(devices) is True
+    assert attempts == [("LX200 OnStep", learned, 5.0, True)]
+
+    import json
+    payload = json.loads(bindings_file.read_text(encoding="utf-8"))
+    assert payload["reconnect_required"] == []
+
+
+def test_half_connected_onstep_is_not_published_present(monkeypatch):
+    learned = "/dev/serial/by-id/ONSTEP"
+    monkeypatch.setattr(
+        "backend.indi_device_manager._stable_serial_path",
+        lambda port: learned if port == learned else None,
+    )
+    properties = {
+        "DRIVER_INFO": {
+            "DRIVER_EXEC": "indi_lx200_OnStep",
+            "DRIVER_INTERFACE": "1",
+        },
+        "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+        "DEVICE_PORT": {"PORT": learned},
+    }
+    manager = IndiDeviceManager(client=FakeClient({}))
+
+    entry = manager._entry("LX200 OnStep", properties)
+
+    assert entry["connected"] is True
+    assert entry["present"] is False
+
+
 def test_onstep_probe_uses_setprop_without_persistent_tcp(monkeypatch):
     calls = []
 
@@ -401,12 +476,25 @@ def test_onstep_probe_uses_setprop_without_persistent_tcp(monkeypatch):
 
         def get_props(self, patterns=None):
             calls.append(("get", tuple(patterns or ())))
-            return {
+            props = {
                 "CONNECTION": {
                     "CONNECT": "On" if self.connected else "Off",
                     "DISCONNECT": "Off" if self.connected else "On",
                 }
             }
+            if self.connected:
+                props.update({
+                    "TELESCOPE_SLEW_RATE": {"9": "On"},
+                    "TELESCOPE_MOTION_NS": {
+                        "MOTION_NORTH": "Off",
+                        "MOTION_SOUTH": "Off",
+                    },
+                    "TELESCOPE_MOTION_WE": {
+                        "MOTION_EAST": "Off",
+                        "MOTION_WEST": "Off",
+                    },
+                })
+            return props
 
     monkeypatch.setattr(
         "backend.indi_device_manager.IndiSubprocessClient",
@@ -454,12 +542,25 @@ def test_onstep_reconnect_uses_setprop_without_persistent_tcp(monkeypatch):
 
         def get_props(self, patterns=None):
             calls.append(("get", tuple(patterns or ())))
-            return {
+            props = {
                 "CONNECTION": {
                     "CONNECT": "On" if self.connected else "Off",
                     "DISCONNECT": "Off" if self.connected else "On",
                 }
             }
+            if self.connected:
+                props.update({
+                    "TELESCOPE_SLEW_RATE": {"9": "On"},
+                    "TELESCOPE_MOTION_NS": {
+                        "MOTION_NORTH": "Off",
+                        "MOTION_SOUTH": "Off",
+                    },
+                    "TELESCOPE_MOTION_WE": {
+                        "MOTION_EAST": "Off",
+                        "MOTION_WEST": "Off",
+                    },
+                })
+            return props
 
     monkeypatch.setattr(
         "backend.indi_device_manager.IndiSubprocessClient",
