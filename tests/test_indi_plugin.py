@@ -455,8 +455,16 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
         str(index): "On" if index == 7 else "Off"
         for index in range(10)
     }
+    props["TELESCOPE_MOTION_NS"] = {
+        "MOTION_NORTH": "Off",
+        "MOTION_SOUTH": "Off",
+    }
+    props["TELESCOPE_MOTION_WE"] = {
+        "MOTION_EAST": "Off",
+        "MOTION_WEST": "Off",
+    }
     client = StubIndiClient(props)
-    fresh = StubIndiClient()
+    fresh = StubIndiClient(props)
     session_attempts = []
 
     class ForbiddenSession:
@@ -473,10 +481,6 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
     plugin = mount(client)
     plugin._runtime_tcp_enabled = True
     plugin.connect()
-
-    # Build the fresh one-shot view after connect so it represents the live
-    # driver rather than the persistent monitor cache.
-    fresh.props = deepcopy(client.props)
 
     assert session_attempts == []
     assert plugin._control_session is None
@@ -511,6 +515,88 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
     } in client.set_calls
 
 
+def test_onstep_runtime_status_repairs_half_connected_driver(
+    monkeypatch,
+    full_props,
+):
+    cached = deepcopy(full_props)
+    cached["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_lx200_OnStep",
+        "DRIVER_NAME": "LX200 OnStep",
+    }
+    cached["CONNECTION"] = {"CONNECT": "On", "DISCONNECT": "Off"}
+    cached["DEVICE_PORT"] = {"PORT": "/dev/serial/by-id/onstep-test"}
+    cached.pop("TELESCOPE_SLEW_RATE", None)
+
+    class CachedClient(StubIndiClient):
+        monitor_active = True
+
+        def seed_monitor_cache(self, props):
+            for prop, elements in deepcopy(props).items():
+                self.props.setdefault(prop, {}).update(elements)
+
+        def start_monitor(self):
+            self.monitor_active = True
+
+        def stop_monitor(self):
+            self.monitor_active = False
+
+    class RecoveringClient(StubIndiClient):
+        def __init__(self):
+            super().__init__({
+                "DRIVER_INFO": deepcopy(cached["DRIVER_INFO"]),
+                "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+                "DEVICE_PORT": {"PORT": "/dev/serial/by-id/onstep-test"},
+            })
+
+        def set_props(self, assignments):
+            super().set_props(assignments)
+            connection = assignments.get("CONNECTION", {})
+            if connection.get("CONNECT") == "On":
+                self.props["TELESCOPE_SLEW_RATE"] = {
+                    str(index): "On" if index == 9 else "Off"
+                    for index in range(10)
+                }
+                self.props["TELESCOPE_MOTION_NS"] = {
+                    "MOTION_NORTH": "Off",
+                    "MOTION_SOUTH": "Off",
+                }
+                self.props["TELESCOPE_MOTION_WE"] = {
+                    "MOTION_EAST": "Off",
+                    "MOTION_WEST": "Off",
+                }
+
+    cached_client = CachedClient(cached)
+    fresh = RecoveringClient()
+    monkeypatch.setattr(
+        "plugins.mount.indi_plugin.IndiSubprocessClient",
+        lambda **_kwargs: fresh,
+    )
+
+    plugin = mount(cached_client)
+    plugin._runtime_tcp_enabled = True
+
+    status = plugin.status()
+
+    assert status["connected"] is True
+    assert status["slew_speed_capabilities"] is not None
+    assert status["capabilities"]["slew_speed"] is not None
+    assert {
+        "CONNECTION": {
+            "CONNECT": "Off",
+            "DISCONNECT": "On",
+        }
+    } in fresh.set_calls
+    assert {
+        "CONNECTION": {
+            "CONNECT": "On",
+            "DISCONNECT": "Off",
+        }
+    } in fresh.set_calls
+    assert "TELESCOPE_MOTION_NS" in cached_client.props
+    assert "TELESCOPE_MOTION_WE" in cached_client.props
+
+
 def test_onstep_speed_recovers_disconnected_live_driver(monkeypatch, full_props):
     cached = deepcopy(full_props)
     cached["DRIVER_INFO"] = {
@@ -537,6 +623,14 @@ def test_onstep_speed_recovers_disconnected_live_driver(monkeypatch, full_props)
                 self.props["TELESCOPE_SLEW_RATE"] = {
                     str(index): "On" if index == 5 else "Off"
                     for index in range(10)
+                }
+                self.props["TELESCOPE_MOTION_NS"] = {
+                    "MOTION_NORTH": "Off",
+                    "MOTION_SOUTH": "Off",
+                }
+                self.props["TELESCOPE_MOTION_WE"] = {
+                    "MOTION_EAST": "Off",
+                    "MOTION_WEST": "Off",
                 }
 
     fresh = FreshOnStepClient()
