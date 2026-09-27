@@ -258,6 +258,116 @@ def test_mount_autoconnect_never_reuses_transport_claimed_by_connected_mount(
     assert attempts == [("Mount B", "/dev/serial/by-id/B")]
 
 
+def test_onstep_autoconnect_uses_long_cold_boot_timeout(monkeypatch, tmp_path):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    learned = "/dev/serial/by-id/ONSTEP"
+    bindings_file.write_text(
+        '{"version":1,"bindings":{"LX200 OnStep":"/dev/serial/by-id/ONSTEP"}}\\n',
+        encoding="utf-8",
+    )
+    devices = {
+        "LX200 OnStep": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_lx200_OnStep",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"},
+            "DEVICE_PORT": {"PORT": learned},
+        },
+    }
+    manager = IndiDeviceManager(
+        client=FakeClient(devices),
+        bindings_file=bindings_file,
+    )
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: [learned])
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_probe_mount_transport",
+        lambda device, candidate, **kwargs: attempts.append(
+            (device, candidate, kwargs.get("timeout_s"))
+        ) or False,
+    )
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert attempts == [("LX200 OnStep", learned, 15.0)]
+
+
+def test_eqmod_autoconnect_keeps_short_connection_timeout(monkeypatch, tmp_path):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    learned = "/dev/serial/by-id/EQMOD"
+    bindings_file.write_text(
+        '{"version":1,"bindings":{"EQMod Mount":"/dev/serial/by-id/EQMOD"}}\\n',
+        encoding="utf-8",
+    )
+    devices = {
+        "EQMod Mount": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_eqmod_telescope",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"},
+            "DEVICE_PORT": {"PORT": learned},
+        },
+    }
+    manager = IndiDeviceManager(
+        client=FakeClient(devices),
+        bindings_file=bindings_file,
+    )
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: [learned])
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_probe_mount_transport",
+        lambda device, candidate, **kwargs: attempts.append(
+            (device, candidate, kwargs.get("timeout_s"))
+        ) or False,
+    )
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert attempts == [("EQMod Mount", learned, 3.0)]
+
+
+def test_onstep_forced_reconnect_uses_long_cold_boot_timeout(monkeypatch, tmp_path):
+    bindings_file = tmp_path / "indi_mount_bindings.json"
+    learned = "/dev/serial/by-id/ONSTEP"
+    bindings_file.write_text(
+        '{"version":1,"bindings":{"LX200 OnStep":"/dev/serial/by-id/ONSTEP"},'
+        '"reconnect_required":["LX200 OnStep"]}\\n',
+        encoding="utf-8",
+    )
+    devices = {
+        "LX200 OnStep": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_lx200_OnStep",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            "DEVICE_PORT": {"PORT": learned},
+        },
+    }
+    manager = IndiDeviceManager(
+        client=FakeClient(devices),
+        bindings_file=bindings_file,
+    )
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: [learned])
+    monkeypatch.setattr(
+        "backend.indi_device_manager.os.path.exists",
+        lambda path: path == learned,
+    )
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_reconnect_mount_transport",
+        lambda device, candidate, **kwargs: attempts.append(
+            (device, candidate, kwargs.get("timeout_s"))
+        ) or False,
+    )
+
+    assert manager._autoconnect_mounts(devices) is False
+    assert attempts == [("LX200 OnStep", learned, 15.0)]
+
+
 def test_mount_transport_probe_disconnects_failed_candidate(monkeypatch):
     calls = []
 
