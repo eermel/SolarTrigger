@@ -623,8 +623,10 @@ class IndiDeviceManager:
             client.set_props({
                 "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
             })
-            return self._wait_subprocess_connection(
+            return self._wait_subprocess_value(
                 client,
+                "CONNECTION",
+                "CONNECT",
                 {"On", "true", "1"},
                 timeout_s,
                 poll_interval=poll_interval,
