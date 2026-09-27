@@ -752,3 +752,53 @@ def test_bound_focuser_keeps_binding_metadata_when_vendor_inventory_sees_it(monk
     focuser = inventory["focuser"][0]
     assert focuser["device_id"] == "zwo_eaf:0"
     assert focuser["present"] is True
+
+
+
+def test_refresh_can_reuse_recent_indi_catalog(monkeypatch):
+    catalog = [{
+        "backend": "indi",
+        "device_name": "LX200 OnStep",
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+        "model": "LX200 OnStep",
+        "categories": ["mount"],
+        "present": True,
+        "connected": True,
+    }]
+    with device_inventory._cache_lock:
+        device_inventory._cache["astro"] = list(catalog)
+    monkeypatch.setattr(
+        device_inventory,
+        "_indi_catalog_refreshed_at",
+        device_inventory.time.monotonic(),
+    )
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_indi_catalog",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("fresh INDI catalogue must be reused")
+        ),
+    )
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(device_inventory, "_discover_mounts", lambda **_kwargs: [])
+    monkeypatch.setattr(device_inventory, "_discover_focusers", lambda **_kwargs: [])
+
+    refreshed = device_inventory.refresh_inventory(reuse_recent_indi_s=30.0)
+
+    assert refreshed["astro"][0]["device_name"] == "LX200 OnStep"
+
+
+def test_manual_refresh_never_reuses_recent_indi_catalog(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_indi_catalog",
+        lambda: calls.append("indi") or [],
+    )
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(device_inventory, "_discover_mounts", lambda **_kwargs: [])
+    monkeypatch.setattr(device_inventory, "_discover_focusers", lambda **_kwargs: [])
+
+    device_inventory.refresh_inventory()
+
+    assert calls == ["indi"]
