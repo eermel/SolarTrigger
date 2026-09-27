@@ -118,13 +118,23 @@ def refresh_inventory(
                 else _discover_indi_catalog()
             )
 
-        mount_kwargs = {
-            "reserved_mounts": reserved_mounts,
-            "indi_catalog": indi_catalog,
-        }
-        if direct_mounts:
-            mount_kwargs["direct_mounts"] = direct_mounts
-        mount_entries = _discover_mounts(**mount_kwargs)
+        if (
+            reserved_mounts is None
+            and not indi_catalog
+            and not direct_mounts
+        ):
+            # Preserve the original provider call contract for simple refreshes.
+            # This also keeps isolated discovery providers/test doubles usable
+            # without forcing them to accept orchestration-only keywords.
+            mount_entries = _discover_mounts()
+        else:
+            mount_kwargs = {
+                "reserved_mounts": reserved_mounts,
+                "indi_catalog": indi_catalog,
+            }
+            if direct_mounts:
+                mount_kwargs["direct_mounts"] = direct_mounts
+            mount_entries = _discover_mounts(**mount_kwargs)
         focuser_entries = (
             _discover_focusers()
             if reserved_focusers is None and not indi_catalog
