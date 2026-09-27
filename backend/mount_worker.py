@@ -113,6 +113,23 @@ class MountWorker:
     def set_location(self, latitude, longitude, elevation):
         return self._call("set_location", latitude, longitude, elevation)
 
+    def sync_site_time(
+        self,
+        latitude,
+        longitude,
+        elevation,
+        utc_iso,
+        utc_offset_hours,
+    ):
+        return self._call(
+            "sync_site_time",
+            latitude,
+            longitude,
+            elevation,
+            utc_iso,
+            utc_offset_hours,
+        )
+
     def start_slew(self, direction: str):
         return self._call("start_slew", direction)
 
