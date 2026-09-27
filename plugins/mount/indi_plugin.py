@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import datetime, timezone
 from .base import (
     MountPlugin,
     RATE_LUNAR,
@@ -839,7 +840,8 @@ class IndiMount(MountPlugin):
                 "OFFSET": f"{float(utc_offset_hours):+.2f}",
             }
 
-            if self._is_onstep_driver(props):
+            onstep = self._is_onstep_driver(props)
+            if onstep:
                 # OnStep driver 1.17 is sensitive to split indi_setprop writes:
                 # LAT/LONG may be acknowledged but not reach the controller.
                 # Send complete INDI vectors atomically over a one-shot TCP
@@ -849,12 +851,26 @@ class IndiMount(MountPlugin):
                     location_values,
                 )
                 self._set_onstep_vector_atomic("TIME_UTC", time_values)
-                self._verify_onstep_location(lat, lon, elev)
             else:
+                # EQMod and other standard INDI telescope drivers use the
+                # normal vector transport.
                 self._set_props({
                     "GEOGRAPHIC_COORD": location_values,
                     "TIME_UTC": time_values,
                 })
+
+            # A successful write acknowledgement is not sufficient.  Require
+            # the driver to publish the requested site and UTC values back.
+            # This catches EQMod/INDI writes that were accepted by the client
+            # but not applied by the mount/driver.
+            self._verify_site_time(
+                lat,
+                lon,
+                elev,
+                utc_iso,
+                utc_offset_hours,
+                driver_label="OnStep" if onstep else "INDI",
+            )
 
             return {
                 "latitude": float(lat),
@@ -897,30 +913,87 @@ class IndiMount(MountPlugin):
         except (TypeError, ValueError):
             return False
 
-    def _verify_onstep_location(self, lat, lon, elev):
-        """Require the driver readback to match the requested OnStep site."""
+    @staticmethod
+    def _parse_utc_readback(value):
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    @staticmethod
+    def _longitude_error(actual, expected):
+        try:
+            actual = float(actual) % 360.0
+            expected = float(expected) % 360.0
+        except (TypeError, ValueError):
+            return float("inf")
+        delta = abs(actual - expected)
+        return min(delta, 360.0 - delta)
+
+    def _verify_site_time(
+        self,
+        lat,
+        lon,
+        elev,
+        utc_iso,
+        utc_offset_hours,
+        *,
+        driver_label,
+    ):
+        """Require INDI readback to confirm site, UTC and timezone."""
+        expected_utc = self._parse_utc_readback(utc_iso)
+        if expected_utc is None:
+            raise ValueError(f"invalid UTC synchronization value: {utc_iso!r}")
+
         deadline = time.monotonic() + self.timeout
-        last = {}
+        last_location = {}
+        last_time = {}
         first = True
         while first or time.monotonic() < deadline:
             first = False
-            last = self._props(["GEOGRAPHIC_COORD.*"]).get(
-                "GEOGRAPHIC_COORD",
-                {},
+            current = self._props([
+                "GEOGRAPHIC_COORD.*",
+                "TIME_UTC.*",
+            ])
+            last_location = current.get("GEOGRAPHIC_COORD", {})
+            last_time = current.get("TIME_UTC", {})
+
+            read_utc = self._parse_utc_readback(last_time.get("UTC"))
+            utc_error = (
+                abs((read_utc - expected_utc).total_seconds())
+                if read_utc is not None
+                else float("inf")
             )
             if (
-                self._readback_close(last.get("LAT"), lat, 0.02)
-                and self._readback_close(last.get("LONG"), lon, 0.02)
-                and self._readback_close(last.get("ELEV"), elev, 5.0)
+                self._readback_close(last_location.get("LAT"), lat, 0.02)
+                and self._longitude_error(last_location.get("LONG"), lon) <= 0.02
+                and self._readback_close(last_location.get("ELEV"), elev, 5.0)
+                and self._readback_close(
+                    last_time.get("OFFSET"),
+                    utc_offset_hours,
+                    0.01,
+                )
+                and utc_error <= 15.0
             ):
                 return
+
             if time.monotonic() >= deadline:
                 break
             time.sleep(self.poll_interval)
+
         raise IndiClientError(
             "CONNECTION_FAILED",
-            "OnStep site synchronization was not confirmed by readback "
-            f"(requested LAT={lat}, LONG={lon}, ELEV={elev}; readback={last})",
+            f"{driver_label} site/time synchronization was not confirmed by "
+            "readback "
+            f"(requested LAT={lat}, LONG={lon}, ELEV={elev}, UTC={utc_iso}, "
+            f"OFFSET={utc_offset_hours:+.2f}; "
+            f"location_readback={last_location}, time_readback={last_time})",
         )
 
     def _cleanup_runtime_channels(self):
