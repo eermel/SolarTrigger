@@ -66,7 +66,15 @@ class HeartbeatEmitter:
             os.write(self.fd, (text + "\n").encode("utf-8", errors="replace"))
         except (BlockingIOError, BrokenPipeError, OSError):
             # Parent supervision/heartbeat failure must not affect capture.
-            self.fd = None
+            # Close the unusable writer as well; otherwise a saturated
+            # non-blocking pipe would remain leaked for the lifetime of the
+            # scheduler child.
+            fd, self.fd = self.fd, None
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
     def close(self) -> None:
         fd, self.fd = self.fd, None
