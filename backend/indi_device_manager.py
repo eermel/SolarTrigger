@@ -474,21 +474,23 @@ class IndiDeviceManager:
             return False
         return True
 
-    def _wait_subprocess_connection(
+    def _wait_subprocess_value(
         self,
         client: IndiSubprocessClient,
+        prop: str,
+        element: str,
         accepted: set[str],
         timeout_s: float,
         *,
         poll_interval: float = 0.10,
     ) -> bool:
-        """Poll CONNECTION through indi_getprop after an indi_setprop write."""
+        """Poll one INDI value through indi_getprop after an indi_setprop write."""
         wanted = {str(value).casefold() for value in accepted}
         deadline = time.monotonic() + float(timeout_s)
         while True:
             try:
-                props = client.get_props(["CONNECTION.*"])
-                value = _raw(props.get("CONNECTION", {}).get("CONNECT"))
+                props = client.get_props([f"{prop}.*"])
+                value = _raw(props.get(prop, {}).get(element))
                 if value is not None and str(value).casefold() in wanted:
                     return True
             except Exception:
@@ -518,8 +520,10 @@ class IndiDeviceManager:
             client.set_props({
                 "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
             })
-            connected = self._wait_subprocess_connection(
+            connected = self._wait_subprocess_value(
                 client,
+                "CONNECTION",
+                "CONNECT",
                 {"On", "true", "1"},
                 timeout_s,
                 poll_interval=poll_interval,
@@ -606,8 +610,10 @@ class IndiDeviceManager:
             client.set_props({
                 "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"},
             })
-            if not self._wait_subprocess_connection(
+            if not self._wait_subprocess_value(
                 client,
+                "CONNECTION",
+                "CONNECT",
                 {"Off", "false", "0"},
                 timeout_s,
                 poll_interval=poll_interval,
@@ -869,22 +875,43 @@ class IndiDeviceManager:
             # collected. Detection is an explicit safety boundary: every
             # connected mount advertising TRACK_STATE receives TRACK_OFF.
             try:
-                with IndiTcpSession(
-                    host=self.host,
-                    port=self.port,
-                    device=str(device_name),
-                    timeout_s=self.timeout_s,
-                ) as session:
-                    session.set_switch(
-                        "TELESCOPE_TRACK_STATE",
-                        {"TRACK_ON": "Off", "TRACK_OFF": "On"},
+                if _is_onstep_driver(properties):
+                    client = IndiSubprocessClient(
+                        host=self.host,
+                        port=self.port,
+                        device=str(device_name),
+                        timeout_s=self.timeout_s,
                     )
-                    changed = session.wait_for(
+                    client.set_props({
+                        "TELESCOPE_TRACK_STATE": {
+                            "TRACK_ON": "Off",
+                            "TRACK_OFF": "On",
+                        },
+                    })
+                    changed = self._wait_subprocess_value(
+                        client,
                         "TELESCOPE_TRACK_STATE",
                         "TRACK_ON",
                         {"Off", "false", "0"},
                         max(self.timeout_s, 1.0),
                     ) or changed
+                else:
+                    with IndiTcpSession(
+                        host=self.host,
+                        port=self.port,
+                        device=str(device_name),
+                        timeout_s=self.timeout_s,
+                    ) as session:
+                        session.set_switch(
+                            "TELESCOPE_TRACK_STATE",
+                            {"TRACK_ON": "Off", "TRACK_OFF": "On"},
+                        )
+                        changed = session.wait_for(
+                            "TELESCOPE_TRACK_STATE",
+                            "TRACK_ON",
+                            {"Off", "false", "0"},
+                            max(self.timeout_s, 1.0),
+                        ) or changed
             except Exception:
                 # Discovery must remain available even if a driver disappears
                 # between the snapshot and this safety write. Runtime connect
