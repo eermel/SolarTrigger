@@ -1188,6 +1188,10 @@ class TriggerService:
             env["SET_TRIGGER_RIG_ID"] = str(rig_id)
             recovery_selection = self._active_selection(rig_id)
             heartbeat_read_fd, heartbeat_write_fd = os.pipe()
+            # Heartbeat is observability only.  The child must never block its
+            # real-time scheduler because the parent reader is delayed or has
+            # stopped draining the pipe.
+            os.set_blocking(heartbeat_write_fd, False)
             env[HEARTBEAT_ENV] = str(heartbeat_write_fd)
 
             # The real-time scheduler must never wait for the web portal to
