@@ -488,7 +488,8 @@ def test_onstep_reconnect_uses_setprop_without_persistent_tcp(monkeypatch):
         "set",
         {"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}},
     )
-    assert calls[0] == ("init", "LX200 OnStep", 5.0)\n    assert disconnect in calls
+    assert calls[0] == ("init", "LX200 OnStep", 5.0)
+    assert disconnect in calls
     assert connect in calls
     assert calls.index(disconnect) < calls.index(connect)
 
