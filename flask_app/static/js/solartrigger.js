@@ -7126,17 +7126,42 @@ async function startCameraRecharacterization() {
     flash(error.message || 'Re-characterization failed to start', 'red');
   }
 }
+async function maintenanceJsonResponse(response) {
+  const responseText = await response.text();
+  let data = {};
+
+  if (responseText) {
+    try {
+      data = JSON.parse(responseText);
+    } catch (_error) {
+      const statusText = response.statusText
+        ? ` ${response.statusText}`
+        : '';
+      throw new Error(
+        `HTTP ${response.status}${statusText}: invalid server response`
+      );
+    }
+  }
+
+  if (!response.ok) {
+    const statusText = response.statusText
+      ? ` ${response.statusText}`
+      : '';
+    throw new Error(
+      data.error || `HTTP ${response.status}${statusText}`
+    );
+  }
+
+  return data;
+}
+
 async function maintenancePost(url, body) {
   const response = await fetch(url, {
     method: 'POST',
     headers: body ? {'Content-Type': 'application/json'} : {},
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || `HTTP ${response.status}`);
-  }
-  return data;
+  return maintenanceJsonResponse(response);
 }
 
 function renderInstalledSolarTriggerReleases(releaseState) {
@@ -7306,10 +7331,7 @@ async function validateInstallSolarTriggerRelease() {
       '/api/system/maintenance/upload-release',
       {method: 'POST', body: form}
     );
-    const validation = await validationResponse.json();
-    if (!validationResponse.ok) {
-      throw new Error(validation.error || 'Invalid package');
-    }
+    const validation = await maintenanceJsonResponse(validationResponse);
 
     const uploadToken = validation.upload_token;
     if (!uploadToken) {
