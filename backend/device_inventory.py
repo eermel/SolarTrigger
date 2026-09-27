@@ -533,11 +533,14 @@ def _discover_focusers(
         }
         merged = []
         seen_reserved_ids = set()
+        unmatched_live = []
         for live in discovered:
             if not isinstance(live, Mapping):
                 continue
             live_entry = dict(live)
-            device_id = _text(live_entry.get("device_id") or live_entry.get("sdk_id"))
+            device_id = _text(
+                live_entry.get("device_id") or live_entry.get("sdk_id")
+            )
             reserved = reserved_by_id.get(device_id)
             if reserved is not None:
                 combined = dict(reserved)
@@ -546,7 +549,40 @@ def _discover_focusers(
                 merged.append(combined)
                 seen_reserved_ids.add(device_id)
             else:
-                merged.append(live_entry)
+                unmatched_live.append(live_entry)
+
+        unmatched_reserved_zwo = [
+            entry
+            for device_id, entry in reserved_by_id.items()
+            if device_id not in seen_reserved_ids
+            and str(entry.get("backend") or "").strip().casefold()
+            == "zwo_eaf"
+        ]
+        unmatched_live_zwo = [
+            entry
+            for entry in unmatched_live
+            if str(entry.get("backend") or "").strip().casefold()
+            == "zwo_eaf"
+        ]
+
+        if (
+            len(unmatched_reserved_zwo) == 1
+            and len(unmatched_live_zwo) == 1
+        ):
+            # The ZWO SDK can expose a different numeric ID after USB
+            # re-enumeration. With a single configured and a single live EAF,
+            # preserve the logical binding identity while taking all current
+            # live metadata from the SDK. Never guess when several EAFs exist.
+            reserved = unmatched_reserved_zwo[0]
+            live_entry = unmatched_live_zwo[0]
+            combined = dict(reserved)
+            combined.update(live_entry)
+            combined["device_id"] = reserved.get("device_id")
+            combined["present"] = True
+            merged.append(combined)
+            unmatched_live.remove(live_entry)
+
+        merged.extend(unmatched_live)
 
         # Bindings without a vendor identity can still use a stable physical
         # path.  Keep those only while that path is currently present.
