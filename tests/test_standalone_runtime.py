@@ -456,6 +456,31 @@ def test_runtime_status_refreshes_and_exposes_current_runtime_gps(tmp_path):
     assert result["gps"]["sync_time"] == "2026-09-22T20:30:46+00:00"
 
 
+def test_runtime_captures_persisted_gps_marker_before_boot_reset(tmp_path):
+    state_path = tmp_path / "var" / "state" / "state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    persisted = StateStore(state_path)
+    persisted.update_section(
+        "gps",
+        {
+            "connected": True,
+            "synced": True,
+            "sync_time": "2026-09-20T12:34:56+00:00",
+        },
+        persist=True,
+    )
+
+    controller = RuntimeController(
+        tmp_path,
+        restore_recovery=False,
+    )
+
+    assert controller._boot_gps_sync_marker == "2026-09-20T12:34:56+00:00"
+    gps = controller.state.snapshot("gps")
+    assert gps["synced"] is False
+    assert gps["sync_time"] is None
+
+
 def _runtime_controller_for_gps_refresh(tmp_path, *, started_utc, boot_marker):
     controller = RuntimeController.__new__(RuntimeController)
     controller.state_file = tmp_path / "state.json"
