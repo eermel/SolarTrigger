@@ -25,9 +25,9 @@ from .base import MountPlugin
 # Le nom d'affichage est ici pour que available_plugins() fonctionne SANS
 # importer le plugin (donc sans pyserial ni materiel).
 _PLUGIN_CLASSES = {
-    "indi": ("indi_plugin", "IndiMount", "INDI telescope"),
+    "indi": ("indi_plugin", "IndiMount", "INDI / EQMod"),
     "onstep": ("onstep_plugin", "OnStepMount",
-               "OnStep / Tessek Mini 11 (direct serial fallback)"),
+               "OnStep / Tessek Mini 11 (direct LX200 serial)"),
     # a venir :
     # "zwo":     ("zwo_plugin", "ZwoMount", "ZWO AM3N"),
     # "synscan": ("synscan_plugin", "SynScanMount", "Skywatcher AZ-GTi (SynScan)"),
