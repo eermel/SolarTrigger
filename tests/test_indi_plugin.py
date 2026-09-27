@@ -732,7 +732,26 @@ def test_onstep_manual_sync_hands_serial_to_direct_protocol(
     props["DEVICE_PORT"] = {"PORT": "/dev/serial/by-id/onstep-test"}
 
     cached = StubIndiClient(props)
-    fresh = StubIndiClient(props)
+
+    class FreshOnStepClient(StubIndiClient):
+        def set_props(self, assignments):
+            super().set_props(assignments)
+            connection = assignments.get("CONNECTION", {})
+            if connection.get("CONNECT") == "On":
+                self.props["TELESCOPE_SLEW_RATE"] = {
+                    str(index): "On" if index == 9 else "Off"
+                    for index in range(10)
+                }
+                self.props["TELESCOPE_MOTION_NS"] = {
+                    "MOTION_NORTH": "Off",
+                    "MOTION_SOUTH": "Off",
+                }
+                self.props["TELESCOPE_MOTION_WE"] = {
+                    "MOTION_EAST": "Off",
+                    "MOTION_WEST": "Off",
+                }
+
+    fresh = FreshOnStepClient(props)
     direct_calls = []
 
     class DirectOnStep:
@@ -814,7 +833,25 @@ def test_onstep_manual_sync_restores_indi_after_direct_rejection(
     props["CONNECTION"] = {"CONNECT": "On", "DISCONNECT": "Off"}
     props["DEVICE_PORT"] = {"PORT": "/dev/serial/by-id/onstep-test"}
 
-    fresh = StubIndiClient(props)
+    class FreshOnStepClient(StubIndiClient):
+        def set_props(self, assignments):
+            super().set_props(assignments)
+            connection = assignments.get("CONNECTION", {})
+            if connection.get("CONNECT") == "On":
+                self.props["TELESCOPE_SLEW_RATE"] = {
+                    str(index): "On" if index == 9 else "Off"
+                    for index in range(10)
+                }
+                self.props["TELESCOPE_MOTION_NS"] = {
+                    "MOTION_NORTH": "Off",
+                    "MOTION_SOUTH": "Off",
+                }
+                self.props["TELESCOPE_MOTION_WE"] = {
+                    "MOTION_EAST": "Off",
+                    "MOTION_WEST": "Off",
+                }
+
+    fresh = FreshOnStepClient(props)
 
     class RejectingOnStep:
         def __init__(self, **_kwargs):
