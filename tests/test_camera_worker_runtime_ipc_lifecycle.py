@@ -1,6 +1,9 @@
 from dataclasses import FrozenInstanceError
+import json
 from pathlib import Path
 import socket
+import threading
+import time
 
 import pytest
 
@@ -348,3 +351,163 @@ def test_camera_ipc_stop_does_not_unlink_replacement_socket(tmp_path):
     finally:
         replacement.close()
         path.unlink(missing_ok=True)
+
+
+def test_camera_ipc_stop_fails_closed_until_active_handler_drains(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingWorker:
+        def get_parameter(self, _parameter):
+            entered.set()
+            assert release.wait(2.0)
+            return "ok"
+
+    worker = BlockingWorker()
+
+    class Runtime:
+        def active_camera_rig_ids(self):
+            return (1,)
+
+        def get_for_rig(self, rig_id):
+            return worker if rig_id == 1 else None
+
+    server = CameraIpcServer(
+        Runtime(),
+        endpoint_dir=tmp_path / "ipc-drain",
+        parent_pid=2468,
+        log_fn=lambda _message: None,
+    )
+    path = server.start()
+    session_id = server.activate_session("drain-session", (1,))
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.connect(str(path))
+    client.sendall(
+        (
+            json.dumps(
+                {
+                    "operation": "camera.get_parameter",
+                    "params": {"rig_id": 1, "parameter": "iso"},
+                    "session_id": session_id,
+                }
+            )
+            + "\n"
+        ).encode("utf-8")
+    )
+
+    assert entered.wait(1.0)
+
+    try:
+        assert server.stop(timeout=0.05) is False
+        assert server.stopping is True
+        assert server.stopped is False
+
+        release.set()
+        deadline = time.monotonic() + 1.0
+        while not server.stopped and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert server.stopped is True
+        assert server.stopping is False
+    finally:
+        release.set()
+        client.close()
+        server.stop(timeout=1.0)
+
+
+def test_runtime_shutdown_does_not_stop_workers_while_ipc_handler_survives(
+    tmp_path,
+):
+    runtime, _servers = _runtime(
+        tmp_path,
+        worker_factory=OwnershipWorker,
+    )
+    OwnershipWorker.events = []
+    OwnershipWorker.fail_stop = False
+    runtime.reconcile({"rigs": [_rig_with_model("CAMERA")]})
+    worker = runtime.get_for_rig(1)
+
+    class DrainingServer:
+        def __init__(self):
+            self.stopping = True
+            self.stopped = False
+            self.stop_calls = 0
+
+        def stop(self, timeout=None):
+            self.stop_calls += 1
+            return False
+
+    server = DrainingServer()
+    runtime._ipc_server = server
+
+    with pytest.raises(RuntimeError, match="active handlers did not drain"):
+        runtime.shutdown()
+
+    assert worker.stop_calls == 0
+    assert runtime.get_for_rig(1) is worker
+    assert runtime._ipc_server is server
+
+    server.stopping = False
+    server.stopped = True
+    runtime.shutdown()
+
+    assert worker.stop_calls == 1
+    assert runtime.get_for_rig(1) is None
+
+
+def test_failed_last_session_stop_freezes_new_camera_ownership(tmp_path):
+    holder = {}
+
+    class NonDrainingServer:
+        def __init__(self, runtime, **_kwargs):
+            self.runtime = runtime
+            self.socket_path = tmp_path / "pending-camera-ipc.sock"
+            self.sessions = set()
+            self.stopping = False
+            self.stopped = False
+
+        def start(self):
+            self.socket_path.parent.mkdir(parents=True, exist_ok=True)
+            return self.socket_path
+
+        def activate_session(self, session_id, rig_ids=None):
+            self.sessions.add(session_id)
+
+        def revoke_session(self, session_id):
+            self.sessions.remove(session_id)
+
+        def stop(self, timeout=None):
+            self.stopping = True
+            return False
+
+    def server_factory(runtime, **kwargs):
+        server = NonDrainingServer(runtime, **kwargs)
+        holder["server"] = server
+        return server
+
+    runtime = CameraWorkerRuntime(
+        worker_factory=OwnershipWorker,
+        ipc_server_factory=server_factory,
+        log_fn=lambda _message: None,
+    )
+    OwnershipWorker.events = []
+    OwnershipWorker.fail_stop = False
+    runtime.reconcile({"rigs": [_rig_with_model("CAMERA")]})
+    session = runtime.open_ipc_session((1,))
+    server = holder["server"]
+
+    with pytest.raises(RuntimeError, match="did not drain active handlers"):
+        runtime.close_ipc_session(session.session_id)
+
+    assert runtime._ipc_server is server
+    assert server.stopping is True
+
+    with pytest.raises(RuntimeError, match="shutdown is still in progress"):
+        runtime.open_ipc_session((1,))
+
+    changed = {"rigs": [_rig_with_model("NEW")]}
+    with pytest.raises(RuntimeError, match="shutdown is still in progress"):
+        runtime.reconcile(changed)
+
+    with pytest.raises(RuntimeError, match="shutdown is still in progress"):
+        runtime.release_idle_workers()
