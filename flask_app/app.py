@@ -2391,6 +2391,59 @@ def api_rig_mount_status(rig_id):
     return _rig_mount_emit(rig_id, result)
 
 
+@app.route("/api/rigs/<int:rig_id>/mount/sync", methods=["POST"])
+def api_rig_mount_sync(rig_id):
+    worker, error = _rig_mount_worker(rig_id)
+    if error is not None:
+        return error
+    if _trigger_active_or_starting(rig_id):
+        return _rig_mount_error(
+            rig_id,
+            RuntimeError(
+                "Mount synchronization is forbidden during an active trigger."
+            ),
+            status=409,
+            code="TRIGGER_RUNNING",
+        )
+
+    gps = _state_store.snapshot("gps") or {}
+    if gps.get("synced") is not True:
+        return _rig_mount_error(
+            rig_id,
+            RuntimeError(
+                "GPS synchronization is required before mount synchronization."
+            ),
+            status=409,
+            code="GPS_NOT_SYNCED",
+        )
+
+    latitude = gps.get("lat")
+    longitude = gps.get("lon")
+    elevation = gps.get("alt")
+    now_utc = datetime.now(timezone.utc)
+    local_now = now_utc.astimezone()
+    offset = local_now.utcoffset()
+    utc_offset_hours = (
+        offset.total_seconds() / 3600.0 if offset is not None else 0.0
+    )
+    utc_iso = now_utc.strftime("%Y-%m-%dT%H:%M:%S")
+
+    try:
+        result = worker.sync_site_time(
+            latitude,
+            longitude,
+            elevation,
+            utc_iso,
+            utc_offset_hours,
+        )
+    except IndiClientError as exc:
+        return _rig_mount_error(rig_id, exc)
+    except (ValueError, RuntimeError) as exc:
+        return _rig_mount_error(rig_id, exc)
+
+    return _rig_mount_emit(rig_id, result)
+
+
 @app.route("/api/rigs/<int:rig_id>/mount/tracking/mode", methods=["POST"])
 def api_rig_mount_tracking_mode(rig_id):
     worker, error = _rig_mount_tracking_guard(rig_id)
