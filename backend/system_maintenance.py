@@ -37,13 +37,52 @@ MAINTENANCE_LOCK = Path(
 )
 
 
-def maintenance_helper_running(lock_path: Path | str | None = None) -> bool:
-    """Return whether a privileged maintenance helper owns its persistent lock.
+def _maintenance_helper_process_running(
+    proc_root: Path | str = "/proc",
+) -> bool:
+    """Detect a helper process before it has acquired the persistent flock."""
 
-    The root helper may outlive one Gunicorn worker.  Probe its flock directly
-    so a replacement worker cannot admit Trigger START while apt/release work
-    is still active.  Any unverifiable existing lock fails closed.
+    helper_args = {SYSTEM_HELPER, RELEASE_HELPER}
+    root = Path(proc_root)
+    try:
+        entries = root.iterdir()
+    except OSError:
+        return False
+
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            raw = (entry / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if not raw:
+            continue
+        args = {
+            item.decode("utf-8", errors="replace")
+            for item in raw.split(b"\0")
+            if item
+        }
+        if args & helper_args:
+            return True
+    return False
+
+
+def maintenance_helper_running(
+    lock_path: Path | str | None = None,
+    *,
+    proc_root: Path | str = "/proc",
+) -> bool:
+    """Return whether privileged maintenance owns or is acquiring the lock.
+
+    A root helper may outlive one Gunicorn worker. There is also a short
+    interval after Popen where sudo/helper exists but has not yet reached
+    its flock call. Detect that exact helper argv through /proc first, then
+    probe the persistent lock. This closes the crash/restart handoff window.
     """
+
+    if _maintenance_helper_process_running(proc_root):
+        return True
 
     if fcntl is None:
         return False
