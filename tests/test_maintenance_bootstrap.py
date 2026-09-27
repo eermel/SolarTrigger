@@ -8,6 +8,7 @@ BOOTSTRAP = (
 ROUTES = (
     ROOT / "backend" / "system_maintenance_routes.py"
 ).read_text(encoding="utf-8")
+DEPLOY = (ROOT / "tools" / "deploy-prod.sh").read_text(encoding="utf-8")
 
 
 def test_existing_trigger_bootstrap_installs_root_helpers_and_sudoers():
@@ -24,6 +25,16 @@ def test_existing_trigger_bootstrap_configures_release_upload_limit():
     assert 'client_max_body_size 300m;' in BOOTSTRAP
     assert 'nginx -t' in BOOTSTRAP
     assert 'systemctl reload nginx' in BOOTSTRAP
+
+
+def test_dev_deploy_carries_maintenance_bootstrap_helpers():
+    for helper in (
+        "install_maintenance_helpers.sh",
+        "solartrigger-system-update",
+        "solartrigger-release-update",
+    ):
+        assert f'"$SRC/install/{helper}"' in DEPLOY
+        assert helper in DEPLOY
 
 
 def test_web_api_explains_when_existing_trigger_needs_bootstrap():
