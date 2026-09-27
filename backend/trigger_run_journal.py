@@ -184,6 +184,7 @@ class TriggerRunJournal:
         selected: dict | None,
         speed: float = 1.0,
         totality_only: bool = False,
+        input_fingerprints: dict | None = None,
     ) -> dict:
         now = utc_now_iso()
         entry = {
@@ -195,6 +196,7 @@ class TriggerRunJournal:
             "speed": float(speed),
             "totality_only": bool(totality_only),
             "selected": copy.deepcopy(selected or {}),
+            "input_fingerprints": copy.deepcopy(input_fingerprints or {}),
             "started_utc": now,
             "updated_utc": now,
             "runtime_recovery_count": 0,
