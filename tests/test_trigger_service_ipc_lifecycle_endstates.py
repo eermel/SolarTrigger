@@ -244,6 +244,9 @@ def test_start_passes_session_after_server_start_and_restart_keeps_clock(
         events.append("popen")
         assert isinstance(kwargs["stdout"], int)
         assert os.get_blocking(kwargs["stdout"]) is False
+        heartbeat_fd = kwargs["pass_fds"][0]
+        assert os.get_blocking(heartbeat_fd) is False
+        assert kwargs["env"]["SOLARTRIGGER_HEARTBEAT_FD"] == str(heartbeat_fd)
         socket_path = Path(kwargs["env"]["SET_CAMERA_IPC_SOCKET"])
         launches.append(
             (
