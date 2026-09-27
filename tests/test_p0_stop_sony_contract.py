@@ -25,7 +25,7 @@ def test_force_bit_is_carried_end_to_end_and_runtime_shutdown_forces():
 
     assert '{"rig_id": rig_id, "force": force}' in rpc
     assert 'force = payload.get("force", False)' in daemon
-    assert 'kwargs={"rig_id": rig_id, "force": True}' in daemon
+    assert 'self.trigger.stop(rig_id=rig_id, force=True)' in daemon
     assert 'force = payload.get("force", False)' in app
     assert '_trigger_service.stop(rig_id=rig_id, force=force)' in app
 
