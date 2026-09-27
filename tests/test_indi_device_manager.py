@@ -1295,7 +1295,8 @@ def test_onstep_tracking_safety_uses_setprop_without_persistent_tcp(monkeypatch)
 
     manager = IndiDeviceManager(client=FakeClient(devices))
 
-    assert manager._disable_tracking_on_detected_mounts(devices) is True\n    assert calls[0] == ("init", "LX200 OnStep", 5.0)
+    assert manager._disable_tracking_on_detected_mounts(devices) is True
+    assert calls[0] == ("init", "LX200 OnStep", 5.0)
     assert ("set", {
         "TELESCOPE_TRACK_STATE": {"TRACK_ON": "Off", "TRACK_OFF": "On"},
     }) in calls
