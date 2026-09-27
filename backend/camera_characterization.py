@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import multiprocessing
+import os
 from pathlib import Path
 import queue
 import re
@@ -21,6 +22,7 @@ import time
 import uuid
 
 from backend.camera_profiles import validate_profile
+from backend.device_process_worker import arm_parent_death_signal
 from plugins.camera.profile import (
     write_widget,
     widget,
@@ -34,6 +36,9 @@ from plugins.camera.profile import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+CANCEL_COOPERATIVE_GRACE_S = 2.0
+CANCEL_TERMINATE_GRACE_S = 1.0
+CANCEL_KILL_GRACE_S = 1.0
 
 
 class Cancelled(RuntimeError):
@@ -56,6 +61,7 @@ class CharacterizationJob:
         self._notify_fn = None
         self._process = None
         self._command_queue = None
+        self._cancel_watchdog_active = False
 
     def set_notify_fn(self, notify_fn):
         self._notify_fn = notify_fn
@@ -166,6 +172,7 @@ class CharacterizationJob:
                     bool(replace_existing),
                     events,
                     commands,
+                    os.getpid(),
                 ),
                 name=f"camera-characterization-{self.job_id[:8]}",
                 daemon=True,
@@ -173,6 +180,7 @@ class CharacterizationJob:
             process.start()
             self._process = process
             self._command_queue = commands
+            self._cancel_watchdog_active = False
             threading.Thread(
                 target=self._monitor_process,
                 args=(process, events),
@@ -181,12 +189,54 @@ class CharacterizationJob:
         self._notify()
 
     def cancel(self):
+        watchdog_process = None
         with self.condition:
             self.cancelled = True
             if self._command_queue is not None:
                 self._command_queue.put(("cancel", None))
+            process = self._process
+            if (
+                process is not None
+                and process.is_alive()
+                and not self._cancel_watchdog_active
+            ):
+                self._cancel_watchdog_active = True
+                watchdog_process = process
             self.condition.notify_all()
+
+        if watchdog_process is not None:
+            threading.Thread(
+                target=self._cancel_watchdog,
+                args=(watchdog_process,),
+                name="camera-characterization-cancel",
+                daemon=True,
+            ).start()
         self._notify()
+
+    def _cancel_watchdog(self, process):
+        """Bound cancellation even when native libgphoto2 never returns."""
+
+        try:
+            process.join(CANCEL_COOPERATIVE_GRACE_S)
+            if process.is_alive():
+                try:
+                    process.terminate()
+                except Exception as exc:
+                    self.log(f"Characterization terminate failed: {exc}")
+                process.join(CANCEL_TERMINATE_GRACE_S)
+
+            if process.is_alive():
+                kill = getattr(process, "kill", None)
+                if callable(kill):
+                    try:
+                        kill()
+                    except Exception as exc:
+                        self.log(f"Characterization kill failed: {exc}")
+                process.join(CANCEL_KILL_GRACE_S)
+        finally:
+            with self.condition:
+                self._cancel_watchdog_active = False
+                self.condition.notify_all()
 
     def _monitor_process(self, process, events):
         result = None
@@ -244,6 +294,7 @@ class CharacterizationJob:
             self.question = None
             self._process = None
             self._command_queue = None
+            self._cancel_watchdog_active = False
             self.condition.notify_all()
         self._notify()
 
@@ -297,9 +348,20 @@ class _ProcessJobProxy:
 
 
 def _characterization_process_main(
-    entry, root_text, replace_existing, events, commands
+    entry,
+    root_text,
+    replace_existing,
+    events,
+    commands,
+    expected_parent_pid,
 ):
     """Run native camera qualification outside the web-server process."""
+
+    # Never let a native libgphoto2 owner survive the Gunicorn worker which
+    # admitted the maintenance job.  Arm this before constructing/opening any
+    # camera object.
+    arm_parent_death_signal(expected_parent_pid)
+
     root = Path(root_text)
     job = _ProcessJobProxy(events, commands)
     camera = None
