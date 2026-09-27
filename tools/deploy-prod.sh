@@ -147,6 +147,9 @@ required=(
     "$SRC/data"
     "$SRC/install/install_standalone_runtime_service.sh"
     "$SRC/install/install_zwo_eaf_hid.sh"
+    "$SRC/install/install_maintenance_helpers.sh"
+    "$SRC/install/solartrigger-system-update"
+    "$SRC/install/solartrigger-release-update"
 )
 
 for path in "${required[@]}"; do
@@ -302,17 +305,23 @@ rsync "${RSYNC_OPTS[@]}" --delete \
 
 echo
 echo "=== system helpers (copied, never executed automatically) ==="
+SYSTEM_HELPERS=(
+    "install_standalone_runtime_service.sh"
+    "install_zwo_eaf_hid.sh"
+    "install_maintenance_helpers.sh"
+    "solartrigger-system-update"
+    "solartrigger-release-update"
+)
 if [[ "$DRY_RUN" -eq 1 ]]; then
-    echo "Would copy install/install_standalone_runtime_service.sh and install/install_zwo_eaf_hid.sh"
+    echo "Would copy SolarTrigger system and maintenance helpers into $DST/install/"
 else
     ssh "$DST_HOST" "mkdir -p '$DST/install'"
 fi
-rsync "${RSYNC_OPTS[@]}" \
-    "$SRC/install/install_standalone_runtime_service.sh" \
-    "$DST_HOST:$DST/install/install_standalone_runtime_service.sh"
-rsync "${RSYNC_OPTS[@]}" \
-    "$SRC/install/install_zwo_eaf_hid.sh" \
-    "$DST_HOST:$DST/install/install_zwo_eaf_hid.sh"
+for helper in "${SYSTEM_HELPERS[@]}"; do
+    rsync "${RSYNC_OPTS[@]}" \
+        "$SRC/install/$helper" \
+        "$DST_HOST:$DST/install/$helper"
+done
 
 echo
 echo "=== preserved camera characterization data ==="
