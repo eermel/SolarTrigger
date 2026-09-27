@@ -362,3 +362,18 @@ def test_privileged_maintenance_helpers_share_one_nonblocking_lock(tmp_path):
 
     assert result.returncode == 75
     assert "already running" in result.stderr.lower()
+
+
+def test_maintenance_helper_running_detects_external_flock(tmp_path):
+    lock_path = tmp_path / "maintenance.lock"
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        assert system_maintenance.maintenance_helper_running(lock_path) is False
+
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert system_maintenance.maintenance_helper_running(lock_path) is True
+
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        assert system_maintenance.maintenance_helper_running(lock_path) is False
+    finally:
+        os.close(fd)
