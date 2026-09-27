@@ -300,3 +300,49 @@ def test_go_home_normal_completion_sends_final_stop():
     assert result is True
     assert serial_stub.writes.count(b":hC#") == 1
     assert serial_stub.writes[-1] == b":Q#"
+
+
+class SetupSerialStub:
+    def __init__(self):
+        self.is_open = True
+        self.timeout = 1.0
+        self.writes = []
+
+    def reset_input_buffer(self):
+        pass
+
+    def write(self, command):
+        self.writes.append(command)
+
+    def flush(self):
+        pass
+
+    def read(self, _count):
+        return b"1"
+
+
+@pytest.mark.parametrize(
+    ("offset", "expected"),
+    [
+        (2.0, b":SG-02:00#"),
+        (5.5, b":SG-05:30#"),
+        (-3.5, b":SG+03:30#"),
+    ],
+)
+def test_set_datetime_formats_onstep_utc_offset(offset, expected):
+    from datetime import datetime
+
+    mount = OnStep(timeout=1.0)
+    serial_stub = SetupSerialStub()
+    mount.serial = serial_stub
+
+    assert mount.set_datetime(
+        datetime(2026, 9, 27, 14, 25, 30),
+        offset,
+    ) is True
+
+    assert serial_stub.writes == [
+        expected,
+        b":SL14:25:30#",
+        b":SC09/27/26#",
+    ]
