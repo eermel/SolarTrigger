@@ -89,6 +89,7 @@ def test_home_preserves_stop_cancel_behavior():
 
 
 def test_initial_device_refresh_can_reuse_recent_indi_catalog():
-    assert "reuseRecentIndi = false" in JS
+    assert "let reuseRecentIndiOnNextRefresh = false;" in JS
     assert "/api/rigs/devices/refresh?reuse_recent_indi=1" in JS
-    assert "await refreshRigDevices(true, false, true);" in JS
+    assert "reuseRecentIndiOnNextRefresh = true;" in JS
+    assert "await refreshRigDevices(true, false);" in JS
