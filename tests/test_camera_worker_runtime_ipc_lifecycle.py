@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+import socket
 
 import pytest
 
@@ -311,3 +312,39 @@ def test_shutdown_removes_only_workers_that_confirmed_stop(tmp_path):
     assert runtime.get_for_rig(1) is None
     assert runtime.get_for_rig(2) is MixedStopWorker.instances[2]
     assert runtime.active_camera_rig_ids() == (2,)
+
+
+def test_camera_ipc_stop_does_not_unlink_replacement_socket(tmp_path):
+    class Runtime:
+        def active_camera_rig_ids(self):
+            return ()
+
+        def get_for_rig(self, _rig_id):
+            return None
+
+    server = CameraIpcServer(
+        Runtime(),
+        endpoint_dir=tmp_path / "ipc-race",
+        parent_pid=9876,
+        log_fn=lambda _message: None,
+    )
+    path = server.start()
+
+    # Simulate a replacement endpoint appearing after the old listener becomes
+    # unreachable but before its stop path unlinks the pathname.
+    path.unlink()
+    replacement = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    replacement.bind(str(path))
+    try:
+        replacement_stat = path.lstat()
+
+        server.stop(timeout=1.0)
+
+        current = path.lstat()
+        assert (current.st_dev, current.st_ino) == (
+            replacement_stat.st_dev,
+            replacement_stat.st_ino,
+        )
+    finally:
+        replacement.close()
+        path.unlink(missing_ok=True)
