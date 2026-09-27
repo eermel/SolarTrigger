@@ -376,11 +376,23 @@ def _discover_direct_onstep_mounts(
         "mount",
         reserved_mounts,
     )
-    reserved_onstep = [
-        entry
-        for entry in reserved_entries
-        if str(entry.get("backend") or "").strip().casefold() == "onstep"
-    ]
+    reserved_onstep = []
+    for entry in reserved_entries:
+        if str(entry.get("backend") or "").strip().casefold() != "onstep":
+            continue
+        path = _first_text(
+            entry,
+            "fallback_physical_path",
+            "physical_path",
+        )
+        if not path:
+            continue
+        try:
+            if not Path(path).exists():
+                continue
+        except OSError:
+            continue
+        reserved_onstep.append(entry)
 
     # Never probe a transport already assigned to any mount. Bound OnStep
     # entries are represented directly from their stable path; bound EQMod
