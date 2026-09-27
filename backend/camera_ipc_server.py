@@ -170,6 +170,7 @@ class CameraIpcServer:
             f"camera-ipc-{self._parent_pid}.sock"
         )
         self._socket: socket.socket | None = None
+        self._socket_identity: tuple[int, int, int] | None = None
         self._accept_thread: threading.Thread | None = None
         self._pool: ThreadPoolExecutor | None = None
         self._connection_slots: threading.BoundedSemaphore | None = None
@@ -389,11 +390,18 @@ class CameraIpcServer:
             listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
                 listener.bind(str(self._socket_path))
+                bound = self._socket_path.lstat()
+                self._socket_identity = (
+                    bound.st_dev,
+                    bound.st_ino,
+                    bound.st_uid,
+                )
                 os.chmod(self._socket_path, 0o600)
                 listener.listen(MAX_WORKERS)
                 listener.settimeout(0.25)
             except BaseException:
                 listener.close()
+                self._unlink_own_socket()
                 raise
             self._stopping.clear()
             self._socket = listener
@@ -436,31 +444,57 @@ class CameraIpcServer:
 
     def _remove_stale_socket(self) -> None:
         try:
-            info = self._socket_path.lstat()
+            original = self._socket_path.lstat()
         except FileNotFoundError:
             return
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISSOCK(info.st_mode):
+        if stat.S_ISLNK(original.st_mode) or not stat.S_ISSOCK(original.st_mode):
             raise IpcError("UNSAFE_ENDPOINT", "refusing to replace non-socket endpoint")
-        if info.st_uid != os.getuid():
+        if original.st_uid != os.getuid():
             raise IpcError("UNSAFE_ENDPOINT", "refusing to replace foreign socket")
         probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             probe.settimeout(0.1)
             probe.connect(str(self._socket_path))
         except (ConnectionRefusedError, FileNotFoundError):
-            self._socket_path.unlink(missing_ok=True)
+            try:
+                current = self._socket_path.lstat()
+            except FileNotFoundError:
+                return
+            if (
+                current.st_dev != original.st_dev
+                or current.st_ino != original.st_ino
+                or stat.S_ISLNK(current.st_mode)
+                or not stat.S_ISSOCK(current.st_mode)
+                or current.st_uid != os.getuid()
+            ):
+                raise IpcError(
+                    "UNSAFE_ENDPOINT",
+                    "camera IPC endpoint changed while checking staleness",
+                )
+            self._socket_path.unlink()
         else:
             raise IpcError("ENDPOINT_IN_USE", "camera IPC endpoint is already active")
         finally:
             probe.close()
 
     def _unlink_own_socket(self) -> None:
+        identity = self._socket_identity
+        self._socket_identity = None
+        if identity is None:
+            return
         try:
             info = self._socket_path.lstat()
-            if stat.S_ISSOCK(info.st_mode) and info.st_uid == os.getuid():
-                self._socket_path.unlink()
         except FileNotFoundError:
-            pass
+            return
+        if (
+            stat.S_ISSOCK(info.st_mode)
+            and (
+                info.st_dev,
+                info.st_ino,
+                info.st_uid,
+            ) == identity
+        ):
+            self._socket_path.unlink()
 
     def _accept_loop(self) -> None:
         while not self._stopping.is_set():
