@@ -682,3 +682,38 @@ def test_executor_creation_failure_rolls_back_bound_ipc_socket(
     assert server.stopping is False
     assert server.stopped is True
     assert not server.socket_path.exists()
+
+
+def test_accept_loop_oserror_fails_closed_without_releasing_active_session(
+    tmp_path,
+):
+    server = make_server(tmp_path)
+    session_id = server.activate_session("owned-session", (1,))
+
+    # Build an owned AF_UNIX endpoint that is bound but deliberately not
+    # listening. accept() therefore raises OSError immediately.
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(server.socket_path))
+    info = server.socket_path.lstat()
+    server._socket_identity = (
+        info.st_dev,
+        info.st_ino,
+        info.st_uid,
+    )
+    server._socket = listener
+    server._stopping.clear()
+    server._stop_complete.clear()
+
+    server._accept_loop()
+
+    assert server._socket is None
+    assert server.stopping is True
+    assert server.stopped is False
+    assert not server.socket_path.exists()
+    assert server._active_session == session_id
+
+    # Explicit lifecycle close remains authoritative and finalizes state.
+    assert server.stop(timeout=0.1) is True
+    assert server.stopped is True
+    assert server.stopping is False
+    assert server._active_session is None
