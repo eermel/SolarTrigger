@@ -3092,36 +3092,67 @@ def _camera_trigger_conflict(rig_id=None):
 
 @app.route("/api/camera/probe", methods=["POST"])
 def api_camera_probe():
-    guarded = _camera_trigger_conflict()
+    """Compatibility probe routed through the single RIG 1 camera owner."""
+
+    guarded = _camera_trigger_conflict(1)
     if guarded is not None:
         return guarded
-    """
-    Teste la connexion USB, lit marque/modèle/batterie, coupe immédiatement la connexion.
-    N'enregistre pas de connexion persistante pour économiser la batterie.
-    """
-    try:
-        camera = gp.Camera()
-        camera.init()
-        brand, model, battery = _get_camera_model_info(camera)
-        camera.exit()   # Couper immédiatement — économie batterie
 
-        info = {"brand": brand or "Unknown", "model": model or "Unknown", "battery": battery}
-        with _state_lock:
-            _state["camera"]["connected"] = False   # déconnecté volontairement
-            _state["camera"]["brand"]     = brand
-            _state["camera"]["model"]     = model
-            _state["camera"]["battery"]   = battery
-        _save_state()
+    try:
+        runtime = get_camera_worker_runtime(log_fn=log.info)
+        runtime.reconcile(load_rig_configuration())
+        worker = runtime.get_for_rig(1)
+        if worker is None:
+            return jsonify({
+                "error": "camera is not configured for rig 1",
+                "code": "DEVICE_NOT_CONFIGURED",
+                "rig_id": 1,
+                "device_type": "camera",
+            }), 409
+        result = worker.probe_info()
+    except BusyDeviceError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": "CAMERA_BUSY",
+            "rig_id": 1,
+        }), 409
+    except Exception as exc:
         _append_log(
-            f"📷 Camera detected: {brand or '?'} {model or '?'}"
-            + (f" — Battery {battery}" if battery else "")
-            + " — connection closed.",
-            "success", "system"
+            f"❌ Camera not detected through RIG 1 owner: {exc}",
+            "error",
+            "system",
         )
-        return jsonify(info)
-    except Exception as e:
-        _append_log(f"❌ Camera not detected: {e}", "error", "system")
-        return jsonify({"error": str(e)}), 404
+        return jsonify({
+            "error": "camera unavailable",
+            "code": "CAMERA_UNAVAILABLE",
+            "rig_id": 1,
+        }), 404
+
+    model = result.get("model")
+    battery = result.get("battery")
+    brand = _brand_from_model(model)
+    info = {
+        "brand": brand or "Unknown",
+        "model": model or "Unknown",
+        "battery": battery,
+    }
+    _state_store.update_section(
+        "camera",
+        {
+            "connected": False,
+            "brand": brand,
+            "model": model,
+            "battery": battery,
+        },
+        persist=True,
+    )
+    _append_log(
+        f"📷 Camera detected through RIG 1 owner: {brand or '?'} {model or '?'}"
+        + (f" — Battery {battery}" if battery else ""),
+        "success",
+        "system",
+    )
+    return jsonify(info)
 
 
 @app.route("/api/rigs/<int:rig_id>/camera/probe", methods=["POST"])
