@@ -64,13 +64,26 @@ class GpsController:
 
             self.state.update_section("gps", {"gps_sync_running": True})
             self.state.set("gps_sync_running", True)
-            self._thread = threading.Thread(
+            thread = threading.Thread(
                 target=self._run,
                 args=(timeout_s, mode, source, source_payload),
                 name="gps-operator-sync",
                 daemon=True,
             )
-            self._thread.start()
+            self._thread = thread
+            try:
+                thread.start()
+            except BaseException:
+                # Thread startup owns no GPS resource yet. Roll back the
+                # admission state atomically so the UI and Trigger admission
+                # never see a phantom synchronization in progress.
+                self._thread = None
+                self.state.update_section(
+                    "gps",
+                    {"gps_sync_running": False},
+                )
+                self.state.set("gps_sync_running", False)
+                raise
             return True
 
     @staticmethod
