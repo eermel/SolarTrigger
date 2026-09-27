@@ -262,7 +262,7 @@ def test_onstep_autoconnect_uses_long_cold_boot_timeout(monkeypatch, tmp_path):
     bindings_file = tmp_path / "indi_mount_bindings.json"
     learned = "/dev/serial/by-id/ONSTEP"
     bindings_file.write_text(
-        '{"version":1,"bindings":{"LX200 OnStep":"/dev/serial/by-id/ONSTEP"}}\\n',
+        '{"version":1,"bindings":{"LX200 OnStep":"/dev/serial/by-id/ONSTEP"}}\n',
         encoding="utf-8",
     )
     devices = {
@@ -297,7 +297,7 @@ def test_eqmod_autoconnect_keeps_short_connection_timeout(monkeypatch, tmp_path)
     bindings_file = tmp_path / "indi_mount_bindings.json"
     learned = "/dev/serial/by-id/EQMOD"
     bindings_file.write_text(
-        '{"version":1,"bindings":{"EQMod Mount":"/dev/serial/by-id/EQMOD"}}\\n',
+        '{"version":1,"bindings":{"EQMod Mount":"/dev/serial/by-id/EQMOD"}}\n',
         encoding="utf-8",
     )
     devices = {
@@ -333,7 +333,7 @@ def test_onstep_forced_reconnect_uses_long_cold_boot_timeout(monkeypatch, tmp_pa
     learned = "/dev/serial/by-id/ONSTEP"
     bindings_file.write_text(
         '{"version":1,"bindings":{"LX200 OnStep":"/dev/serial/by-id/ONSTEP"},'
-        '"reconnect_required":["LX200 OnStep"]}\\n',
+        '"reconnect_required":["LX200 OnStep"]}\n',
         encoding="utf-8",
     )
     devices = {
