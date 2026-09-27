@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from backend.rig_config import load, migrate_legacy, save
+from backend.rig_config import load, migrate_indi_onstep_bindings, migrate_legacy, save
 from backend.rig_manager import RigManager
 from backend.state_store import StateStore
 
@@ -37,7 +37,10 @@ def load_rig_configuration() -> dict:
     rig_config_path = _resolve_rig_config_file(TRIGGER_DIR)
 
     if rig_config_path.exists():
-        return load(rig_config_path)
+        config = load(rig_config_path)
+        if migrate_indi_onstep_bindings(config):
+            save(rig_config_path, config)
+        return config
 
     state_store = StateStore(_resolve_state_file(TRIGGER_DIR))
     config = migrate_legacy(
