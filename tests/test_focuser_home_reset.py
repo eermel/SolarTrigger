@@ -145,10 +145,11 @@ def test_go_to_zero_does_not_reset_eaf_counter():
     assert plugin.reset_positions == []
 
 
-def test_inventory_detects_eaf_without_opening_worker_owned_usb_session():
+def test_inventory_falls_back_to_device_id_when_eaf_owned_elsewhere(monkeypatch):
+    from plugins.focuser import zwo_eaf
     from plugins.focuser.zwo_eaf import ZwoEaf
 
-    class NonInvasiveEafLib:
+    class BusyEafLib:
         def __init__(self):
             self.open_calls = []
 
@@ -162,10 +163,16 @@ def test_inventory_detects_eaf_without_opening_worker_owned_usb_session():
 
         def EAFOpen(self, sdk_id):
             self.open_calls.append(sdk_id)
-            raise AssertionError("inventory must not open the EAF")
+            raise AssertionError("busy inventory must not open the EAF")
+
+    monkeypatch.setattr(
+        zwo_eaf,
+        "_try_acquire_sdk_session",
+        lambda _lib, _sdk_id: False,
+    )
 
     eaf = ZwoEaf.__new__(ZwoEaf)
-    eaf.lib = NonInvasiveEafLib()
+    eaf.lib = BusyEafLib()
     eaf.id = None
     eaf.name = None
     eaf.max_step = None
