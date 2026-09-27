@@ -85,3 +85,10 @@ def test_home_preserves_stop_cancel_behavior():
     assert "homeButton.textContent = homing ? 'STOP' : 'HOME';" in MOUNT_JS
     assert "homeButton.classList.toggle('focuser-cancel', homing);" in MOUNT_JS
     assert "mountUrl(homing ? 'slew/stop' : 'home')" in MOUNT_JS
+
+
+
+def test_initial_device_refresh_can_reuse_recent_indi_catalog():
+    assert "reuseRecentIndi = false" in JS
+    assert "/api/rigs/devices/refresh?reuse_recent_indi=1" in JS
+    assert "await refreshRigDevices(true, false, true);" in JS
