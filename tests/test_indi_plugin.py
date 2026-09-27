@@ -502,6 +502,70 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
         }
     } in client.set_calls
 
+def test_eqmod_manual_sync_requires_site_and_time_readback(full_props):
+    props = deepcopy(full_props)
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_eqmod_telescope",
+        "DRIVER_NAME": "EQMod Mount",
+    }
+    props["TIME_UTC"] = {
+        "UTC": "2026-09-27T03:00:00",
+        "OFFSET": "2.00",
+    }
+    client = StubIndiClient(props)
+
+    result = mount(client).sync_site_time(
+        48.873735,
+        2.379992,
+        77.9,
+        "2026-09-27T03:08:00",
+        2.0,
+    )
+
+    assert {
+        "GEOGRAPHIC_COORD": {
+            "LAT": 48.873735,
+            "LONG": 2.379992,
+            "ELEV": 77.9,
+        },
+        "TIME_UTC": {
+            "UTC": "2026-09-27T03:08:00",
+            "OFFSET": "+2.00",
+        },
+    } in client.set_calls
+    assert result["utc_offset_hours"] == 2.0
+
+
+def test_eqmod_manual_sync_fails_when_readback_does_not_change(full_props):
+    props = deepcopy(full_props)
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_eqmod_telescope",
+        "DRIVER_NAME": "EQMod Mount",
+    }
+    props["TIME_UTC"] = {
+        "UTC": "2026-09-27T03:00:00",
+        "OFFSET": "2.00",
+    }
+
+    class NoReadbackClient(StubIndiClient):
+        def set_props(self, assignments):
+            self.set_calls.append(deepcopy(assignments))
+
+    client = NoReadbackClient(props)
+    error = assert_code(
+        "CONNECTION_FAILED",
+        lambda: mount(client, timeout=0).sync_site_time(
+            48.873735,
+            2.379992,
+            77.9,
+            "2026-09-27T03:08:00",
+            2.0,
+        ),
+    )
+
+    assert "site/time synchronization was not confirmed by readback" in str(error)
+
+
 def test_onstep_manual_sync_uses_atomic_vectors(monkeypatch, full_props):
     props = deepcopy(full_props)
     props["DRIVER_INFO"] = {
