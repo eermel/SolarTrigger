@@ -2,7 +2,13 @@ import json
 
 import pytest
 
-from backend.rig_config import load, migrate_legacy, save, validate
+from backend.rig_config import (
+    load,
+    migrate_indi_onstep_bindings,
+    migrate_legacy,
+    save,
+    validate,
+)
 from backend.state_store import StateStore
 
 
@@ -283,3 +289,52 @@ def test_load_preserves_sequence_without_adding_preview_phases(tmp_path):
 
     assert loaded["sequence"] == config["sequence"]
     assert "phases" not in loaded["sequence"]["common"]
+
+
+
+def test_indi_onstep_binding_migrates_to_direct_serial_backend():
+    config = _minimal_config()
+    config["rigs"][0]["devices"]["mount"] = {
+        "backend": "indi",
+        "manufacturer": None,
+        "model": "LX200 OnStep",
+        "serial": None,
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+        "device_name": "LX200 OnStep",
+        "fallback_physical_path": "/dev/serial/by-id/usb-OnStep",
+        "host": "127.0.0.1",
+        "port": 7624,
+        "driver_exec": "indi_lx200_OnStep",
+        "driver_name": "LX200 OnStep",
+    }
+
+    assert migrate_indi_onstep_bindings(config) is True
+
+    mount = config["rigs"][0]["devices"]["mount"]
+    assert mount == {
+        "backend": "onstep",
+        "manufacturer": "OnStep",
+        "model": "LX200 OnStep",
+        "serial": None,
+        "fallback_physical_path": "/dev/serial/by-id/usb-OnStep",
+    }
+    assert migrate_indi_onstep_bindings(config) is False
+
+
+def test_eqmod_indi_binding_is_not_migrated():
+    config = _minimal_config()
+    original = {
+        "backend": "indi",
+        "manufacturer": "Sky-Watcher",
+        "model": "EQ6-R Pro",
+        "device_id": "indi:127.0.0.1:7624:EQMod Mount",
+        "device_name": "EQMod Mount",
+        "fallback_physical_path": "/dev/serial/by-id/usb-EQMOD",
+        "host": "127.0.0.1",
+        "port": 7624,
+        "driver_exec": "indi_eqmod_telescope",
+    }
+    config["rigs"][0]["devices"]["mount"] = dict(original)
+
+    assert migrate_indi_onstep_bindings(config) is False
+    assert config["rigs"][0]["devices"]["mount"] == original
