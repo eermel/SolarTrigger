@@ -1,7 +1,9 @@
 from __future__ import annotations
-import copy, json, threading
+import copy, json, logging, os, threading
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 DEFAULT_STATE = {
     "gps": {"connected": False, "synced": False, "lat": None, "lon": None,
@@ -71,8 +73,14 @@ class StateStore:
                         base[key].update(val)
                     else:
                         base[key] = val
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning(
+                    "Unable to load persisted state from %s: %s: %s; "
+                    "using defaults.",
+                    self.path,
+                    type(exc).__name__,
+                    exc,
+                )
         base["trigger"] = copy.deepcopy(self._defaults["trigger"])
         base["gps_sync_running"] = False
         base["calc_running"] = False
@@ -181,15 +189,46 @@ class StateStore:
         # is not sufficient when several application threads save concurrently:
         # they would otherwise share the same .tmp path and an older snapshot
         # could overwrite a newer one after the lock had already been released.
+        #
+        # The temporary file and parent directory are fsync'ed so a successful
+        # return also means the new state survived the kernel page cache. This
+        # matters on a field Raspberry Pi which may lose battery power abruptly.
         with self.lock:
-            snap = {k: copy.deepcopy(self._state.get(k)) for k in self.PERSISTED_KEYS
-                    if k in self._state}
+            snap = {
+                k: copy.deepcopy(self._state.get(k))
+                for k in self.PERSISTED_KEYS
+                if k in self._state
+            }
             if "devices" in snap:
                 snap["devices"] = self._persistable_devices(snap["devices"])
+
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-            tmp.write_text(
-                json.dumps(snap, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            tmp.replace(self.path)
+
+            try:
+                with tmp.open("w", encoding="utf-8") as stream:
+                    json.dump(
+                        snap,
+                        stream,
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                    stream.write("\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+
+                os.replace(tmp, self.path)
+
+                directory_fd = os.open(
+                    self.path.parent,
+                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                )
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            finally:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass

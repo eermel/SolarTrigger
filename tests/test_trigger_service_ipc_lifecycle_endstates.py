@@ -363,6 +363,39 @@ def test_popen_error_closes_session_and_removes_socket(tmp_path, monkeypatch):
     assert runtime._ipc_session_ids == set()
 
 
+def test_start_failure_after_ipc_open_rolls_back_starting_and_session(
+    tmp_path, monkeypatch
+):
+    runtime, _servers = _make_runtime(tmp_path)
+    service = _make_service(tmp_path, runtime)
+
+    def fail_journal(*_args, **_kwargs):
+        raise RuntimeError("journal setup exploded")
+
+    def forbidden_thread(*_args, **_kwargs):
+        raise AssertionError("thread must not be created after journal failure")
+
+    monkeypatch.setattr(service, "_journal_begin", fail_journal)
+    monkeypatch.setattr(
+        "backend.trigger_service.threading.Thread",
+        forbidden_thread,
+    )
+
+    with pytest.raises(RuntimeError, match="journal setup exploded"):
+        service.start(selected=TRIGGER_SELECTION)
+
+    assert service._starting_by_rig[1] is False
+    assert service._run_ids_by_rig[1] is None
+    assert runtime._ipc_session_ids == set()
+    assert runtime._ipc_server is None
+    assert service.state.snapshot("trigger")["rigs"]["1"] == {
+        "running": False,
+        "phase": "idle",
+        "mode": None,
+        "speed": None,
+    }
+
+
 def test_clean_exit_revokes_session_stops_service_and_removes_socket(
     tmp_path, monkeypatch
 ):

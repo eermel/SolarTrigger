@@ -42,6 +42,7 @@ def test_ipc_deadline_is_converted_once_at_camera_service_boundary(
     clock = CountingRuntimeClock(remaining_seconds=12.5)
     plugin = RecordingCameraPlugin()
     service = CameraService(clock=clock)
+    service.camera = object()
     service.plugin = plugin
     worker_clocks = []
     worker_deadlines = []

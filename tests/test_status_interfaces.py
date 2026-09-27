@@ -1,3 +1,4 @@
+import logging
 import sys
 from types import ModuleType
 
@@ -151,3 +152,38 @@ def test_synced_gps_update_emits_clock_reset_epochs(monkeypatch):
     assert isinstance(clock_reset["new_local_epoch_ms"], int)
     assert clock_reset["new_utc_epoch_ms"] == status_time["backend_utc_epoch_ms"]
     assert clock_reset["new_local_epoch_ms"] == status_time["backend_local_epoch_ms"]
+
+
+
+def test_status_broadcast_error_logging_is_throttled_and_resets(monkeypatch, caplog):
+    timeline = iter([10.0, 20.0, 71.0, 72.0])
+    monkeypatch.setattr(
+        flask_module.time,
+        "monotonic",
+        lambda: next(timeline),
+    )
+    monkeypatch.setattr(
+        flask_module,
+        "_status_broadcast_last_error_log_at",
+        None,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="solareclipse"):
+        flask_module._log_status_broadcast_error(RuntimeError("first"))
+        flask_module._log_status_broadcast_error(RuntimeError("suppressed"))
+        flask_module._log_status_broadcast_error(RuntimeError("after-window"))
+
+        flask_module._reset_status_broadcast_error_throttle()
+        flask_module._log_status_broadcast_error(RuntimeError("after-success"))
+
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "solareclipse"
+        and record.getMessage().startswith("Status broadcast failed:")
+    ]
+    assert messages == [
+        "Status broadcast failed: RuntimeError: first",
+        "Status broadcast failed: RuntimeError: after-window",
+        "Status broadcast failed: RuntimeError: after-success",
+    ]

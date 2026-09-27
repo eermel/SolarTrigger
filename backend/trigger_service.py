@@ -936,22 +936,29 @@ class TriggerService:
                             "trigger",
                         )
                         raise
-            gen=ecl.get("_generated_utc", ""); today=datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            if gen and today not in gen: self.log(f"⚠️ todayeclipse.json generated on {gen[:10]} — eclipse not today?", "warning", "trigger")
-            mode = (
-                "simulation"
-                if simulate
-                else "dryrun"
-                if dry_run
-                else "real"
-            )
             run_id = _run_id
-            if mode == "real" and not _recovery:
-                run_id = self._journal_begin(rig_id, mode, selected)
-            if run_id is not None:
-                self._run_ids_by_rig[rig_id] = run_id
-            published_phase = "recovering" if _recovery else "starting"
             try:
+                gen = ecl.get("_generated_utc", "")
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if gen and today not in gen:
+                    self.log(
+                        f"⚠️ todayeclipse.json generated on {gen[:10]} — eclipse not today?",
+                        "warning",
+                        "trigger",
+                    )
+                mode = (
+                    "simulation"
+                    if simulate
+                    else "dryrun"
+                    if dry_run
+                    else "real"
+                )
+                if mode == "real" and not _recovery:
+                    run_id = self._journal_begin(rig_id, mode, selected)
+                if run_id is not None:
+                    self._run_ids_by_rig[rig_id] = run_id
+                published_phase = "recovering" if _recovery else "starting"
+
                 self._clear_published_failure(rig_id)
                 self.state.update_trigger_rig(
                     rig_id,

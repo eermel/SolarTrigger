@@ -5346,24 +5346,59 @@ def on_connect(auth=None):
     if history:
         emit("log_history", history)
 
+_STATUS_BROADCAST_ERROR_LOG_INTERVAL_S = 60.0
+_status_broadcast_last_error_log_at = None
+
+
+def _status_broadcast_once():
+    sync_state = getattr(_trigger_service, "sync_state", None)
+    if callable(sync_state):
+        # Reattach after a portal restart: the autonomous runtime is
+        # authoritative, never the portal's boot-reset trigger state.
+        sync_state(best_effort=True)
+    with _state_lock:
+        gps = dict(_state["gps"])
+        trigger = dict(_state["trigger"])
+    socketio.emit(
+        "status_update",
+        _status_update_payload({
+            "gps": gps,
+            "trigger": trigger,
+        }),
+    )
+
+
+def _log_status_broadcast_error(exc):
+    global _status_broadcast_last_error_log_at
+
+    now = time.monotonic()
+    last = _status_broadcast_last_error_log_at
+    if (
+        last is None
+        or now - last >= _STATUS_BROADCAST_ERROR_LOG_INTERVAL_S
+    ):
+        log.warning(
+            "Status broadcast failed: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        _status_broadcast_last_error_log_at = now
+
+
+def _reset_status_broadcast_error_throttle():
+    global _status_broadcast_last_error_log_at
+    _status_broadcast_last_error_log_at = None
+
+
 def _thread_status_broadcast():
     """Diffuse heure locale + UTC + état système toutes les secondes."""
     while True:
         try:
-            sync_state = getattr(_trigger_service, "sync_state", None)
-            if callable(sync_state):
-                # Reattach after a portal restart: the autonomous runtime is
-                # authoritative, never the portal's boot-reset trigger state.
-                sync_state(best_effort=True)
-            with _state_lock:
-                gps     = dict(_state["gps"])
-                trigger = dict(_state["trigger"])
-            socketio.emit("status_update", _status_update_payload({
-                "gps":     gps,
-                "trigger": trigger,
-            }))
-        except Exception:
-            pass
+            _status_broadcast_once()
+        except Exception as exc:
+            _log_status_broadcast_error(exc)
+        else:
+            _reset_status_broadcast_error_throttle()
         time.sleep(1)
 
 def _thread_camera_poll():

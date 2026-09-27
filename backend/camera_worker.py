@@ -257,6 +257,7 @@ class CameraWorker:
             slowest_override_seconds=slowest_override_seconds,
             priority=PRIORITY_SEQUENCER,
             worker_deadline=monotonic_deadline,
+            recover_connection=True,
         )
 
     def preflight(self, required_state=None):
