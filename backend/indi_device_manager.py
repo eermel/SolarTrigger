@@ -831,6 +831,14 @@ class IndiDeviceManager:
                 if device_name not in reconnect_required:
                     reconnect_required.add(device_name)
                     recovery_changed = True
+                # This driver's own transport was claimed earlier from the
+                # stale CONNECT=On snapshot.  Release that claim so recovery
+                # can cycle the same learned port during this discovery pass.
+                if (
+                    connected_bindings.get(device_name) == learned
+                    and len(binding_owners.get(learned, ())) == 1
+                ):
+                    claimed.discard(learned)
         if recovery_changed:
             try:
                 self._persist_mount_state(bindings, reconnect_required)
