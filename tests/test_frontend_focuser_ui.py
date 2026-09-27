@@ -289,3 +289,17 @@ def test_socket_updates_refresh_from_focuser_specific_event_only():
         r"socket\.on\(\s*['\"]status_update['\"]",
         FOCUSER_JS,
     )
+
+
+def test_focuser_requests_do_not_assume_every_response_is_json():
+    request_function = re.search(
+        r"async function request\(url, options = \{\}\) \{(?P<body>.*?)\n  \}",
+        FOCUSER_JS,
+        re.DOTALL,
+    )
+    assert request_function
+    body = request_function.group("body")
+    assert "const body = await response.text();" in body
+    assert "data = JSON.parse(body);" in body
+    assert "await response.json()" not in body
+    assert "if (!response.ok)" in body
