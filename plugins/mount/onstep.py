@@ -9,6 +9,7 @@ mouvements manuels, estop, recentrage HOME (avec setup date/heure/position
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from enum import Enum
@@ -669,6 +670,17 @@ class OnStep:
     def set_location(self, lat_deg, lon_deg):
         """Envoie latitude/longitude a OnStep (degres decimaux signes,
         convention geo : Nord+, Est+). Retourne True si accepte."""
+        lat_deg = float(lat_deg)
+        lon_deg = float(lon_deg)
+        if not math.isfinite(lat_deg) or not math.isfinite(lon_deg):
+            raise ValueError("OnStep location must contain finite coordinates")
+        if not -90.0 <= lat_deg <= 90.0:
+            raise ValueError("OnStep latitude is outside -90..90 degrees")
+        if not -180.0 <= lon_deg <= 180.0:
+            raise ValueError("OnStep longitude is outside -180..180 degrees")
+        if lat_deg == 0.0 and lon_deg == 0.0:
+            raise ValueError("refusing invalid 0/0 OnStep location")
+
         la_s, la_d, la_m = self._deg_to_dm(lat_deg)
         # longitude OnStep : Ouest positif -> inverser le signe geo
         lo_s, lo_d, lo_m = self._deg_to_dm(-lon_deg)
