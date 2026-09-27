@@ -214,7 +214,20 @@ def test_reconcile_failure_rolls_back_and_preserves_previous_registry(failure):
         runtime.reconcile(valid_config(revision=2))
 
     assert workers(runtime) == original
-    assert all(worker.running for worker in original)
+    if failure == "start":
+        # Exclusive ownership requires stopping the old RIG before starting
+        # its replacement.  This stub deliberately makes every RIG 702 start
+        # fail, including rollback of the old worker, so fail closed instead
+        # of pretending the previous configuration was fully restored.
+        assert original[0].running is True
+        assert original[1].running is False
+        assert runtime._degraded_ownership is True
+        with pytest.raises(RuntimeError, match="unresolved worker ownership"):
+            runtime.reconcile(valid_config(revision=1))
+    else:
+        assert all(worker.running for worker in original)
+        assert runtime._degraded_ownership is False
+
     created = StubWorker.instances[2:]
     assert created
     assert all(worker.shutdown_calls == [None] for worker in created)

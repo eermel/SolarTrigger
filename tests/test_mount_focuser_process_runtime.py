@@ -300,3 +300,51 @@ def test_stop_all_retains_worker_when_shutdown_reports_false(
         runtime.stop_all(timeout=0.01)
 
     assert runtime.get_for_rig(rig_id) is worker
+
+
+@pytest.mark.parametrize(
+    ("runtime_cls", "config_factory", "rig_id", "old_id", "new_id"),
+    [
+        (MountWorkerRuntime, _mount_config, 1, "mount-1", "mount-2"),
+        (FocuserWorkerRuntime, _focuser_config, 2, "focus-1", "focus-2"),
+    ],
+)
+def test_failed_replacement_and_failed_old_restart_marks_runtime_degraded(
+    tmp_path,
+    runtime_cls,
+    config_factory,
+    rig_id,
+    old_id,
+    new_id,
+):
+    class RollbackFailureWorker(FakeProcessWorker):
+        created = []
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.start_calls = 0
+
+        def start(self):
+            self.start_calls += 1
+            serial = self.device_config["serial"]
+            if serial == new_id:
+                raise RuntimeError("replacement start failed")
+            if serial == old_id and self.start_calls > 1:
+                raise RuntimeError("old owner restart failed")
+            super().start()
+
+    runtime = runtime_cls(
+        state_path=tmp_path / "state.json",
+        process_worker_factory=RollbackFailureWorker,
+        log_fn=lambda _message: None,
+    )
+    runtime.reconcile(config_factory(old_id))
+    old_worker = runtime.get_for_rig(rig_id)
+
+    with pytest.raises(RuntimeError, match="rollback could not restore"):
+        runtime.reconcile(config_factory(new_id))
+
+    assert runtime.get_for_rig(rig_id) is old_worker
+    assert runtime._degraded_ownership is True
+    with pytest.raises(RuntimeError, match="unresolved worker ownership"):
+        runtime.reconcile(config_factory(old_id))

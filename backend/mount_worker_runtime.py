@@ -95,6 +95,7 @@ class MountWorkerRuntime:
         # workers strongly referenced and block future reconfiguration until
         # stop_all() confirms that hardware ownership has been released.
         self._retained_workers: list[Any] = []
+        self._degraded_ownership = False
         self._lock = threading.RLock()
 
     def set_service_factory_provider(
@@ -199,7 +200,7 @@ class MountWorkerRuntime:
 
         desired = self._desired_bindings(config)
         with self._lock:
-            if self._retained_workers:
+            if self._retained_workers or self._degraded_ownership:
                 raise RuntimeError(
                     "mount runtime has unresolved worker ownership; "
                     "stop_all() must succeed before reconfiguration"
@@ -308,6 +309,8 @@ class MountWorkerRuntime:
                             f"{detail or 'shutdown failed'}"
                         )
 
+                if restart_failures:
+                    self._degraded_ownership = True
                 details = "; ".join(stop_failures + restart_failures)
                 raise RuntimeError(
                     "mount worker ownership was not released"
@@ -346,6 +349,8 @@ class MountWorkerRuntime:
                             )
 
                 if cleanup_failures or restart_failures:
+                    if restart_failures:
+                        self._degraded_ownership = True
                     details = "; ".join(
                         cleanup_failures + restart_failures
                     )
@@ -363,6 +368,7 @@ class MountWorkerRuntime:
                 )
                 for key in desired
             }
+            self._degraded_ownership = False
 
     def stop_all(self, timeout: float | None = None) -> None:
         """Shut down every worker without forgetting surviving owners."""
@@ -399,6 +405,7 @@ class MountWorkerRuntime:
 
             self._registry = remaining_registry
             self._retained_workers = remaining_retained
+            self._degraded_ownership = bool(failures)
 
             if failures:
                 raise RuntimeError(
