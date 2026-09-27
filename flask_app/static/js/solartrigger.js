@@ -2559,8 +2559,29 @@ socket.on('log_history', lines => {
 
   async function request(url, options = {}) {
     const response = await fetch(url, options);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
+    const body = await response.text();
+    let data = {};
+
+    if (body) {
+      try {
+        data = JSON.parse(body);
+      } catch (_error) {
+        const clean = body
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 240);
+        throw new Error(
+          clean
+            ? `HTTP ${response.status}: ${clean}`
+            : `HTTP ${response.status}: invalid server response`
+        );
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP error ${response.status}`);
+    }
     return data;
   }
 
