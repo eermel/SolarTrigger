@@ -69,6 +69,38 @@ def make_driver(monkeypatch, sdk):
     return zwo_eaf.ZwoEaf()
 
 
+def test_busy_worker_inventory_never_calls_zwo_sdk(monkeypatch):
+    class ForbiddenSdk:
+        def EAFGetNum(self):
+            raise AssertionError("inventory must not call SDK while worker owns EAF")
+
+    monkeypatch.setattr(zwo_eaf, "_load_lib", lambda: ForbiddenSdk())
+    monkeypatch.setattr(
+        zwo_eaf.ZwoEaf,
+        "_setup_prototypes",
+        lambda self: None,
+    )
+    monkeypatch.setattr(
+        zwo_eaf,
+        "_busy_process_lock_ids",
+        lambda: [7],
+    )
+
+    devices = zwo_eaf.ZwoEaf().enumerate_devices()
+
+    assert devices == [{
+        "category": "focuser",
+        "backend": "zwo_eaf",
+        "manufacturer": "ZWO",
+        "model": "EAF",
+        "serial": None,
+        "device_id": "zwo_eaf:7",
+        "sdk_id": 7,
+        "max_step": None,
+        "details_available": False,
+    }]
+
+
 def test_no_eaf_returns_empty_inventory(monkeypatch):
     sdk = FakeSdk()
     driver = make_driver(monkeypatch, sdk)
