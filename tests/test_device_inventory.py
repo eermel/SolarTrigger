@@ -690,6 +690,81 @@ def test_absent_legacy_indi_onstep_falls_back_to_direct_serial(monkeypatch):
 
 
 
+def test_single_zwo_binding_survives_sdk_id_reenumeration(monkeypatch):
+    from plugins import focuser as focuser_registry
+
+    monkeypatch.setattr(
+        focuser_registry,
+        "inventory_focusers",
+        lambda **_kwargs: [{
+            "category": "focuser",
+            "backend": "zwo_eaf",
+            "manufacturer": "ZWO",
+            "model": "EAF",
+            "device_id": "zwo_eaf:7",
+            "sdk_id": 7,
+            "present": True,
+        }],
+    )
+
+    reserved = {
+        "category": "focuser",
+        "backend": "zwo_eaf",
+        "manufacturer": "ZWO",
+        "model": "EAF",
+        "device_id": "zwo_eaf:0",
+    }
+
+    discovered = device_inventory._discover_focusers(
+        reserved_focusers=[reserved],
+        indi_catalog=[],
+    )
+
+    assert len(discovered) == 1
+    assert discovered[0]["device_id"] == "zwo_eaf:0"
+    assert discovered[0]["sdk_id"] == 7
+    assert discovered[0]["present"] is True
+
+
+def test_multiple_zwo_focusers_never_guess_reenumerated_binding(monkeypatch):
+    from plugins import focuser as focuser_registry
+
+    monkeypatch.setattr(
+        focuser_registry,
+        "inventory_focusers",
+        lambda **_kwargs: [
+            {
+                "category": "focuser",
+                "backend": "zwo_eaf",
+                "device_id": "zwo_eaf:7",
+                "sdk_id": 7,
+            },
+            {
+                "category": "focuser",
+                "backend": "zwo_eaf",
+                "device_id": "zwo_eaf:9",
+                "sdk_id": 9,
+            },
+        ],
+    )
+
+    reserved = {
+        "category": "focuser",
+        "backend": "zwo_eaf",
+        "device_id": "zwo_eaf:0",
+    }
+
+    discovered = device_inventory._discover_focusers(
+        reserved_focusers=[reserved],
+        indi_catalog=[],
+    )
+
+    assert [entry["device_id"] for entry in discovered] == [
+        "zwo_eaf:7",
+        "zwo_eaf:9",
+    ]
+
+
 def test_bound_focuser_is_not_synthesized_present_after_usb_unplug(monkeypatch):
     """A persisted EAF binding must disappear when vendor inventory is empty."""
     monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
