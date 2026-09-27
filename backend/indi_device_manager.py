@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 import tempfile
 import time
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from backend.runtime_paths import INDI_MOUNT_BINDINGS_FILE
 from plugins.mount.indi_client import IndiSubprocessClient, IndiTcpSession
