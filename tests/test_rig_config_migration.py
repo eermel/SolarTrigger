@@ -298,7 +298,7 @@ def test_indi_onstep_binding_migrates_to_direct_serial_backend():
         "backend": "indi",
         "manufacturer": None,
         "model": "LX200 OnStep",
-        "serial": None,
+        "serial": "ONSTEP-PROTOCOL-SERIAL",
         "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
         "device_name": "LX200 OnStep",
         "fallback_physical_path": "/dev/serial/by-id/usb-OnStep",
