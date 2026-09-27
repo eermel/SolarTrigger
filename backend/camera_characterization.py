@@ -332,6 +332,7 @@ class CharacterizationJob:
     def _cancel_watchdog(self, process):
         """Bound cancellation even when native libgphoto2 never returns."""
 
+        stopped = False
         try:
             stopped = self._terminate_process_bounded(
                 process,
