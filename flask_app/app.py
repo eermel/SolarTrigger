@@ -2420,12 +2420,24 @@ def api_rig_mount_sync(rig_id):
     latitude = gps.get("lat")
     longitude = gps.get("lon")
     elevation = gps.get("alt")
+
+    utc_offset_minutes = gps.get("utc_offset_minutes")
+    if (
+        isinstance(utc_offset_minutes, bool)
+        or not isinstance(utc_offset_minutes, (int, float))
+        or not -1440 <= float(utc_offset_minutes) <= 1440
+    ):
+        return _rig_mount_error(
+            rig_id,
+            RuntimeError(
+                "GPS UTC offset is required before mount synchronization."
+            ),
+            status=409,
+            code="GPS_TIMEZONE_UNAVAILABLE",
+        )
+
     now_utc = datetime.now(timezone.utc)
-    local_now = now_utc.astimezone()
-    offset = local_now.utcoffset()
-    utc_offset_hours = (
-        offset.total_seconds() / 3600.0 if offset is not None else 0.0
-    )
+    utc_offset_hours = float(utc_offset_minutes) / 60.0
     utc_iso = now_utc.strftime("%Y-%m-%dT%H:%M:%S")
 
     try:
