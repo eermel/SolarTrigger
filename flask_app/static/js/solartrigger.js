@@ -2714,6 +2714,7 @@ socket.on('log_history', lines => {
 // MOUNT UI START
 (() => {
   const homeButton = document.getElementById('btn-mount-home');
+  const syncButton = document.getElementById('btn-mount-sync');
   const joystick = document.getElementById('mount-joystick');
   const joystickKnob = document.getElementById('mount-joystick-knob');
   const joystickDirection = document.getElementById('mount-joystick-direction');
@@ -2759,6 +2760,7 @@ socket.on('log_history', lines => {
 
   function disableMountControls() {
     homeButton.disabled = true;
+    syncButton.disabled = true;
     trackingMode.disabled = true;
     trackingSwitch.disabled = true;
     setJoystickEnabled(false);
@@ -2991,6 +2993,7 @@ socket.on('log_history', lines => {
     }
     homing = data && data.homing === true;
     homeButton.disabled = false;
+    syncButton.disabled = homing || triggerRunning;
     homeButton.textContent = homing ? 'STOP' : 'HOME';
     homeButton.classList.toggle('focuser-cancel', homing);
     if (data && typeof data.trigger_running === 'boolean') {
@@ -3100,6 +3103,26 @@ socket.on('log_history', lines => {
 
   homeButton.addEventListener('click', () => {
     postMount(mountUrl(homing ? 'slew/stop' : 'home'));
+  });
+
+  syncButton.addEventListener('click', async () => {
+    const url = mountUrl('sync');
+    if (!url) return;
+    syncButton.disabled = true;
+    try {
+      const response = await fetch(url, {method: 'POST'});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP error ${response.status}`);
+      const sync = data.synchronization || {};
+      flash(
+        `Mount synchronized: UTC ${sync.utc || 'OK'} · GPS ${sync.latitude ?? '?'} / ${sync.longitude ?? '?'}`,
+        'green'
+      );
+    } catch (error) {
+      flash(`Mount : ${error.message}`, 'red');
+    } finally {
+      refreshMount();
+    }
   });
 
   trackingMode.addEventListener('change', () => {
