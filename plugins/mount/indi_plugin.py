@@ -552,10 +552,13 @@ class IndiMount(MountPlugin):
         # This is a true Home operation: it must never be emulated with PARK.
         home_init = props.get("HOME_INIT", {})
         if self._is_onstep_driver(props) and "RETURN_HOME" in home_init:
+            # Match the command proven by the legacy OnStep driver: only
+            # pulse RETURN_HOME.  Other HOME_INIT switches (notably AT_HOME)
+            # are independent actions and must not be rewritten as part of
+            # Return Home.
             self._set_props({
                 "HOME_INIT": {
-                    name: "On" if name == "RETURN_HOME" else "Off"
-                    for name in home_init
+                    "RETURN_HOME": "On",
                 }
             })
 
