@@ -155,8 +155,11 @@ def test_synced_gps_update_emits_clock_reset_epochs(monkeypatch):
 
 
 
-def test_status_broadcast_error_logging_is_throttled_and_resets(monkeypatch, caplog):
-    timeline = iter([10.0, 20.0, 71.0, 72.0])
+def test_status_broadcast_error_logging_is_globally_throttled(
+    monkeypatch, caplog
+):
+    timeline = iter([10.0, 20.0, 71.0])
+    portal_logs = []
     monkeypatch.setattr(
         flask_module.time,
         "monotonic",
@@ -167,14 +170,18 @@ def test_status_broadcast_error_logging_is_throttled_and_resets(monkeypatch, cap
         "_status_broadcast_last_error_log_at",
         None,
     )
+    monkeypatch.setattr(
+        flask_module,
+        "_append_log",
+        lambda text, level="info", source="system", rig_id=None: portal_logs.append(
+            (text, level, source, rig_id)
+        ),
+    )
 
     with caplog.at_level(logging.WARNING, logger="solareclipse"):
         flask_module._log_status_broadcast_error(RuntimeError("first"))
         flask_module._log_status_broadcast_error(RuntimeError("suppressed"))
         flask_module._log_status_broadcast_error(RuntimeError("after-window"))
-
-        flask_module._reset_status_broadcast_error_throttle()
-        flask_module._log_status_broadcast_error(RuntimeError("after-success"))
 
     messages = [
         record.getMessage()
@@ -185,5 +192,19 @@ def test_status_broadcast_error_logging_is_throttled_and_resets(monkeypatch, cap
     assert messages == [
         "Status broadcast failed: RuntimeError: first",
         "Status broadcast failed: RuntimeError: after-window",
-        "Status broadcast failed: RuntimeError: after-success",
     ]
+    assert portal_logs == [
+        (
+            "Status broadcast failed: RuntimeError: first",
+            "warning",
+            "system",
+            None,
+        ),
+        (
+            "Status broadcast failed: RuntimeError: after-window",
+            "warning",
+            "system",
+            None,
+        ),
+    ]
+    assert flask_module._status_broadcast_last_error_log_at == 71.0

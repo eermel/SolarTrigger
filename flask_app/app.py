@@ -5377,17 +5377,18 @@ def _log_status_broadcast_error(exc):
         last is None
         or now - last >= _STATUS_BROADCAST_ERROR_LOG_INTERVAL_S
     ):
-        log.warning(
-            "Status broadcast failed: %s: %s",
-            type(exc).__name__,
-            exc,
+        message = (
+            f"Status broadcast failed: {type(exc).__name__}: {exc}"
         )
+        log.warning("%s", message)
+        # Keep the failure visible in the portal's persistent log too.
+        # EventLog.append() already isolates emit/file errors, so this
+        # observability path can never break the broadcast loop itself.
+        try:
+            _append_log(message, "warning", "system")
+        except Exception:
+            pass
         _status_broadcast_last_error_log_at = now
-
-
-def _reset_status_broadcast_error_throttle():
-    global _status_broadcast_last_error_log_at
-    _status_broadcast_last_error_log_at = None
 
 
 def _thread_status_broadcast():
@@ -5397,8 +5398,6 @@ def _thread_status_broadcast():
             _status_broadcast_once()
         except Exception as exc:
             _log_status_broadcast_error(exc)
-        else:
-            _reset_status_broadcast_error_throttle()
         time.sleep(1)
 
 def _thread_camera_poll():
