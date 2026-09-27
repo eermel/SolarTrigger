@@ -15,6 +15,15 @@ SHARED_CAMERA_BASE="$SHARED_VAR/generated"
 SHARED_CAMERA_PROFILES="$SHARED_CAMERA_BASE/camera_profiles"
 SHARED_CAMERA_TIMING="$SHARED_CAMERA_BASE/camera_timing"
 SHARED_CAMERA_CHARACTERIZATION="$SHARED_CAMERA_BASE/camera_characterization"
+MAINTENANCE_LOCK="${SOLARTRIGGER_MAINTENANCE_LOCK:-/run/lock/solartrigger-maintenance.lock}"
+
+acquire_maintenance_lock() {
+    exec 9>"$MAINTENANCE_LOCK"
+    /usr/bin/flock -n 9 || {
+        log "SolarTrigger maintenance is already running" >&2
+        exit 75
+    }
+}
 
 log() {
     printf '%s\n' "$*"
@@ -807,12 +816,15 @@ rollback_release() {
 
 case "${1:-}" in
     dev-prepare)
+        acquire_maintenance_lock
         prepare_dev_workspace
         ;;
     install)
+        acquire_maintenance_lock
         install_release "${2:?}"
         ;;
     rollback)
+        acquire_maintenance_lock
         rollback_release "${2:?}"
         ;;
     *)
