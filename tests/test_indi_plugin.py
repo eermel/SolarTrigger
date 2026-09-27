@@ -478,7 +478,6 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
     plugin.set_tracking_mode("solar")
     plugin.start_tracking("solar")
     plugin.stop_tracking()
-    plugin.set_location(48.8736388889, 2.3796666667, 0)
 
     assert {
         "TELESCOPE_SLEW_RATE": {
