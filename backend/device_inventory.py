@@ -11,6 +11,7 @@ from copy import deepcopy
 from pathlib import Path
 import re
 import threading
+import time
 from typing import Any, Iterable, Mapping
 
 from backend.device_identity import is_usb_bus_device
@@ -21,7 +22,9 @@ CATEGORIES = (*RIG_CATEGORIES, "astro")
 SYSFS_USB_DEVICES = Path("/sys/bus/usb/devices")
 _USB_LOCATOR = re.compile(r"^usb:(\d+),(\d+)$")
 _cache_lock = threading.Lock()
+_refresh_lock = threading.Lock()
 _cache: dict[str, list[dict[str, Any]]] = {name: [] for name in CATEGORIES}
+_indi_catalog_refreshed_at = 0.0
 
 
 def get_cached_inventory() -> dict[str, list[dict[str, Any]]]:
@@ -65,50 +68,75 @@ def refresh_inventory(
     *,
     reserved_mounts: Iterable[Mapping[str, Any]] | None = None,
     reserved_focusers: Iterable[Mapping[str, Any]] | None = None,
+    reuse_recent_indi_s: float = 0.0,
 ) -> dict[str, list[dict[str, Any]]]:
     """Perform one explicit discovery pass and atomically replace the cache.
 
     INDI is queried once and becomes the primary astronomical equipment
     catalogue. DSLR/mirrorless cameras remain on the gphoto2 path.
+
+    Concurrent refreshes are serialized so browser reloads/hot-plug refreshes
+    cannot race the same INDI device state.  Callers may explicitly reuse a
+    very recent INDI catalogue; manual refreshes keep the default of zero and
+    therefore always perform a fresh INDI discovery.
     """
 
-    indi_catalog = _discover_indi_catalog()
-    mount_entries = (
-        _discover_mounts()
-        if reserved_mounts is None and not indi_catalog
-        else _discover_mounts(
-            reserved_mounts=reserved_mounts,
-            indi_catalog=indi_catalog,
+    global _indi_catalog_refreshed_at
+
+    with _refresh_lock:
+        indi_catalog = None
+        reuse_window = max(0.0, float(reuse_recent_indi_s))
+        if reuse_window > 0.0:
+            with _cache_lock:
+                age = time.monotonic() - _indi_catalog_refreshed_at
+                if (
+                    _indi_catalog_refreshed_at > 0.0
+                    and age <= reuse_window
+                ):
+                    indi_catalog = deepcopy(_cache.get("astro", []))
+
+        discovered_indi = indi_catalog is None
+        if discovered_indi:
+            indi_catalog = _discover_indi_catalog()
+
+        mount_entries = (
+            _discover_mounts()
+            if reserved_mounts is None and not indi_catalog
+            else _discover_mounts(
+                reserved_mounts=reserved_mounts,
+                indi_catalog=indi_catalog,
+            )
         )
-    )
-    focuser_entries = (
-        _discover_focusers()
-        if reserved_focusers is None and not indi_catalog
-        else _discover_focusers(
-            reserved_focusers=reserved_focusers,
-            indi_catalog=indi_catalog,
+        focuser_entries = (
+            _discover_focusers()
+            if reserved_focusers is None and not indi_catalog
+            else _discover_focusers(
+                reserved_focusers=reserved_focusers,
+                indi_catalog=indi_catalog,
+            )
         )
-    )
-    discovered = {
-        "camera": _discover_cameras(),
-        "mount": mount_entries,
-        "focuser": focuser_entries,
-        "astro": indi_catalog,
-    }
-    normalized = {
-        category: (
-            _normalize_astro_entries(discovered.get(category, ()))
-            if category == "astro"
-            else _normalize_entries(category, discovered.get(category, ()))
-        )
-        for category in CATEGORIES
-    }
-    for category in RIG_CATEGORIES:
-        build_display_labels(normalized[category])
-    with _cache_lock:
-        _cache.clear()
-        _cache.update(deepcopy(normalized))
-    return deepcopy(normalized)
+        discovered = {
+            "camera": _discover_cameras(),
+            "mount": mount_entries,
+            "focuser": focuser_entries,
+            "astro": indi_catalog,
+        }
+        normalized = {
+            category: (
+                _normalize_astro_entries(discovered.get(category, ()))
+                if category == "astro"
+                else _normalize_entries(category, discovered.get(category, ()))
+            )
+            for category in CATEGORIES
+        }
+        for category in RIG_CATEGORIES:
+            build_display_labels(normalized[category])
+        with _cache_lock:
+            _cache.clear()
+            _cache.update(deepcopy(normalized))
+            if discovered_indi:
+                _indi_catalog_refreshed_at = time.monotonic()
+        return deepcopy(normalized)
 
 
 def reclassify_cached_cameras() -> dict[str, list[dict[str, Any]]]:
