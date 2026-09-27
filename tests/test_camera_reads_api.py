@@ -54,11 +54,11 @@ def camera_reads_api(tmp_path, monkeypatch):
     camera = _TracingCamera()
     monkeypatch.setattr(flask_module.gp, "Camera", lambda: camera, raising=False)
     flask_module.app.config.update(TESTING=True)
-    return flask_module.app.test_client(), camera, state_store
+    return flask_module.app.test_client(), camera, state_store, monkeypatch
 
 
 def test_status_returns_cached_camera_without_auto_probe(camera_reads_api):
-    client, camera, state_store = camera_reads_api
+    client, camera, state_store, _monkeypatch = camera_reads_api
     cached = state_store.snapshot("camera")
 
     response = client.get("/api/status")
@@ -70,8 +70,46 @@ def test_status_returns_cached_camera_without_auto_probe(camera_reads_api):
     assert camera.exit_calls == 0
 
 
-def test_camera_probe_is_manual_and_disconnects(camera_reads_api):
-    client, camera, state_store = camera_reads_api
+def test_camera_probe_is_manual_and_uses_rig_owner(camera_reads_api):
+    client, camera, state_store, monkeypatch = camera_reads_api
+    calls = []
+
+    class Worker:
+        def probe_info(self):
+            calls.append("probe")
+            return {
+                "model": "Sony ILCE-7M5 (PC Control)",
+                "battery": "85%",
+                "plugin": "test",
+            }
+
+    class Runtime:
+        def reconcile(self, config):
+            calls.append(("reconcile", config))
+
+        def get_for_rig(self, rig_id):
+            calls.append(("get_for_rig", rig_id))
+            return Worker() if rig_id == 1 else None
+
+    config = {"rigs": []}
+    monkeypatch.setattr(
+        flask_module,
+        "load_rig_configuration",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        flask_module,
+        "get_camera_worker_runtime",
+        lambda **_kwargs: Runtime(),
+    )
+    monkeypatch.setattr(
+        flask_module.gp,
+        "Camera",
+        lambda: pytest.fail(
+            "legacy /api/camera/probe must not open gphoto2 directly"
+        ),
+        raising=False,
+    )
 
     response = client.post("/api/camera/probe")
 
@@ -82,5 +120,10 @@ def test_camera_probe_is_manual_and_disconnects(camera_reads_api):
         "battery": "85%",
     }
     assert state_store.snapshot("camera")["connected"] is False
-    assert camera.init_calls == 1
-    assert camera.exit_calls == 1
+    assert calls == [
+        ("reconcile", config),
+        ("get_for_rig", 1),
+        "probe",
+    ]
+    assert camera.init_calls == 0
+    assert camera.exit_calls == 0
