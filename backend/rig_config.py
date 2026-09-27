@@ -132,6 +132,12 @@ def migrate_indi_onstep_bindings(obj: Any) -> bool:
         mount["backend"] = "onstep"
         if not str(mount.get("manufacturer") or "").strip():
             mount["manufacturer"] = "OnStep"
+
+        # Direct OnStep inventory is keyed by the stable serial device path.
+        # Do not preserve an INDI/protocol serial that the direct plugin cannot
+        # reproduce during later inventory presence matching.
+        mount["serial"] = None
+
         for field in indi_only_fields:
             mount.pop(field, None)
         changed = True
