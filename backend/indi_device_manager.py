@@ -211,11 +211,17 @@ class IndiDeviceManager:
         timeout_s: float = 2.0,
         client: IndiSubprocessClient | None = None,
         bindings_file: Path | str | None = None,
+        excluded_serial_paths: Iterable[str] | None = None,
     ) -> None:
         self.host = str(host)
         self.port = int(port)
         self.timeout_s = float(timeout_s)
         self.bindings_file = Path(bindings_file or INDI_MOUNT_BINDINGS_FILE)
+        self.excluded_serial_paths = {
+            str(path)
+            for path in (excluded_serial_paths or ())
+            if str(path).strip()
+        }
         self.client = client or IndiSubprocessClient(
             host=self.host,
             port=self.port,
@@ -756,7 +762,16 @@ class IndiDeviceManager:
         Returns True when at least one connection was established, so the
         caller can refresh the catalogue and publish the live INDI state.
         """
-        candidates = self._serial_candidates()
+        excluded_real = {
+            os.path.realpath(path)
+            for path in self.excluded_serial_paths
+        }
+        candidates = [
+            path
+            for path in self._serial_candidates()
+            if path not in self.excluded_serial_paths
+            and os.path.realpath(path) not in excluded_real
+        ]
         bindings = self._load_mount_bindings()
         reconnect_required = self._load_reconnect_required()
 
