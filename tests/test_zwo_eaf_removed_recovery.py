@@ -4,6 +4,7 @@ from plugins.focuser.zwo_eaf import (
     EAF_ERROR_REMOVED,
     EafError,
     ZwoEaf,
+    _SDK_LOCK_FDS,
     _SDK_OPEN_REFS,
 )
 
@@ -23,7 +24,9 @@ class RemovedEafLib:
 
 def test_removed_eaf_invalidates_session_for_future_reconnect():
     previous_refs = dict(_SDK_OPEN_REFS)
+    previous_locks = dict(_SDK_LOCK_FDS)
     _SDK_OPEN_REFS.clear()
+    _SDK_LOCK_FDS.clear()
     _SDK_OPEN_REFS[7] = 1
 
     try:
@@ -47,3 +50,5 @@ def test_removed_eaf_invalidates_session_for_future_reconnect():
     finally:
         _SDK_OPEN_REFS.clear()
         _SDK_OPEN_REFS.update(previous_refs)
+        _SDK_LOCK_FDS.clear()
+        _SDK_LOCK_FDS.update(previous_locks)
