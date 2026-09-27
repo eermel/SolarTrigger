@@ -14,6 +14,7 @@ rattache au contrat commun pour que le moteur puisse traiter OnStep, ZWO,
 SynScan... de facon uniforme.
 """
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .base import MountPlugin, RATE_SIDEREAL, RATE_SOLAR, RATE_LUNAR
@@ -200,6 +201,49 @@ class OnStepMount(MountPlugin):
                 {"value": rate, "label": f"{rate:g}x"}
                 for rate in sorted(OnStep.MOVE_RATES.keys())
             ],
+        }
+
+    def set_location(self, latitude, longitude, elevation):
+        del elevation  # OnStep LX200 site setup has no elevation command.
+        if not self.mount.set_location(float(latitude), float(longitude)):
+            raise RuntimeError("OnStep rejected direct site coordinates")
+
+    def sync_site_time(
+        self,
+        latitude,
+        longitude,
+        elevation,
+        utc_iso,
+        utc_offset_hours,
+    ):
+        try:
+            dt_utc = datetime.fromisoformat(
+                str(utc_iso).replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid UTC synchronization value: {utc_iso!r}"
+            ) from exc
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+        else:
+            dt_utc = dt_utc.astimezone(timezone.utc)
+
+        if not self.mount.set_datetime_location(
+            dt_utc,
+            float(latitude),
+            float(longitude),
+            float(utc_offset_hours),
+        ):
+            raise RuntimeError("OnStep rejected direct site/time synchronization")
+
+        return {
+            "latitude": float(latitude),
+            "longitude": float(longitude),
+            "elevation": float(elevation),
+            "utc": str(utc_iso),
+            "utc_offset_hours": float(utc_offset_hours),
+            "transport": "onstep_direct",
         }
 
     # -- home / recentrage / securite -------------------------------------- #
