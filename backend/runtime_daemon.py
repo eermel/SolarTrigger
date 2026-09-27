@@ -50,6 +50,7 @@ LOG = logging.getLogger("solartrigger-runtime")
 _MAX_REQUEST_BYTES = 16 * 1024 * 1024
 _RPC_IO_TIMEOUT_S = 30.0
 _MAX_RPC_CONNECTIONS = 32
+_RPC_SHUTDOWN_DRAIN_S = 5.0
 
 # Only operator-facing diagnostic calls are proxied through the portal. The
 # real-time trigger uses CameraIpcServer directly through an explicit lease.
@@ -877,6 +878,9 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
         self._connection_slots = threading.BoundedSemaphore(
             max(1, int(max_connections))
         )
+        self._request_state = threading.Condition()
+        self._closing = False
+        self._active_requests: set[socket.socket] = set()
         path = Path(socket_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._prepare_socket_path(path)
@@ -905,13 +909,49 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
             self.server_close()
             raise
 
+    def begin_shutdown(self) -> None:
+        """Reject new RPCs and wake clients already waiting on socket I/O."""
+
+        with self._request_state:
+            self._closing = True
+            active = tuple(self._active_requests)
+
+        for request in active:
+            try:
+                request.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    def wait_for_idle(self, timeout: float = _RPC_SHUTDOWN_DRAIN_S) -> bool:
+        """Wait boundedly for admitted request handlers to leave dispatch."""
+
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        with self._request_state:
+            while self._active_requests:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    return False
+                self._request_state.wait(remaining)
+            return True
+
     def process_request(self, request, client_address):
         if not self._connection_slots.acquire(blocking=False):
             self.shutdown_request(request)
             return
+
+        with self._request_state:
+            if self._closing:
+                self._connection_slots.release()
+                self.shutdown_request(request)
+                return
+            self._active_requests.add(request)
+
         try:
             super().process_request(request, client_address)
         except BaseException:
+            with self._request_state:
+                self._active_requests.discard(request)
+                self._request_state.notify_all()
             self._connection_slots.release()
             self.shutdown_request(request)
             raise
@@ -920,9 +960,13 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
         try:
             super().process_request_thread(request, client_address)
         finally:
+            with self._request_state:
+                self._active_requests.discard(request)
+                self._request_state.notify_all()
             self._connection_slots.release()
 
     def server_close(self):
+        self.begin_shutdown()
         try:
             super().server_close()
         finally:
@@ -980,6 +1024,7 @@ def main(argv=None) -> int:
 
         def request_shutdown(signum, frame):
             LOG.warning("Runtime shutdown requested by signal %s", signum)
+            server.begin_shutdown()
             threading.Thread(
                 target=server.shutdown,
                 name="runtime-shutdown",
@@ -996,8 +1041,20 @@ def main(argv=None) -> int:
         )
         server.serve_forever(poll_interval=0.2)
     finally:
+        server.begin_shutdown()
         server.server_close()
+        drained = server.wait_for_idle(_RPC_SHUTDOWN_DRAIN_S)
         if controller is not None:
+            if not drained:
+                LOG.critical(
+                    "Runtime RPC handlers did not drain within %.1f s; "
+                    "skipping concurrent controller cleanup and exiting "
+                    "fail-closed.",
+                    _RPC_SHUTDOWN_DRAIN_S,
+                )
+                raise RuntimeError(
+                    "runtime RPC handlers did not drain before shutdown"
+                )
             controller.shutdown()
         LOG.info("Standalone runtime stopped")
     return 0
