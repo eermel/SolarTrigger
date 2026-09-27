@@ -212,3 +212,60 @@ def test_camera_bootstrap_never_touches_target_if_parent_admission_fails(
         )
 
     assert called == []
+
+
+class _CloseTrackingConn:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class _StartFailProcess:
+    def start(self):
+        raise RuntimeError("synthetic camera process spawn failure")
+
+
+class _StartFailContext:
+    def __init__(self):
+        self.parent = _CloseTrackingConn()
+        self.child = _CloseTrackingConn()
+        self.process = _StartFailProcess()
+
+    def Pipe(self, duplex=True):
+        assert duplex is True
+        return self.parent, self.child
+
+    def Process(self, **_kwargs):
+        return self.process
+
+
+def test_camera_process_spawn_failure_rolls_back_and_closes_pipe():
+    worker = ProcessCameraWorker(
+        rig_id=7,
+        call_timeout_s=0.05,
+        process_target=_fake_camera_child,
+        log_fn=lambda _message: None,
+    )
+    worker.configure_camera(
+        {
+            "backend": "gphoto2",
+            "model": "FAKE",
+        }
+    )
+    context = _StartFailContext()
+    worker._ctx = context
+
+    with pytest.raises(
+        RuntimeError,
+        match="synthetic camera process spawn failure",
+    ):
+        worker.start()
+
+    assert worker._started is False
+    assert worker._process is None
+    assert worker._conn is None
+    assert worker.generation == 0
+    assert context.parent.closed is True
+    assert context.child.closed is True
