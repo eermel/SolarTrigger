@@ -398,6 +398,39 @@ class MountService:
             self._set_plugin_location(plugin, latitude, longitude, elevation)
             return self._status_locked(plugin)
 
+    def sync_site_time(
+        self,
+        latitude,
+        longitude,
+        elevation,
+        utc_iso,
+        utc_offset_hours,
+    ) -> dict:
+        self._validate_location(latitude, longitude, elevation)
+        if not isinstance(utc_iso, str) or not utc_iso.strip():
+            raise ValueError("mount UTC timestamp must be a non-empty string")
+        if (
+            not self._valid_location_value(utc_offset_hours)
+            or not -24.0 <= float(utc_offset_hours) <= 24.0
+        ):
+            raise ValueError("mount UTC offset is invalid")
+        with self._lock:
+            plugin = self._plugin_for_operation()
+            sync = getattr(plugin, "sync_site_time", None)
+            if not callable(sync):
+                raise RuntimeError("site/time synchronization is unsupported by this mount")
+            applied = sync(
+                latitude,
+                longitude,
+                elevation,
+                utc_iso,
+                utc_offset_hours,
+            )
+            self._location_pushed = True
+            status = self._status_locked(plugin)
+            status["synchronization"] = dict(applied or {})
+            return status
+
     def start_slew(self, direction: str) -> dict:
         if direction not in self._DIRECTIONS:
             raise ValueError("direction must be 'north', 'south', 'east' or 'west'")
