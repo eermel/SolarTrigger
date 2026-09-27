@@ -90,6 +90,42 @@ def _release_process_lock(fd):
         os.close(fd)
 
 
+def _busy_process_lock_ids():
+    """Return EAF SDK IDs currently owned by another SolarTrigger process.
+
+    The ZWO SDK is treated as process-exclusive.  Inventory must not even call
+    EAFGetNum/EAFGetID while a worker owns an EAF, because those apparently
+    read-only SDK calls can disturb the active USB session on some systems.
+    """
+    busy = []
+    prefix = "solartrigger-eaf-"
+    suffix = ".lock"
+
+    try:
+        names = os.listdir("/tmp")
+    except OSError:
+        return []
+
+    for name in names:
+        if not (name.startswith(prefix) and name.endswith(suffix)):
+            continue
+        raw_id = name[len(prefix):-len(suffix)]
+        try:
+            sdk_id = int(raw_id)
+        except ValueError:
+            continue
+        if not 0 <= sdk_id <= 127:
+            continue
+
+        fd = _acquire_process_lock(sdk_id, blocking=False)
+        if fd is None:
+            busy.append(sdk_id)
+            continue
+        _release_process_lock(fd)
+
+    return sorted(set(busy))
+
+
 def _acquire_sdk_session(lib, sdk_id):
     """Acquire one logical owner and hold cross-process USB ownership."""
     sdk_id = int(sdk_id)
@@ -305,13 +341,29 @@ class ZwoEaf:
         return raw.hex().upper()
 
     def enumerate_devices(self):
-        """Enumerate all EAFs without racing a persistent worker process.
+        """Enumerate EAFs without touching the SDK owned by another process.
 
-        When the EAF is free, inventory temporarily opens it to expose model,
-        serial and max_step.  If another SolarTrigger process owns the EAF,
-        the cross-process lock is acquired non-blockingly and inventory falls
-        back to the stable SDK device_id without touching EAFOpen/EAFClose.
+        If any persistent SolarTrigger worker owns an EAF, return those busy
+        SDK IDs from the cross-process locks and do not call the ZWO SDK at
+        all.  When no worker owns the SDK, perform the normal rich inventory.
         """
+        busy_ids = _busy_process_lock_ids()
+        if busy_ids:
+            return [
+                {
+                    "category": "focuser",
+                    "backend": "zwo_eaf",
+                    "manufacturer": "ZWO",
+                    "model": "EAF",
+                    "serial": None,
+                    "device_id": f"zwo_eaf:{sdk_id}",
+                    "sdk_id": sdk_id,
+                    "max_step": None,
+                    "details_available": False,
+                }
+                for sdk_id in busy_ids
+            ]
+
         count = self.lib.EAFGetNum()
         if count <= 0:
             return []
