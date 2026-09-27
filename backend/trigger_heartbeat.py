@@ -115,18 +115,44 @@ class HeartbeatSupervisor:
         self._watchdog_thread = None
 
     def start(self):
-        self._reader_thread = self.thread_factory(
+        reader = self.thread_factory(
             target=self._reader,
             name="trigger-heartbeat-reader",
             daemon=True,
         )
-        self._watchdog_thread = self.thread_factory(
+        watchdog = self.thread_factory(
             target=self._watchdog,
             name="trigger-heartbeat-watchdog",
             daemon=True,
         )
-        self._reader_thread.start()
-        self._watchdog_thread.start()
+
+        # Start the watchdog first because it can be stopped without touching
+        # the heartbeat FD.  If the reader then fails to start, rollback can
+        # wake/join the watchdog while the caller still owns read_fd and may
+        # close it in its outer startup cleanup.
+        try:
+            watchdog.start()
+        except BaseException:
+            self._watchdog_thread = None
+            self._reader_thread = None
+            raise
+
+        self._watchdog_thread = watchdog
+        try:
+            reader.start()
+        except BaseException:
+            self._stop.set()
+            self._pulse_event.set()
+            if watchdog is not threading.current_thread():
+                try:
+                    watchdog.join(timeout=1.0)
+                except BaseException:
+                    pass
+            self._watchdog_thread = None
+            self._reader_thread = None
+            raise
+
+        self._reader_thread = reader
         return self
 
     def _reader(self):
