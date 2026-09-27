@@ -130,3 +130,77 @@ def test_status_connects_without_gps_location(tmp_path):
     assert plugin.location_calls == []
 
     service.close()
+
+
+def test_status_refuses_zero_zero_gps_location(tmp_path):
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices", {"mount": {"plugin": "fake", "active": True}}
+    )
+    state_store.update_section(
+        "gps", {"lat": 0.0, "lon": 0.0, "alt": 0.0}
+    )
+    plugin = LocationMountPlugin()
+    logs = []
+    service = MountService(
+        state_store,
+        log_fn=logs.append,
+        plugin_loader=lambda *_args, **_kwargs: plugin,
+    )
+
+    status = service.status()
+
+    assert status["connected"] is True
+    assert plugin.location_calls == []
+    assert any("refusing invalid mount location 0/0" in line for line in logs)
+
+    service.close()
+
+
+def test_manual_location_rejects_zero_zero_before_driver_write(tmp_path):
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices", {"mount": {"plugin": "fake", "active": True}}
+    )
+    plugin = LocationMountPlugin()
+    service = MountService(
+        state_store,
+        plugin_loader=lambda *_args, **_kwargs: plugin,
+    )
+
+    try:
+        service.set_location(0.0, 0.0, 0.0)
+    except ValueError as exc:
+        assert "0/0" in str(exc)
+    else:
+        raise AssertionError("zero/zero mount location must be rejected")
+
+    assert plugin.location_calls == []
+    service.close()
+
+
+def test_manual_location_rejects_out_of_range_values(tmp_path):
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices", {"mount": {"plugin": "fake", "active": True}}
+    )
+    plugin = LocationMountPlugin()
+    service = MountService(
+        state_store,
+        plugin_loader=lambda *_args, **_kwargs: plugin,
+    )
+
+    for location in (
+        (91.0, 2.0, 10.0),
+        (48.0, 181.0, 10.0),
+        (48.0, 2.0, 20000.0),
+    ):
+        try:
+            service.set_location(*location)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"invalid mount location accepted: {location!r}")
+
+    assert plugin.location_calls == []
+    service.close()

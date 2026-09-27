@@ -122,8 +122,25 @@ class MountService:
             and math.isfinite(value)
         )
 
-    @staticmethod
-    def _set_plugin_location(plugin, latitude, longitude, elevation) -> None:
+    @classmethod
+    def _validate_location(cls, latitude, longitude, elevation) -> None:
+        values = (latitude, longitude, elevation)
+        if not all(cls._valid_location_value(value) for value in values):
+            raise ValueError("mount location must contain finite numeric values")
+        if not -90.0 <= float(latitude) <= 90.0:
+            raise ValueError("mount latitude must be between -90 and +90 degrees")
+        if not -180.0 <= float(longitude) <= 180.0:
+            raise ValueError("mount longitude must be between -180 and +180 degrees")
+        if not -500.0 <= float(elevation) <= 10000.0:
+            raise ValueError("mount elevation is outside the supported range")
+        if math.isclose(float(latitude), 0.0, abs_tol=1e-9) and math.isclose(
+            float(longitude), 0.0, abs_tol=1e-9
+        ):
+            raise ValueError("refusing invalid mount location 0/0")
+
+    @classmethod
+    def _set_plugin_location(cls, plugin, latitude, longitude, elevation) -> None:
+        cls._validate_location(latitude, longitude, elevation)
         setter = getattr(plugin, "set_location", None)
         if not callable(setter):
             raise RuntimeError("location setting is unsupported by this mount")
@@ -142,9 +159,12 @@ class MountService:
         if not isinstance(gps, dict):
             return
         location = (gps.get("lat"), gps.get("lon"), gps.get("alt"))
-        if not callable(setter) or not all(
-            self._valid_location_value(value) for value in location
-        ):
+        if not callable(setter):
+            return
+        try:
+            self._validate_location(*location)
+        except ValueError as exc:
+            self._log(f"mount GPS location skipped: {exc}")
             return
         self._set_plugin_location(plugin, *location)
         self._location_pushed = True
