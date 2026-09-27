@@ -466,6 +466,83 @@ def test_injected_client_keeps_legacy_set_props_path(full_props):
     }]
 
 
+def test_onstep_connect_replaces_stale_slew_vector_generation(
+    monkeypatch,
+    full_props,
+):
+    cached_props = deepcopy(full_props)
+    cached_props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_lx200_OnStep",
+        "DRIVER_NAME": "LX200 OnStep",
+    }
+    cached_props["DEVICE_PORT"] = {
+        "PORT": "/dev/serial/by-id/onstep-test",
+    }
+    cached_props["TELESCOPE_SLEW_RATE"] = {
+        "1x": "Off",
+        "4x": "Off",
+        "10x": "On",
+    }
+    cached_props["TELESCOPE_MOTION_NS"] = {
+        "MOTION_NORTH": "Off",
+        "MOTION_SOUTH": "Off",
+    }
+    cached_props["TELESCOPE_MOTION_WE"] = {
+        "MOTION_EAST": "Off",
+        "MOTION_WEST": "Off",
+    }
+
+    class CachedClient(StubIndiClient):
+        monitor_active = True
+
+        def start_monitor(self):
+            self.monitor_active = True
+
+        def stop_monitor(self):
+            self.monitor_active = False
+
+        def replace_monitor_properties(self, properties):
+            for prop, elements in deepcopy(properties).items():
+                self.props[prop] = elements
+
+    live_props = deepcopy(cached_props)
+    live_props["CONNECTION"] = {
+        "CONNECT": "On",
+        "DISCONNECT": "Off",
+    }
+    live_props["TELESCOPE_SLEW_RATE"] = {
+        str(index): "On" if index == 9 else "Off"
+        for index in range(10)
+    }
+    fresh = StubIndiClient(live_props)
+
+    monkeypatch.setattr(
+        "plugins.mount.indi_plugin.IndiSubprocessClient",
+        lambda **_kwargs: fresh,
+    )
+
+    cached = CachedClient(cached_props)
+    plugin = mount(cached)
+    plugin._runtime_tcp_enabled = True
+
+    plugin.connect()
+
+    assert set(cached.props["TELESCOPE_SLEW_RATE"]) == {
+        str(index) for index in range(10)
+    }
+    assert "10x" not in cached.props["TELESCOPE_SLEW_RATE"]
+
+    caps = plugin.get_slew_speed_capabilities()
+    assert [item["value"] for item in caps["values"]] == [
+        str(index) for index in range(10)
+    ]
+
+    plugin.set_speed("4")
+    assert fresh.set_calls[-1] == {
+        "TELESCOPE_SLEW_RATE": {"4": "On"}
+    }
+
+
 def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
     props = deepcopy(full_props)
     props["DRIVER_INFO"] = {
