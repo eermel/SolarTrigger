@@ -214,3 +214,20 @@ def test_bracket_timing_retry_always_restores_single_mode():
     assert marker in source
     tail = source[source.index(marker):]
     assert 'runtime_set(\n                        "capture_mode",' in tail
+
+
+def test_characterization_recovers_poisoned_exploratory_session_before_final_qualification():
+    source = inspect.getsource(characterization.characterize)
+
+    assert "exploratory_usb_failure = False" in source
+    assert "exploratory_usb_failure = True" in source
+    recovery = source.index("if exploratory_usb_failure:")
+    qualification = source.index(
+        "operational_qualification = qualify_operational_contract_v3("
+    )
+    assert recovery < qualification
+    recovery_block = source[recovery:qualification]
+    assert "camera.exit()" in recovery_block
+    assert "direct_nodes.clear()" in recovery_block
+    assert "camera.init()" in recovery_block
+    assert "converge_characterized_preflight()" in recovery_block
