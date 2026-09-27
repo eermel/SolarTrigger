@@ -1235,7 +1235,6 @@ class CameraValidationJob:
                 raise CameraValidationError("validation authorization expired; prepare again")
 
             prepared = self.prepared
-            self.prepared = None
             self.running = True
             self.cancel_event.clear()
             self.job_id = uuid.uuid4().hex
@@ -1244,13 +1243,33 @@ class CameraValidationJob:
             self.answer = None
             self.result = None
             self.logs.clear()
-            thread = threading.Thread(
-                target=self._run,
-                args=(prepared, Path(root)),
-                daemon=True,
-                name=f"camera-validation-{self.job_id[:8]}",
-            )
-            thread.start()
+            try:
+                thread = threading.Thread(
+                    target=self._run,
+                    args=(prepared, Path(root)),
+                    daemon=True,
+                    name=f"camera-validation-{self.job_id[:8]}",
+                )
+                thread.start()
+            except BaseException as exc:
+                # No validation worker owns hardware until the thread body
+                # executes. Restore the exact authorization so the operator can
+                # retry instead of leaving a phantom running job.
+                self.running = False
+                self.cancel_event.clear()
+                self.job_id = None
+                self.phase = "prepared"
+                self.question = None
+                self.answer = None
+                self.result = None
+                self.prepared = prepared
+                self.condition.notify_all()
+                raise CameraValidationError(
+                    f"camera validation worker failed to start: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+
+            self.prepared = None
         self._notify()
 
     def cancel(self) -> None:
