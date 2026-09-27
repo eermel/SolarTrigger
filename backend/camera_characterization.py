@@ -62,6 +62,7 @@ class CharacterizationJob:
         self._process = None
         self._command_queue = None
         self._cancel_watchdog_active = False
+        self._monitor_started = False
 
     def set_notify_fn(self, notify_fn):
         self._notify_fn = notify_fn
@@ -145,7 +146,84 @@ class CharacterizationJob:
             return deepcopy({"running": self.running, "job_id": self.job_id,
                              "logs": list(self.logs), "question": self.question, "result": self.result})
 
+    def _reset_failed_start_locked(self, error):
+        self.running = False
+        self.cancelled = False
+        self.question = None
+        self.answer = None
+        self.result = {
+            "status": "FAILED",
+            "files": [],
+            "schema_version": 1,
+            "error": f"Characterization startup failed: {type(error).__name__}: {error}",
+        }
+        self._process = None
+        self._command_queue = None
+        self._cancel_watchdog_active = False
+        self._monitor_started = False
+        self.condition.notify_all()
+
+    @staticmethod
+    def _close_process_queue(queue_obj):
+        if queue_obj is None:
+            return
+        try:
+            queue_obj.close()
+        except Exception:
+            pass
+        try:
+            queue_obj.join_thread()
+        except Exception:
+            pass
+
+    def _terminate_process_bounded(self, process, *, cooperative_grace_s=0.0):
+        """Best-effort bounded cleanup for a child which lacks a monitor."""
+
+        if cooperative_grace_s > 0:
+            try:
+                process.join(cooperative_grace_s)
+            except Exception:
+                pass
+        try:
+            alive = process.is_alive()
+        except Exception:
+            alive = True
+
+        if alive:
+            try:
+                process.terminate()
+            except Exception as exc:
+                self.log(f"Characterization terminate failed: {exc}")
+            try:
+                process.join(CANCEL_TERMINATE_GRACE_S)
+            except Exception:
+                pass
+
+        try:
+            alive = process.is_alive()
+        except Exception:
+            alive = True
+        if alive:
+            kill = getattr(process, "kill", None)
+            if callable(kill):
+                try:
+                    kill()
+                except Exception as exc:
+                    self.log(f"Characterization kill failed: {exc}")
+            try:
+                process.join(CANCEL_KILL_GRACE_S)
+            except Exception:
+                pass
+
+        try:
+            return not process.is_alive()
+        except Exception:
+            return False
+
     def start(self, entry, root=ROOT, *, replace_existing=False):
+        events = None
+        commands = None
+        process = None
         with self.lock:
             if self.running:
                 raise RuntimeError("A characterization is already running")
@@ -177,15 +255,53 @@ class CharacterizationJob:
                 name=f"camera-characterization-{self.job_id[:8]}",
                 daemon=True,
             )
-            process.start()
+            try:
+                process.start()
+            except BaseException as exc:
+                self._reset_failed_start_locked(exc)
+                self._close_process_queue(events)
+                self._close_process_queue(commands)
+                raise
+
             self._process = process
             self._command_queue = commands
             self._cancel_watchdog_active = False
-            threading.Thread(
+            monitor = threading.Thread(
                 target=self._monitor_process,
                 args=(process, events),
                 daemon=True,
-            ).start()
+            )
+            self._monitor_started = True
+            try:
+                monitor.start()
+            except BaseException as exc:
+                self._monitor_started = False
+                self.cancelled = True
+                try:
+                    commands.put(("cancel", None))
+                except Exception:
+                    pass
+
+                stopped = self._terminate_process_bounded(process)
+                if stopped:
+                    self._reset_failed_start_locked(exc)
+                    self._close_process_queue(events)
+                    self._close_process_queue(commands)
+                else:
+                    # Keep the live child published and the job running.  A
+                    # subsequent Cancel or service restart can still kill it;
+                    # never report camera ownership as released.
+                    self.result = {
+                        "status": "FAILED",
+                        "files": [],
+                        "schema_version": 1,
+                        "error": (
+                            "Characterization monitor failed to start and "
+                            "the native camera process is still alive"
+                        ),
+                    }
+                    self.condition.notify_all()
+                raise
         self._notify()
 
     def cancel(self):
@@ -217,25 +333,31 @@ class CharacterizationJob:
         """Bound cancellation even when native libgphoto2 never returns."""
 
         try:
-            process.join(CANCEL_COOPERATIVE_GRACE_S)
-            if process.is_alive():
-                try:
-                    process.terminate()
-                except Exception as exc:
-                    self.log(f"Characterization terminate failed: {exc}")
-                process.join(CANCEL_TERMINATE_GRACE_S)
-
-            if process.is_alive():
-                kill = getattr(process, "kill", None)
-                if callable(kill):
-                    try:
-                        kill()
-                    except Exception as exc:
-                        self.log(f"Characterization kill failed: {exc}")
-                process.join(CANCEL_KILL_GRACE_S)
+            stopped = self._terminate_process_bounded(
+                process,
+                cooperative_grace_s=CANCEL_COOPERATIVE_GRACE_S,
+            )
         finally:
             with self.condition:
                 self._cancel_watchdog_active = False
+                # Normally the monitor publishes the final result.  If the
+                # monitor itself never started, the watchdog is the only
+                # remaining owner able to release the failed startup.
+                if (
+                    stopped
+                    and not self._monitor_started
+                    and self._process is process
+                ):
+                    if self.result is None:
+                        self.result = {
+                            "status": "FAILED",
+                            "files": [],
+                            "schema_version": 1,
+                            "error": "Characterization cancelled during failed startup",
+                        }
+                    self.running = False
+                    self._process = None
+                    self._command_queue = None
                 self.condition.notify_all()
 
     def _monitor_process(self, process, events):
@@ -295,6 +417,7 @@ class CharacterizationJob:
             self._process = None
             self._command_queue = None
             self._cancel_watchdog_active = False
+            self._monitor_started = False
             self.condition.notify_all()
         self._notify()
 
