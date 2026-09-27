@@ -191,11 +191,15 @@ class RuntimeController:
         self.log_journal = RuntimeLogJournal()
         self.event_journal = RuntimeEventJournal()
         self.state = StateStore(self.state_file)
+        persisted_gps = self.state.snapshot("gps") or {}
+        # Remember the persisted GPS synchronization generation before clearing
+        # boot-sensitive runtime state.  A new synchronization performed by the
+        # portal must publish a different sync_time.  Comparing generations is
+        # robust even when GPS corrects CLOCK_REALTIME backwards after boot.
+        self._boot_gps_sync_marker = persisted_gps.get("sync_time")
         # A real runtime-service start corresponds to a new execution owner
         # (including machine boot). Never inherit a persisted "GPS synced"
-        # assertion from a previous runtime instance. A later portal GPS sync is
-        # accepted from state.json only when its timestamp belongs to this
-        # runtime lifetime.
+        # assertion from a previous runtime instance.
         self.state.reset_boot_sensitive()
         self.run_journal = TriggerRunJournal(
             self.project_root / "var" / "state" / "trigger_state.json"
@@ -401,8 +405,9 @@ class RuntimeController:
 
         GPS synchronization is boot-sensitive. StateStore persists the last GPS
         record for diagnostics, but a new autonomous runtime must not trust a
-        "synced" flag written by an earlier runtime/boot merely because it is
-        less than TriggerService's two-hour freshness threshold.
+        "synced" flag written by an earlier runtime/boot.  Detect a synchronization
+        generation change instead of comparing wall-clock timestamps, because
+        correcting the Pi clock backwards is a valid GPS operation.
         """
         fresh = StateStore(self.state_file)
         for key in StateStore.PERSISTED_KEYS:
@@ -414,20 +419,17 @@ class RuntimeController:
 
             if key == "gps" and isinstance(value, dict):
                 raw_sync_time = value.get("sync_time")
-                current_runtime_sync = False
-                if value.get("synced") and isinstance(raw_sync_time, str):
-                    try:
-                        sync_dt = datetime.fromisoformat(
-                            raw_sync_time.strip().replace("Z", "+00:00")
-                        )
-                        if sync_dt.tzinfo is None:
-                            sync_dt = sync_dt.replace(tzinfo=timezone.utc)
-                        current_runtime_sync = (
-                            sync_dt.astimezone(timezone.utc)
-                            >= self.started_utc
-                        )
-                    except (TypeError, ValueError):
-                        current_runtime_sync = False
+                boot_marker = getattr(
+                    self,
+                    "_boot_gps_sync_marker",
+                    None,
+                )
+                current_runtime_sync = bool(
+                    value.get("synced")
+                    and isinstance(raw_sync_time, str)
+                    and raw_sync_time.strip()
+                    and raw_sync_time != boot_marker
+                )
 
                 if not current_runtime_sync:
                     previous = self.state.snapshot("gps") or {}
