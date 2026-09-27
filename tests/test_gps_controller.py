@@ -276,3 +276,46 @@ def test_run_stores_timezone_fields_on_success(
     assert gps_update["timezone_name"] == expected_name
     assert gps_update["utc_offset_minutes"] == 120
     assert gps_update["timezone"] == "UTC+2"
+
+
+def test_gps_thread_start_failure_rolls_back_running_state(
+    tmp_path,
+    monkeypatch,
+):
+    config_file = tmp_path / "gps.json"
+    config_file.write_text("{}", encoding="utf-8")
+    state = StateStore(tmp_path / "state.json")
+    state.update_section(
+        "devices",
+        {"gps": {"plugin": "serial_nmea"}},
+    )
+    controller = GpsController(
+        state,
+        config_file,
+        timezone_fn=lambda *_args, **_kwargs: 0.0,
+        time_sync_fn=lambda *_args, **_kwargs: True,
+        log_fn=lambda *_args: None,
+        emit_fn=lambda *_args: None,
+    )
+
+    class FailingThread:
+        def __init__(self, **_kwargs):
+            pass
+
+        def is_alive(self):
+            return False
+
+        def start(self):
+            raise RuntimeError("thread start failed")
+
+    monkeypatch.setattr(
+        "backend.gps_controller.threading.Thread",
+        FailingThread,
+    )
+
+    with pytest.raises(RuntimeError, match="thread start failed"):
+        controller.start(timeout_s=1.0)
+
+    assert controller._thread is None
+    assert state.snapshot("gps")["gps_sync_running"] is False
+    assert state.get("gps_sync_running") is False
