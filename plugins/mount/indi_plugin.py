@@ -35,6 +35,20 @@ class IndiMount(MountPlugin):
     plugin_id = "indi"
     display_name = "INDI telescope"
 
+    @staticmethod
+    def _client_timeout_s(config, device_name):
+        """Keep legacy OnStep clients above the ~4.2 s startup floor."""
+        cfg = config or {}
+        if "client_timeout" in cfg:
+            return float(cfg["client_timeout"])
+        driver_exec = str(cfg.get("driver_exec") or "")
+        if (
+            driver_exec == "indi_lx200_OnStep"
+            or str(device_name or "").casefold() == "lx200 onstep"
+        ):
+            return 5.0
+        return 4.0
+
     def __init__(self, log_fn=print, config=None, client=None):
         super().__init__(log_fn, config)
         self.device_name = (
@@ -50,7 +64,7 @@ class IndiMount(MountPlugin):
             host=self.config.get("host", "127.0.0.1"),
             port=int(self.config.get("port", 7624)),
             device=self.device_name,
-            timeout_s=float(self.config.get("client_timeout", 4.0)),
+            timeout_s=self._client_timeout_s(self.config, self.device_name),
         )
         self._control_session = None
         self._connected = False
@@ -68,7 +82,7 @@ class IndiMount(MountPlugin):
             host=cfg.get("host", "127.0.0.1"),
             port=int(cfg.get("port", 7624)),
             device=device_name,
-            timeout_s=float(cfg.get("client_timeout", 4.0)),
+            timeout_s=IndiMount._client_timeout_s(cfg, device_name),
         )
         try:
             client.ensure_device_present(device_name)
@@ -117,7 +131,7 @@ class IndiMount(MountPlugin):
             host=cfg.get("host", "127.0.0.1"),
             port=int(cfg.get("port", 7624)),
             device=device_name,
-            timeout_s=float(cfg.get("client_timeout", 4.0)),
+            timeout_s=IndiMount._client_timeout_s(cfg, device_name),
         )
 
         try:
@@ -971,7 +985,7 @@ class IndiMount(MountPlugin):
             host=self.config.get("host", "127.0.0.1"),
             port=int(self.config.get("port", 7624)),
             device=self.device_name,
-            timeout_s=float(self.config.get("client_timeout", 4.0)),
+            timeout_s=self._client_timeout_s(self.config, self.device_name),
         )
 
     def _seed_runtime_cache(self, props):
@@ -1315,7 +1329,7 @@ class IndiMount(MountPlugin):
             host=self.config.get("host", "127.0.0.1"),
             port=int(self.config.get("port", 7624)),
             device=self.device_name,
-            timeout_s=float(self.config.get("client_timeout", 4.0)),
+            timeout_s=self._client_timeout_s(self.config, self.device_name),
         ) as session:
             if prop == "GEOGRAPHIC_COORD":
                 session.set_number(prop, elements)
@@ -1464,7 +1478,7 @@ class IndiMount(MountPlugin):
             host=self.config.get("host", "127.0.0.1"),
             port=int(self.config.get("port", 7624)),
             device=self.device_name,
-            timeout_s=float(self.config.get("client_timeout", 4.0)),
+            timeout_s=self._client_timeout_s(self.config, self.device_name),
         )
         session.__enter__()
         try:
