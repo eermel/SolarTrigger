@@ -762,11 +762,35 @@ def _focuser_post_guard(movement=False, require_active=True, rig_id=1):
     return None
 
 
-def _focuser_motion_conflict(service=None):
+def _focuser_io_error_response(exc, *, rig_id=None, status=503):
+    payload = {
+        "error": str(exc),
+        "code": getattr(exc, "code", None) or "FOCUSER_IO_ERROR",
+    }
+    if rig_id is not None:
+        payload.update({
+            "rig_id": rig_id,
+            "device_type": "focuser",
+        })
+    return jsonify(payload), status
+
+
+def _focuser_motion_conflict(service=None, *, rig_id=None):
     status_method = getattr(service or _focuser_service, "status", None)
     if not callable(status_method):
         return None
-    status = status_method()
+    try:
+        status = status_method()
+    except Exception as exc:
+        if rig_id is None:
+            log.info("focuser status guard failed: %s", exc)
+        else:
+            log.info(
+                "focuser status guard for rig %s failed: %s",
+                rig_id,
+                exc,
+            )
+        return _focuser_io_error_response(exc, rig_id=rig_id)
     if (status.get("motion_command") in ("go", "home", "jog")
             and status.get("moving") is True):
         return jsonify({
@@ -2139,13 +2163,20 @@ def _rig_focuser_result(rig_id, result):
 
 def _rig_focuser_error(rig_id, exc, *, status=503):
     """Keep focuser API failures JSON so the controls UI can report them."""
-    code = getattr(exc, "code", None) or "FOCUSER_IO_ERROR"
-    return jsonify({
-        "error": str(exc),
-        "code": code,
-        "rig_id": rig_id,
-        "device_type": "focuser",
-    }), status
+    return _focuser_io_error_response(
+        exc,
+        rig_id=rig_id,
+        status=status,
+    )
+
+
+def _rig_focuser_action(rig_id, operation, *args, **kwargs):
+    try:
+        result = operation(*args, **kwargs)
+    except Exception as exc:
+        log.info("focuser action for rig %s failed: %s", rig_id, exc)
+        return _rig_focuser_error(rig_id, exc)
+    return _rig_focuser_result(rig_id, result)
 
 
 def _rig_focuser_service_call(worker, method, *args):
@@ -2191,10 +2222,10 @@ def api_rig_focuser_home(rig_id):
     worker, error = _rig_focuser_guard(rig_id, movement=True)
     if error is not None:
         return error
-    conflict = _focuser_motion_conflict(worker)
+    conflict = _focuser_motion_conflict(worker, rig_id=rig_id)
     if conflict is not None:
         return conflict
-    return _rig_focuser_result(rig_id, worker.home())
+    return _rig_focuser_action(rig_id, worker.home)
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/stop", methods=["POST"])
@@ -2203,7 +2234,7 @@ def api_rig_focuser_stop(rig_id):
     worker, error = _rig_focuser_guard(rig_id)
     if error is not None:
         return error
-    return _rig_focuser_result(rig_id, worker.stop())
+    return _rig_focuser_action(rig_id, worker.stop)
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/move_to", methods=["POST"])
@@ -2211,7 +2242,7 @@ def api_rig_focuser_move_to(rig_id):
     worker, error = _rig_focuser_guard(rig_id, movement=True)
     if error is not None:
         return error
-    conflict = _focuser_motion_conflict(worker)
+    conflict = _focuser_motion_conflict(worker, rig_id=rig_id)
     if conflict is not None:
         return conflict
     payload = request.get_json(silent=True)
@@ -2221,7 +2252,7 @@ def api_rig_focuser_move_to(rig_id):
         position = _json_int(payload, "position")
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    return _rig_focuser_result(rig_id, worker.move_to(position))
+    return _rig_focuser_action(rig_id, worker.move_to, position)
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/step", methods=["POST"])
@@ -2229,7 +2260,7 @@ def api_rig_focuser_step(rig_id):
     worker, error = _rig_focuser_guard(rig_id, movement=True)
     if error is not None:
         return error
-    conflict = _focuser_motion_conflict(worker)
+    conflict = _focuser_motion_conflict(worker, rig_id=rig_id)
     if conflict is not None:
         return conflict
     payload = request.get_json(silent=True)
@@ -2262,8 +2293,16 @@ def api_rig_focuser_step(rig_id):
                 "code": "INVALID_DIRECTION",
             }), 400
     sign = 1 if direction == "increase" else -1
-    active_step = _rig_focuser_service_call(worker, "active_step")
-    return _rig_focuser_result(rig_id, worker.move_relative(sign * active_step))
+    try:
+        active_step = _rig_focuser_service_call(worker, "active_step")
+    except Exception as exc:
+        log.info("focuser active step for rig %s failed: %s", rig_id, exc)
+        return _rig_focuser_error(rig_id, exc)
+    return _rig_focuser_action(
+        rig_id,
+        worker.move_relative,
+        sign * active_step,
+    )
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/jog/start", methods=["POST"])
@@ -2271,7 +2310,7 @@ def api_rig_focuser_jog_start(rig_id):
     worker, error = _rig_focuser_guard(rig_id, movement=True)
     if error is not None:
         return error
-    conflict = _focuser_motion_conflict(worker)
+    conflict = _focuser_motion_conflict(worker, rig_id=rig_id)
     if conflict is not None:
         return conflict
     payload = request.get_json(silent=True)
@@ -2285,7 +2324,7 @@ def api_rig_focuser_jog_start(rig_id):
             ),
             "code": "INVALID_DIRECTION",
         }), 400
-    return _rig_focuser_result(rig_id, worker.start_jog(direction))
+    return _rig_focuser_action(rig_id, worker.start_jog, direction)
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/jog/stop", methods=["POST"])
@@ -2294,7 +2333,7 @@ def api_rig_focuser_jog_stop(rig_id):
     worker, error = _rig_focuser_guard(rig_id)
     if error is not None:
         return error
-    return _rig_focuser_result(rig_id, worker.stop_jog())
+    return _rig_focuser_action(rig_id, worker.stop_jog)
 
 
 @app.route("/api/rigs/<int:rig_id>/focuser/set_step", methods=["POST"])
