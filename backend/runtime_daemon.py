@@ -677,19 +677,30 @@ class RuntimeController:
             for rig_id in range(1, 5):
                 if not self.trigger.is_active_or_starting(rig_id):
                     continue
-                thread = threading.Thread(
-                    target=stop_rig,
-                    args=(rig_id,),
-                    name=f"runtime-stop-rig-{rig_id}",
-                    daemon=True,
-                )
-                thread.start()
+                try:
+                    thread = threading.Thread(
+                        target=stop_rig,
+                        args=(rig_id,),
+                        name=f"runtime-stop-rig-{rig_id}",
+                        daemon=True,
+                    )
+                    thread.start()
+                except BaseException as exc:
+                    stop_errors[rig_id] = (
+                        "shutdown worker failed to start: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    continue
                 stop_threads[rig_id] = thread
 
             for thread in stop_threads.values():
                 thread.join(timeout=5.0)
 
-            failures = []
+            failures = [
+                f"RIG {rig_id}: FORCE STOP worker failed to start: {detail}"
+                for rig_id, detail in stop_errors.items()
+                if rig_id not in stop_threads
+            ]
             for rig_id, thread in stop_threads.items():
                 if thread.is_alive():
                     failures.append(
@@ -923,6 +934,20 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
             except OSError:
                 pass
 
+    def request_serve_forever_exit(self) -> None:
+        """Ask serve_forever() to return without blocking the signal thread.
+
+        socketserver.BaseServer.shutdown() must run from a different thread
+        because it waits for serve_forever() to acknowledge the request. Signal
+        handlers execute in the main thread here, so set BaseServer's shutdown
+        request directly after closing admission; serve_forever() observes it
+        on its next poll iteration and the normal finally block performs the
+        bounded drain and controller cleanup.
+        """
+
+        self.begin_shutdown()
+        self._BaseServer__shutdown_request = True
+
     def wait_for_idle(self, timeout: float = _RPC_SHUTDOWN_DRAIN_S) -> bool:
         """Wait boundedly for admitted request handlers to leave dispatch."""
 
@@ -1025,12 +1050,7 @@ def main(argv=None) -> int:
 
         def request_shutdown(signum, frame):
             LOG.warning("Runtime shutdown requested by signal %s", signum)
-            server.begin_shutdown()
-            threading.Thread(
-                target=server.shutdown,
-                name="runtime-shutdown",
-                daemon=True,
-            ).start()
+            server.request_serve_forever_exit()
 
         signal.signal(signal.SIGTERM, request_shutdown)
         signal.signal(signal.SIGINT, request_shutdown)
