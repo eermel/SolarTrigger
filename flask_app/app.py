@@ -5294,6 +5294,39 @@ _background_threads_lock = threading.Lock()
 _background_threads_started = False
 
 
+def _warm_configured_mounts_at_startup():
+    """Connect every configured pilotable mount without waiting for the UI."""
+    try:
+        config = load_rig_configuration()
+        runtime = get_mount_worker_runtime(
+            log_fn=log.info,
+            state_path=STATE_FILE,
+        )
+        runtime.reconcile(config)
+    except Exception as exc:
+        log.warning("Mount startup reconciliation failed: %s", exc)
+        return
+
+    for rig in config.get("rigs", []):
+        if not isinstance(rig, dict):
+            continue
+        rig_id = rig.get("rig_id")
+        if not isinstance(rig_id, int) or isinstance(rig_id, bool):
+            continue
+        worker = runtime.get_for_rig(rig_id)
+        if worker is None:
+            continue
+        try:
+            ready = worker.warmup()
+        except Exception as exc:
+            log.warning("RIG %s mount startup warmup failed: %s", rig_id, exc)
+            continue
+        if ready:
+            log.info("RIG %s mount connected during backend startup", rig_id)
+        else:
+            log.warning("RIG %s mount startup warmup did not connect", rig_id)
+
+
 def start_background_threads():
     """Start application background workers at most once per process."""
     global _background_threads_started
@@ -5302,6 +5335,11 @@ def start_background_threads():
         if _background_threads_started:
             return False
 
+        threading.Thread(
+            target=_warm_configured_mounts_at_startup,
+            daemon=True,
+            name="mount-startup-warmup",
+        ).start()
         threading.Thread(target=_thread_status_broadcast, daemon=True).start()
         threading.Thread(target=_thread_camera_poll,      daemon=True).start()
         if runtime_client_enabled():
