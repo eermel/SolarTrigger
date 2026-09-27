@@ -70,7 +70,13 @@ def test_reserved_mount_is_kept_without_reprobing_owned_serial_path(
     captured = {}
     from plugins import mount as mount_registry
 
-    def fake_inventory_mounts(*, log_fn, exclude_physical_paths):
+    def fake_inventory_mounts(
+        *,
+        candidates=None,
+        log_fn,
+        exclude_physical_paths,
+    ):
+        captured["candidates"] = list(candidates or [])
         captured["excluded"] = set(exclude_physical_paths)
         return []
 
@@ -92,6 +98,7 @@ def test_reserved_mount_is_kept_without_reprobing_owned_serial_path(
         reserved_mounts=[binding],
     )
 
+    assert captured["candidates"] == ["onstep"]
     assert captured["excluded"] == {str(stable_path)}
     assert len(inventory["mount"]) == 1
     assert inventory["mount"][0]["backend"] == "onstep"
@@ -146,18 +153,19 @@ def test_reserved_indi_binding_blocks_direct_fallback_on_catalog_gap(
     ) == []
 
 
-def test_reserved_indi_binding_presence_comes_from_current_catalog():
+def test_reserved_eqmod_indi_binding_presence_comes_from_current_catalog():
     mount_binding = {
         "category": "mount",
         "backend": "indi",
-        "device_name": "LX200 OnStep",
-        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+        "device_name": "EQMod Mount",
+        "device_id": "indi:127.0.0.1:7624:EQMod Mount",
     }
     catalog_entry = {
         "backend": "indi",
-        "device_name": "LX200 OnStep",
-        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
-        "model": "LX200 OnStep",
+        "device_name": "EQMod Mount",
+        "device_id": "indi:127.0.0.1:7624:EQMod Mount",
+        "model": "EQMod Mount",
+        "driver_exec": "indi_eqmod_telescope",
         "categories": ["mount"],
         "present": True,
     }
