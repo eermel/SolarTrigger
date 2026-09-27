@@ -170,7 +170,12 @@ class RuntimeEventJournal:
 class RuntimeController:
     """Own all hardware/runtime objects and dispatch a narrow RPC surface."""
 
-    def __init__(self, project_root: Path | None = None):
+    def __init__(
+        self,
+        project_root: Path | None = None,
+        *,
+        restore_recovery: bool = True,
+    ):
         self.project_root = (
             Path(project_root).resolve()
             if project_root is not None
@@ -214,7 +219,8 @@ class RuntimeController:
         # TriggerService opens its own local leases and is never included here.
         self._portal_camera_sessions: set[str] = set()
         self._portal_camera_sessions_lock = threading.RLock()
-        self._restore_trigger_journal_state()
+        if restore_recovery:
+            self._restore_trigger_journal_state()
 
     def _trigger_failure_alert(self, rig_id, code, detail):
         """Play a local alarm for a live trigger failure without blocking supervision."""
@@ -694,7 +700,10 @@ class _RuntimeRequestHandler(socketserver.StreamRequestHandler):
             if not isinstance(operation, str) or not operation:
                 raise ValueError("runtime operation is required")
             payload = _from_wire(request.get("payload") or {})
-            result = self.server.controller.dispatch(operation, payload)
+            controller = self.server.controller
+            if controller is None:
+                raise RuntimeError("runtime controller is not initialized")
+            result = controller.dispatch(operation, payload)
             response = {
                 "ok": True,
                 "result": _to_wire(result),
@@ -808,7 +817,7 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
     def __init__(
         self,
         socket_path: str,
-        controller: RuntimeController,
+        controller: RuntimeController | None,
         *,
         max_connections: int = _MAX_RPC_CONNECTIONS,
         io_timeout_s: float = _RPC_IO_TIMEOUT_S,
@@ -891,30 +900,36 @@ def main(argv=None) -> int:
     )
 
     root = Path(args.root).resolve() if args.root else None
-    controller = RuntimeController(root)
-    server = RuntimeUnixServer(args.socket, controller)
 
-    def request_shutdown(signum, frame):
-        LOG.warning("Runtime shutdown requested by signal %s", signum)
-        threading.Thread(
-            target=server.shutdown,
-            name="runtime-shutdown",
-            daemon=True,
-        ).start()
-
-    signal.signal(signal.SIGTERM, request_shutdown)
-    signal.signal(signal.SIGINT, request_shutdown)
-
-    LOG.info(
-        "Standalone runtime ready pid=%s socket=%s",
-        os.getpid(),
-        args.socket,
-    )
+    # Claim the public runtime endpoint before any recovery or camera ownership.
+    server = RuntimeUnixServer(args.socket, None)
+    controller = None
     try:
+        controller = RuntimeController(root, restore_recovery=False)
+        server.controller = controller
+        controller._restore_trigger_journal_state()
+
+        def request_shutdown(signum, frame):
+            LOG.warning("Runtime shutdown requested by signal %s", signum)
+            threading.Thread(
+                target=server.shutdown,
+                name="runtime-shutdown",
+                daemon=True,
+            ).start()
+
+        signal.signal(signal.SIGTERM, request_shutdown)
+        signal.signal(signal.SIGINT, request_shutdown)
+
+        LOG.info(
+            "Standalone runtime ready pid=%s socket=%s",
+            os.getpid(),
+            args.socket,
+        )
         server.serve_forever(poll_interval=0.2)
     finally:
         server.server_close()
-        controller.shutdown()
+        if controller is not None:
+            controller.shutdown()
         LOG.info("Standalone runtime stopped")
     return 0
 
