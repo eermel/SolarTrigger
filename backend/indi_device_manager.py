@@ -860,6 +860,36 @@ class IndiDeviceManager:
             connect_timeout_s = _mount_connect_timeout_s(properties)
             use_setprop = _is_onstep_driver(properties)
 
+            half_connected_onstep = (
+                connected
+                and use_setprop
+                and not _onstep_operational(properties)
+            )
+
+            # Fresh installs may not have learned a stable transport yet.
+            # If OnStep says CONNECT=On without its control vectors, cycle
+            # each safe candidate explicitly instead of trusting the stale
+            # connection bit or waiting for a physical unplug/replug.
+            if half_connected_onstep and not learned:
+                for candidate in candidates:
+                    if candidate in claimed:
+                        continue
+                    if self._reconnect_mount_transport(
+                        device_name,
+                        candidate,
+                        timeout_s=connect_timeout_s,
+                        use_setprop=True,
+                    ):
+                        claimed.add(candidate)
+                        self._remember_mount_binding(
+                            device_name,
+                            candidate,
+                            bindings,
+                        )
+                        changed = True
+                        break
+                continue
+
             if connected and device_name not in reconnect_required:
                 continue
 
