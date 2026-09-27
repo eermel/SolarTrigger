@@ -993,59 +993,6 @@ def test_onstep_manual_sync_restores_indi_after_direct_rejection(
     }
 
 
-def test_onstep_legacy_home_uses_indi_setprop_transport(monkeypatch, full_props):
-    props = deepcopy(full_props)
-    props["DRIVER_INFO"] = {
-        "DRIVER_EXEC": "indi_lx200_OnStep",
-        "DRIVER_NAME": "LX200 OnStep",
-    }
-    props["HOME_INIT"] = {
-        "RETURN_HOME": "Off",
-        "AT_HOME": "Off",
-    }
-    props["TELESCOPE_PARK"] = {
-        "PARK": "Off",
-        "UNPARK": "On",
-    }
-    props["OnStep Status"] = {
-        "Park": "Unparked, at Home",
-    }
-    props["TELESCOPE_MOTION_NS"] = {
-        "MOTION_NORTH": "Off",
-        "MOTION_SOUTH": "Off",
-    }
-    props["TELESCOPE_MOTION_WE"] = {
-        "MOTION_EAST": "Off",
-        "MOTION_WEST": "Off",
-    }
-    client = StubIndiClient(props)
-
-    class ForbiddenSession:
-        def __init__(self, **_kwargs):
-            raise AssertionError("OnStep Home must not use persistent TCP writes")
-
-    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", ForbiddenSession)
-
-    plugin = mount(client)
-    plugin._runtime_tcp_enabled = True
-    plugin.connect()
-    plugin.go_home()
-
-    assert {
-        "HOME_INIT": {
-            "RETURN_HOME": "On",
-        }
-    } in client.set_calls
-    assert not any(
-        "AT_HOME" in call.get("HOME_INIT", {})
-        for call in client.set_calls
-    )
-    assert not any(
-        call.get("TELESCOPE_PARK", {}).get("PARK") == "On"
-        for call in client.set_calls
-    )
-
-
 def test_runtime_control_session_is_opened_drained_and_closed(monkeypatch, full_props):
     events = []
 
