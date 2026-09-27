@@ -11,7 +11,7 @@ import pytest
 
 from backend.camera_worker_runtime import CameraWorkerRuntime
 from backend.state_store import StateStore
-from backend.trigger_service import TriggerService
+from backend.trigger_service import TriggerService, TriggerValidationError
 
 
 TRIGGER_SELECTION = {
@@ -574,3 +574,82 @@ def test_publish_external_failure_alerts_only_for_live_audible_failure(tmp_path)
     assert alerts == [
         (1, "HEARTBEAT_TIMEOUT", "scheduler heartbeat timed out")
     ]
+
+
+def test_runtime_recovery_rejects_changed_inputs_before_camera_ipc(
+    tmp_path,
+):
+    runtime, servers = _make_runtime(tmp_path)
+    service = _make_service(tmp_path, runtime)
+
+    service.validate_start(
+        rig_id=1,
+        require_gps=False,
+        selected=TRIGGER_SELECTION,
+    )
+    fingerprints = service._active_input_fingerprints(1)
+    service._clear_active_inputs(1)
+
+    photo_path = service.configs_dir / "photo_cfg" / "photo.json"
+    photo_path.write_text('{"changed": true}', encoding="utf-8")
+
+    with pytest.raises(TriggerValidationError) as caught:
+        service.start(
+            rig_id=1,
+            selected=TRIGGER_SELECTION,
+            _recovery=True,
+            _run_id="run-1",
+            _recovery_input_fingerprints=fingerprints,
+        )
+
+    assert caught.value.code == "RECOVERY_INPUTS_CHANGED"
+    assert servers == []
+    assert service._starting_by_rig[1] is False
+
+
+def test_totality_recovery_rejects_changed_emergency_input_before_camera_ipc(
+    tmp_path,
+):
+    runtime, servers = _make_runtime(tmp_path)
+    service = _make_service(tmp_path, runtime)
+
+    service._resolve_totality_input(1)
+    fingerprints = service._active_input_fingerprints(1)
+    service._clear_active_inputs(1)
+
+    emergency_path = service.product_configs_dir / "emergency" / "photo_totality.json"
+    emergency_path.write_text(
+        '{"config_type":"emergency_totality_photo_setup","phases":{"totality":{"changed":true}}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(TriggerValidationError) as caught:
+        service.start_totality_only(
+            rig_id=1,
+            _recovery=True,
+            _run_id="run-totality",
+            _recovery_input_fingerprints=fingerprints,
+        )
+
+    assert caught.value.code == "RECOVERY_INPUTS_CHANGED"
+    assert servers == []
+    assert service._starting_by_rig[1] is False
+
+
+def test_runtime_recovery_requires_input_fingerprint_manifest(
+    tmp_path,
+):
+    runtime, _servers = _make_runtime(tmp_path)
+    service = _make_service(tmp_path, runtime)
+
+    with pytest.raises(TriggerValidationError) as caught:
+        service.recover_persisted_run(
+            {
+                "rig_id": 1,
+                "run_id": "legacy-run",
+                "mode": "real",
+                "selected": dict(TRIGGER_SELECTION),
+            }
+        )
+
+    assert caught.value.code == "RECOVERY_INPUTS_UNVERIFIED"
