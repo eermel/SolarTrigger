@@ -185,3 +185,34 @@ def test_preparing_rigs_for_ui_creates_no_services_or_legacy_rig_state(
         {"rig_id": 4, "name": "RIG 4", "enabled": False},
     ]
     assert state_path.read_bytes() == original_state
+
+
+
+def test_existing_indi_onstep_binding_is_rewritten_as_direct_onstep(
+    tmp_path,
+    monkeypatch,
+):
+    config = _config()
+    config["rigs"][0]["devices"]["mount"] = {
+        "backend": "indi",
+        "model": "LX200 OnStep",
+        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
+        "device_name": "LX200 OnStep",
+        "fallback_physical_path": "/dev/serial/by-id/usb-OnStep",
+        "host": "127.0.0.1",
+        "port": 7624,
+        "driver_exec": "indi_lx200_OnStep",
+    }
+    path = _write_canonical_config(tmp_path, config)
+    monkeypatch.setattr(rig_runtime, "TRIGGER_DIR", tmp_path)
+
+    loaded = rig_runtime.load_rig_configuration()
+
+    mount = loaded["rigs"][0]["devices"]["mount"]
+    assert mount["backend"] == "onstep"
+    assert mount["fallback_physical_path"] == "/dev/serial/by-id/usb-OnStep"
+    assert "port" not in mount
+    assert "device_id" not in mount
+
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted["rigs"][0]["devices"]["mount"] == mount
