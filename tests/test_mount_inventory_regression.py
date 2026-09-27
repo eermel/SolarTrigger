@@ -340,3 +340,36 @@ def test_mount_inventory_ignores_legacy_indi_onstep_entry(monkeypatch):
     assert device_inventory._discover_mounts(
         indi_catalog=[legacy_indi_onstep],
     ) == [direct_onstep]
+
+
+
+def test_refresh_reserves_direct_onstep_before_indi_discovery(monkeypatch):
+    onstep_path = "/dev/serial/by-id/usb-ONSTEP"
+    captured = {}
+
+    monkeypatch.setattr(device_inventory, "_discover_cameras", lambda: [])
+    monkeypatch.setattr(device_inventory, "_discover_focusers", lambda **kwargs: [])
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_direct_onstep_mounts",
+        lambda reserved_mounts=None: [{
+            "category": "mount",
+            "backend": "onstep",
+            "fallback_physical_path": onstep_path,
+        }],
+    )
+
+    def discover_indi_catalog(excluded_serial_paths=None):
+        captured["excluded"] = set(excluded_serial_paths or ())
+        return []
+
+    monkeypatch.setattr(
+        device_inventory,
+        "_discover_indi_catalog",
+        discover_indi_catalog,
+    )
+
+    result = device_inventory.refresh_inventory()
+
+    assert captured["excluded"] == {onstep_path}
+    assert result["mount"][0]["backend"] == "onstep"
