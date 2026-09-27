@@ -650,29 +650,79 @@ class RuntimeController:
         raise ValueError(f"unknown runtime operation: {operation}")
 
     def shutdown(self) -> None:
-        """Gracefully stop trigger children before releasing camera ownership."""
+        """Gracefully stop Trigger children before releasing camera ownership.
+
+        Shutdown is serialized and retryable.  A partial cleanup must never
+        mark the controller permanently shut down, otherwise surviving Trigger
+        or camera owners could no longer be cleaned up by a later retry.
+        """
+
         with self._shutdown_lock:
             if self._shutdown:
                 return
+
+            stop_errors: dict[int, str] = {}
+            stop_threads: dict[int, threading.Thread] = {}
+
+            def stop_rig(rig_id: int) -> None:
+                try:
+                    self.trigger.stop(rig_id=rig_id, force=True)
+                except BaseException as exc:
+                    stop_errors[rig_id] = (
+                        f"{type(exc).__name__}: {exc}"
+                    )
+
+            for rig_id in range(1, 5):
+                if not self.trigger.is_active_or_starting(rig_id):
+                    continue
+                thread = threading.Thread(
+                    target=stop_rig,
+                    args=(rig_id,),
+                    name=f"runtime-stop-rig-{rig_id}",
+                    daemon=True,
+                )
+                thread.start()
+                stop_threads[rig_id] = thread
+
+            for thread in stop_threads.values():
+                thread.join(timeout=5.0)
+
+            failures = []
+            for rig_id, thread in stop_threads.items():
+                if thread.is_alive():
+                    failures.append(
+                        f"RIG {rig_id}: FORCE STOP did not return within 5 s"
+                    )
+                    continue
+                if rig_id in stop_errors:
+                    failures.append(
+                        f"RIG {rig_id}: FORCE STOP failed: "
+                        f"{stop_errors[rig_id]}"
+                    )
+                    continue
+                try:
+                    if self.trigger.is_active_or_starting(rig_id):
+                        failures.append(
+                            f"RIG {rig_id}: Trigger still owns runtime state "
+                            "after FORCE STOP"
+                        )
+                except BaseException as exc:
+                    failures.append(
+                        f"RIG {rig_id}: unable to verify Trigger shutdown: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+
+            if failures:
+                raise RuntimeError(
+                    "runtime shutdown could not release Trigger ownership ("
+                    + "; ".join(failures)
+                    + ")"
+                )
+
+            # CameraWorkerRuntime.shutdown() is itself retryable and preserves
+            # references to any child which survives bounded termination.
+            self.camera_runtime.shutdown()
             self._shutdown = True
-
-        threads = []
-        for rig_id in range(1, 5):
-            if not self.trigger.is_active_or_starting(rig_id):
-                continue
-            thread = threading.Thread(
-                target=self.trigger.stop,
-                kwargs={"rig_id": rig_id, "force": True},
-                name=f"runtime-stop-rig-{rig_id}",
-                daemon=True,
-            )
-            thread.start()
-            threads.append(thread)
-
-        for thread in threads:
-            thread.join(timeout=5.0)
-
-        self.camera_runtime.shutdown()
 
 
 class _RuntimeRequestHandler(socketserver.StreamRequestHandler):
