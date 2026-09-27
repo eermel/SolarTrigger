@@ -2993,12 +2993,12 @@ socket.on('log_history', lines => {
     }
     homing = data && data.homing === true;
     homeButton.disabled = false;
-    syncButton.disabled = homing || triggerRunning;
     homeButton.textContent = homing ? 'STOP' : 'HOME';
     homeButton.classList.toggle('focuser-cancel', homing);
     if (data && typeof data.trigger_running === 'boolean') {
       triggerRunning = data.trigger_running;
     }
+    syncButton.disabled = homing || triggerRunning;
 
     slewSpeedCaps = data && data.slew_speed_caps;
     currentSlewSpeed = data && data.slew_speed;
