@@ -240,3 +240,21 @@ def test_indi_mount_starts_and_stops_runtime_monitor(tmp_path):
 
     assert client.monitor_stopped is True
     assert plugin.connected is False
+
+
+def test_monitor_cache_can_be_cleared_between_driver_generations():
+    client = IndiSubprocessClient(device=DEVICE)
+    client._merge_cache({
+        DEVICE: {
+            "TELESCOPE_SLEW_RATE": {
+                "0": "Off",
+                "9": "On",
+            }
+        }
+    })
+
+    assert client._cached_props_locked(["TELESCOPE_SLEW_RATE.*"])
+
+    client.clear_monitor_cache()
+
+    assert client._cached_props_locked(["TELESCOPE_SLEW_RATE.*"]) == {}
