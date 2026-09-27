@@ -15,6 +15,11 @@ import subprocess
 import threading
 import zipfile
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - production is Linux.
+    fcntl = None
+
 
 SYS = Path("/sys/class/net")
 SYSTEM_HELPER = "/usr/local/sbin/solartrigger-system-update"
@@ -24,6 +29,52 @@ MAX_UNCOMPRESSED = 768 * 1024 * 1024
 PACKAGE_TYPE = "solartrigger-release"
 PACKAGE_SCHEMA_VERSION = 2
 VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
+MAINTENANCE_LOCK = Path(
+    os.environ.get(
+        "SOLARTRIGGER_MAINTENANCE_LOCK",
+        "/run/lock/solartrigger-maintenance.lock",
+    )
+)
+
+
+def maintenance_helper_running(lock_path: Path | str | None = None) -> bool:
+    """Return whether a privileged maintenance helper owns its persistent lock.
+
+    The root helper may outlive one Gunicorn worker.  Probe its flock directly
+    so a replacement worker cannot admit Trigger START while apt/release work
+    is still active.  Any unverifiable existing lock fails closed.
+    """
+
+    if fcntl is None:
+        return False
+
+    path = Path(lock_path or MAINTENANCE_LOCK)
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        # Existing but unreadable/unsafe lock state cannot be proven idle.
+        return path.exists() or path.is_symlink()
+
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            return True
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (BlockingIOError, PermissionError):
+            return True
+        except OSError:
+            return True
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            return False
+    finally:
+        os.close(fd)
 
 INSTALL_BASE = Path(
     os.environ.get(
