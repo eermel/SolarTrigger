@@ -125,8 +125,24 @@ class CameraWorkerRuntime:
     def _eligible_rig_ids(cls, config: dict) -> set[int]:
         return set(cls._eligible_camera_entries(config))
 
+    @staticmethod
+    def _stop_owned_worker(worker, timeout: float = 2.0) -> tuple[bool, str | None]:
+        """Stop one owned worker without ever treating an explicit False as success."""
+
+        try:
+            result = _stop_worker(worker, timeout=timeout)
+        except Exception as exc:
+            return False, f"{type(exc).__name__}: {exc}"
+        if result is False:
+            return False, "worker reported that shutdown did not complete"
+        return True, None
+
     def reconcile(self, config: dict) -> None:
-        """Reconcile persistent workers against the current rig configuration."""
+        """Reconcile persistent workers against the current rig configuration.
+
+        Camera ownership is exclusive.  A replacement worker is never started
+        until the previous owner for that RIG has confirmed shutdown.
+        """
 
         desired_entries = self._eligible_camera_entries(config)
         desired = set(desired_entries)
@@ -149,18 +165,56 @@ class CameraWorkerRuntime:
                         "while a trigger IPC session is active"
                     )
 
+            previous = dict(self._registry)
             unchanged = {
                 rig_id
                 for rig_id in desired
                 if (
-                    rig_id in self._registry
+                    rig_id in previous
                     and self._camera_entries.get(rig_id) == desired_entries[rig_id]
                 )
+            }
+            obsolete = {
+                rig_id: worker
+                for rig_id, worker in previous.items()
+                if rig_id not in unchanged
+            }
+
+            # Stop old owners first.  Starting their replacements before this
+            # point can create two gphoto2 processes competing for the same USB
+            # camera.  Keep every failed owner registered so later code cannot
+            # mistake the USB device for released.
+            stop_failures: dict[int, str] = {}
+            for rig_id, worker in obsolete.items():
+                stopped, detail = self._stop_owned_worker(worker, timeout=2.0)
+                if not stopped:
+                    stop_failures[rig_id] = detail or "shutdown failed"
+
+            if stop_failures:
+                detail = "; ".join(
+                    f"RIG {rig_id}: {stop_failures[rig_id]}"
+                    for rig_id in sorted(stop_failures)
+                )
+                raise RuntimeError(
+                    "cannot reconfigure camera runtime because existing "
+                    f"worker ownership was not released ({detail})"
+                )
+
+            # Every obsolete owner is now confirmed stopped.  Remove it before
+            # constructing a replacement so a failed startup leaves the
+            # runtime fail-closed rather than retaining a stale active binding.
+            self._registry = {
+                rig_id: previous[rig_id]
+                for rig_id in unchanged
+            }
+            self._camera_entries = {
+                rig_id: deepcopy(self._camera_entries[rig_id])
+                for rig_id in unchanged
             }
 
             created: dict[int, CameraWorker] = {}
             try:
-                for rig_id in desired - unchanged:
+                for rig_id in sorted(desired - unchanged):
                     worker = self._worker_factory(
                         rig_id=rig_id,
                         clock=self._clock,
@@ -171,34 +225,35 @@ class CameraWorkerRuntime:
                         configure_camera(desired_entries[rig_id])
                     created[rig_id] = worker
                     worker.start()
-            except BaseException:
-                for worker in created.values():
-                    try:
-                        worker.stop()
-                    except Exception:
-                        pass
+            except BaseException as start_exc:
+                cleanup_failures: dict[int, str] = {}
+                for rig_id, worker in created.items():
+                    stopped, detail = self._stop_owned_worker(
+                        worker,
+                        timeout=2.0,
+                    )
+                    if not stopped:
+                        cleanup_failures[rig_id] = detail or "shutdown failed"
+                        # Never orphan a child which may still own the camera.
+                        self._registry[rig_id] = worker
+                        self._camera_entries[rig_id] = deepcopy(
+                            desired_entries[rig_id]
+                        )
+
+                if cleanup_failures:
+                    detail = "; ".join(
+                        f"RIG {rig_id}: {cleanup_failures[rig_id]}"
+                        for rig_id in sorted(cleanup_failures)
+                    )
+                    raise RuntimeError(
+                        "camera worker startup failed and cleanup could not "
+                        f"release worker ownership ({detail})"
+                    ) from start_exc
                 raise
 
-            previous = self._registry
-            obsolete = [
-                worker
-                for rig_id, worker in previous.items()
-                if rig_id not in unchanged
-            ]
-
-            self._registry = {
-                rig_id: (
-                    previous[rig_id]
-                    if rig_id in unchanged
-                    else created[rig_id]
-                )
-                for rig_id in desired
-            }
+            self._registry.update(created)
             self._camera_entries = deepcopy(desired_entries)
             self._config = config
-
-        for worker in obsolete:
-            _stop_worker(worker, timeout=2.0)
 
     def get_for_rig(self, rig_id: int) -> CameraWorker | None:
         """Return the persistent worker for *rig_id*, if configured."""
@@ -442,14 +497,39 @@ class CameraWorkerRuntime:
                 raise RuntimeError(
                     "camera runtime cannot be released while a trigger IPC session is active"
                 )
-            workers = tuple(self._registry.values())
-            self._registry.clear()
-            self._camera_entries.clear()
-            self._leased_policy_configs.clear()
-            self._config = None
 
-        for worker in workers:
-            _stop_worker(worker, timeout=2.0)
+            workers = dict(self._registry)
+            failures: dict[int, str] = {}
+            for rig_id, worker in workers.items():
+                stopped, detail = self._stop_owned_worker(worker, timeout=2.0)
+                if not stopped:
+                    failures[rig_id] = detail or "shutdown failed"
+
+            # Remove only workers whose shutdown was confirmed.  A failed
+            # worker may still own the USB device and must remain referenced so
+            # characterization cannot open a second gphoto2 owner.
+            self._registry = {
+                rig_id: workers[rig_id]
+                for rig_id in failures
+            }
+            self._camera_entries = {
+                rig_id: deepcopy(self._camera_entries[rig_id])
+                for rig_id in failures
+                if rig_id in self._camera_entries
+            }
+            self._leased_policy_configs.clear()
+
+            if failures:
+                detail = "; ".join(
+                    f"RIG {rig_id}: {failures[rig_id]}"
+                    for rig_id in sorted(failures)
+                )
+                raise RuntimeError(
+                    "camera runtime could not release USB ownership; "
+                    f"direct camera access refused ({detail})"
+                )
+
+            self._config = None
 
     def shutdown(self) -> None:
         """Stop IPC and workers without waiting under the runtime lock."""

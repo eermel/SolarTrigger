@@ -34,7 +34,7 @@ def _rig(rig_id=1):
     }
 
 
-def _runtime(tmp_path, *, clock=None):
+def _runtime(tmp_path, *, clock=None, worker_factory=FakeWorker):
     servers = []
 
     def server_factory(runtime, **kwargs):
@@ -49,7 +49,7 @@ def _runtime(tmp_path, *, clock=None):
 
     runtime = CameraWorkerRuntime(
         clock=clock,
-        worker_factory=FakeWorker,
+        worker_factory=worker_factory,
         ipc_server_factory=server_factory,
         log_fn=lambda _message: None,
     )
@@ -145,3 +145,114 @@ def test_session_close_clears_only_its_rig_recovery_state(tmp_path):
 
     assert worker1.recovery_clears == 1
     assert worker2.recovery_clears == 1
+
+
+class OwnershipWorker(FakeWorker):
+    events = []
+    fail_stop = False
+
+    def __init__(self, *, rig_id, clock, log_fn):
+        super().__init__(rig_id=rig_id, clock=clock, log_fn=log_fn)
+        self.camera_entry = None
+        self.stop_calls = 0
+
+    def configure_camera(self, camera_entry):
+        self.camera_entry = dict(camera_entry)
+
+    def start(self):
+        self.started = True
+        self.events.append(("start", self.camera_entry.get("model")))
+
+    def stop(self):
+        self.stop_calls += 1
+        self.events.append(("stop", self.camera_entry.get("model")))
+        if self.fail_stop:
+            return False
+        self.stopped = True
+        return True
+
+
+def _rig_with_model(model):
+    rig = _rig()
+    rig["devices"]["camera"]["model"] = model
+    return rig
+
+
+def test_reconcile_stops_previous_camera_owner_before_starting_replacement(
+    tmp_path,
+):
+    OwnershipWorker.events = []
+    OwnershipWorker.fail_stop = False
+    runtime, _servers = _runtime(
+        tmp_path,
+        worker_factory=OwnershipWorker,
+    )
+
+    runtime.reconcile({"rigs": [_rig_with_model("OLD")]})
+    old_worker = runtime.get_for_rig(1)
+    OwnershipWorker.events.clear()
+
+    runtime.reconcile({"rigs": [_rig_with_model("NEW")]})
+
+    new_worker = runtime.get_for_rig(1)
+    assert new_worker is not old_worker
+    assert OwnershipWorker.events == [
+        ("stop", "OLD"),
+        ("start", "NEW"),
+    ]
+    runtime.shutdown()
+
+
+def test_reconcile_retains_unstoppable_owner_and_never_starts_replacement(
+    tmp_path,
+):
+    class UnstoppableOwnershipWorker(OwnershipWorker):
+        fail_stop = True
+        instances = []
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.instances.append(self)
+
+    UnstoppableOwnershipWorker.events = []
+    UnstoppableOwnershipWorker.instances = []
+    runtime, _servers = _runtime(
+        tmp_path,
+        worker_factory=UnstoppableOwnershipWorker,
+    )
+
+    runtime.reconcile({"rigs": [_rig_with_model("OLD")]})
+    old_worker = runtime.get_for_rig(1)
+
+    with pytest.raises(RuntimeError, match="ownership was not released"):
+        runtime.reconcile({"rigs": [_rig_with_model("NEW")]})
+
+    assert runtime.get_for_rig(1) is old_worker
+    assert runtime.active_camera_rig_ids() == (1,)
+    assert len(UnstoppableOwnershipWorker.instances) == 1
+    assert UnstoppableOwnershipWorker.events == [
+        ("start", "OLD"),
+        ("stop", "OLD"),
+    ]
+
+
+def test_release_idle_workers_refuses_direct_access_if_owner_survives(
+    tmp_path,
+):
+    class UnstoppableOwnershipWorker(OwnershipWorker):
+        fail_stop = True
+
+    UnstoppableOwnershipWorker.events = []
+    runtime, _servers = _runtime(
+        tmp_path,
+        worker_factory=UnstoppableOwnershipWorker,
+    )
+    runtime.reconcile({"rigs": [_rig_with_model("CAMERA")]})
+    worker = runtime.get_for_rig(1)
+
+    with pytest.raises(RuntimeError, match="direct camera access refused"):
+        runtime.release_idle_workers()
+
+    assert runtime.get_for_rig(1) is worker
+    assert runtime.active_camera_rig_ids() == (1,)
+    assert worker.stop_calls == 1
