@@ -282,6 +282,12 @@ class IndiMount(MountPlugin):
                         f"INDI device did not connect: {self.device_name}",
                     )
 
+            if self._runtime_tcp_enabled and self._is_onstep_driver(props):
+                # CONNECT=On is not sufficient for the legacy OnStep driver.
+                # A cold/partial startup can leave the device logically
+                # connected without publishing the manual-slew vectors.
+                self._ensure_onstep_runtime_ready()
+
             # Safety invariant: selecting/connecting a mount in SolarTrigger
             # must never inherit tracking left active by a previous client.
             self._ensure_tracking_stopped()
@@ -322,6 +328,12 @@ class IndiMount(MountPlugin):
     def status(self):
         try:
             props = self._props()
+            if (
+                self._runtime_tcp_enabled
+                and self._is_onstep_driver(props)
+                and not self._onstep_operational_props(props)
+            ):
+                props = self._ensure_onstep_runtime_ready()
             connection = props.get("CONNECTION", {})
             connected = self._switch_on(connection, "CONNECT") if connection else self._connected
             equatorial = props.get("EQUATORIAL_EOD_COORD", props.get("EQUATORIAL_COORD", {}))
@@ -461,6 +473,10 @@ class IndiMount(MountPlugin):
     def move(self, direction):
         if direction not in _DIRECTION_ELEMENTS:
             raise ValueError(f"Unknown direction: {direction}")
+        if self._runtime_tcp_enabled:
+            identity = self._props(["DRIVER_INFO.*", "CONNECTION.*"])
+            if self._is_onstep_driver(identity):
+                self._ensure_onstep_runtime_ready()
         prop, selected = _DIRECTION_ELEMENTS[direction]
         opposite = {
             "MOTION_NORTH": "MOTION_SOUTH", "MOTION_SOUTH": "MOTION_NORTH",
@@ -802,7 +818,7 @@ class IndiMount(MountPlugin):
         client = self._fresh_subprocess_client()
         props = self._ensure_onstep_indi_live(
             client,
-            require_slew_rate=True,
+            require_operational=True,
         )
         prop = props.get("TELESCOPE_SLEW_RATE", {})
         selected = self._find_element(prop, value)
@@ -839,7 +855,14 @@ class IndiMount(MountPlugin):
 
     def get_slew_speed_capabilities(self):
         try:
-            return self._slew_capabilities(self._props())
+            props = self._props()
+            if (
+                self._runtime_tcp_enabled
+                and self._is_onstep_driver(props)
+                and not self._onstep_operational_props(props)
+            ):
+                props = self._ensure_onstep_runtime_ready()
+            return self._slew_capabilities(props)
         except IndiClientError:
             raise
         except Exception as exc:
@@ -951,6 +974,35 @@ class IndiMount(MountPlugin):
             timeout_s=float(self.config.get("client_timeout", 4.0)),
         )
 
+    def _seed_runtime_cache(self, props):
+        seed = getattr(self.client, "seed_monitor_cache", None)
+        if callable(seed):
+            seed(props)
+
+    def _ensure_onstep_runtime_ready(self):
+        """Repair a half-connected OnStep before exposing/using manual slew."""
+        patterns = [
+            "DRIVER_INFO.*",
+            "CONNECTION.*",
+            "DEVICE_PORT.*",
+            "TELESCOPE_SLEW_RATE.*",
+            "TELESCOPE_MOTION_NS.*",
+            "TELESCOPE_MOTION_WE.*",
+        ]
+        cached = self._props(patterns)
+        if not self._is_onstep_driver(cached):
+            return cached
+        if self._onstep_operational_props(cached):
+            return cached
+
+        fresh = self._fresh_subprocess_client()
+        ready = self._ensure_onstep_indi_live(
+            fresh,
+            require_operational=True,
+        )
+        self._seed_runtime_cache(ready)
+        return ready
+
     def _wait_fresh_for(self, client, predicate, patterns):
         deadline = time.monotonic() + self.timeout
         first = True
@@ -1008,22 +1060,34 @@ class IndiMount(MountPlugin):
             )
         self._connected = bool(connected)
 
-    def _ensure_onstep_indi_live(self, client, *, require_slew_rate=False):
+    def _ensure_onstep_indi_live(
+        self,
+        client,
+        *,
+        require_slew_rate=False,
+        require_operational=False,
+    ):
         patterns = [
             "CONNECTION.*",
             "DEVICE_PORT.*",
             "DRIVER_INFO.*",
         ]
-        if require_slew_rate:
+        if require_slew_rate or require_operational:
             patterns.append("TELESCOPE_SLEW_RATE.*")
+        if require_operational:
+            patterns.extend([
+                "TELESCOPE_MOTION_NS.*",
+                "TELESCOPE_MOTION_WE.*",
+            ])
 
         props = client.get_props(patterns)
         connection = props.get("CONNECTION", {})
         connected = self._switch_on(connection, "CONNECT")
-        has_required = (
-            not require_slew_rate
-            or bool(props.get("TELESCOPE_SLEW_RATE"))
-        )
+        has_required = True
+        if require_slew_rate:
+            has_required = bool(props.get("TELESCOPE_SLEW_RATE"))
+        if require_operational:
+            has_required = self._onstep_operational_props(props)
         if connected and has_required:
             return props
 
@@ -1048,8 +1112,17 @@ class IndiMount(MountPlugin):
             lambda current: (
                 self._switch_on(current.get("CONNECTION", {}), "CONNECT")
                 and (
-                    not require_slew_rate
-                    or bool(current.get("TELESCOPE_SLEW_RATE"))
+                    (
+                        not require_operational
+                        and (
+                            not require_slew_rate
+                            or bool(current.get("TELESCOPE_SLEW_RATE"))
+                        )
+                    )
+                    or (
+                        require_operational
+                        and self._onstep_operational_props(current)
+                    )
                 )
             ),
             patterns,
@@ -1060,7 +1133,9 @@ class IndiMount(MountPlugin):
                 "its operational properties",
             )
         self._connected = True
-        return client.get_props(patterns)
+        ready = client.get_props(patterns)
+        self._seed_runtime_cache(ready)
+        return ready
 
     def _sync_onstep_direct(
         self,
@@ -1423,6 +1498,20 @@ class IndiMount(MountPlugin):
             return None
         return {"kind": "discrete", "unit": None, "min": None, "max": None, "step": None,
                 "values": [{"value": name, "label": cls._label(value, name)} for name, value in prop.items()]}
+
+    @classmethod
+    def _onstep_operational_props(cls, props):
+        connection = props.get("CONNECTION", {})
+        if not cls._switch_on(connection, "CONNECT"):
+            return False
+        return all(
+            bool(props.get(name))
+            for name in (
+                "TELESCOPE_SLEW_RATE",
+                "TELESCOPE_MOTION_NS",
+                "TELESCOPE_MOTION_WE",
+            )
+        )
 
     @classmethod
     def _selected_rate(cls, prop):
