@@ -1003,8 +1003,20 @@ class IndiMount(MountPlugin):
         self._seed_runtime_cache(ready)
         return ready
 
-    def _wait_fresh_for(self, client, predicate, patterns):
-        deadline = time.monotonic() + self.timeout
+    def _wait_fresh_for(
+        self,
+        client,
+        predicate,
+        patterns,
+        *,
+        timeout_s=None,
+    ):
+        effective_timeout = (
+            self.timeout
+            if timeout_s is None
+            else max(0.0, float(timeout_s))
+        )
+        deadline = time.monotonic() + effective_timeout
         first = True
         while first or time.monotonic() < deadline:
             first = False
@@ -1033,7 +1045,14 @@ class IndiMount(MountPlugin):
             )
         return port
 
-    def _set_onstep_indi_connection(self, client, connected, serial_port=None):
+    def _set_onstep_indi_connection(
+        self,
+        client,
+        connected,
+        serial_port=None,
+        *,
+        timeout_s=None,
+    ):
         if connected and serial_port:
             client.set_props({"DEVICE_PORT": {"PORT": serial_port}})
 
@@ -1052,6 +1071,7 @@ class IndiMount(MountPlugin):
                 expected,
             ),
             ["CONNECTION.*"],
+            timeout_s=timeout_s,
         ):
             state = "connect" if connected else "disconnect"
             raise IndiClientError(
@@ -1080,6 +1100,10 @@ class IndiMount(MountPlugin):
                 "TELESCOPE_MOTION_WE.*",
             ])
 
+        recovery_timeout_s = max(
+            self.timeout,
+            float(self.config.get("onstep_connect_timeout", 5.0)),
+        )
         props = client.get_props(patterns)
         connection = props.get("CONNECTION", {})
         connected = self._switch_on(connection, "CONNECT")
@@ -1100,11 +1124,13 @@ class IndiMount(MountPlugin):
                 client,
                 False,
                 serial_port=serial_port,
+                timeout_s=recovery_timeout_s,
             )
         self._set_onstep_indi_connection(
             client,
             True,
             serial_port=serial_port,
+            timeout_s=recovery_timeout_s,
         )
 
         if not self._wait_fresh_for(
@@ -1126,6 +1152,7 @@ class IndiMount(MountPlugin):
                 )
             ),
             patterns,
+            timeout_s=recovery_timeout_s,
         ):
             raise IndiClientError(
                 "CONNECTION_FAILED",
