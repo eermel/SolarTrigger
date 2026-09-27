@@ -112,3 +112,110 @@ def test_invalid_schema_is_reported_explicitly(tmp_path):
 
     with pytest.raises(TriggerRunJournalInvalid, match="schema_version"):
         journal.snapshot()
+
+
+@pytest.mark.parametrize(
+    ("rig_key", "entry", "message"),
+    [
+        (
+            "1",
+            {
+                "run_id": "run-a",
+                "rig_id": "not-an-int",
+                "status": "active",
+                "runtime_recovery_count": 0,
+                "child_recovery_count": 0,
+            },
+            "invalid rig_id",
+        ),
+        (
+            "1",
+            {
+                "run_id": "run-a",
+                "rig_id": 2,
+                "status": "active",
+                "runtime_recovery_count": 0,
+                "child_recovery_count": 0,
+            },
+            "invalid rig_id",
+        ),
+        (
+            "1",
+            {
+                "run_id": "run-a",
+                "rig_id": 1,
+                "status": "active",
+                "runtime_recovery_count": "oops",
+                "child_recovery_count": 0,
+            },
+            "runtime_recovery_count",
+        ),
+        (
+            "1",
+            {
+                "run_id": "",
+                "rig_id": 1,
+                "status": "active",
+                "runtime_recovery_count": 0,
+                "child_recovery_count": 0,
+            },
+            "invalid run_id",
+        ),
+        (
+            "1",
+            {
+                "run_id": "run-a",
+                "rig_id": 1,
+                "status": "mystery",
+                "runtime_recovery_count": 0,
+                "child_recovery_count": 0,
+            },
+            "invalid status",
+        ),
+    ],
+)
+def test_semantically_corrupt_journal_is_reported_as_invalid(
+    tmp_path,
+    rig_key,
+    entry,
+    message,
+):
+    path = tmp_path / "trigger_state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "rigs": {rig_key: entry},
+            }
+        ),
+        encoding="utf-8",
+    )
+    journal = TriggerRunJournal(path, boot_id_fn=lambda: "boot-a")
+
+    with pytest.raises(TriggerRunJournalInvalid, match=message):
+        journal.active_entries()
+
+
+def test_invalid_rig_key_is_reported_before_recovery_sorting(tmp_path):
+    path = tmp_path / "trigger_state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "rigs": {
+                    "bad": {
+                        "run_id": "run-a",
+                        "rig_id": 1,
+                        "status": "active",
+                        "runtime_recovery_count": 0,
+                        "child_recovery_count": 0,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    journal = TriggerRunJournal(path, boot_id_fn=lambda: "boot-a")
+
+    with pytest.raises(TriggerRunJournalInvalid, match="invalid RIG key"):
+        journal.active_entries()

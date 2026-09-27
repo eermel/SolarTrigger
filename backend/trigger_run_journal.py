@@ -93,6 +93,54 @@ class TriggerRunJournal:
         rigs = raw.get("rigs")
         if not isinstance(rigs, dict):
             self._invalid("recovery journal rigs must be an object")
+
+        for key, entry in rigs.items():
+            if not isinstance(key, str) or key not in {"1", "2", "3", "4"}:
+                self._invalid(
+                    f"recovery journal contains invalid RIG key: {key!r}"
+                )
+            if not isinstance(entry, dict):
+                self._invalid(
+                    f"recovery journal RIG {key} entry must be an object"
+                )
+
+            rig_id = entry.get("rig_id")
+            if (
+                not isinstance(rig_id, int)
+                or isinstance(rig_id, bool)
+                or rig_id != int(key)
+            ):
+                self._invalid(
+                    f"recovery journal RIG {key} has invalid rig_id"
+                )
+
+            status = entry.get("status")
+            if status not in ({ACTIVE_STATUS} | FINAL_STATUSES):
+                self._invalid(
+                    f"recovery journal RIG {key} has invalid status"
+                )
+
+            run_id = entry.get("run_id")
+            if not isinstance(run_id, str) or not run_id:
+                self._invalid(
+                    f"recovery journal RIG {key} has invalid run_id"
+                )
+
+            for counter_name in (
+                "runtime_recovery_count",
+                "child_recovery_count",
+            ):
+                value = entry.get(counter_name, 0)
+                if (
+                    not isinstance(value, int)
+                    or isinstance(value, bool)
+                    or value < 0
+                ):
+                    self._invalid(
+                        f"recovery journal RIG {key} has invalid "
+                        f"{counter_name}"
+                    )
+
         return raw
 
     def _write_unlocked(self, payload: dict) -> None:
