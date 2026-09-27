@@ -1657,11 +1657,11 @@ function waitForBrowserPaint() {
   });
 }
 
-async function refreshRigDevices(
-  silent = false,
-  fullLegacyDetect = true,
-  reuseRecentIndi = false
-) {
+let reuseRecentIndiOnNextRefresh = false;
+
+async function refreshRigDevices(silent = false, fullLegacyDetect = true) {
+  const reuseRecentIndi = reuseRecentIndiOnNextRefresh;
+  reuseRecentIndiOnNextRefresh = false;
   if (deviceAutoRefreshInFlight) return;
 
   deviceAutoRefreshInFlight = true;
@@ -1676,10 +1676,9 @@ async function refreshRigDevices(
     // /api/devices/detect endpoint probes every hardware category (camera,
     // GPS, focuser and mount) and can be slow on real USB/INDI hardware.
     // Keep that exhaustive probe for explicit/manual refreshes only.
-    const inventoryUrl = reuseRecentIndi
-      ? '/api/rigs/devices/refresh?reuse_recent_indi=1'
-      : '/api/rigs/devices/refresh';
-    const inventoryResponse = await fetch(inventoryUrl, {method: 'POST'});
+    const inventoryResponse = reuseRecentIndi
+      ? await fetch('/api/rigs/devices/refresh?reuse_recent_indi=1', {method: 'POST'})
+      : await fetch('/api/rigs/devices/refresh', {method: 'POST'});
     const inventory = await inventoryResponse.json();
     if (!inventoryResponse.ok) {
       throw new Error(inventory.error || `HTTP error ${inventoryResponse.status}`);
@@ -1743,7 +1742,8 @@ async function startDeviceAutoRefresh() {
   // the USB signature baseline used for subsequent 1 Hz hot-plug detection.
   // Keep the slow legacy hardware probes reserved for the manual Refresh
   // Devices action.
-  await refreshRigDevices(true, false, true);
+  reuseRecentIndiOnNextRefresh = true;
+  await refreshRigDevices(true, false);
   await pollDeviceUsbPresence();
 
   deviceAutoRefreshTimer = setInterval(() => {
