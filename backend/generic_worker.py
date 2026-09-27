@@ -147,12 +147,19 @@ class GenericWorker:
             if not self._accepting:
                 raise RuntimeError("worker has already been stopped")
 
-            self._thread = threading.Thread(
+            thread = threading.Thread(
                 target=self._run,
                 name=f"{self.device_kind}-worker-r{self.rig_id}",
                 daemon=True,
             )
-            self._thread.start()
+            self._thread = thread
+            try:
+                thread.start()
+            except BaseException:
+                # No worker generation exists until Thread.start() succeeds.
+                # Roll the publication back so a caller may retry cleanly.
+                self._thread = None
+                raise
 
     def submit(
         self,
