@@ -3,7 +3,9 @@ import inspect
 import pytest
 
 from backend.camera_timing_contract import SAFETY_POLICY
+import backend.camera_validation as camera_validation
 from backend.camera_validation import (
+    CameraValidationError,
     CameraValidationJob,
     analyse_validation,
     build_validation_recipe,
@@ -393,3 +395,90 @@ def test_validation_job_run_never_waits_for_operator_confirmation():
     assert "OPERATOR CONFIRMATION FAILED" not in source
     assert "AUTOMATIC VALIDATION COMPLETED" in source
     assert "operator_outcome=None" in source
+
+
+def test_unbound_validation_retains_runtime_if_session_open_and_cleanup_fail(
+    monkeypatch,
+):
+    job = CameraValidationJob()
+    created = []
+
+    class TempRuntime:
+        def __init__(self, log_fn=None):
+            self.log_fn = log_fn
+            self.shutdown_calls = 0
+            created.append(self)
+
+        def reconcile(self, _config):
+            return None
+
+        def open_ipc_session(self, _rig_ids):
+            raise RuntimeError("synthetic IPC open failure")
+
+        def shutdown(self):
+            self.shutdown_calls += 1
+            raise RuntimeError("synthetic USB owner survived")
+
+    monkeypatch.setattr(camera_validation, "CameraWorkerRuntime", TempRuntime)
+    monkeypatch.setattr(
+        camera_validation,
+        "load_rig_configuration",
+        lambda: {"rigs": []},
+    )
+    monkeypatch.setattr(
+        camera_validation,
+        "_bound_rig_for_camera",
+        lambda _entry, _config: None,
+    )
+
+    entry = {
+        "serial": "SERIAL-1",
+        "backend": "profile-test",
+        "manufacturer": "Test",
+        "model": "Camera",
+    }
+
+    with pytest.raises(
+        CameraValidationError,
+        match="ownership could not be released",
+    ):
+        job._open_runtime(entry)
+
+    assert len(created) == 1
+    runtime = created[0]
+    assert runtime.shutdown_calls == 1
+    assert job._stranded_runtime is runtime
+
+
+def test_stranded_validation_runtime_cleanup_is_retryable_and_fail_closed():
+    job = CameraValidationJob()
+
+    class RetryRuntime:
+        def __init__(self):
+            self.calls = 0
+            self.fail = True
+
+        def shutdown(self):
+            self.calls += 1
+            if self.fail:
+                raise RuntimeError("camera process still alive")
+
+    runtime = RetryRuntime()
+    job._stranded_runtime = runtime
+
+    with job.lock:
+        with pytest.raises(
+            CameraValidationError,
+            match="new validation is refused",
+        ):
+            job._retry_stranded_runtime_cleanup_locked()
+
+    assert job._stranded_runtime is runtime
+    assert runtime.calls == 1
+
+    runtime.fail = False
+    with job.lock:
+        job._retry_stranded_runtime_cleanup_locked()
+
+    assert runtime.calls == 2
+    assert job._stranded_runtime is None
