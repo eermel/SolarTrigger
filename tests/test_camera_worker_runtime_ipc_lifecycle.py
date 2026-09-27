@@ -256,3 +256,58 @@ def test_release_idle_workers_refuses_direct_access_if_owner_survives(
     assert runtime.get_for_rig(1) is worker
     assert runtime.active_camera_rig_ids() == (1,)
     assert worker.stop_calls == 1
+
+
+def test_shutdown_retains_unstoppable_camera_owner_for_retry(tmp_path):
+    class RetryableStopWorker(OwnershipWorker):
+        fail_stop = True
+
+    RetryableStopWorker.events = []
+    runtime, _servers = _runtime(
+        tmp_path,
+        worker_factory=RetryableStopWorker,
+    )
+    runtime.reconcile({"rigs": [_rig_with_model("CAMERA")]})
+    worker = runtime.get_for_rig(1)
+
+    with pytest.raises(RuntimeError, match="could not release ownership"):
+        runtime.shutdown()
+
+    assert runtime.get_for_rig(1) is worker
+    assert runtime.active_camera_rig_ids() == (1,)
+
+    RetryableStopWorker.fail_stop = False
+    runtime.shutdown()
+
+    assert runtime.get_for_rig(1) is None
+    assert runtime.active_camera_rig_ids() == ()
+
+
+def test_shutdown_removes_only_workers_that_confirmed_stop(tmp_path):
+    class MixedStopWorker(OwnershipWorker):
+        instances = {}
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.__class__.instances[self.rig_id] = self
+
+        def stop(self):
+            self.stop_calls += 1
+            if self.rig_id == 2:
+                return False
+            self.stopped = True
+            return True
+
+    MixedStopWorker.instances = {}
+    runtime, _servers = _runtime(
+        tmp_path,
+        worker_factory=MixedStopWorker,
+    )
+    runtime.reconcile({"rigs": [_rig(1), _rig(2)]})
+
+    with pytest.raises(RuntimeError, match="RIG 2"):
+        runtime.shutdown()
+
+    assert runtime.get_for_rig(1) is None
+    assert runtime.get_for_rig(2) is MixedStopWorker.instances[2]
+    assert runtime.active_camera_rig_ids() == (2,)

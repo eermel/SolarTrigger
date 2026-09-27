@@ -532,21 +532,66 @@ class CameraWorkerRuntime:
             self._config = None
 
     def shutdown(self) -> None:
-        """Stop IPC and workers without waiting under the runtime lock."""
+        """Stop IPC and workers without forgetting surviving camera owners.
+
+        Shutdown is retryable.  Workers whose bounded stop does not complete
+        remain registered so a caller can retry cleanup and so ownership is
+        never reported as released while a child may still hold the USB
+        device.
+        """
 
         with self._lock:
-            server, self._ipc_server = self._ipc_server, None
-            self._ipc_session_ids.clear()
-            self._ipc_session_rigs.clear()
-            self._ipc_closing_session_ids.clear()
-            self._leased_policy_configs.clear()
-            workers = tuple(self._registry.values())
-            self._registry.clear()
+            server = self._ipc_server
+            workers = dict(self._registry)
 
+        server_error: str | None = None
         if server is not None:
-            _stop_ipc_server(server, timeout=2.0)
-        for worker in workers:
-            _stop_worker(worker, timeout=2.0)
+            try:
+                result = _stop_ipc_server(server, timeout=2.0)
+                if result is False:
+                    server_error = "IPC server reported that shutdown did not complete"
+            except Exception as exc:
+                server_error = f"{type(exc).__name__}: {exc}"
+
+        worker_failures: dict[int, str] = {}
+        for rig_id, worker in workers.items():
+            stopped, detail = self._stop_owned_worker(worker, timeout=2.0)
+            if not stopped:
+                worker_failures[rig_id] = detail or "shutdown failed"
+
+        with self._lock:
+            if server_error is None and self._ipc_server is server:
+                self._ipc_server = None
+                self._ipc_session_ids.clear()
+                self._ipc_session_rigs.clear()
+                self._ipc_closing_session_ids.clear()
+                self._leased_policy_configs.clear()
+
+            # Remove only workers whose shutdown was confirmed.  Failed owners
+            # remain authoritative and keep their binding metadata for retry.
+            for rig_id, worker in workers.items():
+                if rig_id in worker_failures:
+                    continue
+                if self._registry.get(rig_id) is worker:
+                    self._registry.pop(rig_id, None)
+                    self._camera_entries.pop(rig_id, None)
+
+            if not self._registry:
+                self._config = None
+
+        failures = []
+        if server_error is not None:
+            failures.append(f"IPC server: {server_error}")
+        failures.extend(
+            f"RIG {rig_id}: {worker_failures[rig_id]}"
+            for rig_id in sorted(worker_failures)
+        )
+        if failures:
+            raise RuntimeError(
+                "camera runtime shutdown could not release ownership ("
+                + "; ".join(failures)
+                + ")"
+            )
 
 
 _camera_worker_runtime: CameraWorkerRuntime | None = None
