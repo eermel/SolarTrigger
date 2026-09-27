@@ -107,50 +107,38 @@ def test_reserved_mount_is_kept_without_reprobing_owned_serial_path(
     assert inventory["mount"][0]["bindable"] is True
 
 
-def test_reserved_indi_binding_blocks_direct_fallback_on_catalog_gap(
+def test_reserved_eqmod_path_is_excluded_from_direct_onstep_probe(
     monkeypatch,
 ):
     from plugins import mount as mount_registry
-    from plugins import focuser as focuser_registry
 
-    def unexpected_mount_probe(**_kwargs):
-        raise AssertionError("direct mount fallback must not probe")
+    eqmod_path = "/dev/serial/by-id/usb-EQMOD"
+    calls = []
 
-    def unexpected_focuser_probe(**_kwargs):
-        raise AssertionError("direct focuser fallback must not probe")
+    def inventory_mounts(**kwargs):
+        calls.append(kwargs)
+        return []
 
     monkeypatch.setattr(
         mount_registry,
         "inventory_mounts",
-        unexpected_mount_probe,
-    )
-    monkeypatch.setattr(
-        focuser_registry,
-        "inventory_focusers",
-        unexpected_focuser_probe,
+        inventory_mounts,
     )
 
     mount_binding = {
         "category": "mount",
         "backend": "indi",
-        "device_name": "LX200 OnStep",
-        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
-    }
-    focuser_binding = {
-        "category": "focuser",
-        "backend": "indi",
-        "device_name": "ZWO EAF",
-        "device_id": "indi:127.0.0.1:7624:ZWO EAF",
+        "device_name": "EQMod Mount",
+        "device_id": "indi:127.0.0.1:7624:EQMod Mount",
+        "fallback_physical_path": eqmod_path,
     }
 
     assert device_inventory._discover_mounts(
         reserved_mounts=[mount_binding],
         indi_catalog=[],
     ) == []
-    assert device_inventory._discover_focusers(
-        reserved_focusers=[focuser_binding],
-        indi_catalog=[],
-    ) == []
+    assert calls[0]["candidates"] == ["onstep"]
+    assert set(calls[0]["exclude_physical_paths"]) == {eqmod_path}
 
 
 def test_reserved_eqmod_indi_binding_presence_comes_from_current_catalog():
@@ -788,9 +776,10 @@ def test_bound_focuser_keeps_binding_metadata_when_vendor_inventory_sees_it(monk
 def test_refresh_can_reuse_recent_indi_catalog(monkeypatch):
     catalog = [{
         "backend": "indi",
-        "device_name": "LX200 OnStep",
-        "device_id": "indi:127.0.0.1:7624:LX200 OnStep",
-        "model": "LX200 OnStep",
+        "device_name": "EQMod Mount",
+        "device_id": "indi:127.0.0.1:7624:EQMod Mount",
+        "model": "EQMod Mount",
+        "driver_exec": "indi_eqmod_telescope",
         "categories": ["mount"],
         "present": True,
         "connected": True,
@@ -815,7 +804,7 @@ def test_refresh_can_reuse_recent_indi_catalog(monkeypatch):
 
     refreshed = device_inventory.refresh_inventory(reuse_recent_indi_s=30.0)
 
-    assert refreshed["astro"][0]["device_name"] == "LX200 OnStep"
+    assert refreshed["astro"][0]["device_name"] == "EQMod Mount"
 
 
 def test_manual_refresh_never_reuses_recent_indi_catalog(monkeypatch):
