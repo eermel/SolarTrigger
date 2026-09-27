@@ -907,6 +907,14 @@ def test_onstep_legacy_home_uses_indi_setprop_transport(monkeypatch, full_props)
     props["OnStep Status"] = {
         "Park": "Unparked, at Home",
     }
+    props["TELESCOPE_MOTION_NS"] = {
+        "MOTION_NORTH": "Off",
+        "MOTION_SOUTH": "Off",
+    }
+    props["TELESCOPE_MOTION_WE"] = {
+        "MOTION_EAST": "Off",
+        "MOTION_WEST": "Off",
+    }
     client = StubIndiClient(props)
 
     class ForbiddenSession:
