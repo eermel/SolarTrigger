@@ -591,7 +591,12 @@ def test_runtime_recovery_rejects_changed_inputs_before_camera_ipc(
     service._clear_active_inputs(1)
 
     photo_path = service.configs_dir / "photo_cfg" / "photo.json"
-    photo_path.write_text('{"changed": true}', encoding="utf-8")
+    photo = json.loads(photo_path.read_text(encoding="utf-8"))
+    photo["sequence_margin_min"] = 11
+    photo_path.write_text(
+        json.dumps(photo),
+        encoding="utf-8",
+    )
 
     with pytest.raises(TriggerValidationError) as caught:
         service.start(
