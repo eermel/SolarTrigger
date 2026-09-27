@@ -388,7 +388,7 @@ def test_onstep_probe_uses_setprop_without_persistent_tcp(monkeypatch):
 
     class SetpropClient:
         def __init__(self, **kwargs):
-            calls.append(("init", kwargs["device"]))
+            calls.append(("init", kwargs["device"], kwargs["timeout_s"]))
             self.connected = False
 
         def set_props(self, assignments):
@@ -427,7 +427,7 @@ def test_onstep_probe_uses_setprop_without_persistent_tcp(monkeypatch):
         timeout_s=15.0,
         use_setprop=True,
     ) is True
-    assert calls[0] == ("init", "LX200 OnStep")
+    assert calls[0] == ("init", "LX200 OnStep", 5.0)
     assert ("set", {
         "DEVICE_PORT": {"PORT": "/dev/serial/by-id/ONSTEP"},
     }) in calls
@@ -441,7 +441,7 @@ def test_onstep_reconnect_uses_setprop_without_persistent_tcp(monkeypatch):
 
     class SetpropClient:
         def __init__(self, **kwargs):
-            calls.append(("init", kwargs["device"]))
+            calls.append(("init", kwargs["device"], kwargs["timeout_s"]))
             self.connected = True
 
         def set_props(self, assignments):
@@ -488,7 +488,7 @@ def test_onstep_reconnect_uses_setprop_without_persistent_tcp(monkeypatch):
         "set",
         {"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}},
     )
-    assert disconnect in calls
+    assert calls[0] == ("init", "LX200 OnStep", 5.0)\n    assert disconnect in calls
     assert connect in calls
     assert calls.index(disconnect) < calls.index(connect)
 
@@ -1263,7 +1263,7 @@ def test_onstep_tracking_safety_uses_setprop_without_persistent_tcp(monkeypatch)
 
     class SetpropClient:
         def __init__(self, **kwargs):
-            calls.append(("init", kwargs["device"]))
+            calls.append(("init", kwargs["device"], kwargs["timeout_s"]))
             self.track_on = True
 
         def set_props(self, assignments):
@@ -1294,7 +1294,7 @@ def test_onstep_tracking_safety_uses_setprop_without_persistent_tcp(monkeypatch)
 
     manager = IndiDeviceManager(client=FakeClient(devices))
 
-    assert manager._disable_tracking_on_detected_mounts(devices) is True
+    assert manager._disable_tracking_on_detected_mounts(devices) is True\n    assert calls[0] == ("init", "LX200 OnStep", 5.0)
     assert ("set", {
         "TELESCOPE_TRACK_STATE": {"TRACK_ON": "Off", "TRACK_OFF": "On"},
     }) in calls
