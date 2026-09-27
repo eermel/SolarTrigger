@@ -1178,6 +1178,48 @@ class IndiMount(MountPlugin):
             "transport": "onstep_direct",
         }
 
+    def _set_onstep_vector_atomic(self, prop, elements):
+        """Legacy atomic vector used only by the standalone set_location API."""
+        with IndiTcpSession(
+            host=self.config.get("host", "127.0.0.1"),
+            port=int(self.config.get("port", 7624)),
+            device=self.device_name,
+            timeout_s=float(self.config.get("client_timeout", 4.0)),
+        ) as session:
+            if prop == "GEOGRAPHIC_COORD":
+                session.set_number(prop, elements)
+            else:
+                raise IndiClientError(
+                    "PROPERTY_UNSUPPORTED",
+                    f"Unsupported atomic OnStep property: {prop}",
+                )
+
+    def _verify_onstep_location(self, lat, lon, elev):
+        """Require the legacy set_location path to confirm its INDI readback."""
+        deadline = time.monotonic() + self.timeout
+        last = {}
+        first = True
+        while first or time.monotonic() < deadline:
+            first = False
+            last = self._props(["GEOGRAPHIC_COORD.*"]).get(
+                "GEOGRAPHIC_COORD",
+                {},
+            )
+            if (
+                self._readback_close(last.get("LAT"), lat, 0.02)
+                and self._longitude_error(last.get("LONG"), lon) <= 0.02
+                and self._readback_close(last.get("ELEV"), elev, 5.0)
+            ):
+                return
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(self.poll_interval)
+        raise IndiClientError(
+            "CONNECTION_FAILED",
+            "OnStep site synchronization was not confirmed by readback "
+            f"(requested LAT={lat}, LONG={lon}, ELEV={elev}; readback={last})",
+        )
+
     @staticmethod
     def _readback_close(actual, expected, tolerance):
         try:
