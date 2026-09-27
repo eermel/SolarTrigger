@@ -360,6 +360,11 @@ class IndiSubprocessClient:
             self._monitor_thread = thread
             thread.start()
 
+    def clear_monitor_cache(self) -> None:
+        """Forget properties published by an older INDI device generation."""
+        with self._monitor_lock:
+            self._monitor_cache.clear()
+
     def stop_monitor(self) -> None:
         """Stop the persistent monitor if one is active."""
         with self._monitor_lock:
