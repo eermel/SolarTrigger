@@ -18,6 +18,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
+from backend.device_process_worker import arm_parent_death_signal
 from backend.eclipse_engine.compute import compute_local_circumstances
 from backend.eclipse_engine.loader import EclipseDataError, load_eclipse
 from backend.runtime_paths import TODAY_ECLIPSE_FILE
@@ -161,6 +162,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--tz", type=_finite_float, default=0.0, help="UTC offset in hours, including DST")
     parser.add_argument("--date", "--eclipse", dest="date_iso", required=True, help="Date ISO YYYY-MM-DD")
     parser.add_argument("--output", type=Path, help="Output JSON file")
+    parser.add_argument(
+        "--parent-pid",
+        type=int,
+        help="Portal worker PID; terminate this calculator if that parent dies",
+    )
     return parser
 
 
@@ -194,6 +200,10 @@ def _write_json_atomic(output: Path, config: dict[str, Any]) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
+
+    if args.parent_pid is not None:
+        arm_parent_death_signal(args.parent_pid)
+
     try:
         datetime.strptime(args.date_iso, "%Y-%m-%d")
         dataset = load_eclipse(args.date_iso)
