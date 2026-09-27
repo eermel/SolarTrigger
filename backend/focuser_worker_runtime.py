@@ -91,6 +91,10 @@ class FocuserWorkerRuntime:
         self._process_worker_factory = process_worker_factory
         self._log = log_fn
         self._registry: dict[tuple[str, tuple[str, str]], _WorkerEntry] = {}
+        # Rollback cleanup may fail even after terminate()/kill().  Keep such
+        # workers strongly referenced and block future reconfiguration until
+        # stop_all() confirms that hardware ownership has been released.
+        self._retained_workers: list[Any] = []
         self._lock = threading.RLock()
 
     def set_service_factory_provider(
@@ -175,11 +179,32 @@ class FocuserWorkerRuntime:
             desired[key] = binding
         return desired
 
+    @staticmethod
+    def _shutdown_owned_worker(
+        worker,
+        timeout: float | None = 2.0,
+    ) -> tuple[bool, str | None]:
+        """Return success only when shutdown did not explicitly report False."""
+
+        try:
+            result = worker.shutdown(timeout=timeout)
+        except BaseException as exc:
+            return False, f"{type(exc).__name__}: {exc}"
+        if result is False:
+            return False, "worker reported that shutdown did not complete"
+        return True, None
+
     def reconcile(self, config: dict) -> None:
-        """Atomically reconcile workers against the eligible focusers in *config*."""
+        """Reconcile workers without overlapping physical hardware owners."""
 
         desired = self._desired_bindings(config)
         with self._lock:
+            if self._retained_workers:
+                raise RuntimeError(
+                    "focuser runtime has unresolved worker ownership; "
+                    "stop_all() must succeed before reconfiguration"
+                )
+
             provider = self._service_factory_provider
             state_path = self._state_path
 
@@ -189,13 +214,18 @@ class FocuserWorkerRuntime:
                     "process state path is configured"
                 )
 
+            previous = dict(self._registry)
             unchanged = {
                 key
                 for key, binding in desired.items()
-                if key in self._registry
-                and self._registry[key].binding == binding
+                if key in previous
+                and previous[key].binding == binding
             }
             new_keys = [key for key in desired if key not in unchanged]
+
+            # Constructors do not own hardware; start() is the ownership
+            # boundary. Validate providers/factories before stopping the
+            # currently working configuration.
             created: dict[tuple[str, tuple[str, str]], _WorkerEntry] = {}
             try:
                 for key in new_keys:
@@ -204,9 +234,7 @@ class FocuserWorkerRuntime:
                     if provider is not None:
                         factory = provider(binding)
                         if not callable(factory):
-                            raise TypeError(
-                                "focuser service factory must be callable"
-                            )
+                            raise TypeError("focuser service factory must be callable")
 
                         worker = FocuserWorker(
                             rig_id=binding.rig_id,
@@ -215,39 +243,126 @@ class FocuserWorkerRuntime:
                         )
                     else:
                         assert state_path is not None
-
                         worker = self._process_worker_factory(
                             rig_id=binding.rig_id,
                             backend=binding.backend,
-                            device_config=_thaw(
-                                binding.focuser_entry
-                            ),
+                            device_config=_thaw(binding.focuser_entry),
                             state_path=state_path,
                             log_fn=self._log,
                         )
 
-                    created[key] = _WorkerEntry(
-                        binding,
-                        worker,
-                    )
-                    worker.start()
+                    created[key] = _WorkerEntry(binding, worker)
             except BaseException:
                 for entry in created.values():
-                    try:
-                        entry.worker.shutdown()
-                    except Exception:
-                        pass
+                    stopped, _detail = self._shutdown_owned_worker(
+                        entry.worker,
+                        timeout=None,
+                    )
+                    if not stopped:
+                        self._retained_workers.append(entry.worker)
                 raise
 
-            previous = self._registry
+            obsolete = {
+                key: entry
+                for key, entry in previous.items()
+                if key not in unchanged
+            }
+
+            # Exclusive ownership: old owners must be confirmed stopped before
+            # any replacement may start.
+            stopped_obsolete: list[_WorkerEntry] = []
+            stop_failures: list[str] = []
+            for entry in obsolete.values():
+                stopped, detail = self._shutdown_owned_worker(
+                    entry.worker,
+                    timeout=2.0,
+                )
+                if stopped:
+                    stopped_obsolete.append(entry)
+                else:
+                    stop_failures.append(
+                        f"RIG {entry.binding.rig_id}: "
+                        f"{detail or 'shutdown failed'}"
+                    )
+
+            if stop_failures:
+                restart_failures: list[str] = []
+                for entry in stopped_obsolete:
+                    try:
+                        entry.worker.start()
+                    except BaseException as exc:
+                        restart_failures.append(
+                            f"RIG {entry.binding.rig_id}: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+
+                for entry in created.values():
+                    stopped, detail = self._shutdown_owned_worker(
+                        entry.worker,
+                        timeout=None,
+                    )
+                    if not stopped:
+                        self._retained_workers.append(entry.worker)
+                        stop_failures.append(
+                            "replacement cleanup: "
+                            f"{detail or 'shutdown failed'}"
+                        )
+
+                details = "; ".join(stop_failures + restart_failures)
+                raise RuntimeError(
+                    "focuser worker ownership was not released"
+                    + (f" ({details})" if details else "")
+                )
+
+            try:
+                for key in new_keys:
+                    created[key].worker.start()
+            except BaseException as start_exc:
+                cleanup_failures: list[str] = []
+                for entry in created.values():
+                    stopped, detail = self._shutdown_owned_worker(
+                        entry.worker,
+                        timeout=None,
+                    )
+                    if not stopped:
+                        self._retained_workers.append(entry.worker)
+                        cleanup_failures.append(
+                            f"RIG {entry.binding.rig_id}: "
+                            f"{detail or 'shutdown failed'}"
+                        )
+
+                restart_failures: list[str] = []
+                # Never restart an old owner while a replacement may still be
+                # alive. If replacement cleanup succeeded, restore the previous
+                # configuration so a failed reconfigure remains non-disruptive.
+                if not cleanup_failures:
+                    for entry in stopped_obsolete:
+                        try:
+                            entry.worker.start()
+                        except BaseException as exc:
+                            restart_failures.append(
+                                f"RIG {entry.binding.rig_id}: "
+                                f"{type(exc).__name__}: {exc}"
+                            )
+
+                if cleanup_failures or restart_failures:
+                    details = "; ".join(
+                        cleanup_failures + restart_failures
+                    )
+                    raise RuntimeError(
+                        "focuser worker startup rollback could not restore "
+                        f"exclusive ownership ({details})"
+                    ) from start_exc
+                raise
+
             self._registry = {
-                key: previous[key] if key in unchanged else created[key]
+                key: (
+                    previous[key]
+                    if key in unchanged
+                    else created[key]
+                )
                 for key in desired
             }
-            obsolete = [entry for key, entry in previous.items() if key not in unchanged]
-
-        for entry in obsolete:
-            entry.worker.shutdown(timeout=2.0)
 
     def get_for_rig(self, rig_id: int) -> Any | None:
         """Return the persistent worker bound to *rig_id*, if configured."""
@@ -259,22 +374,48 @@ class FocuserWorkerRuntime:
         return None
 
     def stop_all(self, timeout: float | None = None) -> None:
-        """Clear the registry and shut down every worker."""
-
-        with self._lock:
-            entries = list(self._registry.values())
-            self._registry = {}
+        """Shut down every worker without forgetting surviving owners."""
 
         effective_timeout = 2.0 if timeout is None else timeout
-        first_error: BaseException | None = None
-        for entry in entries:
-            try:
-                entry.worker.shutdown(timeout=effective_timeout)
-            except BaseException as exc:
-                if first_error is None:
-                    first_error = exc
-        if first_error is not None:
-            raise first_error
+        with self._lock:
+            failures: list[str] = []
+            remaining_registry = {}
+
+            for key, entry in self._registry.items():
+                stopped, detail = self._shutdown_owned_worker(
+                    entry.worker,
+                    timeout=effective_timeout,
+                )
+                if not stopped:
+                    remaining_registry[key] = entry
+                    failures.append(
+                        f"RIG {entry.binding.rig_id}: "
+                        f"{detail or 'shutdown failed'}"
+                    )
+
+            remaining_retained = []
+            for worker in self._retained_workers:
+                stopped, detail = self._shutdown_owned_worker(
+                    worker,
+                    timeout=effective_timeout,
+                )
+                if not stopped:
+                    remaining_retained.append(worker)
+                    failures.append(
+                        "retained worker: "
+                        f"{detail or 'shutdown failed'}"
+                    )
+
+            self._registry = remaining_registry
+            self._retained_workers = remaining_retained
+
+            if failures:
+                raise RuntimeError(
+                    "focuser runtime could not release worker ownership ("
+                    + "; ".join(failures)
+                    + ")"
+                )
+
 
 
 _focuser_worker_runtime: FocuserWorkerRuntime | None = None
