@@ -1213,12 +1213,24 @@ class TriggerService:
                     env=env,
                     pass_fds=(heartbeat_write_fd,),
                 )
+                # Popen() is the hardware/runtime ownership boundary.  Publish
+                # the child handle immediately, before heartbeat/stdout setup,
+                # so any later supervision failure or concurrent STOP can
+                # still target the exact scheduler process.
+                with self._lock:
+                    self._procs[rig_id] = proc
             finally:
                 if stdout_write_fd is not None:
-                    os.close(stdout_write_fd)
+                    try:
+                        os.close(stdout_write_fd)
+                    except OSError:
+                        pass
                     stdout_write_fd = None
                 if heartbeat_write_fd is not None:
-                    os.close(heartbeat_write_fd)
+                    try:
+                        os.close(heartbeat_write_fd)
+                    except OSError:
+                        pass
                     heartbeat_write_fd = None
 
             heartbeat = HeartbeatSupervisor(
@@ -1249,8 +1261,6 @@ class TriggerService:
                 stdout_read_fd = None
             with self._lock:
                 cancel_start = self._cancel_start_requested_by_rig[rig_id]
-                if not cancel_start:
-                    self._procs[rig_id] = proc
             if cancel_start:
                 # The STOP raced with Popen().  Do not publish this process as
                 # active; terminate it before it can enter the capture runtime.
@@ -1707,6 +1717,10 @@ class TriggerService:
             )
 
         with self._lock:
+            # A Popen-created child is published immediately for ownership
+            # safety, but a RIG still in startup is not yet safe to preempt.
+            if self._starting_by_rig[rig_id]:
+                return False
             proc = self._procs[rig_id]
             running = proc is not None and proc.poll() is None
         if running:
