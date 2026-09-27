@@ -11,6 +11,20 @@ from backend.trigger_run_journal import (
 def test_journal_lifecycle_is_atomic_and_low_state(tmp_path):
     journal = TriggerRunJournal(tmp_path / "trigger_state.json", boot_id_fn=lambda: "boot-a")
 
+    fingerprints = {
+        "circumstances": {
+            "name": "circ.json",
+            "sha256": "a" * 64,
+        },
+        "photo": {
+            "name": "photo.json",
+            "sha256": "b" * 64,
+        },
+        "exposure_opt": {
+            "name": "expo.json",
+            "sha256": "c" * 64,
+        },
+    }
     started = journal.begin_run(
         rig_id=2,
         mode="real",
@@ -19,9 +33,11 @@ def test_journal_lifecycle_is_atomic_and_low_state(tmp_path):
             "photo_file": "photo.json",
             "exposure_opt_file": "expo.json",
         },
+        input_fingerprints=fingerprints,
     )
 
     assert started["status"] == "active"
+    assert started["input_fingerprints"] == fingerprints
     assert started["boot_id"] == "boot-a"
     assert started["runtime_recovery_count"] == 0
     assert started["child_recovery_count"] == 0
