@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import backend.runtime_daemon as runtime_daemon
 from backend.camera_worker_runtime import CameraWorkerRuntime
 from backend.runtime_daemon import (
     RuntimeController,
@@ -657,3 +658,78 @@ def test_runtime_refuses_to_follow_socket_symlink(tmp_path):
 
     assert socket_path.is_symlink()
     assert target.exists()
+
+
+def test_runtime_main_claims_socket_before_constructing_controller(
+    tmp_path,
+    monkeypatch,
+):
+    socket_path = tmp_path / "runtime-main.sock"
+    first = RuntimeUnixServer(str(socket_path), _StaticController())
+    thread = threading.Thread(target=first.serve_forever, daemon=True)
+    thread.start()
+    constructed = []
+
+    class ShouldNotConstruct:
+        def __init__(self, *args, **kwargs):
+            constructed.append((args, kwargs))
+            raise AssertionError("controller must not be constructed")
+
+    monkeypatch.setattr(runtime_daemon, "RuntimeController", ShouldNotConstruct)
+    try:
+        with pytest.raises(RuntimeError, match="already active"):
+            runtime_daemon.main(
+                [
+                    "--socket",
+                    str(socket_path),
+                    "--root",
+                    str(tmp_path),
+                ]
+            )
+        assert constructed == []
+    finally:
+        first.shutdown()
+        first.server_close()
+        thread.join(timeout=2)
+
+
+def test_runtime_main_binds_endpoint_before_trigger_recovery(
+    tmp_path,
+    monkeypatch,
+):
+    socket_path = tmp_path / "runtime-main.sock"
+    events = []
+
+    class RecoveryProbeController:
+        def __init__(self, _root, *, restore_recovery=True):
+            events.append(("construct", restore_recovery))
+
+        def _restore_trigger_journal_state(self):
+            events.append(("recover", socket_path.is_socket()))
+            raise RuntimeError("synthetic recovery failure")
+
+        def shutdown(self):
+            events.append(("shutdown", True))
+
+    monkeypatch.setattr(
+        runtime_daemon,
+        "RuntimeController",
+        RecoveryProbeController,
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic recovery failure"):
+        runtime_daemon.main(
+            [
+                "--socket",
+                str(socket_path),
+                "--root",
+                str(tmp_path),
+            ]
+        )
+
+    assert events == [
+        ("construct", False),
+        ("recover", True),
+        ("shutdown", True),
+    ]
+    assert not socket_path.exists()
