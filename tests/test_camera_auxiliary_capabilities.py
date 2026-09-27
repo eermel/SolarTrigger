@@ -300,3 +300,32 @@ def test_auxiliary_shutter_probe_accepts_initial_discovery_without_label_norm():
     assert capabilities["shutter"]["mechanical_supported"] is True
     assert capabilities["shutter"]["electronic_supported"] is True
     assert commands == {}
+
+
+def test_auxiliary_clock_probe_accepts_initial_discovery_without_widget_metadata():
+    now = int(time.time())
+    camera = FakeCamera(
+        [FakeWidget("datetime", now, label="Camera Date and Time", widget_type=8)]
+    )
+    items = [
+        {
+            "path": "/main/settings/datetime",
+            "name": "datetime",
+            "config_name": "datetime",
+            "label": "Camera Date and Time",
+            "value": now,
+            "choices": [],
+            "readonly": False,
+        }
+    ]
+
+    capabilities, commands = characterize_auxiliary_capabilities(
+        camera, items=items
+    )
+
+    assert capabilities["clock"]["local_datetime"]["detected"] is True
+    assert capabilities["clock"]["local_datetime"]["date_widget"] is True
+    assert capabilities["clock"]["local_datetime"]["set_proven"] is True
+    assert capabilities["clock"]["local_sync_supported"] is True
+    assert commands == {}
+    assert _leaf(camera, "datetime").get_value() == now
