@@ -1,5 +1,9 @@
+import fcntl
 import hashlib
 import json
+import os
+from pathlib import Path
+import subprocess
 import zipfile
 
 import pytest
@@ -300,3 +304,61 @@ def test_successful_system_upgrade_records_completion_in_log(monkeypatch):
     snapshot = job.snapshot()
     assert snapshot["status"] == "success"
     assert snapshot["logs"][-1] == "SUCCESS: System update completed successfully"
+
+
+def test_maintenance_thread_start_failure_rolls_job_back(monkeypatch):
+    class FailingThread:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("thread start failed")
+
+    monkeypatch.setattr(system_maintenance.threading, "Thread", FailingThread)
+
+    for starter in (
+        lambda job: job.start("apt-check", ["helper", "check"]),
+        lambda job: job.start_callable("callable", lambda: None),
+    ):
+        job = system_maintenance.Job()
+        with pytest.raises(RuntimeError, match="thread start failed"):
+            starter(job)
+
+        snapshot = job.snapshot()
+        assert snapshot["running"] is False
+        assert snapshot["status"] == "failed"
+        assert "thread start failed" in snapshot["error"]
+
+
+def test_privileged_maintenance_helpers_share_one_nonblocking_lock(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    system_helper = root / "install" / "solartrigger-system-update"
+    release_helper = root / "install" / "solartrigger-release-update"
+    system_text = system_helper.read_text(encoding="utf-8")
+    release_text = release_helper.read_text(encoding="utf-8")
+
+    default_lock = "/run/lock/solartrigger-maintenance.lock"
+    assert default_lock in system_text
+    assert default_lock in release_text
+    assert "/usr/bin/flock -n 9" in system_text
+    assert "/usr/bin/flock -n 9" in release_text
+    assert "acquire_maintenance_lock" in release_text
+
+    # Behavioural check without running apt or release mutations: an externally
+    # held test lock must make the system helper fail before it reaches even an
+    # invalid action.
+    lock_path = tmp_path / "maintenance.lock"
+    with lock_path.open("w") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        env = os.environ.copy()
+        env["SOLARTRIGGER_MAINTENANCE_LOCK"] = str(lock_path)
+        result = subprocess.run(
+            [str(system_helper), "invalid-action"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    assert result.returncode == 75
+    assert "already running" in result.stderr.lower()
