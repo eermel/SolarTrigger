@@ -1077,9 +1077,16 @@ class IndiMount(MountPlugin):
         monitor_active = bool(getattr(self.client, "monitor_active", False))
         stop_monitor = getattr(self.client, "stop_monitor", None)
         start_monitor = getattr(self.client, "start_monitor", None)
+        clear_monitor_cache = getattr(
+            self.client,
+            "clear_monitor_cache",
+            None,
+        )
 
         if monitor_active and callable(stop_monitor):
             stop_monitor()
+        if callable(clear_monitor_cache):
+            clear_monitor_cache()
 
         serial_port = self._onstep_serial_port(client)
         sync_error = None
@@ -1087,6 +1094,12 @@ class IndiMount(MountPlugin):
 
         try:
             live = client.get_props(["CONNECTION.*"])
+            if not live.get("CONNECTION"):
+                raise IndiClientError(
+                    "CONNECTION_FAILED",
+                    "OnStep INDI connection state is unavailable; refusing "
+                    "direct serial handoff",
+                )
             if self._switch_on(live.get("CONNECTION", {}), "CONNECT"):
                 self._set_onstep_indi_connection(
                     client,
@@ -1146,6 +1159,12 @@ class IndiMount(MountPlugin):
                 reconnect_error = exc
                 self._connected = False
             finally:
+                if callable(clear_monitor_cache):
+                    try:
+                        clear_monitor_cache()
+                    except Exception as exc:
+                        if reconnect_error is None:
+                            reconnect_error = exc
                 if monitor_active and callable(start_monitor):
                     try:
                         start_monitor()
