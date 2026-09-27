@@ -258,3 +258,32 @@ def test_monitor_cache_can_be_cleared_between_driver_generations():
     client.clear_monitor_cache()
 
     assert client._cached_props_locked(["TELESCOPE_SLEW_RATE.*"]) == {}
+
+
+def test_fresh_snapshot_replaces_stale_driver_generation_elements():
+    client = IndiSubprocessClient(device=DEVICE)
+    client._merge_cache({
+        DEVICE: {
+            "TELESCOPE_SLEW_RATE": {
+                "1x": "Off",
+                "4x": "Off",
+                "10x": "On",
+            }
+        }
+    })
+
+    client.replace_monitor_properties({
+        "TELESCOPE_SLEW_RATE": {
+            "0": "Off",
+            "4": "Off",
+            "9": "On",
+        }
+    })
+
+    assert client._cached_props_locked(["TELESCOPE_SLEW_RATE.*"]) == {
+        "TELESCOPE_SLEW_RATE": {
+            "0": "Off",
+            "4": "Off",
+            "9": "On",
+        }
+    }
