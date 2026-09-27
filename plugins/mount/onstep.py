@@ -697,10 +697,19 @@ class OnStep:
         local_dt : datetime LOCAL (= UTC + utc_offset).
         utc_offset : decalage local vs UTC (France ete=2, hiver=1).
         Retourne True si tout accepte."""
-        # OnStep :SG = offset avec convention inversee
-        sg = -utc_offset
+        utc_offset = float(utc_offset)
+        if not math.isfinite(utc_offset) or not -24.0 <= utc_offset <= 24.0:
+            raise ValueError("OnStep UTC offset must be finite and within +/-24h")
+
+        # OnStep :SG utilise la convention inverse du decalage local.
+        # Le protocole accepte HH:MM ; garder les minutes permet aussi les
+        # fuseaux non entiers et evite de formatter un float avec %d.
+        sg_minutes = int(round(-utc_offset * 60.0))
+        sign = "+" if sg_minutes >= 0 else "-"
+        absolute_minutes = abs(sg_minutes)
+        sg_hours, sg_mins = divmod(absolute_minutes, 60)
         ok_off = self._query_bool(
-            f":SG{'+' if sg >= 0 else '-'}{abs(sg):02d}#".encode()
+            f":SG{sign}{sg_hours:02d}:{sg_mins:02d}#".encode()
         )
         ok_time = self._query_bool(
             f":SL{local_dt.strftime('%H:%M:%S')}#".encode()
