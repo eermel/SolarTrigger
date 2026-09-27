@@ -7,6 +7,7 @@ from typing import Any
 
 from backend.device_process_worker import (
     SupervisedDeviceProcess,
+    arm_parent_death_signal,
     safe_send,
     serve_worker,
 )
@@ -36,6 +37,7 @@ def _focuser_process_main(
     spec: dict[str, Any],
     call_timeout_s: float,
 ) -> None:
+    arm_parent_death_signal(spec.get("_supervisor_pid"))
     def log(message) -> None:
         safe_send(
             conn,
