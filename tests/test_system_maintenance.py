@@ -377,3 +377,29 @@ def test_maintenance_helper_running_detects_external_flock(tmp_path):
         assert system_maintenance.maintenance_helper_running(lock_path) is False
     finally:
         os.close(fd)
+
+
+def test_maintenance_helper_running_detects_preflock_helper_process(tmp_path):
+    proc_root = tmp_path / "proc"
+    helper_proc = proc_root / "123"
+    helper_proc.mkdir(parents=True)
+    (helper_proc / "cmdline").write_bytes(
+        b"sudo\0-n\0"
+        b"/usr/local/sbin/solartrigger-system-update\0"
+        b"upgrade\0"
+    )
+
+    missing_lock = tmp_path / "maintenance.lock"
+    assert system_maintenance.maintenance_helper_running(
+        missing_lock,
+        proc_root=proc_root,
+    ) is True
+
+    (helper_proc / "cmdline").write_bytes(
+        b"cat\0"
+        b"/tmp/copy-of-solartrigger-system-update\0"
+    )
+    assert system_maintenance.maintenance_helper_running(
+        missing_lock,
+        proc_root=proc_root,
+    ) is False
