@@ -295,7 +295,7 @@ def test_onstep_autoconnect_uses_long_cold_boot_timeout(monkeypatch, tmp_path):
     )
 
     assert manager._autoconnect_mounts(devices) is False
-    assert attempts == [("LX200 OnStep", learned, 15.0, True)]
+    assert attempts == [("LX200 OnStep", learned, 5.0, True)]
 
 
 def test_eqmod_autoconnect_keeps_short_connection_timeout(monkeypatch, tmp_path):
@@ -380,7 +380,7 @@ def test_onstep_forced_reconnect_uses_long_cold_boot_timeout(monkeypatch, tmp_pa
     )
 
     assert manager._autoconnect_mounts(devices) is False
-    assert attempts == [("LX200 OnStep", learned, 15.0, True)]
+    assert attempts == [("LX200 OnStep", learned, 5.0, True)]
 
 
 def test_onstep_probe_uses_setprop_without_persistent_tcp(monkeypatch):
@@ -424,7 +424,7 @@ def test_onstep_probe_uses_setprop_without_persistent_tcp(monkeypatch):
     assert manager._probe_mount_transport(
         "LX200 OnStep",
         "/dev/serial/by-id/ONSTEP",
-        timeout_s=15.0,
+        timeout_s=5.0,
         use_setprop=True,
     ) is True
     assert calls[0] == ("init", "LX200 OnStep", 5.0)
@@ -477,7 +477,7 @@ def test_onstep_reconnect_uses_setprop_without_persistent_tcp(monkeypatch):
     assert manager._reconnect_mount_transport(
         "LX200 OnStep",
         "/dev/serial/by-id/ONSTEP",
-        timeout_s=15.0,
+        timeout_s=5.0,
         use_setprop=True,
     ) is True
     disconnect = (
