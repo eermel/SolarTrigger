@@ -377,22 +377,39 @@ class Job:
             self.error = None
             self.logs.clear()
 
+    def _rollback_failed_thread_start(self, exc):
+        with self.lock:
+            self.running = False
+            self.status = "failed"
+            self.error = f"{type(exc).__name__}: {exc}"
+            self.logs.append("FAILED: " + self.error)
+
     def start(self, kind, cmd):
         self._claim(kind)
-        threading.Thread(
-            target=self._run,
-            args=(cmd,),
-            daemon=True,
-        ).start()
+        try:
+            thread = threading.Thread(
+                target=self._run,
+                args=(cmd,),
+                daemon=True,
+            )
+            thread.start()
+        except BaseException as exc:
+            self._rollback_failed_thread_start(exc)
+            raise
 
     def start_callable(self, kind, fn):
         """Run in-process maintenance while keeping busy state authoritative."""
         self._claim(kind)
-        threading.Thread(
-            target=self._run_callable,
-            args=(fn,),
-            daemon=True,
-        ).start()
+        try:
+            thread = threading.Thread(
+                target=self._run_callable,
+                args=(fn,),
+                daemon=True,
+            )
+            thread.start()
+        except BaseException as exc:
+            self._rollback_failed_thread_start(exc)
+            raise
 
     def _run(self, cmd):
         try:
