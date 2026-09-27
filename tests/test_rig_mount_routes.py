@@ -62,6 +62,16 @@ class FakeMountWorker:
     def set_speed(self, speed):
         return self._call("set_speed", speed)
 
+    def sync_site_time(self, latitude, longitude, elevation, utc_iso, utc_offset_hours):
+        return self._call(
+            "sync_site_time",
+            latitude,
+            longitude,
+            elevation,
+            utc_iso,
+            utc_offset_hours,
+        )
+
     def start_slew(self, direction):
         return self._call("start_slew", direction)
 
@@ -240,3 +250,38 @@ def test_handled_worker_failure_emits_mount_error_envelope(monkeypatch):
             {"namespace": "/"},
         )
     ]
+
+
+def test_mount_sync_requires_synchronized_gps(monkeypatch):
+    worker = FakeMountWorker(1)
+    client, _runtime, _emitted = _client(monkeypatch, {1: worker})
+    flask_module._state_store.update_section(
+        "gps",
+        {"synced": False, "lat": 48.0, "lon": 2.0, "alt": 35.0},
+        persist=False,
+    )
+
+    response = client.post("/api/rigs/1/mount/sync")
+
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "GPS_NOT_SYNCED"
+    assert worker.calls == []
+
+
+def test_mount_sync_dispatches_gps_site_and_utc(monkeypatch):
+    worker = FakeMountWorker(1)
+    client, _runtime, _emitted = _client(monkeypatch, {1: worker})
+    flask_module._state_store.update_section(
+        "gps",
+        {"synced": True, "lat": 48.87379, "lon": 2.37972, "alt": 78.0},
+        persist=False,
+    )
+
+    response = client.post("/api/rigs/1/mount/sync")
+
+    assert response.status_code == 200
+    [call] = worker.calls
+    assert call[0] == "sync_site_time"
+    assert call[1][0:3] == (48.87379, 2.37972, 78.0)
+    assert isinstance(call[1][3], str) and "T" in call[1][3]
+    assert isinstance(call[1][4], float)
