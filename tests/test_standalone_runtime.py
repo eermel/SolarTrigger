@@ -456,6 +456,84 @@ def test_runtime_status_refreshes_and_exposes_current_runtime_gps(tmp_path):
     assert result["gps"]["sync_time"] == "2026-09-22T20:30:46+00:00"
 
 
+def _runtime_controller_for_gps_refresh(tmp_path, *, started_utc, boot_marker):
+    controller = RuntimeController.__new__(RuntimeController)
+    controller.state_file = tmp_path / "state.json"
+    controller.started_utc = started_utc
+    controller._boot_gps_sync_marker = boot_marker
+    controller.state = StateStore(controller.state_file)
+    controller.state.update_section(
+        "gps",
+        {
+            "connected": False,
+            "synced": False,
+            "sync_time": None,
+        },
+        persist=True,
+    )
+    controller.trigger = SimpleNamespace(
+        is_active_or_starting=lambda _rig_id: False,
+    )
+    return controller
+
+
+def test_runtime_accepts_gps_sync_after_backward_clock_correction(tmp_path):
+    controller = _runtime_controller_for_gps_refresh(
+        tmp_path,
+        started_utc=datetime(2030, 1, 1, tzinfo=timezone.utc),
+        boot_marker="2026-01-01T00:00:00+00:00",
+    )
+
+    persisted = StateStore(controller.state_file)
+    persisted.update_section(
+        "gps",
+        {
+            "connected": True,
+            "synced": True,
+            "lat": 25.0,
+            "lon": 32.0,
+            "sync_time": "2027-08-02T09:00:00+00:00",
+            "timezone": "UTC+2",
+        },
+        persist=True,
+    )
+
+    result = controller.dispatch("trigger.status", {})
+
+    assert result["gps"]["synced"] is True
+    assert result["gps"]["sync_time"] == "2027-08-02T09:00:00+00:00"
+
+
+def test_runtime_rejects_boot_generation_gps_sync_even_if_wall_clock_is_future(
+    tmp_path,
+):
+    old_sync = "2035-01-01T00:00:00+00:00"
+    controller = _runtime_controller_for_gps_refresh(
+        tmp_path,
+        started_utc=datetime(2030, 1, 1, tzinfo=timezone.utc),
+        boot_marker=old_sync,
+    )
+
+    persisted = StateStore(controller.state_file)
+    persisted.update_section(
+        "gps",
+        {
+            "connected": True,
+            "synced": True,
+            "lat": 48.0,
+            "lon": 2.0,
+            "sync_time": old_sync,
+            "timezone": "UTC+1",
+        },
+        persist=True,
+    )
+
+    result = controller.dispatch("trigger.status", {})
+
+    assert result["gps"]["synced"] is False
+    assert result["gps"]["sync_time"] is None
+
+
 def test_runtime_trigger_snapshot_exposes_active_input_filenames(tmp_path):
     controller = RuntimeController.__new__(RuntimeController)
     controller.state = StateStore(tmp_path / "runtime-state.json")
