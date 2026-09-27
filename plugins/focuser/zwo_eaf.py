@@ -24,6 +24,7 @@ import time
 
 LIB_NAME = "libEAFFocuser.so"
 EAF_SUCCESS = 0
+EAF_ERROR_REMOVED = 4
 EAF_ERROR_NOT_SUPPORTED = 8
 
 
@@ -162,7 +163,24 @@ class ZwoEaf:
             ]
             L.EAFGetSerialNumber.restype = ctypes.c_int
 
+    def _invalidate_removed_session(self):
+        """Drop local/SDK ownership after the focuser disappears from USB."""
+        sdk_id = self.id
+        if sdk_id is not None and self._session_acquired:
+            try:
+                _release_sdk_session(self.lib, sdk_id)
+            except Exception:
+                # The USB device is already gone.  Local state still has to
+                # become disconnected so the service can reopen it later.
+                pass
+        self._session_acquired = False
+        self.id = None
+        self.name = None
+        self.max_step = None
+
     def _check(self, code, what):
+        if code == EAF_ERROR_REMOVED:
+            self._invalidate_removed_session()
         if code != EAF_SUCCESS:
             raise EafError(code, f"{what} a echoue (code {code})")
 
