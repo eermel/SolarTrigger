@@ -216,3 +216,27 @@ def test_systemd_portal_explicitly_uses_control_group_kill_mode():
         1,
     )[1].split("\nEOF", 1)[0]
     assert "KillMode=control-group" in portal_dropin
+
+
+def test_systemd_indi_explicitly_uses_control_group_kill_mode():
+    install_dir = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / "install"
+    )
+
+    for installer_name, marker in (
+        (
+            "install_solareclipse.sh",
+            "cat > /etc/systemd/system/solartrigger-indi.service <<EOL",
+        ),
+        (
+            "install_standalone_runtime_service.sh",
+            "cat > /etc/systemd/system/solartrigger-indi.service <<EOF",
+        ),
+    ):
+        installer = (install_dir / installer_name).read_text(encoding="utf-8")
+        indi_unit = installer.split(marker, 1)[1].split(
+            "\nEOL" if marker.endswith("<<EOL") else "\nEOF",
+            1,
+        )[0]
+        assert "KillMode=control-group" in indi_unit
