@@ -298,9 +298,10 @@ class IndiMount(MountPlugin):
 
             if self._runtime_tcp_enabled and self._is_onstep_driver(props):
                 # CONNECT=On is not sufficient for the legacy OnStep driver.
-                # A cold/partial startup can leave the device logically
-                # connected without publishing the manual-slew vectors.
-                self._ensure_onstep_runtime_ready()
+                # Refresh from a one-shot authoritative snapshot even when
+                # the monitor cache looks operational: the cache may still
+                # contain elements from the pre-connect driver generation.
+                self._ensure_onstep_runtime_ready(force_refresh=True)
 
             # Safety invariant: selecting/connecting a mount in SolarTrigger
             # must never inherit tracking left active by a previous client.
@@ -989,12 +990,16 @@ class IndiMount(MountPlugin):
         )
 
     def _seed_runtime_cache(self, props):
+        replace = getattr(self.client, "replace_monitor_properties", None)
+        if callable(replace):
+            replace(props)
+            return
         seed = getattr(self.client, "seed_monitor_cache", None)
         if callable(seed):
             seed(props)
 
-    def _ensure_onstep_runtime_ready(self):
-        """Repair a half-connected OnStep before exposing/using manual slew."""
+    def _ensure_onstep_runtime_ready(self, *, force_refresh=False):
+        """Repair or refresh OnStep before exposing/using manual slew."""
         patterns = [
             "DRIVER_INFO.*",
             "CONNECTION.*",
@@ -1006,7 +1011,7 @@ class IndiMount(MountPlugin):
         cached = self._props(patterns)
         if not self._is_onstep_driver(cached):
             return cached
-        if self._onstep_operational_props(cached):
+        if not force_refresh and self._onstep_operational_props(cached):
             return cached
 
         fresh = self._fresh_subprocess_client()
