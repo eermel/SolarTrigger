@@ -75,6 +75,68 @@ def canonical_rig_defaults(
     }
 
 
+def migrate_indi_onstep_bindings(obj: Any) -> bool:
+    """Convert persisted legacy INDI-OnStep bindings to direct serial OnStep.
+
+    The September 2026 generic-INDI migration persisted INDI-specific logical
+    identity and server metadata. Those fields must not leak into the direct
+    serial plugin: the INDI TCP port is not a serial device path.
+    """
+    if not isinstance(obj, dict):
+        return False
+
+    changed = False
+    rigs = obj.get("rigs")
+    if not isinstance(rigs, list):
+        return False
+
+    indi_only_fields = (
+        "device_id",
+        "device_name",
+        "host",
+        "port",
+        "driver_exec",
+        "driver_name",
+        "driver_version",
+        "driver_interface",
+        "categories",
+        "connected",
+        "present",
+        "pilotable",
+        "bindable",
+        "transport_locator",
+    )
+
+    for rig in rigs:
+        if not isinstance(rig, dict):
+            continue
+        devices = rig.get("devices")
+        mount = devices.get("mount") if isinstance(devices, dict) else None
+        if not isinstance(mount, dict):
+            continue
+        if str(mount.get("backend") or "").strip().casefold() != "indi":
+            continue
+
+        identity = " ".join(
+            str(mount.get(field) or "")
+            for field in (
+                "driver_exec",
+                "driver_name",
+                "device_name",
+                "model",
+            )
+        ).casefold()
+        if "onstep" not in identity:
+            continue
+
+        mount["backend"] = "onstep"
+        mount.setdefault("manufacturer", "OnStep")
+        for field in indi_only_fields:
+            mount.pop(field, None)
+        changed = True
+
+    return changed
+
 def normalize_rig_defaults(obj: Any) -> Any:
     """Fill missing canonical defaults without overwriting stored values."""
 
