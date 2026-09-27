@@ -901,7 +901,9 @@ class IndiMount(MountPlugin):
         """Require the driver readback to match the requested OnStep site."""
         deadline = time.monotonic() + self.timeout
         last = {}
-        while time.monotonic() < deadline:
+        first = True
+        while first or time.monotonic() < deadline:
+            first = False
             last = self._props(["GEOGRAPHIC_COORD.*"]).get(
                 "GEOGRAPHIC_COORD",
                 {},
@@ -912,6 +914,8 @@ class IndiMount(MountPlugin):
                 and self._readback_close(last.get("ELEV"), elev, 5.0)
             ):
                 return
+            if time.monotonic() >= deadline:
+                break
             time.sleep(self.poll_interval)
         raise IndiClientError(
             "CONNECTION_FAILED",
