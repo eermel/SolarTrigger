@@ -1163,6 +1163,7 @@ ExecStart=$VENV_DIR/bin/python -m backend.indi_server_daemon \
     --config $APP_DIR/configs/indi_default.json
 Restart=on-failure
 RestartSec=2
+KillMode=control-group
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=solartrigger-indi
