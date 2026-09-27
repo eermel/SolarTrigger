@@ -1256,6 +1256,16 @@ class IndiMount(MountPlugin):
                     client,
                     True,
                     serial_port=serial_port,
+                    timeout_s=max(
+                        self.timeout,
+                        float(self.config.get("onstep_connect_timeout", 5.0)),
+                    ),
+                )
+                # Restoring CONNECT=On is not enough for OnStep.  Do not
+                # return control to the UI until manual-slew vectors are back.
+                self._ensure_onstep_indi_live(
+                    client,
+                    require_operational=True,
                 )
             except Exception as exc:
                 reconnect_error = exc
