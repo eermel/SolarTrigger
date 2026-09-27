@@ -5488,6 +5488,7 @@ def _restore_persisted_trigger_selections():
 
 _background_threads_lock = threading.Lock()
 _background_threads_started = False
+_background_thread_roles_started = set()
 
 
 def _warm_configured_mounts_at_startup():
@@ -5524,27 +5525,60 @@ def _warm_configured_mounts_at_startup():
 
 
 def start_background_threads():
-    """Start application background workers at most once per process."""
+    """Start each application background role at most once per process."""
     global _background_threads_started
 
     with _background_threads_lock:
         if _background_threads_started:
             return False
 
-        threading.Thread(
-            target=_warm_configured_mounts_at_startup,
-            daemon=True,
-            name="mount-startup-warmup",
-        ).start()
-        threading.Thread(target=_thread_status_broadcast, daemon=True).start()
-        threading.Thread(target=_thread_camera_poll,      daemon=True).start()
+        roles = [
+            (
+                "mount-startup-warmup",
+                _warm_configured_mounts_at_startup,
+            ),
+            (
+                "status-broadcast",
+                _thread_status_broadcast,
+            ),
+            (
+                "camera-poll",
+                _thread_camera_poll,
+            ),
+        ]
         if runtime_client_enabled():
-            threading.Thread(
-                target=_thread_runtime_relay,
-                daemon=True,
-                name="runtime-relay",
-            ).start()
-        threading.Thread(target=_trim_log_file,           daemon=True).start()
+            roles.append(
+                (
+                    "runtime-relay",
+                    _thread_runtime_relay,
+                )
+            )
+        roles.append(
+            (
+                "log-trimmer",
+                _trim_log_file,
+            )
+        )
+
+        try:
+            for role, target in roles:
+                if role in _background_thread_roles_started:
+                    continue
+                thread = threading.Thread(
+                    target=target,
+                    daemon=True,
+                    name=role,
+                )
+                thread.start()
+                # Thread.start() is the ownership boundary.  Record the role
+                # only after Python confirms the thread was started so a later
+                # retry can safely fill any startup gap without duplicating
+                # earlier roles.
+                _background_thread_roles_started.add(role)
+        except BaseException:
+            _background_threads_started = False
+            raise
+
         _background_threads_started = True
 
     log.info("Background threads started.")
