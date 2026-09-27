@@ -502,13 +502,114 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
             "TRACK_OFF": "On",
         }
     } in client.set_calls
-    assert {
-        "GEOGRAPHIC_COORD": {
-            "LAT": 48.8736388889,
-            "LONG": 2.3796666667,
-            "ELEV": 0,
-        }
-    } in client.set_calls
+
+def test_onstep_manual_sync_uses_atomic_vectors(monkeypatch, full_props):
+    props = deepcopy(full_props)
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_lx200_OnStep",
+        "DRIVER_NAME": "LX200 OnStep",
+    }
+    props["TIME_UTC"] = {
+        "UTC": "2026-09-27T03:00:00",
+        "OFFSET": "2.00",
+    }
+    client = StubIndiClient(props)
+    calls = []
+
+    class Session:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs))
+
+        def __enter__(self):
+            calls.append(("enter",))
+            return self
+
+        def __exit__(self, *_args):
+            calls.append(("exit",))
+
+        def set_number(self, prop, elements):
+            calls.append(("number", prop, deepcopy(elements)))
+            client.props.setdefault(prop, {}).update(elements)
+
+        def set_text(self, prop, elements):
+            calls.append(("text", prop, deepcopy(elements)))
+            client.props.setdefault(prop, {}).update(elements)
+
+    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", Session)
+
+    plugin = mount(client)
+    plugin.sync_site_time(
+        48.873735,
+        2.379992,
+        77.9,
+        "2026-09-27T03:08:00",
+        2.0,
+    )
+
+    assert (
+        "number",
+        "GEOGRAPHIC_COORD",
+        {"LAT": 48.873735, "LONG": 2.379992, "ELEV": 77.9},
+    ) in calls
+    assert (
+        "text",
+        "TIME_UTC",
+        {"UTC": "2026-09-27T03:08:00", "OFFSET": "+2.00"},
+    ) in calls
+    assert not any("GEOGRAPHIC_COORD" in call for call in client.set_calls)
+
+
+def test_onstep_manual_sync_fails_when_location_readback_does_not_match(
+    monkeypatch,
+    full_props,
+):
+    props = deepcopy(full_props)
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_lx200_OnStep",
+        "DRIVER_NAME": "LX200 OnStep",
+    }
+    props["TIME_UTC"] = {
+        "UTC": "2026-09-27T03:00:00",
+        "OFFSET": "2.00",
+    }
+    props["GEOGRAPHIC_COORD"] = {
+        "LAT": "0",
+        "LONG": "0",
+        "ELEV": "77.9",
+    }
+    client = StubIndiClient(props)
+
+    class Session:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def set_number(self, *_args, **_kwargs):
+            pass
+
+        def set_text(self, *_args, **_kwargs):
+            pass
+
+    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", Session)
+
+    plugin = mount(client, timeout=0)
+    error = assert_code(
+        "CONNECTION_FAILED",
+        lambda: plugin.sync_site_time(
+            48.873735,
+            2.379992,
+            77.9,
+            "2026-09-27T03:08:00",
+            2.0,
+        ),
+    )
+
+    assert "not confirmed by readback" in str(error)
 
 
 def test_onstep_legacy_home_uses_indi_setprop_transport(monkeypatch, full_props):
