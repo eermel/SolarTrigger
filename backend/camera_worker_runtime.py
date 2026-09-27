@@ -416,6 +416,17 @@ class CameraWorkerRuntime:
                         "another camera IPC session already owns one of these RIGs"
                     )
 
+            # Freeze the policy snapshot before creating or mutating any
+            # IPC lease.  Policy materialization is pure in-memory work; if it
+            # fails, admission must fail without leaving a server-side session
+            # that the runtime never records.
+            leased_ids = set(available) if rig_ids is None else set(allowed)
+            frozen_policies: dict[int, dict] = {}
+            for rig_id in leased_ids:
+                policy = self.get_policy_config_for_rig(rig_id)
+                if policy is not None:
+                    frozen_policies[rig_id] = deepcopy(policy)
+
             if server is None:
                 server = self._ipc_server_factory(
                     self,
@@ -436,14 +447,8 @@ class CameraWorkerRuntime:
                     server.stop()
                     self._ipc_server = None
                 raise
-            # Freeze the policy visible to this leased RIG before any later
-            # Controls/UI reconcile can replace the runtime-wide config.
-            leased_ids = set(available) if rig_ids is None else set(allowed)
-            for rig_id in leased_ids:
-                policy = self.get_policy_config_for_rig(rig_id)
-                if policy is not None:
-                    self._leased_policy_configs[rig_id] = deepcopy(policy)
 
+            self._leased_policy_configs.update(frozen_policies)
             self._ipc_session_ids.add(session_id)
             self._ipc_session_rigs[session_id] = requested_scope
             socket_path = str(Path(server.socket_path).absolute())
