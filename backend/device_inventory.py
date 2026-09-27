@@ -95,17 +95,29 @@ def refresh_inventory(
                 ):
                     indi_catalog = deepcopy(_cache.get("astro", []))
 
+        direct_mounts = _discover_direct_onstep_mounts(
+            reserved_mounts,
+        )
+        direct_paths = {
+            path
+            for entry in direct_mounts
+            if (path := _first_text(
+                entry,
+                "fallback_physical_path",
+                "physical_path",
+            ))
+        }
+
         discovered_indi = indi_catalog is None
         if discovered_indi:
-            indi_catalog = _discover_indi_catalog()
-
-        mount_entries = (
-            _discover_mounts()
-            if reserved_mounts is None and not indi_catalog
-            else _discover_mounts(
-                reserved_mounts=reserved_mounts,
-                indi_catalog=indi_catalog,
+            indi_catalog = _discover_indi_catalog(
+                excluded_serial_paths=direct_paths,
             )
+
+        mount_entries = _discover_mounts(
+            reserved_mounts=reserved_mounts,
+            indi_catalog=indi_catalog,
+            direct_mounts=direct_mounts,
         )
         focuser_entries = (
             _discover_focusers()
@@ -275,12 +287,20 @@ def _discover_cameras() -> list[dict[str, Any]]:
     return entries
 
 
-def _discover_indi_catalog() -> list[dict[str, Any]]:
-    """Return all non-gphoto astronomical devices advertised by INDI."""
+def _discover_indi_catalog(
+    excluded_serial_paths: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Return astronomical devices advertised by INDI.
+
+    Direct-serial mount transports are excluded from INDI auto-probing so one
+    physical controller can never be owned by both backends.
+    """
     try:
         from backend.indi_device_manager import IndiDeviceManager
 
-        return IndiDeviceManager().discover()
+        return IndiDeviceManager(
+            excluded_serial_paths=excluded_serial_paths,
+        ).discover()
     except Exception:
         return []
 
@@ -342,6 +362,55 @@ def _reserved_entries(
     return entries, physical_paths, device_ids
 
 
+def _discover_direct_onstep_mounts(
+    reserved_mounts: Iterable[Mapping[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Discover direct OnStep controllers before INDI probes serial ports."""
+    reserved_entries, _reserved_paths, _reserved_ids = _reserved_entries(
+        "mount",
+        reserved_mounts,
+    )
+    reserved_onstep = [
+        entry
+        for entry in reserved_entries
+        if str(entry.get("backend") or "").strip().casefold() == "onstep"
+    ]
+
+    # Never probe a transport already assigned to any mount. Bound OnStep
+    # entries are represented directly from their stable path; bound EQMod
+    # transports must also remain untouched by the LX200 identity probe.
+    assigned_paths = {
+        path
+        for source in (reserved_mounts or ())
+        if isinstance(source, Mapping)
+        if (path := _first_text(
+            source,
+            "fallback_physical_path",
+            "physical_path",
+        ))
+    }
+
+    try:
+        from backend.indi_device_manager import IndiDeviceManager
+
+        assigned_paths.update(IndiDeviceManager._reserved_serial_transports())
+    except Exception:
+        pass
+
+    try:
+        from plugins.mount import inventory_mounts
+
+        discovered = list(inventory_mounts(
+            candidates=["onstep"],
+            log_fn=lambda *_args: None,
+            exclude_physical_paths=assigned_paths,
+        ))
+    except Exception:
+        discovered = []
+
+    return [*reserved_onstep, *discovered]
+
+
 def _is_onstep_indi_entry(entry: Mapping[str, Any]) -> bool:
     """Return True for legacy INDI representations of an OnStep controller."""
     identity = " ".join(
@@ -359,6 +428,7 @@ def _is_onstep_indi_entry(entry: Mapping[str, Any]) -> bool:
 def _discover_mounts(
     reserved_mounts: Iterable[Mapping[str, Any]] | None = None,
     indi_catalog: list[dict[str, Any]] | None = None,
+    direct_mounts: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Aggregate EQMod/INDI mounts and direct-serial OnStep mounts.
 
@@ -387,22 +457,18 @@ def _discover_mounts(
     except Exception:
         indi_mounts = []
 
-    direct_mounts = []
-    try:
-        from plugins.mount import inventory_mounts
+    if direct_mounts is None:
+        direct_mounts = _discover_direct_onstep_mounts(reserved_mounts)
 
-        # OnStep is the only direct serial mount backend today.  Restricting
-        # this pass prevents a second INDI probe while preserving coexistence
-        # with an EQMod mount advertised by the central INDI catalogue.
-        direct_mounts = list(inventory_mounts(
-            candidates=["onstep"],
-            log_fn=lambda *_args: None,
-            exclude_physical_paths=reserved_paths,
-        ))
-    except Exception:
-        direct_mounts = []
+    # _discover_direct_onstep_mounts already carries bound direct entries.
+    # Avoid duplicating those entries from _reserved_entries here.
+    reserved_non_onstep = [
+        entry
+        for entry in reserved_entries
+        if str(entry.get("backend") or "").strip().casefold() != "onstep"
+    ]
 
-    discovered = [*reserved_entries, *indi_mounts, *direct_mounts]
+    discovered = [*reserved_non_onstep, *indi_mounts, *direct_mounts]
     if discovered:
         return discovered
 
