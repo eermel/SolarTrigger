@@ -17,6 +17,7 @@ from pathlib import Path
 import signal
 import socket
 import socketserver
+import stat
 import threading
 from typing import Any
 import uuid
@@ -743,6 +744,67 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
     allow_reuse_address = True
     request_queue_size = _MAX_RPC_CONNECTIONS
 
+    @staticmethod
+    def _prepare_socket_path(path: Path) -> None:
+        """Remove only a stale socket owned by this runtime UID.
+
+        Never unlink a live endpoint, symlink, regular file, or socket owned by
+        another UID. A second runtime must fail closed instead of making the
+        first runtime unreachable while it may still own trigger/camera state.
+        """
+
+        try:
+            original = path.lstat()
+        except FileNotFoundError:
+            return
+
+        if stat.S_ISLNK(original.st_mode) or not stat.S_ISSOCK(original.st_mode):
+            raise RuntimeError(
+                f"unsafe runtime endpoint at {path}: existing path is not a socket"
+            )
+        if original.st_uid != os.getuid():
+            raise RuntimeError(
+                f"unsafe runtime endpoint at {path}: socket is owned by another UID"
+            )
+
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.settimeout(0.1)
+            probe.connect(str(path))
+        except (ConnectionRefusedError, FileNotFoundError):
+            # The endpoint looked stale when probed. Re-check inode/ownership
+            # immediately before unlinking so a concurrent replacement cannot
+            # be deleted by this process.
+            try:
+                current = path.lstat()
+            except FileNotFoundError:
+                return
+            if (
+                current.st_dev != original.st_dev
+                or current.st_ino != original.st_ino
+                or stat.S_ISLNK(current.st_mode)
+                or not stat.S_ISSOCK(current.st_mode)
+                or current.st_uid != os.getuid()
+            ):
+                raise RuntimeError(
+                    f"runtime endpoint changed while checking staleness: {path}"
+                )
+            path.unlink()
+        except socket.timeout as exc:
+            raise RuntimeError(
+                f"runtime endpoint probe timed out; refusing to replace {path}"
+            ) from exc
+        except OSError as exc:
+            raise RuntimeError(
+                f"unable to verify existing runtime endpoint {path}: {exc}"
+            ) from exc
+        else:
+            raise RuntimeError(
+                f"runtime endpoint is already active: {path}"
+            )
+        finally:
+            probe.close()
+
     def __init__(
         self,
         socket_path: str,
@@ -758,23 +820,25 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
         )
         path = Path(socket_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
+        self._prepare_socket_path(path)
+
         super().__init__(str(path), _RuntimeRequestHandler)
-        os.chmod(path, 0o660)
-        socket_group = os.environ.get("SOLARTRIGGER_RUNTIME_SOCKET_GROUP")
-        if socket_group:
-            import grp
-            try:
-                gid = grp.getgrnam(socket_group).gr_gid
-            except KeyError as exc:
-                raise RuntimeError(
-                    f"runtime socket group does not exist: {socket_group}"
-                ) from exc
-            os.chown(path, -1, gid)
         self.socket_path = path
+        try:
+            os.chmod(path, 0o660)
+            socket_group = os.environ.get("SOLARTRIGGER_RUNTIME_SOCKET_GROUP")
+            if socket_group:
+                import grp
+                try:
+                    gid = grp.getgrnam(socket_group).gr_gid
+                except KeyError as exc:
+                    raise RuntimeError(
+                        f"runtime socket group does not exist: {socket_group}"
+                    ) from exc
+                os.chown(path, -1, gid)
+        except BaseException:
+            self.server_close()
+            raise
 
     def process_request(self, request, client_address):
         if not self._connection_slots.acquire(blocking=False):

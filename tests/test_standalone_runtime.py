@@ -586,3 +586,74 @@ def test_runtime_rpc_rejects_excess_live_connections_without_spawning_more_threa
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_second_runtime_cannot_replace_live_socket(tmp_path):
+    socket_path = tmp_path / "owned-runtime.sock"
+    first = RuntimeUnixServer(str(socket_path), _StaticController())
+    thread = threading.Thread(target=first.serve_forever, daemon=True)
+    thread.start()
+    try:
+        assert RuntimeClient(str(socket_path), timeout=0.5).call("ping") == {
+            "status": "ok",
+            "pid": 4242,
+        }
+
+        with pytest.raises(RuntimeError, match="already active"):
+            RuntimeUnixServer(str(socket_path), _StaticController())
+
+        # The first runtime remains reachable through the original pathname.
+        assert RuntimeClient(str(socket_path), timeout=0.5).call("ping") == {
+            "status": "ok",
+            "pid": 4242,
+        }
+    finally:
+        first.shutdown()
+        first.server_close()
+        thread.join(timeout=2)
+
+
+def test_runtime_replaces_only_stale_owned_socket(tmp_path):
+    socket_path = tmp_path / "stale-runtime.sock"
+    stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    stale.bind(str(socket_path))
+    stale.close()
+
+    server = RuntimeUnixServer(str(socket_path), _StaticController())
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        assert RuntimeClient(str(socket_path), timeout=0.5).call("ping") == {
+            "status": "ok",
+            "pid": 4242,
+        }
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_runtime_refuses_to_replace_non_socket_endpoint(tmp_path):
+    socket_path = tmp_path / "runtime.sock"
+    socket_path.write_text("do not delete", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="not a socket"):
+        RuntimeUnixServer(str(socket_path), _StaticController())
+
+    assert socket_path.read_text(encoding="utf-8") == "do not delete"
+
+
+def test_runtime_refuses_to_follow_socket_symlink(tmp_path):
+    target = tmp_path / "target.sock"
+    stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    stale.bind(str(target))
+    stale.close()
+
+    socket_path = tmp_path / "runtime.sock"
+    socket_path.symlink_to(target)
+
+    with pytest.raises(RuntimeError, match="not a socket"):
+        RuntimeUnixServer(str(socket_path), _StaticController())
+
+    assert socket_path.is_symlink()
+    assert target.exists()
