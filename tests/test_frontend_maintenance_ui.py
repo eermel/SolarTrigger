@@ -127,7 +127,7 @@ def test_application_update_validates_before_installing():
     install_pos = function.index("/api/system/maintenance/install-release")
 
     assert validate_pos < token_pos < install_pos
-    assert "if (!validationResponse.ok)" in function
+    assert "maintenanceJsonResponse(validationResponse)" in function
     assert "{upload_token: uploadToken}" in function
     assert "Raspberry Pi will reboot" in function
 
