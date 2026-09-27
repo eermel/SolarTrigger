@@ -442,10 +442,32 @@ class CameraWorkerRuntime:
                     server.activate_session(session_id)
                 else:
                     server.activate_session(session_id, allowed)
-            except BaseException:
+            except BaseException as activation_exc:
                 if not self._ipc_session_ids:
-                    server.stop()
-                    self._ipc_server = None
+                    cleanup_error = None
+                    try:
+                        stopped = _stop_ipc_server(server, timeout=2.0)
+                        if stopped is False:
+                            cleanup_error = RuntimeError(
+                                "camera IPC server cleanup did not drain "
+                                "after session activation failed"
+                            )
+                    except BaseException as exc:
+                        cleanup_error = exc
+
+                    if cleanup_error is None:
+                        if self._ipc_server is server:
+                            self._ipc_server = None
+                    else:
+                        # Fail closed: keep the server authoritative until a
+                        # later shutdown retry confirms that all IPC ownership
+                        # has drained.  Never lose a partially stopping server.
+                        self._ipc_server = server
+                        raise RuntimeError(
+                            "camera IPC session activation failed and server "
+                            "cleanup did not complete: "
+                            f"{type(cleanup_error).__name__}: {cleanup_error}"
+                        ) from activation_exc
                 raise
 
             self._leased_policy_configs.update(frozen_policies)
