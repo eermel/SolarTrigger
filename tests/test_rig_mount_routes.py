@@ -268,12 +268,39 @@ def test_mount_sync_requires_synchronized_gps(monkeypatch):
     assert worker.calls == []
 
 
+def test_mount_sync_requires_gps_timezone(monkeypatch):
+    worker = FakeMountWorker(1)
+    client, _runtime, _emitted = _client(monkeypatch, {1: worker})
+    flask_module._state_store.update_section(
+        "gps",
+        {
+            "synced": True,
+            "lat": 48.87379,
+            "lon": 2.37972,
+            "alt": 78.0,
+        },
+        persist=False,
+    )
+
+    response = client.post("/api/rigs/1/mount/sync")
+
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "GPS_TIMEZONE_UNAVAILABLE"
+    assert worker.calls == []
+
+
 def test_mount_sync_dispatches_gps_site_and_utc(monkeypatch):
     worker = FakeMountWorker(1)
     client, _runtime, _emitted = _client(monkeypatch, {1: worker})
     flask_module._state_store.update_section(
         "gps",
-        {"synced": True, "lat": 48.87379, "lon": 2.37972, "alt": 78.0},
+        {
+            "synced": True,
+            "lat": 48.87379,
+            "lon": 2.37972,
+            "alt": 78.0,
+            "utc_offset_minutes": 120,
+        },
         persist=False,
     )
 
@@ -284,4 +311,4 @@ def test_mount_sync_dispatches_gps_site_and_utc(monkeypatch):
     assert call[0] == "sync_site_time"
     assert call[1][0:3] == (48.87379, 2.37972, 78.0)
     assert isinstance(call[1][3], str) and "T" in call[1][3]
-    assert isinstance(call[1][4], float)
+    assert call[1][4] == 2.0
