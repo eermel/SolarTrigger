@@ -285,12 +285,17 @@ def test_onstep_autoconnect_uses_long_cold_boot_timeout(monkeypatch, tmp_path):
         manager,
         "_probe_mount_transport",
         lambda device, candidate, **kwargs: attempts.append(
-            (device, candidate, kwargs.get("timeout_s"))
+            (
+                device,
+                candidate,
+                kwargs.get("timeout_s"),
+                kwargs.get("use_setprop"),
+            )
         ) or False,
     )
 
     assert manager._autoconnect_mounts(devices) is False
-    assert attempts == [("LX200 OnStep", learned, 15.0)]
+    assert attempts == [("LX200 OnStep", learned, 15.0, True)]
 
 
 def test_eqmod_autoconnect_keeps_short_connection_timeout(monkeypatch, tmp_path):
@@ -320,12 +325,17 @@ def test_eqmod_autoconnect_keeps_short_connection_timeout(monkeypatch, tmp_path)
         manager,
         "_probe_mount_transport",
         lambda device, candidate, **kwargs: attempts.append(
-            (device, candidate, kwargs.get("timeout_s"))
+            (
+                device,
+                candidate,
+                kwargs.get("timeout_s"),
+                kwargs.get("use_setprop"),
+            )
         ) or False,
     )
 
     assert manager._autoconnect_mounts(devices) is False
-    assert attempts == [("EQMod Mount", learned, 3.0)]
+    assert attempts == [("EQMod Mount", learned, 3.0, False)]
 
 
 def test_onstep_forced_reconnect_uses_long_cold_boot_timeout(monkeypatch, tmp_path):
@@ -360,12 +370,127 @@ def test_onstep_forced_reconnect_uses_long_cold_boot_timeout(monkeypatch, tmp_pa
         manager,
         "_reconnect_mount_transport",
         lambda device, candidate, **kwargs: attempts.append(
-            (device, candidate, kwargs.get("timeout_s"))
+            (
+                device,
+                candidate,
+                kwargs.get("timeout_s"),
+                kwargs.get("use_setprop"),
+            )
         ) or False,
     )
 
     assert manager._autoconnect_mounts(devices) is False
-    assert attempts == [("LX200 OnStep", learned, 15.0)]
+    assert attempts == [("LX200 OnStep", learned, 15.0, True)]
+
+
+def test_onstep_probe_uses_setprop_without_persistent_tcp(monkeypatch):
+    calls = []
+
+    class SetpropClient:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs["device"]))
+            self.connected = False
+
+        def set_props(self, assignments):
+            calls.append(("set", assignments))
+            connection = assignments.get("CONNECTION", {})
+            if connection.get("CONNECT") == "On":
+                self.connected = True
+            elif connection.get("DISCONNECT") == "On":
+                self.connected = False
+
+        def get_props(self, patterns=None):
+            calls.append(("get", tuple(patterns or ())))
+            return {
+                "CONNECTION": {
+                    "CONNECT": "On" if self.connected else "Off",
+                    "DISCONNECT": "Off" if self.connected else "On",
+                }
+            }
+
+    monkeypatch.setattr(
+        "backend.indi_device_manager.IndiSubprocessClient",
+        SetpropClient,
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.IndiTcpSession",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("OnStep probe must not open persistent TCP")
+        ),
+    )
+
+    manager = IndiDeviceManager(client=FakeClient({}))
+
+    assert manager._probe_mount_transport(
+        "LX200 OnStep",
+        "/dev/serial/by-id/ONSTEP",
+        timeout_s=15.0,
+        use_setprop=True,
+    ) is True
+    assert calls[0] == ("init", "LX200 OnStep")
+    assert ("set", {
+        "DEVICE_PORT": {"PORT": "/dev/serial/by-id/ONSTEP"},
+    }) in calls
+    assert ("set", {
+        "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+    }) in calls
+
+
+def test_onstep_reconnect_uses_setprop_without_persistent_tcp(monkeypatch):
+    calls = []
+
+    class SetpropClient:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs["device"]))
+            self.connected = True
+
+        def set_props(self, assignments):
+            calls.append(("set", assignments))
+            connection = assignments.get("CONNECTION", {})
+            if connection.get("CONNECT") == "On":
+                self.connected = True
+            elif connection.get("DISCONNECT") == "On":
+                self.connected = False
+
+        def get_props(self, patterns=None):
+            calls.append(("get", tuple(patterns or ())))
+            return {
+                "CONNECTION": {
+                    "CONNECT": "On" if self.connected else "Off",
+                    "DISCONNECT": "Off" if self.connected else "On",
+                }
+            }
+
+    monkeypatch.setattr(
+        "backend.indi_device_manager.IndiSubprocessClient",
+        SetpropClient,
+    )
+    monkeypatch.setattr(
+        "backend.indi_device_manager.IndiTcpSession",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("OnStep reconnect must not open persistent TCP")
+        ),
+    )
+
+    manager = IndiDeviceManager(client=FakeClient({}))
+
+    assert manager._reconnect_mount_transport(
+        "LX200 OnStep",
+        "/dev/serial/by-id/ONSTEP",
+        timeout_s=15.0,
+        use_setprop=True,
+    ) is True
+    disconnect = (
+        "set",
+        {"CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"}},
+    )
+    connect = (
+        "set",
+        {"CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"}},
+    )
+    assert disconnect in calls
+    assert connect in calls
+    assert calls.index(disconnect) < calls.index(connect)
 
 
 def test_mount_transport_probe_disconnects_failed_candidate(monkeypatch):
