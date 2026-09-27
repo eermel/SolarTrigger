@@ -537,6 +537,7 @@ class IndiDeviceManager:
         """Wait until OnStep has published every manual-slew control vector."""
         deadline = time.monotonic() + float(timeout_s)
         patterns = [
+            "DRIVER_INFO.*",
             "CONNECTION.*",
             "TELESCOPE_SLEW_RATE.*",
             "TELESCOPE_MOTION_NS.*",
