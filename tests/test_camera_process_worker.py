@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+import backend.camera_process_worker as camera_process_worker
 from backend.camera_process_worker import ProcessCameraWorker
 from backend.generic_worker import (
     WorkerTimeoutError,
@@ -138,3 +139,76 @@ def test_stopped_process_worker_rejects_commands():
 
     with pytest.raises(WorkerUnavailableError):
         worker.read_info()
+
+
+def test_camera_bootstrap_arms_parent_death_before_target(monkeypatch):
+    events = []
+
+    monkeypatch.setattr(
+        camera_process_worker,
+        "arm_parent_death_signal",
+        lambda parent_pid: events.append(("arm", parent_pid)),
+    )
+
+    def target(conn, rig_id, camera_entry, clock_spec, call_timeout_s):
+        events.append(
+            (
+                "target",
+                conn,
+                rig_id,
+                camera_entry,
+                clock_spec,
+                call_timeout_s,
+            )
+        )
+
+    marker = object()
+    camera_process_worker._camera_process_bootstrap(
+        target,
+        marker,
+        3,
+        {"backend": "fake"},
+        {"clock": "spec"},
+        12.5,
+        4321,
+    )
+
+    assert events == [
+        ("arm", 4321),
+        (
+            "target",
+            marker,
+            3,
+            {"backend": "fake"},
+            {"clock": "spec"},
+            12.5,
+        ),
+    ]
+
+
+def test_camera_bootstrap_never_touches_target_if_parent_admission_fails(
+    monkeypatch,
+):
+    called = []
+
+    def reject(_parent_pid):
+        raise RuntimeError("parent disappeared")
+
+    monkeypatch.setattr(
+        camera_process_worker,
+        "arm_parent_death_signal",
+        reject,
+    )
+
+    with pytest.raises(RuntimeError, match="parent disappeared"):
+        camera_process_worker._camera_process_bootstrap(
+            lambda *_args: called.append(True),
+            object(),
+            1,
+            {"backend": "fake"},
+            None,
+            1.0,
+            4321,
+        )
+
+    assert called == []
