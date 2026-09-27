@@ -1,5 +1,13 @@
 #!/bin/sh
 set -eu
+
+LOCK_FILE="${SOLARTRIGGER_MAINTENANCE_LOCK:-/run/lock/solartrigger-maintenance.lock}"
+exec 9>"$LOCK_FILE"
+/usr/bin/flock -n 9 || {
+    echo "SolarTrigger maintenance is already running" >&2
+    exit 75
+}
+
 case "${1:-}" in
  check) /usr/bin/apt-get update; /usr/bin/apt-get --just-print upgrade;;
  upgrade) /usr/bin/apt-get update; DEBIAN_FRONTEND=noninteractive /usr/bin/apt-get upgrade -y;;
