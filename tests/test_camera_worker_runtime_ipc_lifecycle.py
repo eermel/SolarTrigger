@@ -543,3 +543,73 @@ def test_policy_snapshot_failure_prevents_ipc_server_and_session_creation(
     assert runtime.active_camera_rig_ids() == (1,)
 
     runtime.shutdown()
+
+
+def test_activation_failure_retains_non_drained_ipc_server_fail_closed(
+    tmp_path,
+):
+    holder = {}
+
+    class ActivationFailServer:
+        def __init__(self, runtime, **_kwargs):
+            self.runtime = runtime
+            self.socket_path = tmp_path / "activation-fail.sock"
+            self.stopping = False
+            self.stopped = False
+            self.stop_calls = 0
+
+        def start(self):
+            self.socket_path.parent.mkdir(parents=True, exist_ok=True)
+            return self.socket_path
+
+        def activate_session(self, _session_id, _rig_ids=None):
+            raise RuntimeError("synthetic activation failure")
+
+        def stop(self, timeout=None):
+            self.stop_calls += 1
+            self.stopping = True
+            return False
+
+    def server_factory(runtime, **kwargs):
+        server = ActivationFailServer(runtime, **kwargs)
+        holder["server"] = server
+        return server
+
+    runtime = CameraWorkerRuntime(
+        worker_factory=OwnershipWorker,
+        ipc_server_factory=server_factory,
+        log_fn=lambda _message: None,
+    )
+    OwnershipWorker.events = []
+    OwnershipWorker.fail_stop = False
+    runtime.reconcile({"rigs": [_rig_with_model("CAMERA")]})
+
+    with pytest.raises(
+        RuntimeError,
+        match="activation failed and server cleanup did not complete",
+    ) as caught:
+        runtime.open_ipc_session((1,))
+
+    assert isinstance(caught.value.__cause__, RuntimeError)
+    assert "synthetic activation failure" in str(caught.value.__cause__)
+
+    server = holder["server"]
+    assert server.stop_calls == 1
+    assert server.stopping is True
+    assert runtime._ipc_server is server
+    assert runtime._ipc_session_ids == set()
+    assert runtime._ipc_session_rigs == {}
+    assert runtime._leased_policy_configs == {}
+
+    with pytest.raises(RuntimeError, match="shutdown is still in progress"):
+        runtime.open_ipc_session((1,))
+
+    with pytest.raises(RuntimeError, match="shutdown is still in progress"):
+        runtime.release_idle_workers()
+
+    server.stopping = False
+    server.stopped = True
+    runtime.shutdown()
+
+    assert runtime._ipc_server is None
+    assert runtime.active_camera_rig_ids() == ()
