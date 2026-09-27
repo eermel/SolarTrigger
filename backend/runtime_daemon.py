@@ -883,6 +883,12 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
 
         super().__init__(str(path), _RuntimeRequestHandler)
         self.socket_path = path
+        bound = path.lstat()
+        self._socket_identity = (
+            bound.st_dev,
+            bound.st_ino,
+            bound.st_uid,
+        )
         try:
             os.chmod(path, 0o660)
             socket_group = os.environ.get("SOLARTRIGGER_RUNTIME_SOCKET_GROUP")
@@ -920,10 +926,23 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
         try:
             super().server_close()
         finally:
+            identity = getattr(self, "_socket_identity", None)
+            self._socket_identity = None
+            if identity is None:
+                return
             try:
-                self.socket_path.unlink()
+                current = self.socket_path.lstat()
             except FileNotFoundError:
-                pass
+                return
+            if (
+                stat.S_ISSOCK(current.st_mode)
+                and (
+                    current.st_dev,
+                    current.st_ino,
+                    current.st_uid,
+                ) == identity
+            ):
+                self.socket_path.unlink()
 
 
 def build_parser() -> argparse.ArgumentParser:
