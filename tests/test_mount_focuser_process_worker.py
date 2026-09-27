@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import os
+import signal
 import time
 
 import pytest
 
-from backend.device_process_worker import MotionStateUnknownError
+import backend.device_process_worker as device_process_worker
+import backend.focuser_process_worker as focuser_process_worker
+import backend.mount_process_worker as mount_process_worker
+from backend.device_process_worker import MotionStateUnknownError, arm_parent_death_signal
 from backend.focuser_process_worker import ProcessFocuserWorker
 from backend.generic_worker import WorkerTimeoutError
 from backend.mount_process_worker import ProcessMountWorker
@@ -28,6 +33,7 @@ def _fake_device_child(conn, spec, call_timeout_s):
                     "value": {
                         "rig_id": spec["rig_id"],
                         "backend": spec["backend"],
+                        "supervisor_pid": spec.get("_supervisor_pid"),
                     },
                 }
             )
@@ -95,6 +101,7 @@ def test_mount_process_returns_normal_result():
         assert worker.status() == {
             "rig_id": 1,
             "backend": "indi",
+            "supervisor_pid": os.getpid(),
         }
         assert worker.generation == 1
     finally:
@@ -108,6 +115,7 @@ def test_focuser_process_returns_normal_result():
         assert worker.status() == {
             "rig_id": 2,
             "backend": "zwo_eaf",
+            "supervisor_pid": os.getpid(),
         }
         assert worker.generation == 1
     finally:
@@ -258,3 +266,125 @@ def test_focuser_timeout_interlocks_new_motion_until_stop():
         assert worker.motion_state_unknown_operation is None
     finally:
         worker.shutdown()
+
+
+def test_parent_death_signal_arms_sigterm_and_validates_parent(monkeypatch):
+    calls = []
+
+    class FakePrctl:
+        argtypes = None
+        restype = None
+
+        def __call__(self, *args):
+            calls.append(args)
+            return 0
+
+    class FakeLibc:
+        prctl = FakePrctl()
+
+    monkeypatch.setattr(device_process_worker.sys, "platform", "linux")
+    monkeypatch.setattr(
+        device_process_worker.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: FakeLibc(),
+    )
+    monkeypatch.setattr(device_process_worker.os, "getppid", lambda: 4321)
+
+    arm_parent_death_signal(4321)
+
+    assert calls == [
+        (
+            device_process_worker._PR_SET_PDEATHSIG,
+            int(signal.SIGTERM),
+            0,
+            0,
+            0,
+        )
+    ]
+
+
+def test_parent_death_signal_rejects_child_already_reparented(monkeypatch):
+    class FakePrctl:
+        argtypes = None
+        restype = None
+
+        def __call__(self, *_args):
+            return 0
+
+    class FakeLibc:
+        prctl = FakePrctl()
+
+    monkeypatch.setattr(device_process_worker.sys, "platform", "linux")
+    monkeypatch.setattr(
+        device_process_worker.ctypes,
+        "CDLL",
+        lambda *_args, **_kwargs: FakeLibc(),
+    )
+    monkeypatch.setattr(device_process_worker.os, "getppid", lambda: 1)
+
+    with pytest.raises(RuntimeError, match="supervisor disappeared"):
+        arm_parent_death_signal(4321)
+
+
+@pytest.mark.parametrize(
+    ("module", "entrypoint", "worker_name", "spec"),
+    [
+        (
+            mount_process_worker,
+            mount_process_worker._mount_process_main,
+            "MountWorker",
+            {
+                "_supervisor_pid": 1234,
+                "state_path": "/tmp/state.json",
+                "backend": "indi",
+                "rig_id": 1,
+                "device_config": {},
+            },
+        ),
+        (
+            focuser_process_worker,
+            focuser_process_worker._focuser_process_main,
+            "FocuserWorker",
+            {
+                "_supervisor_pid": 1234,
+                "state_path": "/tmp/state.json",
+                "backend": "zwo_eaf",
+                "rig_id": 2,
+                "device_config": {},
+            },
+        ),
+    ],
+)
+def test_hardware_child_arms_parent_death_before_worker_construction(
+    monkeypatch,
+    module,
+    entrypoint,
+    worker_name,
+    spec,
+):
+    events = []
+
+    monkeypatch.setattr(
+        module,
+        "arm_parent_death_signal",
+        lambda parent_pid: events.append(("arm", parent_pid)),
+    )
+
+    class DummyWorker:
+        def __init__(self, **_kwargs):
+            events.append(("construct", worker_name))
+
+    monkeypatch.setattr(module, worker_name, DummyWorker)
+    monkeypatch.setattr(
+        module,
+        "serve_worker",
+        lambda *_args, **_kwargs: events.append(("serve", worker_name)),
+    )
+
+    entrypoint(object(), dict(spec), 1.0)
+
+    assert events == [
+        ("arm", 1234),
+        ("construct", worker_name),
+        ("serve", worker_name),
+    ]
