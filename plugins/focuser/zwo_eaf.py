@@ -19,6 +19,9 @@ Points cles du SDK :
 """
 
 import ctypes
+import errno
+import fcntl
+import os
 import threading
 import time
 
@@ -56,27 +59,94 @@ class EafError(Exception):
 # une session possedee par un worker persistant.
 _SDK_SESSION_LOCK = threading.RLock()
 _SDK_OPEN_REFS = {}
+_SDK_LOCK_FDS = {}
+
+
+def _sdk_lock_path(sdk_id):
+    return f"/tmp/solartrigger-eaf-{int(sdk_id)}.lock"
+
+
+def _acquire_process_lock(sdk_id, *, blocking):
+    sdk_id = int(sdk_id)
+    fd = os.open(_sdk_lock_path(sdk_id), os.O_CREAT | os.O_RDWR, 0o600)
+    flags = fcntl.LOCK_EX
+    if not blocking:
+        flags |= fcntl.LOCK_NB
+    try:
+        fcntl.flock(fd, flags)
+    except OSError as exc:
+        os.close(fd)
+        if not blocking and exc.errno in (errno.EACCES, errno.EAGAIN):
+            return None
+        raise
+    return fd
+
+
+def _release_process_lock(fd):
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def _acquire_sdk_session(lib, sdk_id):
-    """Acquire one logical owner of an EAF SDK session."""
+    """Acquire one logical owner and hold cross-process USB ownership."""
     sdk_id = int(sdk_id)
     with _SDK_SESSION_LOCK:
         refs = _SDK_OPEN_REFS.get(sdk_id, 0)
 
-        if refs == 0:
+        if refs > 0:
+            _SDK_OPEN_REFS[sdk_id] = refs + 1
+            return
+
+        lock_fd = _acquire_process_lock(sdk_id, blocking=True)
+        try:
             code = lib.EAFOpen(sdk_id)
             if code != EAF_SUCCESS:
                 raise EafError(
                     code,
                     f"EAFOpen a echoue (code {code})",
                 )
+        except BaseException:
+            _release_process_lock(lock_fd)
+            raise
 
-        _SDK_OPEN_REFS[sdk_id] = refs + 1
+        _SDK_LOCK_FDS[sdk_id] = lock_fd
+        _SDK_OPEN_REFS[sdk_id] = 1
+
+
+def _try_acquire_sdk_session(lib, sdk_id):
+    """Try to borrow an EAF for inventory without disturbing another process."""
+    sdk_id = int(sdk_id)
+    with _SDK_SESSION_LOCK:
+        refs = _SDK_OPEN_REFS.get(sdk_id, 0)
+
+        if refs > 0:
+            _SDK_OPEN_REFS[sdk_id] = refs + 1
+            return True
+
+        lock_fd = _acquire_process_lock(sdk_id, blocking=False)
+        if lock_fd is None:
+            return False
+
+        try:
+            code = lib.EAFOpen(sdk_id)
+            if code != EAF_SUCCESS:
+                raise EafError(
+                    code,
+                    f"EAFOpen a echoue (code {code})",
+                )
+        except BaseException:
+            _release_process_lock(lock_fd)
+            raise
+
+        _SDK_LOCK_FDS[sdk_id] = lock_fd
+        _SDK_OPEN_REFS[sdk_id] = 1
+        return True
 
 
 def _release_sdk_session(lib, sdk_id):
-    """Release one logical owner; close physically only for the last one."""
+    """Release one logical owner; close and unlock only after the last owner."""
     sdk_id = int(sdk_id)
 
     with _SDK_SESSION_LOCK:
@@ -89,13 +159,13 @@ def _release_sdk_session(lib, sdk_id):
             _SDK_OPEN_REFS[sdk_id] = refs - 1
             return
 
-        # Preserve the historical disconnect semantics: EAFClose return
-        # value is deliberately ignored, but our ownership state is
-        # cleared even if the SDK reports an error.
+        lock_fd = _SDK_LOCK_FDS.pop(sdk_id, None)
         try:
             lib.EAFClose(sdk_id)
         finally:
             _SDK_OPEN_REFS.pop(sdk_id, None)
+            if lock_fd is not None:
+                _release_process_lock(lock_fd)
 
 
 def _load_lib():
@@ -234,41 +304,86 @@ class ZwoEaf:
         return raw.hex().upper()
 
     def enumerate_devices(self):
-        """Enumerate EAF IDs without opening the USB device.
+        """Enumerate all EAFs without racing a persistent worker process.
 
-        Device discovery runs outside the persistent focuser worker process.
-        EAFOpen/EAFClose here could therefore race the worker's SDK ownership
-        even though the in-process reference counter is correct.  EAFGetNum
-        and EAFGetID are sufficient to prove physical presence; detailed
-        metadata is read only by the worker when it owns the selected EAF.
+        When the EAF is free, inventory temporarily opens it to expose model,
+        serial and max_step.  If another SolarTrigger process owns the EAF,
+        the cross-process lock is acquired non-blockingly and inventory falls
+        back to the stable SDK device_id without touching EAFOpen/EAFClose.
         """
         count = self.lib.EAFGetNum()
         if count <= 0:
             return []
 
         devices = []
+
         for index in range(count):
             cid = ctypes.c_int(0)
+            sdk_id = None
+            acquired = False
+
             try:
                 self._check(
                     self.lib.EAFGetID(index, ctypes.byref(cid)),
                     "EAFGetID",
                 )
-            except EafError:
-                continue
+                sdk_id = cid.value
 
-            sdk_id = cid.value
-            devices.append({
-                "category": "focuser",
-                "backend": "zwo_eaf",
-                "manufacturer": "ZWO",
-                "model": "EAF",
-                "serial": None,
-                "device_id": f"zwo_eaf:{sdk_id}",
-                "sdk_id": sdk_id,
-                "max_step": None,
-                "details_available": False,
-            })
+                acquired = _try_acquire_sdk_session(self.lib, sdk_id)
+                if not acquired:
+                    devices.append({
+                        "category": "focuser",
+                        "backend": "zwo_eaf",
+                        "manufacturer": "ZWO",
+                        "model": "EAF",
+                        "serial": None,
+                        "device_id": f"zwo_eaf:{sdk_id}",
+                        "sdk_id": sdk_id,
+                        "max_step": None,
+                        "details_available": False,
+                    })
+                    continue
+
+                info = EAF_INFO()
+                self._check(
+                    self.lib.EAFGetProperty(
+                        sdk_id,
+                        ctypes.byref(info),
+                    ),
+                    "EAFGetProperty",
+                )
+                name = (
+                    info.Name.decode("ascii", "replace")
+                    .rstrip("\x00")
+                    .strip()
+                )
+                devices.append({
+                    "category": "focuser",
+                    "backend": "zwo_eaf",
+                    "manufacturer": "ZWO",
+                    "model": name or "EAF",
+                    "serial": self._serial_number(sdk_id),
+                    "device_id": f"zwo_eaf:{sdk_id}",
+                    "sdk_id": sdk_id,
+                    "max_step": info.MaxStep,
+                })
+
+            except EafError:
+                if sdk_id is not None:
+                    devices.append({
+                        "category": "focuser",
+                        "backend": "zwo_eaf",
+                        "manufacturer": "ZWO",
+                        "model": "EAF",
+                        "serial": None,
+                        "device_id": f"zwo_eaf:{sdk_id}",
+                        "sdk_id": sdk_id,
+                        "max_step": None,
+                        "details_available": False,
+                    })
+            finally:
+                if acquired and sdk_id is not None:
+                    _release_sdk_session(self.lib, sdk_id)
 
         return devices
 
