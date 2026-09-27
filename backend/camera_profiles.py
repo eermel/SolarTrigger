@@ -23,6 +23,22 @@ def _valid_trigger(spec):
         return False
     if spec.get("method") not in ("trigger_capture", "capture", "widget"):
         return False
+
+    completion = spec.get("completion")
+    if completion not in (None, "operator_validated_delay", "timed_budget"):
+        return False
+    if completion == "operator_validated_delay":
+        wait_ms = spec.get("wait_ms")
+        if (
+            isinstance(wait_ms, bool)
+            or not isinstance(wait_ms, (int, float))
+            or not math.isfinite(float(wait_ms))
+            or float(wait_ms) < 0
+        ):
+            return False
+    if completion == "timed_budget" and spec.get("method") != "trigger_capture":
+        return False
+
     if spec.get("method") == "widget":
         if not spec.get("path"):
             return False
@@ -108,6 +124,12 @@ def validate_profile(data):
     contract = data.get("timing_contract")
     contract_version = contract.get("version") if isinstance(contract, dict) else None
 
+    if (
+        trigger.get("completion") == "timed_budget"
+        and contract_version != 3
+    ):
+        raise ValueError("timed_budget trigger requires timing contract v3")
+
     brackets = data.get("brackets", {})
     if not isinstance(brackets, dict):
         raise ValueError("brackets must be an object")
@@ -125,6 +147,8 @@ def validate_profile(data):
             raise ValueError("only validated 1 EV brackets are supported")
         if not _valid_trigger(spec.get("trigger", {})):
             raise ValueError("invalid bracket trigger")
+        if spec.get("trigger", {}).get("completion") == "timed_budget":
+            raise ValueError("timed_budget is valid only for single captures")
         if (
             "shutter_requires_single_mode" in spec
             and type(spec["shutter_requires_single_mode"]) is not bool
@@ -181,14 +205,47 @@ def validate_profile(data):
     return deepcopy(data)
 
 
+def _apply_runtime_profile_compatibility(profile):
+    """Apply narrow runtime compatibility learned from hardware validation.
+
+    Nikon D850 + libgphoto2 can block indefinitely in wait_for_event() after a
+    successful trigger_capture(), even though repeated trigger_capture() calls
+    return normally and the PTP session remains healthy.  Old persisted D850
+    profiles predate the completion policy below, so enrich them in memory
+    without rewriting persistent characterization data.
+    """
+    result = deepcopy(profile)
+    commands = result.get("commands", {})
+    trigger = commands.get("trigger_single", {})
+    capture_target = commands.get("capture_target", {})
+    contract = result.get("timing_contract", {})
+
+    if (
+        normalized(result.get("manufacturer")) == "nikon"
+        and normalized(result.get("model")) == "nikon dsc d850"
+        and result.get("strategy") == "sequential"
+        and isinstance(contract, dict)
+        and contract.get("version") == 3
+        and isinstance(trigger, dict)
+        and trigger.get("method") == "trigger_capture"
+        and trigger.get("completion") is None
+        and normalized(capture_target.get("value"))
+        in ("memory card", "card", "sd card")
+    ):
+        trigger["completion"] = "timed_budget"
+
+    return result
+
+
 def discover_profiles(directory=None):
     """Fail closed on invalid files and ambiguous model/backend identities."""
     found = []
     for path in sorted(Path(directory or PROFILE_DIR).glob("*.json")):
         try:
-            found.append(
-                validate_profile(json.loads(path.read_text(encoding="utf-8")))
+            validated = validate_profile(
+                json.loads(path.read_text(encoding="utf-8"))
             )
+            found.append(_apply_runtime_profile_compatibility(validated))
         except (OSError, ValueError, TypeError) as exc:
             LOG.warning("Ignoring camera profile %s: %s", path, exc)
 

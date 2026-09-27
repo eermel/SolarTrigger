@@ -167,7 +167,8 @@
       }
     },
     "trigger_single": {
-      "method": "trigger_capture"
+      "method": "trigger_capture",
+      "completion": "timed_budget"
     }
   },
   "warnings": [

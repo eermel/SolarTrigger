@@ -1122,3 +1122,159 @@ def test_publication_rejects_camera_symlink_outside_shared_var(tmp_path, profile
 
     with pytest.raises(ValueError, match="shared persistent data"):
         publish(profile, timing, tmp_path)
+
+
+def _timed_budget_test_profile(profile):
+    from backend.camera_timing_contract import SAFETY_POLICY
+
+    result = deepcopy(profile)
+    result["strategy"] = "sequential"
+    result["brackets"] = {}
+    result["commands"]["trigger_single"] = {
+        "method": "trigger_capture",
+        "completion": "timed_budget",
+    }
+    result["timing_contract"] = {
+        "version": 3,
+        "safety_policy": deepcopy(SAFETY_POLICY),
+        "set_overhead_ms": 950,
+        "single_overhead_ms": 1200,
+        "bracket_overhead_ms": 0,
+        "bracket_inter_image_ms": 0,
+        "supported_bracket_frames": [],
+    }
+    return result
+
+
+def test_timed_budget_trigger_validation(profile):
+    timed = _timed_budget_test_profile(profile)
+    assert validate_profile(timed)["commands"]["trigger_single"]["completion"] == "timed_budget"
+
+    timed["commands"]["trigger_single"]["method"] = "capture"
+    with pytest.raises(ValueError, match="trigger"):
+        validate_profile(timed)
+
+
+def test_d850_legacy_profile_gets_timed_budget_runtime_compatibility(
+    tmp_path,
+    profile,
+):
+    legacy = _timed_budget_test_profile(profile)
+    legacy["backend"] = "profile-nikon-nikon-d850-test"
+    legacy["manufacturer"] = "Nikon"
+    legacy["model"] = "Nikon DSC D850"
+    legacy["commands"]["capture_target"]["value"] = "Memory card"
+    legacy["commands"]["trigger_single"].pop("completion")
+
+    (tmp_path / "d850.json").write_text(
+        json.dumps(legacy),
+        encoding="utf-8",
+    )
+
+    loaded = discover_profiles(tmp_path)[legacy["backend"]]
+    assert loaded["commands"]["trigger_single"] == {
+        "method": "trigger_capture",
+        "completion": "timed_budget",
+    }
+
+    # Compatibility is deliberately narrow; another model remains unchanged.
+    legacy["backend"] = "profile-nikon-other-test"
+    legacy["model"] = "Nikon Other"
+    (tmp_path / "d850.json").unlink()
+    (tmp_path / "other.json").write_text(
+        json.dumps(legacy),
+        encoding="utf-8",
+    )
+    loaded = discover_profiles(tmp_path)[legacy["backend"]]
+    assert loaded["commands"]["trigger_single"] == {
+        "method": "trigger_capture",
+    }
+
+
+def test_timed_budget_trigger_never_waits_for_ptp_events(
+    monkeypatch,
+    profile,
+):
+    import plugins.camera.profile as module
+
+    timed = _timed_budget_test_profile(profile)
+    clock = [10.0]
+    trigger_calls = []
+
+    def monotonic():
+        return clock[0]
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    def trigger_capture():
+        trigger_calls.append(clock[0])
+        clock[0] += 0.234
+
+    def forbidden_wait_for_event(*_args, **_kwargs):
+        raise AssertionError("timed_budget must never call wait_for_event")
+
+    monkeypatch.setattr(module.time, "monotonic", monotonic)
+    monkeypatch.setattr(module.time, "sleep", sleep)
+
+    camera = SimpleNamespace(
+        trigger_capture=trigger_capture,
+        wait_for_event=forbidden_wait_for_event,
+    )
+    plugin = ProfilePlugin(camera, profile=timed)
+
+    result = plugin.execute_photo(
+        {
+            "frames": 1,
+            "shutter": "1/500",
+            "physical_views": ["1/500"],
+            "duration_ms": 1200,
+            "timing_contract_version": 2,
+        },
+        observation_timeout_s=30.0,
+    )
+
+    assert len(trigger_calls) == 1
+    assert clock[0] == pytest.approx(11.2)
+    assert result.frames == 1
+    assert result.planned == 1
+    assert "frame count not observed" in result.detail
+
+
+def test_timed_budget_trigger_fails_when_native_call_exceeds_budget(
+    monkeypatch,
+    profile,
+):
+    import plugins.camera.profile as module
+
+    timed = _timed_budget_test_profile(profile)
+    clock = [20.0]
+
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        module.time,
+        "sleep",
+        lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+    )
+
+    def trigger_capture():
+        clock[0] += 1.301
+
+    camera = SimpleNamespace(
+        trigger_capture=trigger_capture,
+        wait_for_event=lambda *_args, **_kwargs: (
+            pytest.fail("timed_budget must never call wait_for_event")
+        ),
+    )
+    plugin = ProfilePlugin(camera, profile=timed)
+
+    with pytest.raises(RuntimeError, match="exceeded timed PHOTO budget"):
+        plugin.execute_photo(
+            {
+                "frames": 1,
+                "shutter": "1/500",
+                "physical_views": ["1/500"],
+                "duration_ms": 1200,
+                "timing_contract_version": 2,
+            }
+        )

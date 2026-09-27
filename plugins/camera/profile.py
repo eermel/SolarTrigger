@@ -841,6 +841,60 @@ class ProfilePlugin(CameraPlugin):
         else:
             raise ValueError("unsupported trigger")
 
+    def _execute_timed_budget_trigger(self, spec, params, views, check):
+        """Execute trigger_capture without touching the unreliable PTP event queue.
+
+        The characterized PHOTO duration is the completion authority.  A native
+        trigger call that itself exceeds that budget is a hard failure; a quick
+        return consumes the remaining budget before the next SET may run.
+        """
+        if spec.get("method") != "trigger_capture":
+            raise ValueError("timed_budget requires trigger_capture")
+        if int(params.get("frames", 1)) != 1:
+            raise ValueError("timed_budget is valid only for single captures")
+
+        guarded = params.get("timing_contract_version") == 2
+        if guarded:
+            budget_s = float(params["duration_ms"]) / 1000.0
+        else:
+            contract = self.profile.get("timing_contract", {})
+            if not isinstance(contract, dict) or contract.get("version") != 3:
+                raise ValueError("timed_budget requires timing contract v3")
+            budget_s = (
+                float(contract["single_overhead_ms"]) / 1000.0
+                + sum(_parse_speed(value) for value in views)
+            )
+
+        if not math.isfinite(budget_s) or budget_s <= 0:
+            raise ValueError("invalid timed PHOTO budget")
+
+        started = time.monotonic()
+        if check:
+            check()
+        self._trigger(spec)
+
+        deadline = started + budget_s
+        elapsed_s = time.monotonic() - started
+        if elapsed_s > budget_s:
+            raise RuntimeError(
+                "trigger_capture exceeded timed PHOTO budget: "
+                f"{elapsed_s * 1000.0:.1f} ms > {budget_s * 1000.0:.1f} ms"
+            )
+
+        while True:
+            if check:
+                check()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.01, remaining))
+
+        return CaptureResult(
+            frames=1,
+            planned=1,
+            detail="timed-budget trigger; frame count not observed",
+        )
+
     def execute_photo(
         self,
         params,
@@ -849,9 +903,6 @@ class ProfilePlugin(CameraPlugin):
         check=None,
     ):
         """A PHOTO is atomic; release a held shutter even after failure."""
-        from backend.gphoto_runtime import import_gphoto2
-        gp = import_gphoto2()
-
         count = int(params.get("frames", 1))
         views = (
             params.get("physical_views")
@@ -887,6 +938,17 @@ class ProfilePlugin(CameraPlugin):
             if bracket
             else self.commands["trigger_single"]
         )
+
+        if spec.get("completion") == "timed_budget":
+            return self._execute_timed_budget_trigger(
+                spec,
+                params,
+                views,
+                check,
+            )
+
+        from backend.gphoto_runtime import import_gphoto2
+        gp = import_gphoto2()
 
         observed = set()
         deadline = time.monotonic() + timeout
