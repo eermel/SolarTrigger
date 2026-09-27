@@ -15,6 +15,7 @@ import logging
 import os
 from pathlib import Path
 import signal
+import socket
 import socketserver
 import threading
 from typing import Any
@@ -46,6 +47,8 @@ from backend.trigger_run_journal import (
 
 LOG = logging.getLogger("solartrigger-runtime")
 _MAX_REQUEST_BYTES = 16 * 1024 * 1024
+_RPC_IO_TIMEOUT_S = 30.0
+_MAX_RPC_CONNECTIONS = 32
 
 # Only operator-facing diagnostic calls are proxied through the portal. The
 # real-time trigger uses CameraIpcServer directly through an explicit lease.
@@ -666,8 +669,16 @@ class RuntimeController:
 
 
 class _RuntimeRequestHandler(socketserver.StreamRequestHandler):
+    def setup(self):
+        self.request.settimeout(self.server.io_timeout_s)
+        super().setup()
+
     def handle(self):
-        line = self.rfile.readline(_MAX_REQUEST_BYTES + 1)
+        try:
+            line = self.rfile.readline(_MAX_REQUEST_BYTES + 1)
+        except socket.timeout:
+            return
+
         if not line:
             return
         if len(line) > _MAX_REQUEST_BYTES:
@@ -695,7 +706,10 @@ class _RuntimeRequestHandler(socketserver.StreamRequestHandler):
             json.dumps(response, separators=(",", ":"), ensure_ascii=False)
             + "\n"
         ).encode("utf-8")
-        self.wfile.write(encoded)
+        try:
+            self.wfile.write(encoded)
+        except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
+            pass
 
     @staticmethod
     def _error_response(exc: BaseException) -> dict:
@@ -718,15 +732,30 @@ class _RuntimeRequestHandler(socketserver.StreamRequestHandler):
             )
             + "\n"
         ).encode("utf-8")
-        self.wfile.write(encoded)
+        try:
+            self.wfile.write(encoded)
+        except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
+            pass
 
 
 class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
     allow_reuse_address = True
+    request_queue_size = _MAX_RPC_CONNECTIONS
 
-    def __init__(self, socket_path: str, controller: RuntimeController):
+    def __init__(
+        self,
+        socket_path: str,
+        controller: RuntimeController,
+        *,
+        max_connections: int = _MAX_RPC_CONNECTIONS,
+        io_timeout_s: float = _RPC_IO_TIMEOUT_S,
+    ):
         self.controller = controller
+        self.io_timeout_s = max(0.001, float(io_timeout_s))
+        self._connection_slots = threading.BoundedSemaphore(
+            max(1, int(max_connections))
+        )
         path = Path(socket_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -746,6 +775,23 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
                 ) from exc
             os.chown(path, -1, gid)
         self.socket_path = path
+
+    def process_request(self, request, client_address):
+        if not self._connection_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._connection_slots.release()
+            self.shutdown_request(request)
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._connection_slots.release()
 
     def server_close(self):
         try:

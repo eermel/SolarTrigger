@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import socket
+import time
 import threading
 from types import SimpleNamespace
 
@@ -18,6 +20,7 @@ from backend.runtime_rpc import (
     RemoteCameraWorkerRuntime,
     RemoteTriggerService,
     RuntimeClient,
+    RuntimeUnavailableError,
     _from_wire,
     _to_wire,
 )
@@ -521,3 +524,65 @@ def test_web_release_install_does_not_replace_root_helpers():
     assert "refresh_root_helpers" not in script
     assert "/usr/local/sbin/solartrigger-release-update.next" not in script
     assert "/usr/local/sbin/solartrigger-system-update" not in script
+
+
+def _serve_runtime_server(server):
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return thread
+
+
+def test_runtime_rpc_stalled_client_times_out_and_releases_only_slot(tmp_path):
+    socket_path = tmp_path / "bounded-runtime.sock"
+    server = RuntimeUnixServer(
+        str(socket_path),
+        _StaticController(),
+        max_connections=1,
+        io_timeout_s=0.05,
+    )
+    thread = _serve_runtime_server(server)
+    blocker = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        blocker.connect(str(socket_path))
+        time.sleep(0.12)
+
+        client = RuntimeClient(str(socket_path), timeout=0.5)
+        assert client.call("ping") == {"status": "ok", "pid": 4242}
+    finally:
+        blocker.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_runtime_rpc_rejects_excess_live_connections_without_spawning_more_threads(
+    tmp_path,
+):
+    socket_path = tmp_path / "bounded-runtime.sock"
+    server = RuntimeUnixServer(
+        str(socket_path),
+        _StaticController(),
+        max_connections=1,
+        io_timeout_s=1.0,
+    )
+    thread = _serve_runtime_server(server)
+    blocker = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        blocker.connect(str(socket_path))
+        time.sleep(0.05)
+
+        client = RuntimeClient(str(socket_path), timeout=0.2)
+        with pytest.raises(RuntimeUnavailableError):
+            client.call("ping")
+
+        blocker.close()
+        time.sleep(0.05)
+        assert RuntimeClient(str(socket_path), timeout=0.5).call("ping") == {
+            "status": "ok",
+            "pid": 4242,
+        }
+    finally:
+        blocker.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
