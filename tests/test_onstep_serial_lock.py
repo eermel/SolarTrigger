@@ -182,7 +182,8 @@ class ReconnectSerialStub:
     def __init__(self, *args, **kwargs):
         self.is_open = True
         self.timeout = kwargs["timeout"]
-        self.query_completed = threading.Event()
+        self.query_started = threading.Event()
+        self.release_query = threading.Event()
 
     def reset_input_buffer(self):
         pass
@@ -197,7 +198,8 @@ class ReconnectSerialStub:
         pass
 
     def read_until(self, _terminator):
-        self.query_completed.set()
+        self.query_started.set()
+        assert self.release_query.wait(timeout=1)
         return b"OnStep#"
 
     def close(self):
@@ -220,26 +222,40 @@ def test_reconnect_is_safe_while_query_text_is_polling(monkeypatch):
     monkeypatch.setattr("plugins.mount.onstep.time.sleep", lambda _delay: None)
     mount = OnStep(timeout=1.0)
     mount.connect()
-    stop_polling = threading.Event()
     errors = []
 
-    def poll_version():
-        while not stop_polling.is_set():
-            try:
-                mount._query_text(b":GVN#")
-            except Exception as exc:  # pragma: no cover - asserted below
-                errors.append(exc)
-                return
+    def capture(operation):
+        try:
+            operation()
+        except Exception as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
 
-    poller = threading.Thread(target=poll_version)
+    poller = threading.Thread(
+        target=capture,
+        args=(lambda: mount._query_text(b":GVN#"),),
+    )
+    reconnector = threading.Thread(
+        target=capture,
+        args=(mount.reconnect,),
+    )
+
     poller.start()
-    assert serial_stubs[0].query_completed.wait(timeout=1)
+    assert serial_stubs[0].query_started.wait(timeout=1)
 
-    mount.reconnect()
-    stop_polling.set()
+    # Reconnect must wait for the in-flight query to release the shared
+    # serial lock, rather than racing close/open against that query.
+    reconnector.start()
+    time.sleep(0.05)
+    assert reconnector.is_alive()
+    assert serial_stubs[0].is_open is True
+    assert len(serial_stubs) == 1
+
+    serial_stubs[0].release_query.set()
     poller.join(timeout=1)
+    reconnector.join(timeout=1)
 
     assert not poller.is_alive()
+    assert not reconnector.is_alive()
     assert errors == []
     assert len(serial_stubs) == 2
     assert not serial_stubs[0].is_open
