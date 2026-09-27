@@ -16,6 +16,7 @@ from backend.system_maintenance import (
     ethernet_status,
     installed_releases,
     internet_available,
+    maintenance_helper_running,
     validate_release_version,
     validate_release_zip,
 )
@@ -39,10 +40,15 @@ def register_system_maintenance_routes(
         )
 
     def start_job(kind, cmd):
+        def admit():
+            if maintenance_helper_running():
+                raise RuntimeError("Maintenance helper is already running")
+            return JOB.start(kind, cmd)
+
         try:
             start_maintenance_if_trigger_idle(
                 busy,
-                lambda: JOB.start(kind, cmd),
+                admit,
             )
         except TriggerActiveError:
             return jsonify(error="Trigger is running or starting"), 409
@@ -54,6 +60,9 @@ def register_system_maintenance_routes(
     def status():
         ethernet = ethernet_status()
         data = JOB.snapshot()
+        external_running = maintenance_helper_running()
+        data["external_running"] = external_running
+        data["running"] = bool(data.get("running") or external_running)
         data["ethernet"] = ethernet
         data["internet"] = (
             internet_available()
@@ -90,7 +99,11 @@ def register_system_maintenance_routes(
 
     @app.post("/api/system/maintenance/upload-release")
     def upload():
-        if busy() or JOB.snapshot()["running"]:
+        if (
+            busy()
+            or JOB.snapshot()["running"]
+            or maintenance_helper_running()
+        ):
             return jsonify(error="System is busy"), 409
         if request.content_length is not None and request.content_length > MAX:
             return jsonify(error="Update package is too large"), 413
