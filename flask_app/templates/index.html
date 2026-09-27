@@ -1154,7 +1154,13 @@
             </div>
             <div class="mount-joystick-hint">Direction = angle · Speed = distance</div>
           </div>
-          <button class="btn btn-primary btn-full" id="btn-mount-home" disabled>HOME</button>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px">
+            <button class="btn btn-primary" id="btn-mount-home" disabled>HOME</button>
+            <button class="btn btn-secondary" id="btn-mount-sync" disabled
+                    title="Synchronize mount UTC date/time and GPS site coordinates">
+              SYNC MOUNT
+            </button>
+          </div>
         </div>
       </div>
     </div>
