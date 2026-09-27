@@ -197,6 +197,41 @@ def test_connect_explicit_device_id_does_not_use_index_zero(monkeypatch):
     assert sdk.close_calls == [7]
 
 
+def test_connect_rebinds_stale_device_id_when_only_one_eaf_is_visible(
+    monkeypatch,
+):
+    sdk = FakeSdk(ids=(7,))
+    driver = make_driver(monkeypatch, sdk)
+
+    info = driver.connect(device_id="zwo_eaf:0")
+
+    assert driver.id == 7
+    assert info["device_id"] == "zwo_eaf:7"
+    assert sdk.open_calls == [7]
+
+    driver.disconnect()
+
+    assert sdk.close_calls == [7]
+
+
+def test_connect_refuses_ambiguous_rebind_when_multiple_eafs_are_visible(
+    monkeypatch,
+):
+    sdk = FakeSdk(ids=(3, 7))
+    driver = make_driver(monkeypatch, sdk)
+
+    import pytest
+
+    with pytest.raises(
+        zwo_eaf.EafError,
+        match="Refusing ambiguous automatic rebind",
+    ) as raised:
+        driver.connect(device_id="zwo_eaf:0")
+
+    assert raised.value.code == zwo_eaf.EAF_ERROR_INVALID_ID
+    assert sdk.open_calls == []
+
+
 def test_plugin_passes_bound_device_id_to_driver(monkeypatch):
     from plugins.focuser import zwo_plugin
 
