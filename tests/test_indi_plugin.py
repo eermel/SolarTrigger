@@ -456,6 +456,7 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
         for index in range(10)
     }
     client = StubIndiClient(props)
+    fresh = StubIndiClient()
     session_attempts = []
 
     class ForbiddenSession:
@@ -464,10 +465,18 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
             raise AssertionError("OnStep must not open the persistent write session")
 
     monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", ForbiddenSession)
+    monkeypatch.setattr(
+        "plugins.mount.indi_plugin.IndiSubprocessClient",
+        lambda **_kwargs: fresh,
+    )
 
     plugin = mount(client)
     plugin._runtime_tcp_enabled = True
     plugin.connect()
+
+    # Build the fresh one-shot view after connect so it represents the live
+    # driver rather than the persistent monitor cache.
+    fresh.props = deepcopy(client.props)
 
     assert session_attempts == []
     assert plugin._control_session is None
@@ -481,10 +490,9 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
 
     assert {
         "TELESCOPE_SLEW_RATE": {
-            str(index): "On" if index == 9 else "Off"
-            for index in range(10)
+            "9": "On",
         }
-    } in client.set_calls
+    } in fresh.set_calls
     assert {
         "TELESCOPE_MOTION_NS": {
             "MOTION_NORTH": "On",
@@ -501,6 +509,57 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
             "TRACK_OFF": "On",
         }
     } in client.set_calls
+
+
+def test_onstep_speed_recovers_disconnected_live_driver(monkeypatch, full_props):
+    cached = deepcopy(full_props)
+    cached["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_lx200_OnStep",
+        "DRIVER_NAME": "LX200 OnStep",
+    }
+    cached["TELESCOPE_SLEW_RATE"] = {
+        str(index): "On" if index == 5 else "Off"
+        for index in range(10)
+    }
+
+    class FreshOnStepClient(StubIndiClient):
+        def __init__(self):
+            super().__init__({
+                "CONNECTION": {"CONNECT": "Off", "DISCONNECT": "On"},
+                "DEVICE_PORT": {"PORT": "/dev/serial/by-id/onstep-test"},
+                "DRIVER_INFO": deepcopy(cached["DRIVER_INFO"]),
+            })
+
+        def set_props(self, assignments):
+            super().set_props(assignments)
+            connection = assignments.get("CONNECTION", {})
+            if connection.get("CONNECT") == "On":
+                self.props["TELESCOPE_SLEW_RATE"] = {
+                    str(index): "On" if index == 5 else "Off"
+                    for index in range(10)
+                }
+
+    fresh = FreshOnStepClient()
+    monkeypatch.setattr(
+        "plugins.mount.indi_plugin.IndiSubprocessClient",
+        lambda **_kwargs: fresh,
+    )
+
+    plugin = mount(StubIndiClient(cached))
+    plugin._runtime_tcp_enabled = True
+    plugin.set_speed("9")
+
+    assert {
+        "CONNECTION": {
+            "CONNECT": "On",
+            "DISCONNECT": "Off",
+        }
+    } in fresh.set_calls
+    assert fresh.set_calls[-1] == {
+        "TELESCOPE_SLEW_RATE": {"9": "On"}
+    }
+    assert plugin._move_rate == "9"
+
 
 def test_eqmod_manual_sync_requires_site_and_time_readback(full_props):
     props = deepcopy(full_props)
@@ -566,63 +625,7 @@ def test_eqmod_manual_sync_fails_when_readback_does_not_change(full_props):
     assert "site/time synchronization was not confirmed by readback" in str(error)
 
 
-def test_onstep_manual_sync_uses_atomic_vectors(monkeypatch, full_props):
-    props = deepcopy(full_props)
-    props["DRIVER_INFO"] = {
-        "DRIVER_EXEC": "indi_lx200_OnStep",
-        "DRIVER_NAME": "LX200 OnStep",
-    }
-    props["TIME_UTC"] = {
-        "UTC": "2026-09-27T03:00:00",
-        "OFFSET": "2.00",
-    }
-    client = StubIndiClient(props)
-    calls = []
-
-    class Session:
-        def __init__(self, **kwargs):
-            calls.append(("init", kwargs))
-
-        def __enter__(self):
-            calls.append(("enter",))
-            return self
-
-        def __exit__(self, *_args):
-            calls.append(("exit",))
-
-        def set_number(self, prop, elements):
-            calls.append(("number", prop, deepcopy(elements)))
-            client.props.setdefault(prop, {}).update(elements)
-
-        def set_text(self, prop, elements):
-            calls.append(("text", prop, deepcopy(elements)))
-            client.props.setdefault(prop, {}).update(elements)
-
-    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", Session)
-
-    plugin = mount(client)
-    plugin.sync_site_time(
-        48.873735,
-        2.379992,
-        77.9,
-        "2026-09-27T03:08:00",
-        2.0,
-    )
-
-    assert (
-        "number",
-        "GEOGRAPHIC_COORD",
-        {"LAT": 48.873735, "LONG": 2.379992, "ELEV": 77.9},
-    ) in calls
-    assert (
-        "text",
-        "TIME_UTC",
-        {"UTC": "2026-09-27T03:08:00", "OFFSET": "+2.00"},
-    ) in calls
-    assert not any("GEOGRAPHIC_COORD" in call for call in client.set_calls)
-
-
-def test_onstep_manual_sync_fails_when_location_readback_does_not_match(
+def test_onstep_manual_sync_hands_serial_to_direct_protocol(
     monkeypatch,
     full_props,
 ):
@@ -631,39 +634,116 @@ def test_onstep_manual_sync_fails_when_location_readback_does_not_match(
         "DRIVER_EXEC": "indi_lx200_OnStep",
         "DRIVER_NAME": "LX200 OnStep",
     }
-    props["TIME_UTC"] = {
-        "UTC": "2026-09-27T03:00:00",
-        "OFFSET": "2.00",
-    }
-    props["GEOGRAPHIC_COORD"] = {
-        "LAT": "0",
-        "LONG": "0",
-        "ELEV": "77.9",
-    }
-    client = StubIndiClient(props)
+    props["CONNECTION"] = {"CONNECT": "On", "DISCONNECT": "Off"}
+    props["DEVICE_PORT"] = {"PORT": "/dev/serial/by-id/onstep-test"}
 
-    class Session:
+    cached = StubIndiClient(props)
+    fresh = StubIndiClient(props)
+    direct_calls = []
+
+    class DirectOnStep:
+        def __init__(self, **kwargs):
+            direct_calls.append(("init", kwargs))
+
+        def connect(self):
+            direct_calls.append(("connect",))
+
+        def disconnect(self):
+            direct_calls.append(("disconnect",))
+
+        def set_datetime_location(self, dt_utc, lat, lon, offset):
+            direct_calls.append(
+                ("sync", dt_utc.isoformat(), lat, lon, offset)
+            )
+            return True
+
+    monkeypatch.setattr(
+        "plugins.mount.indi_plugin.IndiSubprocessClient",
+        lambda **_kwargs: fresh,
+    )
+    monkeypatch.setattr("plugins.mount.onstep.OnStep", DirectOnStep)
+
+    result = mount(cached).sync_site_time(
+        48.873735,
+        2.379992,
+        77.9,
+        "2026-09-27T03:08:00",
+        2.0,
+    )
+
+    assert fresh.set_calls[0] == {
+        "CONNECTION": {
+            "CONNECT": "Off",
+            "DISCONNECT": "On",
+        }
+    }
+    assert direct_calls == [
+        (
+            "init",
+            {
+                "port": "/dev/serial/by-id/onstep-test",
+                "baudrate": 9600,
+                "timeout": 1.0,
+            },
+        ),
+        ("connect",),
+        (
+            "sync",
+            "2026-09-27T03:08:00+00:00",
+            48.873735,
+            2.379992,
+            2.0,
+        ),
+        ("disconnect",),
+    ]
+    assert fresh.set_calls[-2:] == [
+        {"DEVICE_PORT": {"PORT": "/dev/serial/by-id/onstep-test"}},
+        {
+            "CONNECTION": {
+                "CONNECT": "On",
+                "DISCONNECT": "Off",
+            }
+        },
+    ]
+    assert result["transport"] == "onstep_direct"
+
+
+def test_onstep_manual_sync_restores_indi_after_direct_rejection(
+    monkeypatch,
+    full_props,
+):
+    props = deepcopy(full_props)
+    props["DRIVER_INFO"] = {
+        "DRIVER_EXEC": "indi_lx200_OnStep",
+        "DRIVER_NAME": "LX200 OnStep",
+    }
+    props["CONNECTION"] = {"CONNECT": "On", "DISCONNECT": "Off"}
+    props["DEVICE_PORT"] = {"PORT": "/dev/serial/by-id/onstep-test"}
+
+    fresh = StubIndiClient(props)
+
+    class RejectingOnStep:
         def __init__(self, **_kwargs):
             pass
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def set_number(self, *_args, **_kwargs):
+        def connect(self):
             pass
 
-        def set_text(self, *_args, **_kwargs):
+        def disconnect(self):
             pass
 
-    monkeypatch.setattr("plugins.mount.indi_plugin.IndiTcpSession", Session)
+        def set_datetime_location(self, *_args):
+            return False
 
-    plugin = mount(client, timeout=0)
+    monkeypatch.setattr(
+        "plugins.mount.indi_plugin.IndiSubprocessClient",
+        lambda **_kwargs: fresh,
+    )
+    monkeypatch.setattr("plugins.mount.onstep.OnStep", RejectingOnStep)
+
     error = assert_code(
         "CONNECTION_FAILED",
-        lambda: plugin.sync_site_time(
+        lambda: mount(StubIndiClient(props)).sync_site_time(
             48.873735,
             2.379992,
             77.9,
@@ -672,7 +752,11 @@ def test_onstep_manual_sync_fails_when_location_readback_does_not_match(
         ),
     )
 
-    assert "not confirmed by readback" in str(error)
+    assert "rejected direct site/time" in str(error)
+    assert fresh.props["CONNECTION"] == {
+        "CONNECT": "On",
+        "DISCONNECT": "Off",
+    }
 
 
 def test_onstep_legacy_home_uses_indi_setprop_transport(monkeypatch, full_props):
