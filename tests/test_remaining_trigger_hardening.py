@@ -166,12 +166,16 @@ def test_totality_child_does_not_restart_from_unsafe_capture_boundary(
 
 
 def test_systemd_runtime_explicitly_uses_control_group_kill_mode():
-    installer = (
+    install_dir = (
         __import__("pathlib").Path(__file__).resolve().parents[1]
         / "install"
-        / "install_standalone_runtime_service.sh"
-    ).read_text(encoding="utf-8")
-    assert "KillMode=control-group" in installer
+    )
+    for installer_name in (
+        "install_standalone_runtime_service.sh",
+        "install_solareclipse.sh",
+    ):
+        installer = (install_dir / installer_name).read_text(encoding="utf-8")
+        assert "KillMode=control-group" in installer
 
 
 def test_frontend_has_failed_and_recovering_states_and_failure_alert():
