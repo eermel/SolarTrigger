@@ -4980,11 +4980,12 @@ def _trigger_start_guarded(callback):
     from backend.camera_characterization import JOB as CHARACTERIZATION_JOB
     from backend.camera_validation import JOB as VALIDATION_JOB
     from backend.runtime_interlock import MaintenanceActiveError, trigger_start_section
-    from backend.system_maintenance import JOB
+    from backend.system_maintenance import JOB, maintenance_helper_running
 
     def maintenance_running():
         return bool(
             JOB.snapshot().get("running")
+            or maintenance_helper_running()
             or CHARACTERIZATION_JOB.running
             or VALIDATION_JOB.running
         )
