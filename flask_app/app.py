@@ -3565,6 +3565,8 @@ def api_eclipse_calculate():
                 eclipse_date,
                 "--output",
                 str(JSON_FILE),
+                "--parent-pid",
+                str(os.getpid()),
             ]
 
             proc = subprocess.Popen(
