@@ -132,6 +132,29 @@ def test_application_update_validates_before_installing():
     assert "Raspberry Pi will reboot" in function
 
 
+def test_application_update_reports_non_json_http_errors():
+    source = frontend_source()
+
+    helper_start = source.index("async function maintenanceJsonResponse(response)")
+    helper_end = source.index("async function maintenancePost(url, body)", helper_start)
+    helper = source[helper_start:helper_end]
+    assert "const responseText = await response.text();" in helper
+    assert "JSON.parse(responseText)" in helper
+    assert "response.statusText" in helper
+    assert "invalid server response" in helper
+
+    function_start = source.index(
+        "async function validateInstallSolarTriggerRelease()"
+    )
+    rollback_start = source.index(
+        "async function rollbackSolarTriggerRelease()",
+        function_start,
+    )
+    function = source[function_start:rollback_start]
+    assert "maintenanceJsonResponse(validationResponse)" in function
+    assert "validationResponse.json()" not in function
+
+
 def test_system_maintenance_cards_have_requested_colours():
     source = frontend_source()
 
