@@ -46,6 +46,7 @@ INTERFACE_BITS = {
 _PHOTO_DRIVER_TOKENS = ("gphoto", "dslr")
 _DEFAULT_MOUNT_CONNECT_TIMEOUT_S = 3.0
 _ONSTEP_MOUNT_CONNECT_TIMEOUT_S = 15.0
+_ONSTEP_SUBPROCESS_TIMEOUT_S = 5.0
 _ONSTEP_DRIVER_EXEC = "indi_lx200_OnStep"
 
 
@@ -513,7 +514,7 @@ class IndiDeviceManager:
             host=self.host,
             port=self.port,
             device=device_name,
-            timeout_s=self.timeout_s,
+            timeout_s=max(self.timeout_s, _ONSTEP_SUBPROCESS_TIMEOUT_S),
         )
         try:
             client.set_props({"DEVICE_PORT": {"PORT": candidate}})
@@ -604,7 +605,7 @@ class IndiDeviceManager:
             host=self.host,
             port=self.port,
             device=device_name,
-            timeout_s=self.timeout_s,
+            timeout_s=max(self.timeout_s, _ONSTEP_SUBPROCESS_TIMEOUT_S),
         )
         try:
             client.set_props({
@@ -882,7 +883,10 @@ class IndiDeviceManager:
                         host=self.host,
                         port=self.port,
                         device=str(device_name),
-                        timeout_s=self.timeout_s,
+                        timeout_s=max(
+                            self.timeout_s,
+                            _ONSTEP_SUBPROCESS_TIMEOUT_S,
+                        ),
                     )
                     client.set_props({
                         "TELESCOPE_TRACK_STATE": {
