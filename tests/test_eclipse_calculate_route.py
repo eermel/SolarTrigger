@@ -1,4 +1,5 @@
 import json
+import os
 import importlib.util
 import sys
 import threading
@@ -173,6 +174,7 @@ def test_eclipse_calculate_invokes_python_calculator_and_updates_state(
     assert command[command.index("--tz") + 1] == "2.0"
     assert command[command.index("--date") + 1] == "2027-08-02"
     assert command[command.index("--output") + 1] == str(flask_module.JSON_FILE)
+    assert command[command.index("--parent-pid") + 1] == str(os.getpid())
     assert timezone_calls == [(43.6, 1.44, "2027-08-02")]
     assert flask_module._state["calc_running"] is False
     assert flask_module._state["eclipse"] == MOCK_UTC_RESULT
