@@ -369,6 +369,22 @@ class IndiSubprocessClient:
         """Merge one fresh device snapshot into the runtime monitor cache."""
         self._merge_cache({self.device: properties})
 
+    def replace_monitor_properties(
+        self,
+        properties: dict[str, dict[str, Any]],
+    ) -> None:
+        """Replace complete property vectors from an authoritative snapshot.
+
+        Persistent monitor lines are deltas and must still merge. A bounded
+        one-shot snapshot is authoritative for each property it contains, so
+        replacing those vectors prevents elements from an older INDI driver
+        generation surviving a reconnect.
+        """
+        with self._monitor_lock:
+            device_cache = self._monitor_cache.setdefault(self.device, {})
+            for prop, elements in properties.items():
+                device_cache[prop] = dict(elements)
+
     def stop_monitor(self) -> None:
         """Stop the persistent monitor if one is active."""
         with self._monitor_lock:
