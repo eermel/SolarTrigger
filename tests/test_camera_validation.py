@@ -482,3 +482,36 @@ def test_stranded_validation_runtime_cleanup_is_retryable_and_fail_closed():
 
     assert runtime.calls == 2
     assert job._stranded_runtime is None
+
+
+def test_validation_thread_start_failure_restores_prepared_authorization(
+    monkeypatch,
+):
+    job = CameraValidationJob()
+    prepared = {
+        "token": "retry-token",
+        "prepared_monotonic": camera_validation.time.monotonic(),
+    }
+    job.prepared = prepared
+    job.phase = "prepared"
+
+    class FailingThread:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("thread start failed")
+
+    monkeypatch.setattr(camera_validation.threading, "Thread", FailingThread)
+
+    with pytest.raises(
+        CameraValidationError,
+        match="worker failed to start",
+    ):
+        job.start("retry-token")
+
+    assert job.running is False
+    assert job.phase == "prepared"
+    assert job.job_id is None
+    assert job.prepared is prepared
+    assert job.cancel_event.is_set() is False
