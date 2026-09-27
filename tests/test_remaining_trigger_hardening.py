@@ -190,3 +190,29 @@ def test_frontend_has_failed_and_recovering_states_and_failure_alert():
     assert "failed: '⚠ TRIGGER FAILED'" in js
     assert 'socket.on("trigger_failure"' in js
     assert "typeof d.running === 'boolean'" in js
+
+
+def test_systemd_portal_explicitly_uses_control_group_kill_mode():
+    install_dir = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / "install"
+    )
+
+    main_installer = (
+        install_dir / "install_solareclipse.sh"
+    ).read_text(encoding="utf-8")
+    portal_unit = main_installer.split(
+        "cat > /etc/systemd/system/solareclipse.service <<EOL",
+        1,
+    )[1].split("\nEOL", 1)[0]
+    assert "KillMode=control-group" in portal_unit
+
+    migration_installer = (
+        install_dir / "install_standalone_runtime_service.sh"
+    ).read_text(encoding="utf-8")
+    portal_dropin = migration_installer.split(
+        "cat > /etc/systemd/system/solareclipse.service.d/"
+        "standalone-runtime.conf <<'EOF'",
+        1,
+    )[1].split("\nEOF", 1)[0]
+    assert "KillMode=control-group" in portal_dropin
