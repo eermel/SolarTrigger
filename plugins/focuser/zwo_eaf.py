@@ -234,80 +234,41 @@ class ZwoEaf:
         return raw.hex().upper()
 
     def enumerate_devices(self):
-        """Enumère tous les EAF sans perturber les sessions persistantes.
+        """Enumerate EAF IDs without opening the USB device.
 
-        Le SDK ZWO associe EAFOpen/EAFClose à l'ID matériel global du
-        processus. L'inventaire prend donc une référence temporaire sur la
-        session. Si un worker possède déjà l'EAF, aucun EAFOpen/EAFClose
-        physique supplémentaire n'est envoyé.
+        Device discovery runs outside the persistent focuser worker process.
+        EAFOpen/EAFClose here could therefore race the worker's SDK ownership
+        even though the in-process reference counter is correct.  EAFGetNum
+        and EAFGetID are sufficient to prove physical presence; detailed
+        metadata is read only by the worker when it owns the selected EAF.
         """
         count = self.lib.EAFGetNum()
         if count <= 0:
             return []
 
         devices = []
-
         for index in range(count):
             cid = ctypes.c_int(0)
-            sdk_id = None
-            acquired = False
-
             try:
                 self._check(
                     self.lib.EAFGetID(index, ctypes.byref(cid)),
                     "EAFGetID",
                 )
-                sdk_id = cid.value
-
-                _acquire_sdk_session(self.lib, sdk_id)
-                acquired = True
-
-                info = EAF_INFO()
-                self._check(
-                    self.lib.EAFGetProperty(
-                        sdk_id, ctypes.byref(info)
-                    ),
-                    "EAFGetProperty",
-                )
-
-                name = (
-                    info.Name.decode("ascii", "replace")
-                    .rstrip("\x00")
-                    .strip()
-                )
-
-                devices.append({
-                    "category": "focuser",
-                    "backend": "zwo_eaf",
-                    "manufacturer": "ZWO",
-                    "model": name or "EAF",
-                    "serial": self._serial_number(sdk_id),
-                    "device_id": f"zwo_eaf:{sdk_id}",
-                    "sdk_id": sdk_id,
-                    "max_step": info.MaxStep,
-                })
-
             except EafError:
-                # EAFGetNum/EAFGetID are sufficient evidence that the SDK can
-                # see the physical focuser. Opening it may legitimately fail
-                # when another process already owns the SDK session. Do not
-                # make the device disappear from Add devices in that case.
-                if sdk_id is not None:
-                    devices.append({
-                        "category": "focuser",
-                        "backend": "zwo_eaf",
-                        "manufacturer": "ZWO",
-                        "model": "EAF",
-                        "serial": None,
-                        "device_id": f"zwo_eaf:{sdk_id}",
-                        "sdk_id": sdk_id,
-                        "max_step": None,
-                        "details_available": False,
-                    })
+                continue
 
-            finally:
-                if acquired and sdk_id is not None:
-                    _release_sdk_session(self.lib, sdk_id)
+            sdk_id = cid.value
+            devices.append({
+                "category": "focuser",
+                "backend": "zwo_eaf",
+                "manufacturer": "ZWO",
+                "model": "EAF",
+                "serial": None,
+                "device_id": f"zwo_eaf:{sdk_id}",
+                "sdk_id": sdk_id,
+                "max_step": None,
+                "details_available": False,
+            })
 
         return devices
 
