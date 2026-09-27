@@ -323,7 +323,13 @@ class SupervisedDeviceProcess:
     def start(self) -> None:
         with self._lock:
             self._started = True
-            self._ensure_process_locked()
+            try:
+                self._ensure_process_locked()
+            except BaseException:
+                self._started = False
+                if self._process is not None:
+                    self._kill_current_locked()
+                raise
 
     def shutdown(self, timeout: float | None = 2.0) -> bool:
         effective_timeout = (
@@ -515,12 +521,28 @@ class SupervisedDeviceProcess:
             daemon=True,
         )
 
-        process.start()
-        child_conn.close()
+        try:
+            process.start()
+        except BaseException:
+            try:
+                child_conn.close()
+            except OSError:
+                pass
+            try:
+                parent_conn.close()
+            except OSError:
+                pass
+            raise
 
+        # Process.start() is the ownership boundary. Publish the live child
+        # before any parent-side cleanup can fail so its handle is never lost.
         self._process = process
         self._conn = parent_conn
         self._generation += 1
+        try:
+            child_conn.close()
+        except OSError:
+            pass
 
         deadline = time.monotonic() + READY_TIMEOUT_S
 
