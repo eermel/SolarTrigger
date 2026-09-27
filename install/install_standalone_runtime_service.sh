@@ -147,6 +147,7 @@ After=solartrigger-indi.service solartrigger-runtime.service
 Environment="SOLARTRIGGER_RUNTIME_CLIENT=1"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
 Environment="SOLARTRIGGER_ADMISSION_LOCK=/run/solartrigger/admission.lock"
+KillMode=control-group
 EOF
 
 # The runtime owns /run/solartrigger, but the portal must also reach the
