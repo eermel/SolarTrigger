@@ -1101,9 +1101,26 @@ class CameraValidationJob:
         self.log_path: Path | None = None
         self.report_path: Path | None = None
         self._notify_fn = None
+        self._stranded_runtime: CameraWorkerRuntime | None = None
 
     def set_notify_fn(self, notify_fn) -> None:
         self._notify_fn = notify_fn
+
+    def _retry_stranded_runtime_cleanup_locked(self) -> None:
+        """Release any temporary validation runtime retained after failed cleanup."""
+
+        runtime = self._stranded_runtime
+        if runtime is None:
+            return
+        try:
+            runtime.shutdown()
+        except Exception as exc:
+            raise CameraValidationError(
+                "previous validation camera cleanup is incomplete; "
+                "new validation is refused until USB ownership is released "
+                f"({type(exc).__name__}: {exc})"
+            ) from exc
+        self._stranded_runtime = None
 
     def _notify(self) -> None:
         notify_fn = self._notify_fn
@@ -1186,6 +1203,7 @@ class CameraValidationJob:
         with self.lock:
             if self.running:
                 raise CameraValidationError("camera validation already running")
+            self._retry_stranded_runtime_cleanup_locked()
             self.prepared = {
                 **public,
                 "prepared_monotonic": time.monotonic(),
@@ -1206,6 +1224,7 @@ class CameraValidationJob:
         with self.lock:
             if self.running:
                 raise CameraValidationError("camera validation already running")
+            self._retry_stranded_runtime_cleanup_locked()
             if not isinstance(token, str) or not token or self.prepared is None:
                 raise CameraValidationError("prepare camera validation first")
             if token != self.prepared.get("token"):
@@ -1350,8 +1369,21 @@ class CameraValidationJob:
                 }
             ]
         }
-        temp_runtime.reconcile(temp_config)
-        session = temp_runtime.open_ipc_session([1])
+        try:
+            temp_runtime.reconcile(temp_config)
+            session = temp_runtime.open_ipc_session([1])
+        except BaseException as start_exc:
+            try:
+                temp_runtime.shutdown()
+            except Exception as cleanup_exc:
+                with self.lock:
+                    self._stranded_runtime = temp_runtime
+                raise CameraValidationError(
+                    "temporary validation runtime startup failed and camera "
+                    "ownership could not be released; further validation is "
+                    f"blocked ({type(cleanup_exc).__name__}: {cleanup_exc})"
+                ) from start_exc
+            raise
         return temp_runtime, session, 1, True, "temporary_rig"
 
     def _run(self, prepared: dict[str, Any], root: Path) -> None:
@@ -1419,7 +1451,15 @@ class CameraValidationJob:
                 try:
                     runtime_owner.shutdown()
                 except Exception as exc:
-                    self.log(f"worker shutdown warning: {exc}")
+                    with self.lock:
+                        self._stranded_runtime = runtime_owner
+                    cleanup_error = CameraValidationError(
+                        "temporary validation runtime could not release camera "
+                        f"ownership ({type(exc).__name__}: {exc})"
+                    )
+                    self.log(f"worker shutdown ERROR: {cleanup_error}")
+                    if fatal_error is None:
+                        fatal_error = self._exception_payload(cleanup_error)
 
         recording = recorder.snapshot() if recorder is not None else {
             "preflight": None,
