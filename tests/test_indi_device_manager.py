@@ -436,6 +436,57 @@ def test_half_connected_onstep_forces_reconnect_before_inventory(
     assert payload["reconnect_required"] == []
 
 
+def test_unbound_half_connected_onstep_scans_safe_candidates_with_reconnect(
+    monkeypatch,
+):
+    devices = {
+        "LX200 OnStep": {
+            "DRIVER_INFO": {
+                "DRIVER_EXEC": "indi_lx200_OnStep",
+                "DRIVER_INTERFACE": "1",
+            },
+            "CONNECTION": {"CONNECT": "On", "DISCONNECT": "Off"},
+            # No stable DEVICE_PORT and no persisted binding: fresh-install
+            # half-connected state.
+        },
+    }
+    manager = IndiDeviceManager(client=FakeClient(devices))
+    candidates = [
+        "/dev/serial/by-id/OTHER",
+        "/dev/serial/by-id/ONSTEP",
+    ]
+    monkeypatch.setattr(manager, "_serial_candidates", lambda: candidates)
+    attempts = []
+    monkeypatch.setattr(
+        manager,
+        "_reconnect_mount_transport",
+        lambda device, candidate, **kwargs: attempts.append(
+            (
+                device,
+                candidate,
+                kwargs.get("use_setprop"),
+            )
+        ) or candidate.endswith("/ONSTEP"),
+    )
+    remembered = []
+    monkeypatch.setattr(
+        manager,
+        "_remember_mount_binding",
+        lambda device, candidate, _bindings: remembered.append(
+            (device, candidate)
+        ) or True,
+    )
+
+    assert manager._autoconnect_mounts(devices) is True
+    assert attempts == [
+        ("LX200 OnStep", "/dev/serial/by-id/OTHER", True),
+        ("LX200 OnStep", "/dev/serial/by-id/ONSTEP", True),
+    ]
+    assert remembered == [
+        ("LX200 OnStep", "/dev/serial/by-id/ONSTEP"),
+    ]
+
+
 def test_half_connected_onstep_is_not_published_present(monkeypatch):
     learned = "/dev/serial/by-id/ONSTEP"
     monkeypatch.setattr(
