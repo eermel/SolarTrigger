@@ -651,3 +651,34 @@ def test_accept_thread_start_failure_rolls_back_socket_and_allows_retry(
 
     assert not path.exists()
     assert server.stopped is True
+
+
+def test_executor_creation_failure_rolls_back_bound_ipc_socket(
+    tmp_path,
+    monkeypatch,
+):
+    server = make_server(tmp_path)
+
+    class FailingExecutor:
+        def __init__(self, **_kwargs):
+            raise RuntimeError("synthetic executor creation failure")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(
+            camera_ipc_server,
+            "ThreadPoolExecutor",
+            FailingExecutor,
+        )
+        with pytest.raises(
+            RuntimeError,
+            match="synthetic executor creation failure",
+        ):
+            server.start()
+
+    assert server._socket is None
+    assert server._pool is None
+    assert server._connection_slots is None
+    assert server._accept_thread is None
+    assert server.stopping is False
+    assert server.stopped is True
+    assert not server.socket_path.exists()
