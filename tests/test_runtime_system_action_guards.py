@@ -121,3 +121,32 @@ def test_callable_maintenance_publishes_busy_state_for_entire_action():
     snapshot = job.snapshot()
     assert snapshot["running"] is False
     assert snapshot["status"] == "success"
+
+
+def test_trigger_start_guard_rejects_external_maintenance_helper(monkeypatch):
+    from backend import camera_characterization
+    from backend import camera_validation
+    from backend import system_maintenance
+    from backend.trigger_service import TriggerValidationError
+
+    monkeypatch.setattr(
+        system_maintenance,
+        "maintenance_helper_running",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        system_maintenance.JOB,
+        "snapshot",
+        lambda: {"running": False},
+    )
+    monkeypatch.setattr(camera_characterization.JOB, "running", False)
+    monkeypatch.setattr(camera_validation.JOB, "running", False)
+
+    called = []
+    with pytest.raises(TriggerValidationError) as caught:
+        flask_module._trigger_start_guarded(
+            lambda: called.append(True)
+        )
+
+    assert caught.value.code == "SYSTEM_MAINTENANCE_RUNNING"
+    assert called == []
