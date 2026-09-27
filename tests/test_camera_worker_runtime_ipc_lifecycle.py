@@ -511,3 +511,35 @@ def test_failed_last_session_stop_freezes_new_camera_ownership(tmp_path):
 
     with pytest.raises(RuntimeError, match="shutdown is still in progress"):
         runtime.release_idle_workers()
+
+
+def test_policy_snapshot_failure_prevents_ipc_server_and_session_creation(
+    tmp_path,
+    monkeypatch,
+):
+    runtime, servers = _runtime(tmp_path)
+    runtime.reconcile({"rigs": [_rig()]})
+
+    def fail_policy(_rig_id):
+        raise RuntimeError("synthetic policy snapshot failure")
+
+    monkeypatch.setattr(
+        runtime,
+        "get_policy_config_for_rig",
+        fail_policy,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="synthetic policy snapshot failure",
+    ):
+        runtime.open_ipc_session((1,))
+
+    assert servers == []
+    assert runtime._ipc_server is None
+    assert runtime._ipc_session_ids == set()
+    assert runtime._ipc_session_rigs == {}
+    assert runtime._leased_policy_configs == {}
+    assert runtime.active_camera_rig_ids() == (1,)
+
+    runtime.shutdown()
