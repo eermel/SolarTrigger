@@ -1,4 +1,9 @@
+import sys
+from types import SimpleNamespace
+
 import pytest
+
+sys.modules.setdefault("serial", SimpleNamespace())
 
 from plugins.mount.onstep import OnStep
 
