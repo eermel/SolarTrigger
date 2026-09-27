@@ -1,4 +1,6 @@
 from copy import deepcopy
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -463,6 +465,7 @@ def test_onstep_runtime_keeps_indi_setprop_transport(monkeypatch, full_props):
         "MOTION_EAST": "Off",
         "MOTION_WEST": "Off",
     }
+    props["DEVICE_PORT"] = {"PORT": "/dev/serial/by-id/onstep-test"}
     client = StubIndiClient(props)
     fresh = StubIndiClient(props)
     session_attempts = []
@@ -774,7 +777,9 @@ def test_onstep_manual_sync_hands_serial_to_direct_protocol(
         "plugins.mount.indi_plugin.IndiSubprocessClient",
         lambda **_kwargs: fresh,
     )
-    monkeypatch.setattr("plugins.mount.onstep.OnStep", DirectOnStep)
+    onstep_module = ModuleType("plugins.mount.onstep")
+    onstep_module.OnStep = DirectOnStep
+    monkeypatch.setitem(sys.modules, "plugins.mount.onstep", onstep_module)
 
     result = mount(cached).sync_site_time(
         48.873735,
@@ -870,7 +875,9 @@ def test_onstep_manual_sync_restores_indi_after_direct_rejection(
         "plugins.mount.indi_plugin.IndiSubprocessClient",
         lambda **_kwargs: fresh,
     )
-    monkeypatch.setattr("plugins.mount.onstep.OnStep", RejectingOnStep)
+    onstep_module = ModuleType("plugins.mount.onstep")
+    onstep_module.OnStep = RejectingOnStep
+    monkeypatch.setitem(sys.modules, "plugins.mount.onstep", onstep_module)
 
     error = assert_code(
         "CONNECTION_FAILED",
