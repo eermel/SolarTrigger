@@ -342,11 +342,30 @@ def _reserved_entries(
     return entries, physical_paths, device_ids
 
 
+def _is_onstep_indi_entry(entry: Mapping[str, Any]) -> bool:
+    """Return True for legacy INDI representations of an OnStep controller."""
+    identity = " ".join(
+        str(entry.get(field) or "")
+        for field in (
+            "driver_exec",
+            "driver_name",
+            "device_name",
+            "model",
+        )
+    ).casefold()
+    return "onstep" in identity
+
+
 def _discover_mounts(
     reserved_mounts: Iterable[Mapping[str, Any]] | None = None,
     indi_catalog: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Prefer INDI mounts; direct serial plugins remain migration fallbacks."""
+    """Aggregate EQMod/INDI mounts and direct-serial OnStep mounts.
+
+    OnStep is intentionally excluded from the INDI control path.  The custom
+    LX200 serial plugin owns OnStep controllers, while INDI remains the owner
+    of EQMod and other explicitly supported INDI telescope drivers.
+    """
 
     reserved_entries, reserved_paths, reserved_ids = _reserved_entries(
         "mount",
@@ -356,45 +375,36 @@ def _discover_mounts(
     try:
         from backend.indi_device_manager import IndiDeviceManager
 
-        indi_mounts = IndiDeviceManager.inventory_entries(
-            indi_catalog or [],
-            "mount",
-        )
+        indi_mounts = [
+            entry
+            for entry in IndiDeviceManager.inventory_entries(
+                indi_catalog or [],
+                "mount",
+            )
+            if not _is_onstep_indi_entry(entry)
+            and _text(entry.get("device_id")) not in reserved_ids
+        ]
     except Exception:
         indi_mounts = []
 
-    if indi_mounts:
-        discovered = [
-            entry for entry in indi_mounts
-            if _text(entry.get("device_id")) not in reserved_ids
-        ]
-        return [*reserved_entries, *discovered]
-
-    advertised_indi_mount = any(
-        isinstance(entry, Mapping)
-        and "mount" in (entry.get("categories") or ())
-        for entry in (indi_catalog or ())
-    )
-    if advertised_indi_mount or _has_reserved_indi(reserved_mounts):
-        # Once an INDI mount driver is advertised, INDI owns mount discovery.
-        # A temporarily absent/hot-unplugged INDI mount must not make the
-        # inventory fall through to legacy direct serial probing (which could
-        # race INDI or accidentally probe unrelated serial devices such as
-        # the GPS receiver).
-        return reserved_entries
-
+    direct_mounts = []
     try:
         from plugins.mount import inventory_mounts
 
-        discovered = list(inventory_mounts(
+        # OnStep is the only direct serial mount backend today.  Restricting
+        # this pass prevents a second INDI probe while preserving coexistence
+        # with an EQMod mount advertised by the central INDI catalogue.
+        direct_mounts = list(inventory_mounts(
+            candidates=["onstep"],
             log_fn=lambda *_args: None,
             exclude_physical_paths=reserved_paths,
         ))
-        if discovered or reserved_entries:
-            return [*reserved_entries, *discovered]
     except Exception:
-        if reserved_entries:
-            return reserved_entries
+        direct_mounts = []
+
+    discovered = [*reserved_entries, *indi_mounts, *direct_mounts]
+    if discovered:
+        return discovered
 
     return _discover_legacy_category("mount")
 
