@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import ctypes
 import multiprocessing
+import os
+import signal
+import sys
 import threading
 import time
 from multiprocessing.connection import Connection
@@ -19,6 +23,54 @@ from backend.generic_worker import (
 READY_TIMEOUT_S = 10.0
 KILL_GRACE_S = 0.5
 TRANSPORT_GRACE_S = 2.0
+_PR_SET_PDEATHSIG = 1
+
+
+def arm_parent_death_signal(expected_parent_pid: int | None) -> None:
+    """Terminate a Linux hardware child when its supervisor process dies.
+
+    Gunicorn may respawn only its web worker while leaving the systemd service
+    itself alive. A supervised mount/focuser child must therefore be tied to
+    the exact worker process which created it, otherwise an abruptly orphaned
+    child could keep owning hardware while the replacement worker creates a
+    second owner.
+    """
+
+    if expected_parent_pid is None or not sys.platform.startswith("linux"):
+        return
+
+    expected = int(expected_parent_pid)
+    libc = ctypes.CDLL(None, use_errno=True)
+    prctl = libc.prctl
+    prctl.argtypes = [
+        ctypes.c_int,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+    ]
+    prctl.restype = ctypes.c_int
+
+    if prctl(
+        _PR_SET_PDEATHSIG,
+        int(signal.SIGTERM),
+        0,
+        0,
+        0,
+    ) != 0:
+        err = ctypes.get_errno()
+        raise OSError(
+            err,
+            "unable to arm parent-death signal for hardware worker",
+        )
+
+    # Close the classic race where the parent exits between process creation
+    # and PR_SET_PDEATHSIG. Do not touch hardware if this child is already
+    # orphaned/reparented.
+    if os.getppid() != expected:
+        raise RuntimeError(
+            "hardware worker supervisor disappeared before child admission"
+        )
 
 
 class MotionStateUnknownError(RuntimeError):
@@ -449,11 +501,14 @@ class SupervisedDeviceProcess:
 
         parent_conn, child_conn = self._ctx.Pipe(duplex=True)
 
+        process_spec = dict(self._process_spec)
+        process_spec["_supervisor_pid"] = os.getpid()
+
         process = self._ctx.Process(
             target=self._process_target,
             args=(
                 child_conn,
-                dict(self._process_spec),
+                process_spec,
                 self._call_timeout_s,
             ),
             name=f"{self.device_kind}-rig-{self.rig_id}",
