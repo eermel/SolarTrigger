@@ -1606,6 +1606,7 @@ def characterize(camera, entry, job):
     )
 
     validated_trials = set()
+    exploratory_usb_failure = False
 
     def probe(
         spec,
@@ -1994,6 +1995,7 @@ def characterize(camera, entry, job):
         except (Cancelled, CameraIdleTimeout):
             raise
         except Exception as exc:
+            exploratory_usb_failure = True
             rejected = CandidateEvidence(
                 candidate_id=json.dumps(spec, sort_keys=True),
                 recipe=deepcopy(spec),
@@ -2839,9 +2841,34 @@ def characterize(camera, entry, job):
 
     profile["timing_contract"] = contract
 
+    # A rejected exploratory capture primitive may leave libgphoto/the camera
+    # session unusable even though another primitive was already proven reliable.
+    # Never let that characterization-only failure contaminate the final
+    # operational qualification. Reopen exactly once at this boundary, clear
+    # stale single-config widgets, and re-converge the characterized preflight.
+    # The qualification itself still runs as one uninterrupted persistent
+    # session, matching Trigger/CameraService runtime semantics.
+    if exploratory_usb_failure:
+        job.check()
+        job.log(
+            "EXPLORATORY USB RECOVERY: reopening camera session before "
+            "final operational qualification"
+        )
+        try:
+            camera.exit()
+        except Exception as exc:
+            job.log(f"EXPLORATORY USB RECOVERY close warning: {exc}")
+        direct_nodes.clear()
+        camera.init()
+        converge_characterized_preflight()
+        job.log(
+            "EXPLORATORY USB RECOVERY complete: fresh session preflight "
+            "confirmed"
+        )
+
     # Qualification exercises representative reactive SET/PHOTO groups in
-    # the already-open persistent camera session.  It never owns camera.init()
-    # or camera.exit(); Trigger/CameraService own that lifecycle.
+    # one persistent camera session.  qualify_operational_contract_v3() never
+    # owns camera.init()/camera.exit(); Trigger/CameraService own that lifecycle.
     profile["strategy"] = (
         "bracket"
         if profile["brackets"]
