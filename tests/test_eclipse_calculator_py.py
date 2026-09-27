@@ -196,7 +196,7 @@ def test_calculator_arms_parent_death_before_loading_eclipse(
         "duration_str": "0m 0s",
         "sun_alt_tmax": "0°",
         **{f"{event}_utc": None for event in eclipse_calculator_py.EVENTS},
-        **{f"{event}_local": None for event in EVENTS},
+        **{f"{event}_local": None for event in eclipse_calculator_py.EVENTS},
         **{f"{event}_alt_deg": None for event in EVENTS},
     }
     circumstances["C1_utc"] = "00:00:00.000"
