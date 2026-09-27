@@ -591,6 +591,26 @@ class CameraIpcServer:
         ):
             self._socket_path.unlink()
 
+    def _fail_accept_loop(self, listener, exc: BaseException) -> None:
+        """Freeze IPC ownership after an unexpected listener failure.
+
+        Do not clear sessions/tokens or release camera workers here.  A live
+        Trigger/validation lease still owns them.  Mark the server as stopping
+        and remove only our public socket endpoint; the normal session close
+        path will later call stop(), drain handlers, and finalize ownership.
+        """
+
+        self._safe_log("camera IPC accept loop failed", exc)
+        self._stopping.set()
+        with self._state_lock:
+            if self._socket is listener:
+                self._socket = None
+        try:
+            listener.close()
+        except OSError:
+            pass
+        self._unlink_own_socket()
+
     def _accept_loop(self) -> None:
         while not self._stopping.is_set():
             listener = self._socket
@@ -600,41 +620,60 @@ class CameraIpcServer:
                 connection, _ = listener.accept()
             except socket.timeout:
                 continue
-            except OSError:
+            except OSError as exc:
                 if self._stopping.is_set():
                     break
-                continue
-            connection.settimeout(CONNECTION_IO_TIMEOUT_S)
-
-            pool = self._pool
-            slots = self._connection_slots
-            if pool is None or slots is None:
-                connection.close()
-                continue
-            if not slots.acquire(blocking=False):
-                # Backpressure is safer than the executor's unbounded queue.
-                # A client receives EOF/reset and may retry; the real-time
-                # camera handlers already in progress remain unaffected.
-                connection.close()
-                continue
-
-            with self._handler_state:
-                if self._stopping.is_set():
-                    connection.close()
-                    slots.release()
-                    continue
-                self._active_connections.add(connection)
+                self._fail_accept_loop(listener, exc)
+                break
 
             try:
-                pool.submit(self._serve_connection_bounded, connection, slots)
-            except RuntimeError:
-                # Pool may have been shut down between the snapshots above and
-                # submit().  Never leak either the socket or its capacity slot.
+                connection.settimeout(CONNECTION_IO_TIMEOUT_S)
+
+                pool = self._pool
+                slots = self._connection_slots
+                if pool is None or slots is None:
+                    connection.close()
+                    continue
+                if not slots.acquire(blocking=False):
+                    # Backpressure is safer than the executor's unbounded queue.
+                    # A client receives EOF/reset and may retry; the real-time
+                    # camera handlers already in progress remain unaffected.
+                    connection.close()
+                    continue
+
                 with self._handler_state:
-                    self._active_connections.discard(connection)
-                    self._handler_state.notify_all()
-                connection.close()
-                slots.release()
+                    if self._stopping.is_set():
+                        connection.close()
+                        slots.release()
+                        continue
+                    self._active_connections.add(connection)
+
+                try:
+                    pool.submit(
+                        self._serve_connection_bounded,
+                        connection,
+                        slots,
+                    )
+                except BaseException:
+                    # Pool shutdown or an unexpected executor failure must not
+                    # leak either the socket or its capacity slot.
+                    with self._handler_state:
+                        self._active_connections.discard(connection)
+                        self._handler_state.notify_all()
+                    connection.close()
+                    slots.release()
+                    raise
+            except BaseException as exc:
+                # Per-connection setup failing unexpectedly means admission is
+                # no longer trustworthy.  Freeze the whole IPC server instead
+                # of silently killing the accept thread or spinning.
+                try:
+                    connection.close()
+                except OSError:
+                    pass
+                if not self._stopping.is_set():
+                    self._fail_accept_loop(listener, exc)
+                break
 
     def _serve_connection_bounded(
         self,
