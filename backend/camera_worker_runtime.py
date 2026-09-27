@@ -137,6 +137,23 @@ class CameraWorkerRuntime:
             return False, "worker reported that shutdown did not complete"
         return True, None
 
+
+    def _refresh_stopped_ipc_server_locked(self):
+        server = self._ipc_server
+        if server is not None and bool(getattr(server, "stopped", False)):
+            self._ipc_server = None
+            return None
+        return server
+
+    def _guard_ipc_shutdown_locked(self):
+        server = self._refresh_stopped_ipc_server_locked()
+        if server is not None and bool(getattr(server, "stopping", False)):
+            raise RuntimeError(
+                "camera IPC shutdown is still in progress; "
+                "camera ownership remains frozen"
+            )
+        return server
+
     def reconcile(self, config: dict) -> None:
         """Reconcile persistent workers against the current rig configuration.
 
@@ -148,6 +165,7 @@ class CameraWorkerRuntime:
         desired = set(desired_entries)
 
         with self._lock:
+            self._guard_ipc_shutdown_locked()
             leased_rigs: set[int] = set()
             for scope in self._ipc_session_rigs.values():
                 if scope is None:
@@ -349,6 +367,7 @@ class CameraWorkerRuntime:
         """
 
         with self._lock:
+            server = self._guard_ipc_shutdown_locked()
             available = set(self._registry)
             if not available:
                 raise RuntimeError("cannot open camera IPC without active camera rigs")
@@ -397,7 +416,6 @@ class CameraWorkerRuntime:
                         "another camera IPC session already owns one of these RIGs"
                     )
 
-            server = self._ipc_server
             if server is None:
                 server = self._ipc_server_factory(
                     self,
@@ -473,13 +491,32 @@ class CameraWorkerRuntime:
 
             # Another disjoint RIG may have opened a lease while revocation was
             # in progress. Stop only if this is still the same server and no
-            # runtime leases remain.
+            # runtime leases remain.  Keep the server reference until its
+            # admitted handlers have actually drained.
             if self._ipc_server is server and not self._ipc_session_ids:
-                self._ipc_server = None
                 stop_server = True
 
+        stop_error = None
         if stop_server:
-            _stop_ipc_server(server, timeout=2.0)
+            try:
+                stopped = _stop_ipc_server(server, timeout=2.0)
+                if stopped is False:
+                    stop_error = RuntimeError(
+                        "camera IPC server shutdown did not drain active handlers"
+                    )
+                else:
+                    with self._lock:
+                        if self._ipc_server is server and not self._ipc_session_ids:
+                            self._ipc_server = None
+            except BaseException as exc:
+                stop_error = exc
+
+        if stop_error is not None:
+            if revoke_error is not None:
+                raise RuntimeError(
+                    f"{stop_error}; session revoke also failed: {revoke_error}"
+                ) from revoke_error
+            raise stop_error
 
         if revoke_error is not None:
             raise revoke_error
@@ -493,9 +530,15 @@ class CameraWorkerRuntime:
         """
 
         with self._lock:
+            server = self._guard_ipc_shutdown_locked()
             if self._ipc_session_ids or self._ipc_closing_session_ids:
                 raise RuntimeError(
                     "camera runtime cannot be released while a trigger IPC session is active"
+                )
+            if server is not None:
+                raise RuntimeError(
+                    "camera runtime cannot be released while camera IPC "
+                    "ownership has not fully shut down"
                 )
 
             workers = dict(self._registry)
@@ -541,17 +584,30 @@ class CameraWorkerRuntime:
         """
 
         with self._lock:
-            server = self._ipc_server
+            server = self._refresh_stopped_ipc_server_locked()
             workers = dict(self._registry)
 
-        server_error: str | None = None
         if server is not None:
             try:
                 result = _stop_ipc_server(server, timeout=2.0)
-                if result is False:
-                    server_error = "IPC server reported that shutdown did not complete"
             except Exception as exc:
-                server_error = f"{type(exc).__name__}: {exc}"
+                raise RuntimeError(
+                    "camera runtime shutdown could not release ownership "
+                    f"(IPC server: {type(exc).__name__}: {exc})"
+                ) from exc
+            if result is False:
+                raise RuntimeError(
+                    "camera runtime shutdown could not release ownership "
+                    "(IPC server: active handlers did not drain)"
+                )
+
+            with self._lock:
+                if self._ipc_server is server:
+                    self._ipc_server = None
+                    self._ipc_session_ids.clear()
+                    self._ipc_session_rigs.clear()
+                    self._ipc_closing_session_ids.clear()
+                    self._leased_policy_configs.clear()
 
         worker_failures: dict[int, str] = {}
         for rig_id, worker in workers.items():
@@ -560,13 +616,6 @@ class CameraWorkerRuntime:
                 worker_failures[rig_id] = detail or "shutdown failed"
 
         with self._lock:
-            if server_error is None and self._ipc_server is server:
-                self._ipc_server = None
-                self._ipc_session_ids.clear()
-                self._ipc_session_rigs.clear()
-                self._ipc_closing_session_ids.clear()
-                self._leased_policy_configs.clear()
-
             # Remove only workers whose shutdown was confirmed.  Failed owners
             # remain authoritative and keep their binding metadata for retry.
             for rig_id, worker in workers.items():
@@ -579,13 +628,10 @@ class CameraWorkerRuntime:
             if not self._registry:
                 self._config = None
 
-        failures = []
-        if server_error is not None:
-            failures.append(f"IPC server: {server_error}")
-        failures.extend(
+        failures = [
             f"RIG {rig_id}: {worker_failures[rig_id]}"
             for rig_id in sorted(worker_failures)
-        )
+        ]
         if failures:
             raise RuntimeError(
                 "camera runtime shutdown could not release ownership ("
