@@ -519,7 +519,7 @@ def test_onstep_legacy_home_uses_indi_setprop_transport(monkeypatch, full_props)
     }
     props["HOME_INIT"] = {
         "RETURN_HOME": "Off",
-        "SET_HOME": "Off",
+        "AT_HOME": "Off",
     }
     props["TELESCOPE_PARK"] = {
         "PARK": "Off",
@@ -544,9 +544,12 @@ def test_onstep_legacy_home_uses_indi_setprop_transport(monkeypatch, full_props)
     assert {
         "HOME_INIT": {
             "RETURN_HOME": "On",
-            "SET_HOME": "Off",
         }
     } in client.set_calls
+    assert not any(
+        "AT_HOME" in call.get("HOME_INIT", {})
+        for call in client.set_calls
+    )
     assert not any(
         call.get("TELESCOPE_PARK", {}).get("PARK") == "On"
         for call in client.set_calls
