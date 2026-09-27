@@ -180,3 +180,58 @@ def test_atomic_write_preserves_previous_json_when_replace_fails(
 
     assert output.read_text(encoding="utf-8") == previous
     assert list(tmp_path.glob(".todayeclipse.json.*.tmp")) == []
+
+
+def test_calculator_arms_parent_death_before_loading_eclipse(
+    tmp_path,
+    monkeypatch,
+):
+    events = []
+    dataset = {"source": {"option_text": "test"}}
+    circumstances = {
+        "eclipse_type": "Aucune",
+        "magnitude": 0.0,
+        "moon_sun_ratio": 0.0,
+        "obscuration_percent": 0.0,
+        "duration_str": "0m 0s",
+        "sun_alt_tmax": "0°",
+        **{f"{event}_utc": None for event in eclipse_calculator_py.EVENTS},
+        **{f"{event}_local": None for event in EVENTS},
+        **{f"{event}_alt_deg": None for event in EVENTS},
+    }
+    circumstances["C1_utc"] = "00:00:00.000"
+    circumstances["C4_utc"] = "00:10:00.000"
+    circumstances["TMAX_utc"] = "00:05:00.000"
+    circumstances["C1_local"] = "00:00:00.000"
+    circumstances["C4_local"] = "00:10:00.000"
+    circumstances["TMAX_local"] = "00:05:00.000"
+
+    monkeypatch.setattr(
+        eclipse_calculator_py,
+        "arm_parent_death_signal",
+        lambda pid: events.append(("arm", pid)),
+    )
+    monkeypatch.setattr(
+        eclipse_calculator_py,
+        "load_eclipse",
+        lambda date_iso: events.append(("load", date_iso)) or dataset,
+    )
+    monkeypatch.setattr(
+        eclipse_calculator_py,
+        "compute_local_circumstances",
+        lambda *_args: circumstances,
+    )
+
+    output = tmp_path / "todayeclipse.json"
+    assert eclipse_calculator_py.main(
+        [
+            "--lat", "25",
+            "--lon", "32",
+            "--date", "2027-08-02",
+            "--output", str(output),
+            "--parent-pid", "4242",
+        ]
+    ) == 0
+
+    assert events[0] == ("arm", 4242)
+    assert events[1] == ("load", "2027-08-02")
