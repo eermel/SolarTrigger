@@ -305,23 +305,26 @@ rsync "${RSYNC_OPTS[@]}" --delete \
 
 echo
 echo "=== system helpers (copied, never executed automatically) ==="
-SYSTEM_HELPERS=(
-    "install_standalone_runtime_service.sh"
-    "install_zwo_eaf_hid.sh"
-    "install_maintenance_helpers.sh"
-    "solartrigger-system-update"
-    "solartrigger-release-update"
-)
 if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "Would copy SolarTrigger system and maintenance helpers into $DST/install/"
 else
     ssh "$DST_HOST" "mkdir -p '$DST/install'"
 fi
-for helper in "${SYSTEM_HELPERS[@]}"; do
-    rsync "${RSYNC_OPTS[@]}" \
-        "$SRC/install/$helper" \
-        "$DST_HOST:$DST/install/$helper"
-done
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/install/install_standalone_runtime_service.sh" \
+    "$DST_HOST:$DST/install/install_standalone_runtime_service.sh"
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/install/install_zwo_eaf_hid.sh" \
+    "$DST_HOST:$DST/install/install_zwo_eaf_hid.sh"
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/install/install_maintenance_helpers.sh" \
+    "$DST_HOST:$DST/install/install_maintenance_helpers.sh"
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/install/solartrigger-system-update" \
+    "$DST_HOST:$DST/install/solartrigger-system-update"
+rsync "${RSYNC_OPTS[@]}" \
+    "$SRC/install/solartrigger-release-update" \
+    "$DST_HOST:$DST/install/solartrigger-release-update"
 
 echo
 echo "=== preserved camera characterization data ==="
