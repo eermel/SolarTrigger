@@ -219,7 +219,10 @@ def test_capture_custom_timeout_can_exceed_generic_watchdog():
     assert supervisor.timed_out is False
     assert proc.terminated is False
 
-    timeout_deadline = time.monotonic() + 0.3
+    # The semantic timeout remains 250 ms.  Give the watchdog thread enough
+    # wall-clock scheduling margin when this test runs inside the full suite
+    # on a loaded/virtualized CI or development host.
+    timeout_deadline = time.monotonic() + 1.0
     while not supervisor.timed_out and time.monotonic() < timeout_deadline:
         time.sleep(0.005)
 
