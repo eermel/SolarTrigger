@@ -114,6 +114,11 @@ def photo_api(tmp_path, monkeypatch):
     monkeypatch.setattr(flask_module, "TRIGGER_DIR", tmp_path)
     monkeypatch.setattr(rig_runtime, "TRIGGER_DIR", tmp_path)
     monkeypatch.setattr(rig_runtime, "_rig_manager", None)
+    monkeypatch.setattr(
+        flask_module,
+        "_trigger_active_or_starting",
+        lambda _rig_id=None: False,
+    )
     reloads = []
 
     def record_reload(config):
@@ -210,3 +215,28 @@ def test_photo_get_returns_four_persisted_rig_configs(photo_api):
     assert set(rigs[3]) == {"rig_id", "photo", "camera_capabilities"}
     assert rigs[0]["photo"] == expected_1["photo"]
     assert rigs[3]["photo"] == expected_4["photo"]
+
+def test_photo_post_is_blocked_but_get_remains_available_during_trigger(
+    photo_api,
+    monkeypatch,
+):
+    client, config_path, _original, reloads, emitted = photo_api
+    before = config_path.read_bytes()
+    monkeypatch.setattr(
+        flask_module,
+        "_trigger_active_or_starting",
+        lambda _rig_id=None: True,
+    )
+
+    blocked = client.post(
+        "/api/rigs/photo",
+        json={"rigs": [{"rig_id": 1, "photo": {"iso_max": 800}}]},
+    )
+    readable = client.get("/api/rigs/photo")
+
+    assert blocked.status_code == 409
+    assert blocked.get_json()["code"] == "TRIGGER_RUNNING"
+    assert readable.status_code == 200
+    assert config_path.read_bytes() == before
+    assert reloads == []
+    assert emitted == []

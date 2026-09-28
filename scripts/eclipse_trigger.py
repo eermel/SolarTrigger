@@ -75,6 +75,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--file", help="Eclipse circumstances JSON")
     parser.add_argument("--camera", required=True, help="Photo Setup JSON")
     parser.add_argument("--exposure-opt", help="Exposure Optimization JSON")
+    parser.add_argument("--rig-config", help="Frozen RIG configuration JSON")
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--speed", type=float, default=60.0)
     parser.add_argument(
@@ -742,7 +743,11 @@ def main() -> int:
             clock.start_simulation(schedule.tstart - timedelta(seconds=30))
 
     try:
-        rig_config = load_rig_configuration()
+        rig_config = (
+            load_json(args.rig_config, "RIG configuration")
+            if args.rig_config
+            else load_rig_configuration()
+        )
     except Exception as exc:
         log(f"WARNING rig configuration unavailable: {exc}")
         rig_config = {"rigs": []}

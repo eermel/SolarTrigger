@@ -130,6 +130,11 @@ def persisted_rig_api(tmp_path, monkeypatch):
     monkeypatch.setattr(flask_module, "get_cached_inventory", lambda: {
         "camera": [], "mount": [], "focuser": []
     })
+    monkeypatch.setattr(
+        flask_module,
+        "_trigger_active_or_starting",
+        lambda _rig_id=None: False,
+    )
 
     emitted = []
     monkeypatch.setattr(
@@ -532,3 +537,26 @@ def test_rig_devices_allows_clearing_focal_length(persisted_rig_api):
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["rigs"][0]["optics"]["focal_length_mm"] is None
+
+def test_rig_devices_post_is_blocked_while_trigger_active(
+    persisted_rig_api,
+    monkeypatch,
+):
+    client, config_path, _original, emitted, reloads = persisted_rig_api
+    before = config_path.read_bytes()
+    monkeypatch.setattr(
+        flask_module,
+        "_trigger_active_or_starting",
+        lambda _rig_id=None: True,
+    )
+
+    response = client.post(
+        "/api/rigs/devices",
+        json={"rigs": [{"rig_id": 1, "name": "must-not-write"}]},
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "TRIGGER_RUNNING"
+    assert config_path.read_bytes() == before
+    assert emitted == []
+    assert reloads == []

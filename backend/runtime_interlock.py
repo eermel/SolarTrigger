@@ -60,6 +60,15 @@ def trigger_start_section(maintenance_running: Callable[[], bool]) -> Iterator[N
         yield
 
 
+@contextmanager
+def trigger_idle_section(trigger_busy: Callable[[], bool]) -> Iterator[None]:
+    """Serialize a configuration mutation against Trigger START admission."""
+    with _admission_lock():
+        if trigger_busy():
+            raise TriggerActiveError("Trigger is running or starting")
+        yield
+
+
 def start_maintenance_if_trigger_idle(
     trigger_busy: Callable[[], bool],
     start_fn: Callable[[], object],

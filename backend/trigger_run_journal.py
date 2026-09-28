@@ -126,6 +126,14 @@ class TriggerRunJournal:
                     f"recovery journal RIG {key} has invalid run_id"
                 )
 
+            snapshot_id = entry.get("snapshot_id")
+            if snapshot_id is not None and (
+                not isinstance(snapshot_id, str) or not snapshot_id
+            ):
+                self._invalid(
+                    f"recovery journal RIG {key} has invalid snapshot_id"
+                )
+
             for counter_name in (
                 "runtime_recovery_count",
                 "child_recovery_count",
@@ -185,10 +193,15 @@ class TriggerRunJournal:
         speed: float = 1.0,
         totality_only: bool = False,
         input_fingerprints: dict | None = None,
+        run_id: str | None = None,
+        snapshot_id: str | None = None,
     ) -> dict:
         now = utc_now_iso()
+        resolved_run_id = uuid.uuid4().hex if run_id is None else str(run_id)
+        if not resolved_run_id:
+            raise ValueError("run_id must not be empty")
         entry = {
-            "run_id": uuid.uuid4().hex,
+            "run_id": resolved_run_id,
             "rig_id": int(rig_id),
             "status": ACTIVE_STATUS,
             "boot_id": self.boot_id,
@@ -197,6 +210,7 @@ class TriggerRunJournal:
             "totality_only": bool(totality_only),
             "selected": copy.deepcopy(selected or {}),
             "input_fingerprints": copy.deepcopy(input_fingerprints or {}),
+            "snapshot_id": None if snapshot_id is None else str(snapshot_id),
             "started_utc": now,
             "updated_utc": now,
             "runtime_recovery_count": 0,

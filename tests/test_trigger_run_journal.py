@@ -235,3 +235,21 @@ def test_invalid_rig_key_is_reported_before_recovery_sorting(tmp_path):
 
     with pytest.raises(TriggerRunJournalInvalid, match="invalid RIG key"):
         journal.active_entries()
+
+def test_journal_accepts_caller_owned_run_and_snapshot_ids(tmp_path):
+    journal = TriggerRunJournal(
+        tmp_path / "trigger_state.json",
+        boot_id_fn=lambda: "boot-a",
+    )
+
+    started = journal.begin_run(
+        rig_id=1,
+        mode="real",
+        selected={},
+        run_id="run-fixed",
+        snapshot_id="snapshot-fixed",
+    )
+
+    assert started["run_id"] == "run-fixed"
+    assert started["snapshot_id"] == "snapshot-fixed"
+    assert journal.active_entries()[0]["snapshot_id"] == "snapshot-fixed"

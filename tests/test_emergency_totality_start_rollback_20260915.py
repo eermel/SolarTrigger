@@ -56,12 +56,20 @@ def _service(tmp_path, *, camera_runtime=None, rig_config_loader=None):
         rig_config_loader=rig_config_loader,
         product_configs_dir=tmp_path / "product",
     )
-    service._resolve_totality_input = lambda rig_id: (
-        service._active_photo_paths.__setitem__(
-            rig_id, tmp_path / "photo_totality.json"
-        )
-        or tmp_path / "photo_totality.json"
+    photo_path = tmp_path / "photo_totality.json"
+    photo_path.write_text(
+        '{"config_type":"emergency_totality_photo_setup","phases":{"totality":{"interval_s":0}}}',
+        encoding="utf-8",
     )
+
+    def resolve_totality_input(rig_id):
+        service._active_photo_paths[rig_id] = photo_path
+        service._validated_input_bytes_by_rig[rig_id] = {
+            "photo": photo_path.read_bytes(),
+        }
+        return photo_path
+
+    service._resolve_totality_input = resolve_totality_input
     return service, state, emitted, logs
 
 

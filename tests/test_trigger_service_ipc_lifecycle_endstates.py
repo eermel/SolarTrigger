@@ -268,9 +268,10 @@ def test_start_passes_session_after_server_start_and_restart_keeps_clock(
 
     cmd = launches[0][3]
     assert "--execution-plan" not in cmd
-    assert Path(cmd[cmd.index("--file") + 1]).name == "test_circumstances.json"
+    assert Path(cmd[cmd.index("--file") + 1]).name == "circumstances.json"
     assert Path(cmd[cmd.index("--camera") + 1]).name == "photo.json"
-    assert Path(cmd[cmd.index("--exposure-opt") + 1]).name == "exposure.json"
+    assert Path(cmd[cmd.index("--exposure-opt") + 1]).name == "exposure_opt.json"
+    assert Path(cmd[cmd.index("--rig-config") + 1]).name == "rig_config.json"
 
     assert not launches[0][0].exists()
     assert runtime._ipc_server is None
@@ -341,7 +342,8 @@ def test_emergency_totality_opens_ipc_for_selected_rig_without_gps_or_inputs(
     assert "--totality-only" in command
     assert "--file" not in command
     assert "--exposure-opt" not in command
-    assert Path(command[command.index("--camera") + 1]).name == "photo_totality.json"
+    assert Path(command[command.index("--camera") + 1]).name == "photo.json"
+    assert Path(command[command.index("--rig-config") + 1]).name == "rig_config.json"
     assert env["SET_TRIGGER_RIG_ID"] == "1"
 
 
@@ -576,7 +578,7 @@ def test_publish_external_failure_alerts_only_for_live_audible_failure(tmp_path)
     ]
 
 
-def test_runtime_recovery_rejects_changed_inputs_before_camera_ipc(
+def test_runtime_recovery_rejects_changed_frozen_snapshot_before_camera_ipc(
     tmp_path,
 ):
     runtime, servers = _make_runtime(tmp_path)
@@ -587,16 +589,15 @@ def test_runtime_recovery_rejects_changed_inputs_before_camera_ipc(
         require_gps=False,
         selected=TRIGGER_SELECTION,
     )
+    snapshot_id = "run-1"
+    service._freeze_run_inputs(1, snapshot_id, _rig_config())
     fingerprints = service._active_input_fingerprints(1)
     service._clear_active_inputs(1)
 
-    photo_path = service.configs_dir / "photo_cfg" / "photo.json"
-    photo = json.loads(photo_path.read_text(encoding="utf-8"))
+    frozen_photo = service._snapshot_dir(snapshot_id) / "photo.json"
+    photo = json.loads(frozen_photo.read_text(encoding="utf-8"))
     photo["sequence_margin_min"] = 11
-    photo_path.write_text(
-        json.dumps(photo),
-        encoding="utf-8",
-    )
+    frozen_photo.write_text(json.dumps(photo), encoding="utf-8")
 
     with pytest.raises(TriggerValidationError) as caught:
         service.start(
@@ -604,6 +605,7 @@ def test_runtime_recovery_rejects_changed_inputs_before_camera_ipc(
             selected=TRIGGER_SELECTION,
             _recovery=True,
             _run_id="run-1",
+            _recovery_snapshot_id=snapshot_id,
             _recovery_input_fingerprints=fingerprints,
         )
 
@@ -612,18 +614,20 @@ def test_runtime_recovery_rejects_changed_inputs_before_camera_ipc(
     assert service._starting_by_rig[1] is False
 
 
-def test_totality_recovery_rejects_changed_emergency_input_before_camera_ipc(
+def test_totality_recovery_rejects_changed_frozen_snapshot_before_camera_ipc(
     tmp_path,
 ):
     runtime, servers = _make_runtime(tmp_path)
     service = _make_service(tmp_path, runtime)
 
     service._resolve_totality_input(1)
+    snapshot_id = "run-totality"
+    service._freeze_run_inputs(1, snapshot_id, _rig_config())
     fingerprints = service._active_input_fingerprints(1)
     service._clear_active_inputs(1)
 
-    emergency_path = service.product_configs_dir / "emergency" / "photo_totality.json"
-    emergency_path.write_text(
+    frozen_photo = service._snapshot_dir(snapshot_id) / "photo.json"
+    frozen_photo.write_text(
         '{"config_type":"emergency_totality_photo_setup","phases":{"totality":{"changed":true}}}',
         encoding="utf-8",
     )
@@ -633,6 +637,7 @@ def test_totality_recovery_rejects_changed_emergency_input_before_camera_ipc(
             rig_id=1,
             _recovery=True,
             _run_id="run-totality",
+            _recovery_snapshot_id=snapshot_id,
             _recovery_input_fingerprints=fingerprints,
         )
 
@@ -658,3 +663,158 @@ def test_runtime_recovery_requires_input_fingerprint_manifest(
         )
 
     assert caught.value.code == "RECOVERY_INPUTS_UNVERIFIED"
+
+def test_start_child_uses_frozen_inputs_and_rig_config(tmp_path, monkeypatch):
+    runtime, _servers = _make_runtime(tmp_path)
+    service = _make_service(tmp_path, runtime)
+    shared_config = _rig_config()
+    service.rig_config_loader = lambda: shared_config
+
+    circumstances_path = (
+        service.configs_dir / "circumstances" / "test_circumstances.json"
+    )
+    photo_path = service.configs_dir / "photo_cfg" / "photo.json"
+    exposure_path = service.configs_dir / "exposure_opt" / "exposure.json"
+    expected = {
+        "circumstances": circumstances_path.read_bytes(),
+        "photo": photo_path.read_bytes(),
+        "exposure_opt": exposure_path.read_bytes(),
+    }
+
+    def popen(cmd, **_kwargs):
+        # Simulate another client replacing every mutable source after START
+        # validation/freeze but before the child reads its command-line files.
+        circumstances_path.write_text('{"changed": true}', encoding="utf-8")
+        photo_path.write_text('{"changed": true}', encoding="utf-8")
+        exposure_path.write_text('{"changed": true}', encoding="utf-8")
+        shared_config["rigs"][0]["devices"]["camera"]["backend"] = "changed"
+
+        frozen_circ = Path(cmd[cmd.index("--file") + 1])
+        frozen_photo = Path(cmd[cmd.index("--camera") + 1])
+        frozen_exposure = Path(cmd[cmd.index("--exposure-opt") + 1])
+        frozen_rig = Path(cmd[cmd.index("--rig-config") + 1])
+
+        assert frozen_circ.read_bytes() == expected["circumstances"]
+        assert frozen_photo.read_bytes() == expected["photo"]
+        assert frozen_exposure.read_bytes() == expected["exposure_opt"]
+        assert json.loads(frozen_rig.read_text(encoding="utf-8"))[
+            "rigs"
+        ][0]["devices"]["camera"]["backend"] == "gphoto2"
+        assert "trigger_inputs" in frozen_circ.parts
+        return CompletedProcess()
+
+    monkeypatch.setattr("backend.trigger_service.threading.Thread", ImmediateThread)
+    monkeypatch.setattr("backend.trigger_service.subprocess.Popen", popen)
+
+    assert service.start(selected=TRIGGER_SELECTION) is True
+
+
+def test_recovery_uses_frozen_snapshot_after_sources_change(tmp_path, monkeypatch):
+    runtime, _servers = _make_runtime(tmp_path)
+    service = _make_service(tmp_path, runtime)
+
+    service.validate_start(
+        rig_id=1,
+        require_gps=False,
+        selected=TRIGGER_SELECTION,
+        strict_circumstances_date=False,
+    )
+    snapshot_id = "run-frozen"
+    service._freeze_run_inputs(1, snapshot_id, _rig_config())
+    fingerprints = service._active_input_fingerprints(1)
+    service._clear_active_inputs(1)
+
+    (service.configs_dir / "circumstances" / "test_circumstances.json").write_text(
+        '{"changed": true}',
+        encoding="utf-8",
+    )
+    (service.configs_dir / "photo_cfg" / "photo.json").write_text(
+        '{"changed": true}',
+        encoding="utf-8",
+    )
+    (service.configs_dir / "exposure_opt" / "exposure.json").write_text(
+        '{"changed": true}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(service, "_recovery_window_open", lambda _rig_id: True)
+    calls = []
+    monkeypatch.setattr(
+        service,
+        "start",
+        lambda **kwargs: calls.append(kwargs) or True,
+    )
+
+    result = service.recover_persisted_run({
+        "rig_id": 1,
+        "run_id": "run-frozen",
+        "snapshot_id": snapshot_id,
+        "input_fingerprints": fingerprints,
+        "mode": "real",
+        "selected": TRIGGER_SELECTION,
+    })
+
+    assert result is True
+    assert calls[0]["_recovery_snapshot_id"] == snapshot_id
+    assert calls[0]["_recovery_input_fingerprints"] == fingerprints
+
+def test_recovery_uses_frozen_rig_config_without_live_reload(
+    tmp_path,
+    monkeypatch,
+):
+    runtime, _servers = _make_runtime(tmp_path)
+    service = _make_service(tmp_path, runtime)
+
+    service.validate_start(
+        rig_id=1,
+        require_gps=False,
+        selected=TRIGGER_SELECTION,
+    )
+    snapshot_id = "run-rig-frozen"
+    service._freeze_run_inputs(1, snapshot_id, _rig_config())
+    fingerprints = service._active_input_fingerprints(1)
+    service._clear_active_inputs(1)
+
+    service.rig_config_loader = lambda: pytest.fail(
+        "recovery must not reload the live RIG configuration"
+    )
+
+    reconciled = []
+    monkeypatch.setattr(
+        runtime,
+        "reconcile",
+        lambda config: reconciled.append(json.loads(json.dumps(config))),
+    )
+
+    class Session:
+        session_id = "frozen-session"
+
+    monkeypatch.setattr(
+        runtime,
+        "open_ipc_session",
+        lambda _rig_ids: Session(),
+    )
+
+    class NoRunThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(
+        "backend.trigger_service.threading.Thread",
+        NoRunThread,
+    )
+
+    assert service.start(
+        rig_id=1,
+        selected=TRIGGER_SELECTION,
+        _recovery=True,
+        _run_id=snapshot_id,
+        _recovery_snapshot_id=snapshot_id,
+        _recovery_input_fingerprints=fingerprints,
+    ) is True
+
+    assert reconciled
+    assert reconciled[0]["rigs"][0]["devices"]["camera"]["backend"] == "gphoto2"

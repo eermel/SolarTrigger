@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import hashlib
-import json, os, signal, subprocess, sys, threading
+import json, os, shutil, signal, subprocess, sys, threading, uuid
 from threading import Thread as _HeartbeatThread
 from datetime import datetime, timezone
 from backend.timeline import build_timeline, sequence_seconds
@@ -268,6 +268,12 @@ class TriggerService:
         self._active_circumstances_paths = {}
         self._active_photo_paths = {}
         self._active_exposure_opt_paths = {}
+        self._active_rig_config_paths = {}
+        self._validated_input_bytes_by_rig = {}
+        self._snapshot_ids_by_rig = {}
+        self.snapshot_root = (
+            self.project_dir / "var" / "state" / "trigger_inputs"
+        )
         self._analysis_suppressed_by_rig = {
             rig_id: False
             for rig_id in range(1, 5)
@@ -308,6 +314,7 @@ class TriggerService:
             "circumstances": self._active_circumstances_paths.get(rig_id),
             "photo": self._active_photo_paths.get(rig_id),
             "exposure_opt": self._active_exposure_opt_paths.get(rig_id),
+            "rig_config": self._active_rig_config_paths.get(rig_id),
         }
         fingerprints = {}
         for role, path in paths.items():
@@ -319,6 +326,139 @@ class TriggerService:
                 "sha256": hashlib.sha256(data).hexdigest(),
             }
         return fingerprints
+
+    _SNAPSHOT_FILENAMES = {
+        "circumstances": "circumstances.json",
+        "photo": "photo.json",
+        "exposure_opt": "exposure_opt.json",
+        "rig_config": "rig_config.json",
+    }
+
+    def _snapshot_dir(self, snapshot_id):
+        if (
+            not isinstance(snapshot_id, str)
+            or not snapshot_id
+            or Path(snapshot_id).name != snapshot_id
+            or any(
+                not (char.isalnum() or char in "-_")
+                for char in snapshot_id
+            )
+        ):
+            raise TriggerValidationError(
+                "Trigger snapshot identity is invalid.",
+                "RECOVERY_INPUTS_UNVERIFIED",
+            )
+        return self.snapshot_root / snapshot_id
+
+    @staticmethod
+    def _write_snapshot_file(path, data):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with tmp.open("wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+
+    def _freeze_run_inputs(self, rig_id, snapshot_id, rig_config=None):
+        payloads = dict(
+            self._validated_input_bytes_by_rig.get(rig_id) or {}
+        )
+        if not payloads:
+            raise TriggerValidationError(
+                "Validated trigger inputs are unavailable.",
+                "TRIGGER_INPUTS_NOT_LOADED",
+            )
+
+        directory = self._snapshot_dir(snapshot_id)
+        directory.mkdir(parents=True, exist_ok=True)
+        frozen = {}
+        for role in ("circumstances", "photo", "exposure_opt"):
+            data = payloads.get(role)
+            if data is None:
+                continue
+            path = directory / self._SNAPSHOT_FILENAMES[role]
+            self._write_snapshot_file(path, data)
+            frozen[role] = path
+
+        if rig_config is not None:
+            encoded = (
+                json.dumps(
+                    rig_config,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n"
+            ).encode("utf-8")
+            path = directory / self._SNAPSHOT_FILENAMES["rig_config"]
+            self._write_snapshot_file(path, encoded)
+            frozen["rig_config"] = path
+
+        if "circumstances" in frozen:
+            self._active_circumstances_paths[rig_id] = frozen["circumstances"]
+        if "photo" in frozen:
+            self._active_photo_paths[rig_id] = frozen["photo"]
+        if "exposure_opt" in frozen:
+            self._active_exposure_opt_paths[rig_id] = frozen["exposure_opt"]
+        if "rig_config" in frozen:
+            self._active_rig_config_paths[rig_id] = frozen["rig_config"]
+        self._snapshot_ids_by_rig[rig_id] = snapshot_id
+        return frozen
+
+    def _restore_run_snapshot(self, rig_id, snapshot_id, expected):
+        directory = self._snapshot_dir(snapshot_id)
+        paths = {}
+        for role, details in (expected or {}).items():
+            if role not in self._SNAPSHOT_FILENAMES:
+                continue
+            if not isinstance(details, dict):
+                continue
+            path = directory / self._SNAPSHOT_FILENAMES[role]
+            if path.is_file():
+                paths[role] = path
+
+        if "circumstances" in paths:
+            self._active_circumstances_paths[rig_id] = paths["circumstances"]
+        if "photo" in paths:
+            self._active_photo_paths[rig_id] = paths["photo"]
+        if "exposure_opt" in paths:
+            self._active_exposure_opt_paths[rig_id] = paths["exposure_opt"]
+        if "rig_config" in paths:
+            self._active_rig_config_paths[rig_id] = paths["rig_config"]
+        self._snapshot_ids_by_rig[rig_id] = snapshot_id
+
+        self._verify_recovery_input_fingerprints(rig_id, expected)
+
+        rig_config = None
+        rig_path = paths.get("rig_config")
+        if rig_path is not None:
+            try:
+                rig_config = json.loads(rig_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise TriggerValidationError(
+                    "Frozen RIG configuration is unreadable.",
+                    "RECOVERY_INPUTS_CHANGED",
+                ) from exc
+            if not isinstance(rig_config, dict):
+                raise TriggerValidationError(
+                    "Frozen RIG configuration is invalid.",
+                    "RECOVERY_INPUTS_CHANGED",
+                )
+        return paths, rig_config
+
+    def _discard_run_snapshot(self, snapshot_id):
+        if not snapshot_id:
+            return
+        try:
+            directory = self._snapshot_dir(snapshot_id)
+            shutil.rmtree(directory, ignore_errors=True)
+        except Exception as exc:
+            self.log(
+                f"Trigger snapshot cleanup warning: {exc}",
+                "warning",
+                "trigger",
+            )
 
     def _verify_recovery_input_fingerprints(self, rig_id, expected):
         if not isinstance(expected, dict) or not expected:
@@ -341,7 +481,16 @@ class TriggerService:
                 "RECOVERY_INPUTS_CHANGED",
             )
 
-    def _journal_begin(self, rig_id, mode, selected, *, totality_only=False):
+    def _journal_begin(
+        self,
+        rig_id,
+        mode,
+        selected,
+        *,
+        totality_only=False,
+        run_id=None,
+        snapshot_id=None,
+    ):
         if self.run_journal is None:
             return None
         try:
@@ -352,6 +501,8 @@ class TriggerService:
                 speed=1.0,
                 totality_only=totality_only,
                 input_fingerprints=self._active_input_fingerprints(rig_id),
+                run_id=run_id,
+                snapshot_id=snapshot_id,
             )
             return entry.get("run_id")
         except Exception as exc:
@@ -445,6 +596,7 @@ class TriggerService:
         recovery_attempt,
         last_stage,
         heartbeat_timed_out,
+        recovery_window_open=None,
     ):
         if recovery_attempt >= 1 or heartbeat_timed_out:
             return False
@@ -460,7 +612,11 @@ class TriggerService:
         )
         if not safe:
             return False
-        return bool(totality_only or self._recovery_window_open(rig_id))
+        if totality_only:
+            return True
+        if recovery_window_open is None:
+            recovery_window_open = self._recovery_window_open(rig_id)
+        return bool(recovery_window_open)
 
     def recover_persisted_run(self, entry):
         # Resume one same-boot persisted run without replaying past phases.
@@ -471,9 +627,15 @@ class TriggerService:
         if not isinstance(run_id, str) or not run_id:
             raise TriggerValidationError("Recovery run_id is missing.", "RECOVERY_INVALID")
         input_fingerprints = entry.get("input_fingerprints")
+        snapshot_id = entry.get("snapshot_id")
         if not isinstance(input_fingerprints, dict) or not input_fingerprints:
             raise TriggerValidationError(
                 "Recovery journal has no verifiable trigger input fingerprints.",
+                "RECOVERY_INPUTS_UNVERIFIED",
+            )
+        if not isinstance(snapshot_id, str) or not snapshot_id:
+            raise TriggerValidationError(
+                "Recovery journal has no frozen trigger snapshot.",
                 "RECOVERY_INPUTS_UNVERIFIED",
             )
         if entry.get("totality_only") is True or entry.get("mode") == "totality_override":
@@ -481,6 +643,7 @@ class TriggerService:
                 rig_id=rig_id,
                 _recovery=True,
                 _run_id=run_id,
+                _recovery_snapshot_id=snapshot_id,
                 _recovery_input_fingerprints=input_fingerprints,
             )
         if entry.get("mode") != "real":
@@ -491,12 +654,18 @@ class TriggerService:
         selected = entry.get("selected")
         if not isinstance(selected, dict):
             raise TriggerValidationError("Recovery inputs are missing.", "RECOVERY_INVALID")
-        # Resolve once before touching hardware, so an already-ended timeline
-        # fails closed instead of briefly starting a camera session.
-        paths = self._resolve_trigger_inputs(rig_id, selected)
-        self._active_circumstances_paths[rig_id] = paths["circumstances"]
-        self._active_photo_paths[rig_id] = paths["photo"]
-        self._active_exposure_opt_paths[rig_id] = paths["exposure_opt"]
+        # Restore and verify the immutable run snapshot before touching hardware.
+        paths, _config = self._restore_run_snapshot(
+            rig_id,
+            snapshot_id,
+            input_fingerprints,
+        )
+        if "circumstances" not in paths:
+            self._clear_active_inputs(rig_id)
+            raise TriggerValidationError(
+                "Persisted eclipse snapshot is incomplete.",
+                "RECOVERY_INPUTS_CHANGED",
+            )
         if not self._recovery_window_open(rig_id):
             self._clear_active_inputs(rig_id)
             raise TriggerValidationError(
@@ -509,6 +678,7 @@ class TriggerService:
             selected=selected,
             _recovery=True,
             _run_id=run_id,
+            _recovery_snapshot_id=snapshot_id,
             _recovery_input_fingerprints=input_fingerprints,
         )
 
@@ -670,7 +840,7 @@ class TriggerService:
         return paths
 
     def _resolve_totality_input(self, rig_id):
-        """Resolve the fixed product configuration for emergency Totality."""
+        """Resolve and validate the fixed product configuration for emergency Totality."""
         path = (
             self.product_configs_dir
             / "emergency"
@@ -683,7 +853,8 @@ class TriggerService:
             )
 
         try:
-            photo = json.loads(path.read_text(encoding="utf-8"))
+            data = path.read_bytes()
+            photo = json.loads(data)
             if (
                 not isinstance(photo, dict)
                 or photo.get("config_type") != "emergency_totality_photo_setup"
@@ -697,12 +868,21 @@ class TriggerService:
             ) from exc
 
         self._active_photo_paths[rig_id] = path
+        self._validated_input_bytes_by_rig[rig_id] = {"photo": data}
         return path
 
     def _clear_active_inputs(self, rig_id):
-        self._active_circumstances_paths.pop(rig_id, None)
-        self._active_photo_paths.pop(rig_id, None)
-        self._active_exposure_opt_paths.pop(rig_id, None)
+        for attribute in (
+            "_active_circumstances_paths",
+            "_active_photo_paths",
+            "_active_exposure_opt_paths",
+            "_active_rig_config_paths",
+            "_validated_input_bytes_by_rig",
+            "_snapshot_ids_by_rig",
+        ):
+            mapping = getattr(self, attribute, None)
+            if isinstance(mapping, dict):
+                mapping.pop(rig_id, None)
 
     def validate_start(
         self,
@@ -710,6 +890,7 @@ class TriggerService:
         require_gps=True,
         selected=None,
         strict_circumstances_date=True,
+        _resolved_paths=None,
     ):
         if require_gps:
             gps = self.state.snapshot("gps") or {}
@@ -773,14 +954,22 @@ class TriggerService:
                     "GPS_SYNC_STALE",
                 )
 
-        paths = self._resolve_trigger_inputs(rig_id, selected)
+        paths = (
+            _resolved_paths
+            if isinstance(_resolved_paths, dict)
+            else self._resolve_trigger_inputs(rig_id, selected)
+        )
         circumstances_path = paths["circumstances"]
+        raw_inputs = {
+            role: path.read_bytes()
+            for role, path in paths.items()
+            if role in {"circumstances", "photo", "exposure_opt"}
+            and path is not None
+        }
         filename = circumstances_path.name
 
         try:
-            ecl = json.loads(
-                circumstances_path.read_text(encoding="utf-8")
-            )
+            ecl = json.loads(raw_inputs["circumstances"])
             if not isinstance(ecl, dict):
                 raise ValueError("invalid JSON root")
 
@@ -817,10 +1006,8 @@ class TriggerService:
                     )
 
             validate_eclipse(ecl)
-            photo = json.loads(paths["photo"].read_text(encoding="utf-8"))
-            exposure_opt = json.loads(
-                paths["exposure_opt"].read_text(encoding="utf-8")
-            )
+            photo = json.loads(raw_inputs["photo"])
+            exposure_opt = json.loads(raw_inputs["exposure_opt"])
             if not isinstance(photo, dict) or photo.get("config_type") not in (None, "photo_setup"):
                 raise ValueError("invalid Photo Setup")
             if (
@@ -869,11 +1056,15 @@ class TriggerService:
         self._active_circumstances_paths[rig_id] = circumstances_path
         self._active_photo_paths[rig_id] = paths["photo"]
         self._active_exposure_opt_paths[rig_id] = paths["exposure_opt"]
+        if not hasattr(self, "_validated_input_bytes_by_rig"):
+            self._validated_input_bytes_by_rig = {}
+        self._validated_input_bytes_by_rig[rig_id] = raw_inputs
         return ecl
 
     def start(self, rig_id=1, simulate=False, speed=60.0, dry_run=False,
               selected=None, _recovery=False, _run_id=None,
-              _child_recovery_attempt=0, _recovery_input_fingerprints=None):
+              _child_recovery_attempt=0, _recovery_input_fingerprints=None,
+              _recovery_snapshot_id=None):
         if (
             not isinstance(rig_id, int)
             or isinstance(rig_id, bool)
@@ -895,6 +1086,20 @@ class TriggerService:
             )
         if simulate and not (1.0 <= speed <= 1000.0):
             raise TriggerValidationError("Simulation factor out of range (1 to 1000).", "SIM_SPEED_INVALID")
+        mode = (
+            "simulation"
+            if simulate
+            else "dryrun"
+            if dry_run
+            else "real"
+        )
+        run_id = _run_id
+        snapshot_id = _recovery_snapshot_id
+        if not _recovery:
+            if mode == "real":
+                run_id = uuid.uuid4().hex
+            snapshot_id = run_id or uuid.uuid4().hex
+
         with self._lock:
             proc = self._procs[rig_id]
             if (
@@ -908,30 +1113,56 @@ class TriggerService:
             self._manual_stop_requested_by_rig[rig_id] = False
             self._cancel_start_requested_by_rig[rig_id] = False
 
+            config = None
             try:
-                ecl = self.validate_start(
-                    rig_id=rig_id,
-                    require_gps=not simulate and not _recovery,
-                    selected=selected,
-                    strict_circumstances_date=not (simulate or dry_run),
-                )
-                if _recovery_input_fingerprints is not None:
+                if _recovery:
+                    if (
+                        not isinstance(snapshot_id, str)
+                        or not snapshot_id
+                        or not isinstance(_recovery_input_fingerprints, dict)
+                        or not _recovery_input_fingerprints
+                    ):
+                        raise TriggerValidationError(
+                            "Recovery snapshot metadata is missing.",
+                            "RECOVERY_INPUTS_UNVERIFIED",
+                        )
+                    restored_paths, config = self._restore_run_snapshot(
+                        rig_id,
+                        snapshot_id,
+                        _recovery_input_fingerprints,
+                    )
+                    ecl = self.validate_start(
+                        rig_id=rig_id,
+                        require_gps=False,
+                        selected=selected,
+                        strict_circumstances_date=not (simulate or dry_run),
+                        _resolved_paths=restored_paths,
+                    )
                     self._verify_recovery_input_fingerprints(
                         rig_id,
                         _recovery_input_fingerprints,
                     )
+                else:
+                    ecl = self.validate_start(
+                        rig_id=rig_id,
+                        require_gps=not simulate,
+                        selected=selected,
+                        strict_circumstances_date=not (simulate or dry_run),
+                    )
             except Exception:
                 self._starting_by_rig[rig_id] = False
+                self._clear_active_inputs(rig_id)
                 raise
 
             ipc_session = None
             if not simulate and self.rig_config_loader is not None:
                 try:
-                    config = self.rig_config_loader()
+                    if config is None:
+                        config = self.rig_config_loader()
                     validate_execution_rig(config, rig_id)
 
                     exposure_data = json.loads(
-                        self._active_exposure_opt_paths[rig_id].read_text(encoding="utf-8")
+                        self._validated_input_bytes_by_rig[rig_id]["exposure_opt"]
                     )
                     overrides = {
                         item.get("rig_id"): item.get("photo")
@@ -942,9 +1173,18 @@ class TriggerService:
                         if item.get("rig_id") == rig_id and rig_id in overrides:
                             item.setdefault("photo", {}).update(overrides[rig_id])
 
+                    if not _recovery:
+                        self._freeze_run_inputs(
+                            rig_id,
+                            snapshot_id,
+                            config,
+                        )
+
                 except TriggerValidationError:
                     self._starting_by_rig[rig_id] = False
                     self._clear_active_inputs(rig_id)
+                    if not _recovery:
+                        self._discard_run_snapshot(snapshot_id)
                     raise
                 except (
                     json.JSONDecodeError,
@@ -955,6 +1195,8 @@ class TriggerService:
                 ) as exc:
                     self._starting_by_rig[rig_id] = False
                     self._clear_active_inputs(rig_id)
+                    if not _recovery:
+                        self._discard_run_snapshot(snapshot_id)
                     self.log(
                         f"Trigger start configuration ERROR: {type(exc).__name__}: {exc}",
                         "error",
@@ -967,6 +1209,8 @@ class TriggerService:
                 except Exception as exc:
                     self._starting_by_rig[rig_id] = False
                     self._clear_active_inputs(rig_id)
+                    if not _recovery:
+                        self._discard_run_snapshot(snapshot_id)
                     self.log(
                         f"Trigger start preparation ERROR: {type(exc).__name__}: {exc}",
                         "error",
@@ -983,13 +1227,19 @@ class TriggerService:
                     except Exception as exc:
                         self._starting_by_rig[rig_id] = False
                         self._clear_active_inputs(rig_id)
+                        if not _recovery:
+                            self._discard_run_snapshot(snapshot_id)
                         self.log(
                             f"Trigger camera preparation ERROR: {type(exc).__name__}: {exc}",
                             "error",
                             "trigger",
                         )
                         raise
-            run_id = _run_id
+            if not _recovery and (
+                simulate or self.rig_config_loader is None
+            ):
+                self._freeze_run_inputs(rig_id, snapshot_id, None)
+
             try:
                 gen = ecl.get("_generated_utc", "")
                 today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -999,15 +1249,14 @@ class TriggerService:
                         "warning",
                         "trigger",
                     )
-                mode = (
-                    "simulation"
-                    if simulate
-                    else "dryrun"
-                    if dry_run
-                    else "real"
-                )
                 if mode == "real" and not _recovery:
-                    run_id = self._journal_begin(rig_id, mode, selected)
+                    run_id = self._journal_begin(
+                        rig_id,
+                        mode,
+                        selected,
+                        run_id=run_id,
+                        snapshot_id=snapshot_id,
+                    )
                 if run_id is not None:
                     self._run_ids_by_rig[rig_id] = run_id
                 published_phase = "recovering" if _recovery else "starting"
@@ -1035,6 +1284,8 @@ class TriggerService:
                         "ipc_session": ipc_session,
                         "rig_id": rig_id,
                         "run_id": run_id,
+                        "snapshot_id": snapshot_id,
+                        "input_fingerprints": self._active_input_fingerprints(rig_id),
                         "recovery_attempt": _child_recovery_attempt,
                     },
                     name=f"eclipse-trigger-process-rig-{rig_id}",
@@ -1051,6 +1302,7 @@ class TriggerService:
                 )
                 self._run_ids_by_rig[rig_id] = None
                 self._clear_active_inputs(rig_id)
+                self._discard_run_snapshot(snapshot_id)
                 if ipc_session is not None:
                     try:
                         self.camera_runtime.close_ipc_session(ipc_session.session_id)
@@ -1174,6 +1426,8 @@ class TriggerService:
         rig_id=1,
         totality_only=False,
         run_id=None,
+        snapshot_id=None,
+        input_fingerprints=None,
         recovery_attempt=0,
     ):
         proc=None
@@ -1231,6 +1485,14 @@ class TriggerService:
             cmd += ["--camera", str(photo_path)]
             if not totality_only:
                 cmd += ["--exposure-opt", str(exposure_opt_path)]
+
+            rig_config_path = getattr(
+                self,
+                "_active_rig_config_paths",
+                {},
+            ).get(rig_id)
+            if rig_config_path is not None:
+                cmd += ["--rig-config", str(rig_config_path)]
 
             if simulate:
                 cmd += ["--simulate", "--speed", str(speed)]
@@ -1507,6 +1769,11 @@ class TriggerService:
                     )
 
             process_still_alive = proc is not None and proc.poll() is None
+            recovery_window_open = (
+                True
+                if totality_only
+                else self._recovery_window_open(rig_id)
+            )
             with self._lock:
                 manual_stop_requested = self._manual_stop_requested_by_rig[rig_id]
                 owns_process = (
@@ -1555,6 +1822,7 @@ class TriggerService:
                     recovery_attempt=recovery_attempt,
                     last_stage=heartbeat_last_stage,
                     heartbeat_timed_out=heartbeat_timed_out,
+                    recovery_window_open=recovery_window_open,
                 )
             )
             if can_recover and self.run_journal is not None and run_id is not None:
@@ -1598,6 +1866,8 @@ class TriggerService:
                             rig_id=rig_id,
                             _recovery=True,
                             _run_id=run_id,
+                            _recovery_snapshot_id=snapshot_id,
+                            _recovery_input_fingerprints=input_fingerprints,
                             _child_recovery_attempt=recovery_attempt + 1,
                         )
                         recovered = recovered == "started"
@@ -1607,6 +1877,8 @@ class TriggerService:
                             selected=recovery_selection,
                             _recovery=True,
                             _run_id=run_id,
+                            _recovery_snapshot_id=snapshot_id,
+                            _recovery_input_fingerprints=input_fingerprints,
                             _child_recovery_attempt=recovery_attempt + 1,
                         )
                 except Exception as exc:
@@ -1702,6 +1974,8 @@ class TriggerService:
                     audible=True,
                 )
 
+            self._discard_run_snapshot(snapshot_id)
+
     def override_totality(self, rig_id=1):
         """Interrupt one RIG photo scheduler; preserve global audio."""
 
@@ -1763,7 +2037,8 @@ class TriggerService:
 
     def start_totality_only(self, rig_id=1, _recovery=False, _run_id=None,
                             _child_recovery_attempt=0,
-                            _recovery_input_fingerprints=None):
+                            _recovery_input_fingerprints=None,
+                            _recovery_snapshot_id=None):
         """Start emergency Totality now, or preempt an existing photo run."""
         if (
             not isinstance(rig_id, int)
@@ -1798,28 +2073,54 @@ class TriggerService:
             self._manual_stop_requested_by_rig[rig_id] = False
             self._cancel_start_requested_by_rig[rig_id] = False
 
+        run_id = _run_id
+        snapshot_id = _recovery_snapshot_id
+        if not _recovery:
+            run_id = uuid.uuid4().hex
+            snapshot_id = run_id
+
         ipc_session = None
         try:
-            self._resolve_totality_input(rig_id)
-            if _recovery_input_fingerprints is not None:
-                self._verify_recovery_input_fingerprints(
+            config = None
+            if _recovery:
+                if (
+                    not isinstance(snapshot_id, str)
+                    or not snapshot_id
+                    or not isinstance(_recovery_input_fingerprints, dict)
+                    or not _recovery_input_fingerprints
+                ):
+                    raise TriggerValidationError(
+                        "Recovery snapshot metadata is missing.",
+                        "RECOVERY_INPUTS_UNVERIFIED",
+                    )
+                _paths, config = self._restore_run_snapshot(
                     rig_id,
+                    snapshot_id,
                     _recovery_input_fingerprints,
                 )
+            else:
+                self._resolve_totality_input(rig_id)
+
             if self.rig_config_loader is not None:
-                config = self.rig_config_loader()
+                if config is None:
+                    config = self.rig_config_loader()
                 validate_execution_rig(config, rig_id)
+                if not _recovery:
+                    self._freeze_run_inputs(rig_id, snapshot_id, config)
                 if self.camera_runtime is not None:
                     self.camera_runtime.reconcile(config)
                     ipc_session = self.camera_runtime.open_ipc_session((rig_id,))
+            elif not _recovery:
+                self._freeze_run_inputs(rig_id, snapshot_id, None)
 
-            run_id = _run_id
             if not _recovery:
                 run_id = self._journal_begin(
                     rig_id,
                     "totality_override",
                     {},
                     totality_only=True,
+                    run_id=run_id,
+                    snapshot_id=snapshot_id,
                 )
             if run_id is not None:
                 self._run_ids_by_rig[rig_id] = run_id
@@ -1845,6 +2146,8 @@ class TriggerService:
                     "rig_id": rig_id,
                     "totality_only": True,
                     "run_id": run_id,
+                    "snapshot_id": snapshot_id,
+                    "input_fingerprints": self._active_input_fingerprints(rig_id),
                     "recovery_attempt": _child_recovery_attempt,
                 },
                 name=f"totality-only-process-rig-{rig_id}",
@@ -1867,6 +2170,7 @@ class TriggerService:
                 self._cancel_start_requested_by_rig[rig_id] = False
                 self._supervisor_threads[rig_id] = None
                 self._clear_active_inputs(rig_id)
+                self._discard_run_snapshot(snapshot_id)
 
             if ipc_session is not None and self.camera_runtime is not None:
                 try:

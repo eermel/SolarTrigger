@@ -1475,7 +1475,25 @@ def api_rigs_preview():
     return jsonify({"rigs": response})
 
 
+def _rig_config_mutation_interlock(route):
+    @wraps(route)
+    def guarded(*args, **kwargs):
+        if request.method != "POST":
+            return route(*args, **kwargs)
+        from backend.runtime_interlock import TriggerActiveError, trigger_idle_section
+        try:
+            with trigger_idle_section(_trigger_active_or_starting):
+                return route(*args, **kwargs)
+        except TriggerActiveError:
+            return jsonify({
+                "error": "RIG configuration cannot be changed while a trigger is active or starting.",
+                "code": "TRIGGER_RUNNING",
+            }), 409
+    return guarded
+
+
 @app.route("/api/rigs/devices", methods=["POST"])
+@_rig_config_mutation_interlock
 def api_rig_devices_post():
     """Persist validated per-rig binding patches and reload runtime state."""
     payload = request.get_json(silent=True)
@@ -1642,6 +1660,7 @@ def api_rig_devices_post():
 
 
 @app.route("/api/rigs/photo", methods=["GET", "POST"])
+@_rig_config_mutation_interlock
 def api_rig_photo_post():
     """Read or persist per-RIG optics/photo configuration without hardware access."""
     if request.method == "GET":
