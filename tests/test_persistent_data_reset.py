@@ -4,6 +4,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = frontend_source()
 APP = (ROOT / "flask_app/app.py").read_text(encoding="utf-8")
+HELPER = (
+    ROOT / "install" / "solartrigger-release-update"
+).read_text(encoding="utf-8")
 
 
 def test_devices_panel_has_vertical_spacing():
@@ -38,10 +41,17 @@ def test_reset_requires_confirmation():
 
 def test_backend_has_reset_and_reboot_endpoint():
     assert '@app.route("/api/system/erase-persistent-data-and-reboot"' in APP
-    assert "def _erase_all_persistent_data():" in APP
-    assert '["sudo", "-n", "/usr/bin/systemctl", "reboot"]' in APP
+    assert '"erase-reboot"' in APP
+    assert "RELEASE_HELPER" in APP
+    assert '["sudo", "-n", "/usr/bin/systemctl", "reboot"]' not in APP
 
-def test_reset_targets_only_application_var():
-    assert "reset_application_var(VAR_DIR)" in APP
+
+def test_reset_targets_only_shared_application_var_in_root_helper():
+    assert 'reset_persistent_data_and_reboot()' in HELPER
+    assert '[[ "$SHARED_VAR" == "$BASE/var" ]]' in HELPER
+    assert 'preserved_top = {"tls"}' in HELPER
+    assert '"camera_profiles"' in HELPER
+    assert '"camera_timing"' in HELPER
+    assert '"camera_characterization"' in HELPER
     assert 'TRIGGER_DIR / "configs" / "rig"' not in APP
     assert 'path.name == "dryrun_short.json"' not in APP

@@ -24,7 +24,7 @@ def test_legacy_camera_sync_hides_internal_exception_text():
 def test_eclipse_calculator_always_clears_running_state_and_process():
     section = _function_slice(
         'def api_eclipse_calculate():',
-        'def _erase_all_persistent_data():',
+        '@app.route("/api/system/erase-persistent-data-and-reboot"',
     )
     assert 'finally:' in section
     assert '_state["calc_running"] = False' in section
@@ -34,7 +34,7 @@ def test_eclipse_calculator_always_clears_running_state_and_process():
 def test_eclipse_calculator_has_unexpected_exception_boundary():
     section = _function_slice(
         'def api_eclipse_calculate():',
-        'def _erase_all_persistent_data():',
+        '@app.route("/api/system/erase-persistent-data-and-reboot"',
     )
     assert 'except Exception:' in section
     assert 'app.logger.exception("Python eclipse calculation failed")' in section

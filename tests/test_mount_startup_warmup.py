@@ -1,7 +1,11 @@
 import sys
+import threading
+import time
 from types import ModuleType
 
 import pytest
+
+from backend.state_store import StateStore
 
 
 pytest.importorskip("flask")
@@ -87,3 +91,72 @@ def test_startup_warmup_is_best_effort_per_mount(monkeypatch):
 
     assert workers[1].calls == 1
     assert workers[2].calls == 1
+
+
+def test_legacy_mount_selection_latest_request_wins(monkeypatch, tmp_path):
+    state_store = StateStore(tmp_path / "state.json")
+    state_store.update_section(
+        "devices",
+        {
+            "mount": {"plugin": "none", "active": False},
+            "camera": {"plugin": "none", "active": False},
+            "focuser": {"plugin": "none", "active": False},
+            "gps": {"plugin": "none", "active": False},
+        },
+        persist=False,
+    )
+
+    entered = threading.Event()
+    release = threading.Event()
+    closed = threading.Event()
+    events = []
+
+    class BlockingLegacyMount:
+        def warmup(self):
+            events.append("warmup-start")
+            entered.set()
+            assert release.wait(2.0)
+            events.append("warmup-end")
+            return True
+
+        def close(self):
+            events.append("close")
+            closed.set()
+
+    monkeypatch.setattr(flask_module, "_state_store", state_store)
+    monkeypatch.setattr(flask_module, "_state", state_store.data)
+    monkeypatch.setattr(flask_module, "_state_lock", state_store.lock)
+    monkeypatch.setattr(
+        flask_module,
+        "_mount_service",
+        BlockingLegacyMount(),
+    )
+    monkeypatch.setattr(
+        flask_module,
+        "_mount_selection_generation",
+        0,
+    )
+
+    flask_module.app.config.update(TESTING=True)
+    client = flask_module.app.test_client()
+
+    first = client.post(
+        "/api/devices",
+        json={"mount": {"plugin": "indi", "active": True}},
+    )
+    assert first.status_code == 200
+    assert entered.wait(1.0)
+
+    second = client.post(
+        "/api/devices",
+        json={"mount": {"plugin": "none", "active": False}},
+    )
+    assert second.status_code == 200
+
+    # The newer disable request must not overtake the in-flight warmup.
+    time.sleep(0.05)
+    assert events == ["warmup-start"]
+
+    release.set()
+    assert closed.wait(1.0)
+    assert events == ["warmup-start", "warmup-end", "close"]

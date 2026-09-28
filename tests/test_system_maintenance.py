@@ -403,3 +403,16 @@ def test_maintenance_helper_running_detects_preflock_helper_process(tmp_path):
         missing_lock,
         proc_root=proc_root,
     ) is False
+
+def test_release_update_helper_shell_syntax_is_valid():
+    root = Path(__file__).resolve().parents[1]
+    helper = root / "install" / "solartrigger-release-update"
+
+    result = subprocess.run(
+        ["bash", "-n", str(helper)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 import socket
 import time
 import threading
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import backend.runtime_daemon as runtime_daemon
+import backend.runtime_rpc as runtime_rpc
 from backend.camera_worker_runtime import CameraWorkerRuntime
 from backend.runtime_daemon import (
     RuntimeController,
@@ -21,6 +23,7 @@ from backend.runtime_rpc import (
     RemoteCameraWorkerRuntime,
     RemoteTriggerService,
     RuntimeClient,
+    RuntimeOutcomeUnknownError,
     RuntimeUnavailableError,
     _from_wire,
     _to_wire,
@@ -1166,3 +1169,98 @@ def test_runtime_shutdown_does_not_release_camera_if_force_stop_thread_cannot_st
 
     assert camera.calls == 1
     assert controller._shutdown is True
+
+
+def test_runtime_rpc_request_id_deduplicates_lost_response(tmp_path):
+    class CountingController:
+        def __init__(self):
+            self.calls = 0
+
+        def dispatch(self, operation, payload):
+            assert operation == "mutate"
+            assert payload == {"value": 7}
+            self.calls += 1
+            time.sleep(0.05)
+            return {"calls": self.calls}
+
+    controller = CountingController()
+    socket_path = tmp_path / "dedup-runtime.sock"
+    server = RuntimeUnixServer(str(socket_path), controller)
+    thread = _serve_runtime_server(server)
+    request_id = "dedup-request-1"
+
+    raw = (
+        json.dumps({
+            "request_id": request_id,
+            "operation": "mutate",
+            "payload": {"value": 7},
+        })
+        + "\n"
+    ).encode("utf-8")
+
+    abandoned = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        abandoned.connect(str(socket_path))
+        abandoned.sendall(raw)
+    finally:
+        abandoned.close()
+
+    try:
+        result = RuntimeClient(str(socket_path), timeout=1.0).call(
+            "mutate",
+            {"value": 7},
+            request_id=request_id,
+        )
+        assert result == {"calls": 1}
+        assert controller.calls == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_runtime_client_retries_same_request_id_then_reports_unknown(monkeypatch):
+    sent_request_ids = []
+
+    class SilentSocket:
+        def settimeout(self, _timeout):
+            pass
+
+        def connect(self, _path):
+            pass
+
+        def sendall(self, raw):
+            sent_request_ids.append(
+                json.loads(raw.decode("utf-8"))["request_id"]
+            )
+
+        def recv(self, _size):
+            return b""
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        runtime_rpc.socket,
+        "socket",
+        lambda *_args, **_kwargs: SilentSocket(),
+    )
+
+    client = RuntimeClient("/tmp/runtime-never-replies.sock", timeout=0.1)
+    with pytest.raises(RuntimeOutcomeUnknownError) as caught:
+        client.call("trigger.start", {"rig_id": 1})
+
+    assert caught.value.code == "RPC_OUTCOME_UNKNOWN"
+    assert caught.value.operation == "trigger.start"
+    assert len(sent_request_ids) == 2
+    assert sent_request_ids[0] == sent_request_ids[1]
+    assert caught.value.request_id == sent_request_ids[0]
+
+def test_frontend_warns_when_runtime_acknowledgement_is_ambiguous():
+    root = Path(__file__).resolve().parents[1]
+    js = (
+        root / "flask_app" / "static" / "js" / "solartrigger.js"
+    ).read_text(encoding="utf-8")
+
+    assert "RPC_OUTCOME_UNKNOWN" in js
+    assert "acknowledgement lost" in js

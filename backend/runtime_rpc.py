@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import socket
 from types import SimpleNamespace
+import uuid
 from typing import Any
 
 
@@ -24,6 +25,24 @@ class RuntimeRpcError(RuntimeError):
 
 class RuntimeUnavailableError(RuntimeRpcError):
     """Raised when the standalone runtime socket cannot be reached."""
+
+
+class RuntimeOutcomeUnknownError(RuntimeUnavailableError):
+    """The request may have executed but no authoritative response was received."""
+
+    code = "RPC_OUTCOME_UNKNOWN"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        request_id: str,
+        operation: str,
+    ):
+        super().__init__(message)
+        self.request_id = str(request_id)
+        self.operation = str(operation)
+        self.outcome_unknown = True
 
 
 class RuntimeRemoteError(RuntimeRpcError):
@@ -120,69 +139,169 @@ class RuntimeClient:
         self.socket_path = socket_path or runtime_socket_path()
         self.timeout = float(timeout)
 
-    def call(self, operation: str, payload: dict | None = None, *, timeout: float | None = None):
+    def call(
+        self,
+        operation: str,
+        payload: dict | None = None,
+        *,
+        timeout: float | None = None,
+        request_id: str | None = None,
+    ):
+        """Execute one RPC with a replay-safe request identity.
+
+        Once bytes may have reached the runtime, transport failure is ambiguous:
+        the command could have executed even though the response was lost.  A
+        single reconnect reuses the same request_id; the runtime caches the
+        first execution result and therefore does not execute the command twice.
+        If an authoritative response still cannot be recovered, callers receive
+        RuntimeOutcomeUnknownError instead of a misleading "unavailable" error.
+        """
+        operation = str(operation)
+        request_id = str(request_id or uuid.uuid4().hex)
+        if not request_id or len(request_id) > 128:
+            raise ValueError("request_id must contain 1 to 128 characters")
+
         request = {
-            "operation": str(operation),
+            "request_id": request_id,
+            "operation": operation,
             "payload": _to_wire(payload or {}),
         }
         raw = (
             json.dumps(request, separators=(",", ":"), ensure_ascii=False)
             + "\n"
         ).encode("utf-8")
+        effective_timeout = (
+            self.timeout
+            if timeout is None
+            else float(timeout)
+        )
 
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.settimeout(self.timeout if timeout is None else float(timeout))
-        try:
-            sock.connect(self.socket_path)
-            sock.sendall(raw)
+        first_uncertain: BaseException | None = None
+
+        for attempt in range(2):
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.settimeout(effective_timeout)
+            connected = False
+            maybe_sent = False
             chunks = bytearray()
-            while True:
-                block = sock.recv(65536)
-                if not block:
-                    break
-                chunks.extend(block)
-                if len(chunks) > _MAX_MESSAGE_BYTES:
-                    raise RuntimeRpcError("runtime response exceeds size limit")
-                if b"\n" in block:
-                    break
-        except (FileNotFoundError, ConnectionRefusedError, socket.timeout, OSError) as exc:
-            raise RuntimeUnavailableError(
-                f"standalone runtime unavailable at {self.socket_path}: {exc}"
-            ) from exc
-        finally:
-            sock.close()
+            try:
+                sock.connect(self.socket_path)
+                connected = True
+                # sendall() may have transmitted a prefix before raising, so
+                # any failure after connect is conservatively outcome-unknown.
+                maybe_sent = True
+                sock.sendall(raw)
 
-        if not chunks:
-            raise RuntimeUnavailableError("standalone runtime closed the connection without a response")
+                while True:
+                    block = sock.recv(65536)
+                    if not block:
+                        break
+                    chunks.extend(block)
+                    if len(chunks) > _MAX_MESSAGE_BYTES:
+                        raise RuntimeRpcError(
+                            "runtime response exceeds size limit"
+                        )
+                    if b"\n" in block:
+                        break
+            except RuntimeRpcError:
+                raise
+            except (
+                FileNotFoundError,
+                ConnectionRefusedError,
+                socket.timeout,
+                OSError,
+            ) as exc:
+                uncertain = bool(connected and maybe_sent)
+                if uncertain:
+                    if first_uncertain is None:
+                        first_uncertain = exc
+                    if attempt == 0:
+                        continue
+                    raise RuntimeOutcomeUnknownError(
+                        "standalone runtime request outcome is unknown "
+                        f"for {operation} ({request_id}): {exc}",
+                        request_id=request_id,
+                        operation=operation,
+                    ) from exc
 
-        line = bytes(chunks).split(b"\n", 1)[0]
-        try:
-            response = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RuntimeRpcError("invalid response from standalone runtime") from exc
+                if first_uncertain is not None:
+                    raise RuntimeOutcomeUnknownError(
+                        "standalone runtime request outcome is unknown "
+                        f"for {operation} ({request_id}): {exc}",
+                        request_id=request_id,
+                        operation=operation,
+                    ) from first_uncertain
 
-        if not isinstance(response, dict):
-            raise RuntimeRpcError("invalid response from standalone runtime")
+                raise RuntimeUnavailableError(
+                    f"standalone runtime unavailable at "
+                    f"{self.socket_path}: {exc}"
+                ) from exc
+            finally:
+                sock.close()
 
-        if response.get("ok") is not True:
-            error = response.get("error") or {}
-            if not isinstance(error, dict):
-                error = {}
-            raise RuntimeRemoteError(
-                str(error.get("message") or "runtime operation failed"),
-                error_type=(
-                    str(error["type"])
-                    if error.get("type") is not None
-                    else None
-                ),
-                code=(
+            if not chunks:
+                if first_uncertain is None:
+                    first_uncertain = RuntimeError(
+                        "runtime closed connection without response"
+                    )
+                if attempt == 0:
+                    continue
+                raise RuntimeOutcomeUnknownError(
+                    "standalone runtime request outcome is unknown "
+                    f"for {operation} ({request_id}): "
+                    "connection closed without a response",
+                    request_id=request_id,
+                    operation=operation,
+                ) from first_uncertain
+
+            line = bytes(chunks).split(b"\n", 1)[0]
+            try:
+                response = json.loads(line.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise RuntimeRpcError(
+                    "invalid response from standalone runtime"
+                ) from exc
+
+            if not isinstance(response, dict):
+                raise RuntimeRpcError(
+                    "invalid response from standalone runtime"
+                )
+
+            response_request_id = response.get("request_id")
+            if response_request_id != request_id:
+                raise RuntimeRpcError(
+                    "runtime response request_id mismatch"
+                )
+
+            if response.get("ok") is not True:
+                error = response.get("error") or {}
+                if not isinstance(error, dict):
+                    error = {}
+                code = (
                     str(error["code"])
                     if error.get("code") is not None
                     else None
-                ),
-            )
+                )
+                if code == "RPC_REQUEST_IN_PROGRESS":
+                    raise RuntimeOutcomeUnknownError(
+                        "standalone runtime request is still executing "
+                        f"for {operation} ({request_id})",
+                        request_id=request_id,
+                        operation=operation,
+                    )
+                raise RuntimeRemoteError(
+                    str(error.get("message") or "runtime operation failed"),
+                    error_type=(
+                        str(error["type"])
+                        if error.get("type") is not None
+                        else None
+                    ),
+                    code=code,
+                )
 
-        return _from_wire(response.get("result"))
+            return _from_wire(response.get("result"))
+
+        raise AssertionError("unreachable runtime RPC retry state")
 
 
 class RemoteCameraWorker:
@@ -304,6 +423,12 @@ class RemoteTriggerService:
     def _trigger_call(self, operation: str, payload: dict, *, timeout: float = 90.0):
         try:
             result = self._client.call(operation, payload, timeout=timeout)
+        except RuntimeOutcomeUnknownError:
+            # The runtime may have accepted the command even though the
+            # acknowledgement was lost. Refresh observable state immediately,
+            # but preserve the explicit ambiguity for the HTTP caller.
+            self.sync_state(best_effort=True)
+            raise
         except RuntimeRemoteError as exc:
             if exc.error_type == "TriggerValidationError":
                 from backend.trigger_service import TriggerValidationError
@@ -425,6 +550,7 @@ __all__ = [
     "RemoteCameraWorkerRuntime",
     "RemoteTriggerService",
     "RuntimeClient",
+    "RuntimeOutcomeUnknownError",
     "RuntimeRemoteError",
     "RuntimeRpcError",
     "RuntimeUnavailableError",

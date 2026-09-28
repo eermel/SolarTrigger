@@ -25,6 +25,11 @@ acquire_maintenance_lock() {
     }
 }
 
+acquire_maintenance_lock_wait() {
+    exec 9>"$MAINTENANCE_LOCK"
+    /usr/bin/flock 9
+}
+
 log() {
     printf '%s\n' "$*"
 }
@@ -738,6 +743,70 @@ request_reboot() {
     /usr/bin/systemctl reboot
 }
 
+reset_persistent_data_and_reboot() {
+    local app_group
+    app_group=$(id -gn "$APP_USER")
+
+    [[ "$SHARED_VAR" == "$BASE/var" ]]
+    [[ ! -L "$SHARED_VAR" ]] || {
+        log "Unsafe persistent-data symlink: $SHARED_VAR" >&2
+        return 1
+    }
+    mkdir -p -- "$SHARED_VAR"
+    [[ -d "$SHARED_VAR" && ! -L "$SHARED_VAR" ]]
+
+    # The detached systemd unit owns this destructive phase. It is outside
+    # the portal cgroup and holds the persistent maintenance flock, so neither
+    # a Gunicorn worker crash nor a full portal restart can interrupt the
+    # erase/reboot sequence once this function begins.
+    sleep 1
+
+    /usr/bin/python3 - "$SHARED_VAR" <<'PYRESET'
+import shutil
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+if root.is_symlink() or not root.is_dir():
+    raise RuntimeError(f"unsafe SolarTrigger var root: {root}")
+
+preserved_top = {"tls"}
+preserved_generated = {
+    "camera_profiles",
+    "camera_timing",
+    "camera_characterization",
+}
+
+def remove(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+for child in tuple(root.iterdir()):
+    if child.name in preserved_top:
+        continue
+    if child.name == "generated":
+        if child.is_symlink() or not child.is_dir():
+            remove(child)
+            child.mkdir(parents=True, exist_ok=True)
+        for generated_child in tuple(child.iterdir()):
+            if generated_child.name in preserved_generated:
+                continue
+            remove(generated_child)
+        continue
+    remove(child)
+PYRESET
+
+    mkdir -p --         "$SHARED_VAR/state"         "$SHARED_VAR/generated/rig"         "$SHARED_VAR/generated/camera_cfg"         "$SHARED_VAR/generated/circumstances"         "$SHARED_VAR/generated/photo_cfg"         "$SHARED_VAR/generated/exposure_opt"         "$SHARED_VAR/generated/sequence"         "$SHARED_VAR/generated/camera_profiles"         "$SHARED_VAR/generated/camera_timing"         "$SHARED_VAR/generated/camera_characterization/validation"         "$SHARED_VAR/logs"
+
+    chown -R "$APP_USER:$app_group" --         "$SHARED_VAR/state"         "$SHARED_VAR/generated"         "$SHARED_VAR/logs"
+
+    sync
+    log "Persistent SolarTrigger data erased. Rebooting Raspberry Pi."
+    /usr/bin/systemctl reboot
+}
+
 install_release() {
     local install_package=$1
     local install_version
@@ -826,6 +895,25 @@ case "${1:-}" in
     rollback)
         acquire_maintenance_lock
         rollback_release "${2:?}"
+        ;;
+    erase-reboot)
+        # Hold the nonblocking lock until systemd confirms the detached worker
+        # has exec()ed. The worker is then already waiting on the same flock,
+        # so no other maintenance operation can enter during the handoff.
+        acquire_maintenance_lock
+        /usr/bin/systemd-run \
+            --unit="solartrigger-erase-reboot" \
+            --property=Type=exec \
+            --setenv=SOLARTRIGGER_USER="$APP_USER" \
+            --collect \
+            /usr/local/sbin/solartrigger-release-update erase-reboot-worker
+        ;;
+    erase-reboot-worker)
+        # Runs as an independent systemd transient service, outside the
+        # Gunicorn cgroup. Wait until the admission helper releases fd 9.
+        acquire_maintenance_lock_wait
+        exec >/dev/null 2>&1
+        reset_persistent_data_and_reboot
         ;;
     *)
         exit 64

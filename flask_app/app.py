@@ -194,7 +194,6 @@ from backend.runtime_paths import (
     VAR_DIR,
     ensure_var_layout,
 )
-from backend.persistent_reset import reset_application_var
 
 ensure_var_layout()
 JSON_FILE = TODAY_ECLIPSE_FILE
@@ -261,7 +260,11 @@ from backend.focuser_worker_runtime import get_focuser_worker_runtime
 from backend.generic_worker import BusyDeviceError
 from backend.mount_worker_runtime import get_mount_worker_runtime
 from backend.trigger_service import TriggerService, TriggerValidationError
-from backend.runtime_rpc import RemoteTriggerService, runtime_client_enabled
+from backend.runtime_rpc import (
+    RemoteTriggerService,
+    RuntimeOutcomeUnknownError,
+    runtime_client_enabled,
+)
 from backend.timezone_service import calculate_timezone_from_coords as _backend_timezone
 from services.camera_service import _normalized_speed_plan
 from services.focuser_service import FocuserService
@@ -377,6 +380,9 @@ _calc_lock = threading.Lock()
 _camera_sync_lock = threading.Lock()
 _device_detection_lock = threading.Lock()
 _device_detection_cache = {}
+_mount_selection_warmup_lock = threading.Lock()
+_mount_selection_generation_lock = threading.Lock()
+_mount_selection_generation = 0
 _DEVICE_DETECTION_TIMEOUTS = {
     "camera": 2.0,
     "gps": 2.0,
@@ -531,6 +537,39 @@ def _play_pi_test_sound(filename):
     audio_service.play(filename)
 
 
+def _run_pi_test_sound(filename):
+    """Contain asynchronous test-audio failures and make them observable."""
+    try:
+        _play_pi_test_sound(filename)
+    except Exception as exc:
+        log.exception("Pi audio test failed")
+        try:
+            socketio.emit(
+                "audio_test_result",
+                {
+                    "status": "error",
+                    "filename": filename,
+                    "error": str(exc),
+                },
+                namespace="/",
+            )
+        except Exception:
+            log.exception("Unable to emit Pi audio test failure")
+        return
+
+    try:
+        socketio.emit(
+            "audio_test_result",
+            {
+                "status": "success",
+                "filename": filename,
+            },
+            namespace="/",
+        )
+    except Exception:
+        log.exception("Unable to emit Pi audio test completion")
+
+
 @app.route("/api/audio/enabled", methods=["GET", "POST"])
 def api_audio_enabled():
     if request.method == "GET":
@@ -614,12 +653,20 @@ def api_audio_test():
         })
 
     thread = threading.Thread(
-        target=_play_pi_test_sound,
+        target=_run_pi_test_sound,
         args=(filename,),
         daemon=True,
         name="audio-test-contact",
     )
-    thread.start()
+    try:
+        thread.start()
+    except BaseException as exc:
+        log.exception("Unable to start Pi audio test worker")
+        return jsonify({
+            "error": "Unable to start audio test",
+            "code": "AUDIO_TEST_START_FAILED",
+            "detail": str(exc),
+        }), 503
 
     # Browser playback is a secondary copy. Pi playback remains autonomous.
     socketio.emit(
@@ -632,7 +679,7 @@ def api_audio_test():
     )
 
     return jsonify({
-        "status": "ok",
+        "status": "started",
         "filename": filename,
         "outputs": ["pi", "browser"],
     })
@@ -867,31 +914,48 @@ def api_devices_set():
         )
 
         if mount_changed:
-            def warm_selected_mount():
-                try:
-                    if (
-                        new_mount.get("active") is True
-                        and new_mount.get("plugin") not in (None, "", "none")
-                    ):
-                        log.info(
-                            "Selected mount pre-initialization: %s",
-                            new_mount.get("plugin"),
-                        )
-                        _mount_service.warmup()
-                    else:
-                        _mount_service.close()
-                        log.info("Mount disabled")
-                except Exception as exc:
-                    log.warning(
-                        "Mount pre-initialization failed: %s",
-                        exc,
-                    )
+            global _mount_selection_generation
+            with _mount_selection_generation_lock:
+                _mount_selection_generation += 1
+                warmup_generation = _mount_selection_generation
 
-            threading.Thread(
-                target=warm_selected_mount,
-                name="mount-selection-warmup",
-                daemon=True,
-            ).start()
+            def warm_selected_mount(generation, desired_mount):
+                # Legacy selection warmups are serialized.  A queued stale
+                # request becomes a no-op; if it was already executing, the
+                # newest generation runs immediately after it and therefore
+                # owns the final hardware state ("latest selection wins").
+                with _mount_selection_warmup_lock:
+                    with _mount_selection_generation_lock:
+                        if generation != _mount_selection_generation:
+                            return
+                    try:
+                        if (
+                            desired_mount.get("active") is True
+                            and desired_mount.get("plugin") not in (None, "", "none")
+                        ):
+                            log.info(
+                                "Selected mount pre-initialization: %s",
+                                desired_mount.get("plugin"),
+                            )
+                            _mount_service.warmup()
+                        else:
+                            _mount_service.close()
+                            log.info("Mount disabled")
+                    except Exception as exc:
+                        log.warning(
+                            "Mount pre-initialization failed: %s",
+                            exc,
+                        )
+
+            try:
+                threading.Thread(
+                    target=warm_selected_mount,
+                    args=(warmup_generation, dict(new_mount)),
+                    name=f"mount-selection-warmup-{warmup_generation}",
+                    daemon=True,
+                ).start()
+            except Exception as exc:
+                log.warning("Unable to start mount warmup worker: %s", exc)
 
     return jsonify(_devices_snapshot())
 
@@ -3677,15 +3741,6 @@ def api_eclipse_calculate():
     return jsonify({"status": "started"})
 
 
-def _erase_all_persistent_data():
-    """Erase the complete SolarTrigger mutable application tree."""
-    existed = VAR_DIR.exists() or VAR_DIR.is_symlink()
-
-    reset_application_var(VAR_DIR)
-
-    return [str(VAR_DIR)] if existed else []
-
-
 @app.route("/api/system/erase-persistent-data-and-reboot", methods=["POST"])
 def api_system_erase_persistent_data_and_reboot():
     payload = request.get_json(silent=True) or {}
@@ -3696,49 +3751,28 @@ def api_system_erase_persistent_data_and_reboot():
             "code": "CONFIRMATION_REQUIRED",
         }), 400
 
-    def erase_and_reboot():
-        import os
-        import subprocess
-        import time
-
-        # Allow the HTTP response to reach the browser first.
-        time.sleep(0.5)
-
-        try:
-            removed = _erase_all_persistent_data()
-            log.warning(
-                "Persistent data erased before reboot: %s",
-                ", ".join(removed) if removed else "nothing to remove",
-            )
-
-            try:
-                os.sync()
-            except AttributeError:
-                pass
-
-            subprocess.run(
-                ["sudo", "-n", "/usr/bin/systemctl", "reboot"],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception:
-            log.exception("Unable to erase persistent data and reboot")
-            raise
-
-    # Treat erase+reboot as maintenance from admission until the destructive
-    # callable completes.  JOB.running is therefore visible to Trigger START,
-    # while the shared runtime interlock closes the inverse START/reboot race.
+    # The portal performs admission only.  The destructive phase runs in the
+    # installed root helper, which acquires the persistent maintenance flock
+    # before erasing shared var data and then reboots.  A Gunicorn worker crash
+    # therefore cannot strand the machine between erase and reboot.
     from backend.runtime_interlock import (
         TriggerActiveError,
         start_maintenance_if_trigger_idle,
     )
-    from backend.system_maintenance import JOB
+    from backend.system_maintenance import JOB, RELEASE_HELPER
 
     try:
         start_maintenance_if_trigger_idle(
             _trigger_active_or_starting,
-            lambda: JOB.start_callable("erase-reboot", erase_and_reboot),
+            lambda: JOB.start(
+                "erase-reboot",
+                [
+                    "sudo",
+                    "-n",
+                    RELEASE_HELPER,
+                    "erase-reboot",
+                ],
+            ),
         )
     except TriggerActiveError:
         return jsonify({
@@ -4998,6 +5032,22 @@ def _trigger_start_guarded(callback):
         ) from exc
 
 
+def _runtime_outcome_unknown_response(exc, *, rig_id=None):
+    payload = {
+        "status": "outcome_unknown",
+        "error": (
+            "Runtime command acknowledgement was lost; "
+            "the command may already be executing."
+        ),
+        "code": "RPC_OUTCOME_UNKNOWN",
+        "request_id": exc.request_id,
+        "operation": exc.operation,
+    }
+    if rig_id is not None:
+        payload["rig_id"] = rig_id
+    return jsonify(payload), 202
+
+
 @app.route("/api/trigger/totality_only", methods=["POST"])
 def api_trigger_totality_only():
     """Emergency Totality: preempt active photos or start immediately."""
@@ -5014,6 +5064,8 @@ def api_trigger_totality_only():
             "code": exc.code,
             "rig_id": rig_id,
         }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+    except RuntimeOutcomeUnknownError as exc:
+        return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
     if not action:
         return jsonify({
             "error": f"Totality sequence for RIG {rig_id} is already starting.",
@@ -5081,6 +5133,8 @@ def api_trigger_start():
             "code": exc.code,
             "rig_id": rig_id,
         }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+    except RuntimeOutcomeUnknownError as exc:
+        return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
 
     except Exception:
         app.logger.exception(
@@ -5114,6 +5168,8 @@ def api_trigger_simulate():
         return jsonify({"error": str(exc), "code": exc.code}), (
             409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
         )
+    except RuntimeOutcomeUnknownError as exc:
+        return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
     except Exception:
         app.logger.exception("Trigger simulation failed for RIG %s", rig_id)
         return jsonify({
@@ -5204,6 +5260,8 @@ def api_trigger_dryrun():
             "code": exc.code,
             "rig_id": rig_id,
         }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+    except RuntimeOutcomeUnknownError as exc:
+        return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
 
     except Exception:
         app.logger.exception("Trigger dry-run failed for RIG %s", rig_id)
@@ -5296,6 +5354,10 @@ def api_trigger_debug():
         return jsonify({"error": str(exc), "code": exc.code, "rig_id": rig_id}), (
             409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
         )
+    except RuntimeOutcomeUnknownError as exc:
+        # Do not delete the generated DEBUG circumstances: the runtime may
+        # already have snapshotted and started it.
+        return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
     except Exception:
         if destination_path is not None:
             try:
@@ -5319,7 +5381,10 @@ def api_trigger_stop():
     force = payload.get("force", False)
     if not isinstance(force, bool):
         return jsonify({"error": "force must be boolean"}), 400
-    return jsonify(_trigger_service.stop(rig_id=rig_id, force=force))
+    try:
+        return jsonify(_trigger_service.stop(rig_id=rig_id, force=force))
+    except RuntimeOutcomeUnknownError as exc:
+        return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
 
 @app.route("/api/trigger/status")
 def api_trigger_status():

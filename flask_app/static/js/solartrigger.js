@@ -2138,6 +2138,12 @@ socket.on('audio_play', data => {
   }
 });
 
+socket.on('audio_test_result', data => {
+  if (data?.status === 'error') {
+    flash(data.error || 'Pi audio test failed', 'red');
+  }
+});
+
 socket.on('audio_enabled', data => {
   if (data && typeof data.enabled === 'boolean') {
     applySoundsEnabled(data.enabled);
@@ -4363,14 +4369,14 @@ async function startTrigger() {
   }
 
   if (failures.length) {
+    const codes = new Set(failures.map(item => item.code));
     flash(
       failures
         .map(item => `RIG ${item.rigId}: ${item.error}`)
         .join(' | '),
-      'red'
+      codes.has('RPC_OUTCOME_UNKNOWN') ? 'yellow' : 'red'
     );
 
-    const codes = new Set(failures.map(item => item.code));
 
     if (
       codes.has('GPS_NOT_SYNCED') ||
@@ -4479,14 +4485,14 @@ async function startDebug() {
   }
 
   if (failures.length) {
+    const codes = new Set(failures.map(item => item.code));
     flash(
       failures
         .map(item => `RIG ${item.rigId}: ${item.error}`)
         .join(' | '),
-      'red'
+      codes.has('RPC_OUTCOME_UNKNOWN') ? 'yellow' : 'red'
     );
 
-    const codes = new Set(failures.map(item => item.code));
     if (
       codes.has('GPS_NOT_SYNCED') ||
       codes.has('GPS_SYNC_STALE') ||
@@ -4557,14 +4563,14 @@ async function startDryRun() {
   }
 
   if (failures.length) {
+    const codes = new Set(failures.map(item => item.code));
     flash(
       failures
         .map(item => `RIG ${item.rigId}: ${item.error}`)
         .join(' | '),
-      'red'
+      codes.has('RPC_OUTCOME_UNKNOWN') ? 'yellow' : 'red'
     );
 
-    const codes = new Set(failures.map(item => item.code));
     if (
       codes.has('GPS_NOT_SYNCED') ||
       codes.has('GPS_SYNC_STALE') ||
@@ -4631,6 +4637,13 @@ async function stopTrigger() {
     });
     const d = await r.json();
 
+    if (d.code === 'RPC_OUTCOME_UNKNOWN') {
+      flash(
+        'STOP acknowledgement lost — runtime state is being resynchronized',
+        'yellow'
+      );
+      return;
+    }
     if (!r.ok || d.error) {
       flash(d.error || `HTTP error ${r.status}`, 'red');
       return;
@@ -4689,7 +4702,12 @@ async function startTotalityOnly() {
 
     const d = await r.json();
 
-    if (r.ok && d.status === 'ok') {
+    if (d.code === 'RPC_OUTCOME_UNKNOWN') {
+      flash(
+        'Totality acknowledgement lost — runtime state is being resynchronized',
+        'yellow'
+      );
+    } else if (r.ok && d.status === 'ok') {
       flash(
         d.action === 'preempted'
           ? '🌑 Totality override active — timing audio continues'

@@ -31,7 +31,8 @@ def test_test_button_uses_backend_dual_audio_route():
 def test_audio_test_route_is_fixed_to_contact_wav():
     assert '@app.route("/api/audio/test", methods=["POST"])' in APP
     assert 'filename = "contact.wav"' in APP
-    assert 'target=_play_pi_test_sound' in APP
+    assert 'target=_run_pi_test_sound' in APP
+    assert '"AUDIO_TEST_START_FAILED"' in APP
     assert '"outputs": ["pi", "browser"]' in APP
 
 
@@ -87,3 +88,12 @@ def test_browser_volume_syncs_to_pi_backend():
 
 def test_pi_playback_applies_shared_volume():
     assert "pygame.mixer.music.set_volume(get_volume())" in AUDIO_SERVICE
+
+
+def test_audio_test_worker_contains_playback_failures():
+    assert "def _run_pi_test_sound(filename):" in APP
+    assert 'socketio.emit(' in APP
+    assert '"audio_test_result"' in APP
+    assert 'log.exception("Pi audio test failed")' in APP
+    assert "socket.on('audio_test_result'" in JS
+    assert "Pi audio test failed" in JS

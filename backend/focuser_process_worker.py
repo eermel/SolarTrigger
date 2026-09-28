@@ -137,7 +137,13 @@ class ProcessFocuserWorker(SupervisedDeviceProcess):
         )
 
     def stop_jog(self):
-        return self.call("stop_jog")
+        result = self.call("stop_jog")
+        # A successful stop_jog() reconnects to the worker generation when
+        # necessary and issues the physical continuous-motion STOP.  That is
+        # sufficient to clear a previous ambiguous jog/motion timeout exactly
+        # like the broader stop() recovery path.
+        self._clear_motion_state_unknown()
+        return result
 
     def stop(self):
         result = self.call("stop")

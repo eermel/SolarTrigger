@@ -439,3 +439,24 @@ def test_mount_process_spawn_failure_rolls_back_and_closes_pipe():
     assert worker.generation == 0
     assert context.parent.closed is True
     assert context.child.closed is True
+
+
+def test_focuser_stop_jog_clears_unknown_motion_after_timeout():
+    worker = _focuser()
+
+    try:
+        with pytest.raises(WorkerTimeoutError):
+            worker.move_to(12345)
+
+        assert worker.motion_state_unknown is True
+
+        result = worker.stop_jog()
+
+        assert result["operation"] == "stop_jog"
+        assert worker.motion_state_unknown is False
+        assert worker.motion_state_unknown_operation is None
+
+        # New motion is admitted after the explicit physical jog STOP.
+        assert worker.start_jog("out")["operation"] == "start_jog"
+    finally:
+        worker.shutdown()

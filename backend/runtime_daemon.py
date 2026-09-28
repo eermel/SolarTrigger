@@ -8,7 +8,7 @@ interrupt an in-flight eclipse sequence.
 from __future__ import annotations
 
 import argparse
-from collections import deque
+from collections import OrderedDict, deque
 from datetime import datetime, timezone
 import json
 import logging
@@ -52,6 +52,8 @@ _MAX_REQUEST_BYTES = 16 * 1024 * 1024
 _RPC_IO_TIMEOUT_S = 30.0
 _MAX_RPC_CONNECTIONS = 32
 _RPC_SHUTDOWN_DRAIN_S = 5.0
+_RPC_RESULT_CACHE_SIZE = 2048
+_RPC_RESULT_TTL_S = 15 * 60.0
 
 # Only operator-facing diagnostic calls are proxied through the portal. The
 # real-time trigger uses CameraIpcServer directly through an explicit lease.
@@ -740,6 +742,21 @@ class RuntimeController:
             self._shutdown = True
 
 
+def _runtime_rpc_error_response(exc: BaseException, *, request_id=None) -> dict:
+    code = getattr(exc, "code", None)
+    response = {
+        "ok": False,
+        "error": {
+            "type": type(exc).__name__,
+            "message": str(exc),
+            "code": code,
+        },
+    }
+    if request_id is not None:
+        response["request_id"] = str(request_id)
+    return response
+
+
 class _RuntimeRequestHandler(socketserver.StreamRequestHandler):
     def setup(self):
         self.request.settimeout(self.server.io_timeout_s)
@@ -754,28 +771,32 @@ class _RuntimeRequestHandler(socketserver.StreamRequestHandler):
         if not line:
             return
         if len(line) > _MAX_REQUEST_BYTES:
-            self._write_error(ValueError("runtime request exceeds size limit"))
+            self._write_error(
+                ValueError("runtime request exceeds size limit")
+            )
             return
 
+        request_id = None
         try:
             request = json.loads(line.decode("utf-8"))
             if not isinstance(request, dict):
                 raise ValueError("runtime request must be an object")
+            request_id = request.get("request_id")
             operation = request.get("operation")
             if not isinstance(operation, str) or not operation:
                 raise ValueError("runtime operation is required")
             payload = _from_wire(request.get("payload") or {})
-            controller = self.server.controller
-            if controller is None:
-                raise RuntimeError("runtime controller is not initialized")
-            result = controller.dispatch(operation, payload)
-            response = {
-                "ok": True,
-                "result": _to_wire(result),
-            }
+            response = self.server.execute_rpc(
+                request_id,
+                operation,
+                payload,
+            )
         except BaseException as exc:
             LOG.exception("RPC operation failed")
-            response = self._error_response(exc)
+            response = _runtime_rpc_error_response(
+                exc,
+                request_id=request_id,
+            )
 
         encoded = (
             json.dumps(response, separators=(",", ":"), ensure_ascii=False)
@@ -786,22 +807,10 @@ class _RuntimeRequestHandler(socketserver.StreamRequestHandler):
         except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
             pass
 
-    @staticmethod
-    def _error_response(exc: BaseException) -> dict:
-        code = getattr(exc, "code", None)
-        return {
-            "ok": False,
-            "error": {
-                "type": type(exc).__name__,
-                "message": str(exc),
-                "code": code,
-            },
-        }
-
     def _write_error(self, exc: BaseException):
         encoded = (
             json.dumps(
-                self._error_response(exc),
+                _runtime_rpc_error_response(exc),
                 separators=(",", ":"),
                 ensure_ascii=False,
             )
@@ -895,6 +904,8 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
         self._request_state = threading.Condition()
         self._closing = False
         self._active_requests: set[socket.socket] = set()
+        self._rpc_result_condition = threading.Condition()
+        self._rpc_results = OrderedDict()
         path = Path(socket_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._prepare_socket_path(path)
@@ -922,6 +933,148 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
         except BaseException:
             self.server_close()
             raise
+
+    @staticmethod
+    def _rpc_signature(operation: str, payload: dict) -> str:
+        return json.dumps(
+            {
+                "operation": operation,
+                "payload": _to_wire(payload),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+
+    def _prune_rpc_results_locked(self) -> None:
+        now = time.monotonic()
+        stale = [
+            request_id
+            for request_id, entry in self._rpc_results.items()
+            if entry.get("state") == "done"
+            and now - float(entry.get("finished", now)) > _RPC_RESULT_TTL_S
+        ]
+        for request_id in stale:
+            self._rpc_results.pop(request_id, None)
+
+        if len(self._rpc_results) <= _RPC_RESULT_CACHE_SIZE:
+            return
+
+        for request_id in tuple(self._rpc_results):
+            if len(self._rpc_results) <= _RPC_RESULT_CACHE_SIZE:
+                break
+            entry = self._rpc_results.get(request_id) or {}
+            if entry.get("state") == "done":
+                self._rpc_results.pop(request_id, None)
+
+    def execute_rpc(self, request_id, operation: str, payload: dict) -> dict:
+        """Execute each identified RPC at most once per runtime generation."""
+
+        # Backward-compatible path for a raw legacy client.  Current
+        # RuntimeClient always supplies request_id and receives replay safety.
+        if request_id is None:
+            controller = self.controller
+            if controller is None:
+                raise RuntimeError("runtime controller is not initialized")
+            try:
+                result = controller.dispatch(operation, payload)
+                return {
+                    "ok": True,
+                    "result": _to_wire(result),
+                }
+            except BaseException as exc:
+                return _runtime_rpc_error_response(exc)
+
+        if (
+            not isinstance(request_id, str)
+            or not request_id
+            or len(request_id) > 128
+            or any(
+                not (char.isalnum() or char in "-_.:")
+                for char in request_id
+            )
+        ):
+            raise ValueError("invalid runtime request_id")
+
+        signature = self._rpc_signature(operation, payload)
+        deadline = time.monotonic() + max(1.0, self.io_timeout_s)
+
+        with self._rpc_result_condition:
+            self._prune_rpc_results_locked()
+            entry = self._rpc_results.get(request_id)
+            if entry is not None:
+                if entry.get("signature") != signature:
+                    raise ValueError(
+                        "runtime request_id was reused for a different request"
+                    )
+                while entry.get("state") == "running":
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0.0:
+                        exc = RuntimeError(
+                            "matching runtime request is still executing"
+                        )
+                        exc.code = "RPC_REQUEST_IN_PROGRESS"
+                        return _runtime_rpc_error_response(
+                            exc,
+                            request_id=request_id,
+                        )
+                    self._rpc_result_condition.wait(remaining)
+                    entry = self._rpc_results.get(request_id)
+                    if entry is None:
+                        raise RuntimeError(
+                            "runtime request cache lost an in-flight request"
+                        )
+                response = entry.get("response")
+                if not isinstance(response, dict):
+                    raise RuntimeError(
+                        "runtime request cache has invalid response state"
+                    )
+                self._rpc_results.move_to_end(request_id)
+                return dict(response)
+
+            self._rpc_results[request_id] = {
+                "state": "running",
+                "signature": signature,
+                "started": time.monotonic(),
+            }
+
+        controller = self.controller
+        if controller is None:
+            response = _runtime_rpc_error_response(
+                RuntimeError("runtime controller is not initialized"),
+                request_id=request_id,
+            )
+        else:
+            try:
+                result = controller.dispatch(operation, payload)
+                response = {
+                    "request_id": request_id,
+                    "ok": True,
+                    "result": _to_wire(result),
+                }
+            except BaseException as exc:
+                LOG.exception(
+                    "RPC operation failed request_id=%s operation=%s",
+                    request_id,
+                    operation,
+                )
+                response = _runtime_rpc_error_response(
+                    exc,
+                    request_id=request_id,
+                )
+
+        with self._rpc_result_condition:
+            self._rpc_results[request_id] = {
+                "state": "done",
+                "signature": signature,
+                "response": dict(response),
+                "finished": time.monotonic(),
+            }
+            self._rpc_results.move_to_end(request_id)
+            self._prune_rpc_results_locked()
+            self._rpc_result_condition.notify_all()
+
+        return response
 
     def begin_shutdown(self) -> None:
         """Reject new RPCs and wake clients already waiting on socket I/O."""
