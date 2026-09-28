@@ -46,6 +46,22 @@ class FakeFocuserWorker:
     def status(self):
         return self._call("status")
 
+    def home(self):
+        return self._call("home")
+
+    def move_to(self, position):
+        return self._call("move_to", position)
+
+    def active_step(self):
+        self.calls.append(("active_step", ()))
+        return 20
+
+    def move_relative(self, delta):
+        return self._call("move_relative", delta)
+
+    def start_jog(self, direction):
+        return self._call("start_jog", direction)
+
     def stop(self):
         return self._call("stop")
 
@@ -99,6 +115,55 @@ def _assert_single_rig_1_update(emitted):
             {"namespace": "/"},
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "payload", "expected_calls"),
+    [
+        (
+            "/api/rigs/1/focuser/home",
+            None,
+            [("status", ()), ("home", ())],
+        ),
+        (
+            "/api/rigs/1/focuser/move_to",
+            {"position": 100},
+            [("status", ()), ("move_to", (100,))],
+        ),
+        (
+            "/api/rigs/1/focuser/step",
+            {"direction": "increase"},
+            [
+                ("status", ()),
+                ("active_step", ()),
+                ("move_relative", (20,)),
+            ],
+        ),
+        (
+            "/api/rigs/1/focuser/jog/start",
+            {"direction": "increase"},
+            [("status", ()), ("start_jog", ("increase",))],
+        ),
+    ],
+)
+def test_focuser_motion_remains_available_while_trigger_runs(
+    monkeypatch,
+    endpoint,
+    payload,
+    expected_calls,
+):
+    worker = FakeFocuserWorker(1)
+    client, _runtime, _emitted = _client(monkeypatch, {1: worker})
+    monkeypatch.setitem(
+        flask_module._state["trigger"],
+        "rigs",
+        {"1": {"running": True}},
+    )
+
+    response = client.post(endpoint, json=payload)
+
+    assert response.status_code == 200
+    assert worker.calls == expected_calls
 
 
 def test_stop_rig1_focuser_does_not_affect_rig2(monkeypatch):

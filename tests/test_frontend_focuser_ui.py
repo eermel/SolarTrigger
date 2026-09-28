@@ -102,6 +102,11 @@ def test_movement_does_not_use_set_interval():
     assert re.search(r"press\.timer\s*=\s*setTimeout", FOCUSER_JS)
 
 
+def test_focuser_controls_remain_enabled_while_trigger_runs():
+    assert "triggerState.running" not in FOCUSER_JS
+    assert re.search(r"const\s+controlsEnabled\s*=\s*active\s*;", FOCUSER_JS)
+
+
 def test_absolute_home_remains_cancelable_until_backend_clears_command():
     # The backend command remains authoritative when present, while the UI
     # latches the operator's Go/Home intent across transient status samples.

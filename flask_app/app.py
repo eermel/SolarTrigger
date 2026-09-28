@@ -737,28 +737,11 @@ def _selected_device_plugin(category):
     return str(selection.get("plugin") or "none")
 
 
-def _trigger_running_response(rig_id=1):
-    """Return a conflict response while this RIG is triggering."""
-    trigger_state = _state_store.snapshot("trigger") or {}
-    rigs = trigger_state.get("rigs") or {}
-    rig_state = rigs.get(str(rig_id)) or {}
-
-    if rig_state.get("running"):
-        return jsonify({
-            "error": "Focuser motion is forbidden while a trigger is active.",
-            "code": "TRIGGER_RUNNING",
-            "rig_id": rig_id,
-        }), 409
-    return None
-
-
-def _focuser_post_guard(movement=False, require_active=True, rig_id=1):
+def _focuser_post_guard(require_active=True):
     if require_active:
         inactive = require_device_active("focuser")
         if inactive is not None:
             return inactive
-    if movement:
-        return _trigger_running_response(rig_id)
     return None
 
 
@@ -1981,7 +1964,7 @@ def api_focuser_mode():
 
 @app.route("/api/focuser/home", methods=["POST"])
 def api_focuser_home():
-    guarded = _focuser_post_guard(movement=True)
+    guarded = _focuser_post_guard()
     if guarded is not None:
         return guarded
     conflict = _focuser_motion_conflict()
@@ -2001,7 +1984,7 @@ def api_focuser_stop():
 
 @app.route("/api/focuser/move_to", methods=["POST"])
 def api_focuser_move_to():
-    guarded = _focuser_post_guard(movement=True)
+    guarded = _focuser_post_guard()
     if guarded is not None:
         return guarded
     conflict = _focuser_motion_conflict()
@@ -2019,7 +2002,7 @@ def api_focuser_move_to():
 
 @app.route("/api/focuser/step", methods=["POST"])
 def api_focuser_step():
-    guarded = _focuser_post_guard(movement=True)
+    guarded = _focuser_post_guard()
     if guarded is not None:
         return guarded
     conflict = _focuser_motion_conflict()
@@ -2065,7 +2048,7 @@ def api_focuser_step():
 
 @app.route("/api/focuser/jog/start", methods=["POST"])
 def api_focuser_jog_start():
-    guarded = _focuser_post_guard(movement=True)
+    guarded = _focuser_post_guard()
     if guarded is not None:
         return guarded
     conflict = _focuser_motion_conflict()
@@ -2142,15 +2125,11 @@ def _rig_focuser_worker(rig_id):
     return worker, None
 
 
-def _rig_focuser_guard(rig_id, *, movement=False):
+def _rig_focuser_guard(rig_id):
     worker, error = _rig_focuser_worker(rig_id)
     if error is not None:
         return None, error
-    guarded = _focuser_post_guard(
-        movement=movement,
-        require_active=False,
-        rig_id=rig_id,
-    )
+    guarded = _focuser_post_guard(require_active=False)
     return (None, guarded) if guarded is not None else (worker, None)
 
 
@@ -2223,7 +2202,7 @@ def api_rig_focuser_mode(rig_id):
 
 @app.route("/api/rigs/<int:rig_id>/focuser/home", methods=["POST"])
 def api_rig_focuser_home(rig_id):
-    worker, error = _rig_focuser_guard(rig_id, movement=True)
+    worker, error = _rig_focuser_guard(rig_id)
     if error is not None:
         return error
     conflict = _focuser_motion_conflict(worker, rig_id=rig_id)
@@ -2243,7 +2222,7 @@ def api_rig_focuser_stop(rig_id):
 
 @app.route("/api/rigs/<int:rig_id>/focuser/move_to", methods=["POST"])
 def api_rig_focuser_move_to(rig_id):
-    worker, error = _rig_focuser_guard(rig_id, movement=True)
+    worker, error = _rig_focuser_guard(rig_id)
     if error is not None:
         return error
     conflict = _focuser_motion_conflict(worker, rig_id=rig_id)
@@ -2261,7 +2240,7 @@ def api_rig_focuser_move_to(rig_id):
 
 @app.route("/api/rigs/<int:rig_id>/focuser/step", methods=["POST"])
 def api_rig_focuser_step(rig_id):
-    worker, error = _rig_focuser_guard(rig_id, movement=True)
+    worker, error = _rig_focuser_guard(rig_id)
     if error is not None:
         return error
     conflict = _focuser_motion_conflict(worker, rig_id=rig_id)
@@ -2311,7 +2290,7 @@ def api_rig_focuser_step(rig_id):
 
 @app.route("/api/rigs/<int:rig_id>/focuser/jog/start", methods=["POST"])
 def api_rig_focuser_jog_start(rig_id):
-    worker, error = _rig_focuser_guard(rig_id, movement=True)
+    worker, error = _rig_focuser_guard(rig_id)
     if error is not None:
         return error
     conflict = _focuser_motion_conflict(worker, rig_id=rig_id)

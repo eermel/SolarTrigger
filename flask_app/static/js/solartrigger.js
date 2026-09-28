@@ -2530,11 +2530,7 @@ socket.on('log_history', lines => {
       commandedAbsoluteMotion = null;
     }
     absoluteMotion = backendAbsoluteMotion || commandedAbsoluteMotion;
-    const selectedRig = selectedControlsRig();
-    const triggerState = selectedRig
-      ? (state.triggerRigs[String(selectedRig.rig_id)] || {})
-      : {};
-    const controlsEnabled = active && triggerState.running !== true;
+    const controlsEnabled = active;
     [goButton, homeButton].forEach(button => {
       const isCancel = button.dataset.focuserAction === absoluteMotion;
       button.textContent = isCancel ? 'Cancel' : (button.dataset.focuserAction === 'go' ? 'Go' : 'Home');
