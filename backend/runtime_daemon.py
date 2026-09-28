@@ -24,6 +24,7 @@ from typing import Any
 import uuid
 
 from backend import audio_service
+from backend.camera_ipc_server import CameraIpcServer
 from backend.camera_worker_runtime import CameraWorkerRuntime
 from backend.generic_worker import BusyDeviceError
 from backend.rig_runtime import load_rig_configuration
@@ -179,6 +180,7 @@ class RuntimeController:
         project_root: Path | None = None,
         *,
         restore_recovery: bool = True,
+        runtime_socket_path: str | os.PathLike[str] | None = None,
     ):
         self.project_root = (
             Path(project_root).resolve()
@@ -206,7 +208,37 @@ class RuntimeController:
         self.run_journal = TriggerRunJournal(
             self.project_root / "var" / "state" / "trigger_state.json"
         )
-        self.camera_runtime = CameraWorkerRuntime(log_fn=self._runtime_log)
+
+        camera_ipc_dir = os.environ.get("SOLARTRIGGER_CAMERA_IPC_DIR")
+        if not camera_ipc_dir:
+            runtime_socket = (
+                str(runtime_socket_path)
+                if runtime_socket_path is not None
+                else os.environ.get("SOLARTRIGGER_RUNTIME_SOCKET")
+            )
+            if runtime_socket:
+                camera_ipc_dir = str(
+                    Path(runtime_socket).parent / "camera-ipc"
+                )
+
+        ipc_factory = None
+        if camera_ipc_dir:
+            camera_ipc_path = Path(camera_ipc_dir)
+            camera_ipc_path.mkdir(mode=0o750, parents=True, exist_ok=True)
+
+            def ipc_factory(runtime, *, clock=None, log_fn=print):
+                return CameraIpcServer(
+                    runtime,
+                    clock=clock,
+                    endpoint_dir=camera_ipc_path,
+                    socket_mode=0o660,
+                    log_fn=log_fn,
+                )
+
+        self.camera_runtime = CameraWorkerRuntime(
+            log_fn=self._runtime_log,
+            ipc_server_factory=ipc_factory,
+        )
         self._failure_audio_lock = threading.Lock()
         self.trigger = TriggerService(
             self.state,
@@ -1199,7 +1231,11 @@ def main(argv=None) -> int:
     server = RuntimeUnixServer(args.socket, None)
     controller = None
     try:
-        controller = RuntimeController(root, restore_recovery=False)
+        controller = RuntimeController(
+            root,
+            restore_recovery=False,
+            runtime_socket_path=args.socket,
+        )
         server.controller = controller
         controller._restore_trigger_journal_state()
 

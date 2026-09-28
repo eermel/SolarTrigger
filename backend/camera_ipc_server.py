@@ -160,12 +160,21 @@ class CameraIpcServer:
         clock=None,
         endpoint_dir: str | os.PathLike[str] | None = None,
         parent_pid: int | None = None,
+        socket_mode: int = 0o600,
         log_fn=print,
     ) -> None:
         self._runtime = runtime
         self._clock = clock or RuntimeClock()
         self._log = log_fn
         self._parent_pid = os.getppid() if parent_pid is None else int(parent_pid)
+        if (
+            not isinstance(socket_mode, int)
+            or isinstance(socket_mode, bool)
+            or socket_mode < 0
+            or socket_mode > 0o777
+        ):
+            raise ValueError("socket_mode must be an integer permission mode")
+        self._socket_mode = socket_mode
         self._endpoint_dir = self._select_endpoint_dir(endpoint_dir)
         self._socket_path = self._endpoint_dir / (
             f"camera-ipc-{self._parent_pid}.sock"
@@ -414,7 +423,7 @@ class CameraIpcServer:
                     bound.st_ino,
                     bound.st_uid,
                 )
-                os.chmod(self._socket_path, 0o600)
+                os.chmod(self._socket_path, self._socket_mode)
                 listener.listen(MAX_WORKERS)
                 listener.settimeout(0.25)
             except BaseException:

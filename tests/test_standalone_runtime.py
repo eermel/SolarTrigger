@@ -187,6 +187,23 @@ def test_install_script_defines_separate_runtime_and_portal_services():
     assert "Requires=solartrigger-runtime.service" in script
 
 
+def test_installers_share_camera_ipc_with_portal_group():
+    root = Path(__file__).resolve().parents[1]
+    fresh = (root / "install" / "install_solareclipse.sh").read_text(
+        encoding="utf-8"
+    )
+    migration = (
+        root / "install" / "install_standalone_runtime_service.sh"
+    ).read_text(encoding="utf-8")
+
+    for script in (fresh, migration):
+        assert (
+            'Environment="SOLARTRIGGER_CAMERA_IPC_DIR='
+            '/run/solartrigger/camera-ipc"'
+        ) in script
+        assert "-m 0750 /run/solartrigger/camera-ipc" in script
+
+
 def test_offline_update_switches_release_then_reboots():
     root = Path(__file__).resolve().parents[1]
     script = (root / "install" / "solartrigger-release-update").read_text(
@@ -457,6 +474,87 @@ def test_runtime_status_refreshes_and_exposes_current_runtime_gps(tmp_path):
 
     assert result["gps"]["synced"] is True
     assert result["gps"]["sync_time"] == "2026-09-22T20:30:46+00:00"
+
+
+def test_runtime_camera_ipc_uses_shared_runtime_directory(
+    tmp_path,
+    monkeypatch,
+):
+    runtime_socket = tmp_path / "runtime.sock"
+    monkeypatch.delenv(
+        "SOLARTRIGGER_RUNTIME_SOCKET",
+        raising=False,
+    )
+    monkeypatch.delenv(
+        "SOLARTRIGGER_CAMERA_IPC_DIR",
+        raising=False,
+    )
+
+    controller = RuntimeController(
+        tmp_path,
+        restore_recovery=False,
+        runtime_socket_path=runtime_socket,
+    )
+
+    factory = controller.camera_runtime._ipc_server_factory
+    camera_ipc = factory(
+        controller.camera_runtime,
+        clock=None,
+        log_fn=lambda _message: None,
+    )
+    assert camera_ipc.socket_path.parent == tmp_path / "camera-ipc"
+    assert camera_ipc.socket_path.parent.is_dir()
+    assert (
+        camera_ipc.socket_path.parent.stat().st_mode & 0o777
+    ) == 0o750
+
+    camera_ipc.start()
+    try:
+        assert (camera_ipc.socket_path.stat().st_mode & 0o777) == 0o660
+    finally:
+        camera_ipc.stop()
+
+
+def test_runtime_main_passes_socket_path_to_controller(
+    tmp_path,
+    monkeypatch,
+):
+    socket_path = tmp_path / "runtime.sock"
+    captured = {}
+
+    class ControllerProbe:
+        def __init__(
+            self,
+            _root,
+            *,
+            restore_recovery=True,
+            runtime_socket_path=None,
+        ):
+            captured["restore_recovery"] = restore_recovery
+            captured["runtime_socket_path"] = runtime_socket_path
+
+        def _restore_trigger_journal_state(self):
+            raise RuntimeError("stop after construction")
+
+        def shutdown(self):
+            pass
+
+    monkeypatch.setattr(runtime_daemon, "RuntimeController", ControllerProbe)
+
+    with pytest.raises(RuntimeError, match="stop after construction"):
+        runtime_daemon.main(
+            [
+                "--socket",
+                str(socket_path),
+                "--root",
+                str(tmp_path),
+            ]
+        )
+
+    assert captured == {
+        "restore_recovery": False,
+        "runtime_socket_path": str(socket_path),
+    }
 
 
 def test_runtime_captures_persisted_gps_marker_before_boot_reset(tmp_path):
@@ -807,8 +905,16 @@ def test_runtime_main_binds_endpoint_before_trigger_recovery(
     events = []
 
     class RecoveryProbeController:
-        def __init__(self, _root, *, restore_recovery=True):
-            events.append(("construct", restore_recovery))
+        def __init__(
+            self,
+            _root,
+            *,
+            restore_recovery=True,
+            runtime_socket_path=None,
+        ):
+            events.append(
+                ("construct", restore_recovery, runtime_socket_path)
+            )
 
         def _restore_trigger_journal_state(self):
             events.append(("recover", socket_path.is_socket()))
@@ -834,7 +940,7 @@ def test_runtime_main_binds_endpoint_before_trigger_recovery(
         )
 
     assert events == [
-        ("construct", False),
+        ("construct", False, str(socket_path)),
         ("recover", True),
         ("shutdown", True),
     ]
@@ -1044,8 +1150,20 @@ def test_runtime_main_skips_controller_cleanup_if_rpc_handlers_do_not_drain(
     events = []
 
     class FakeController:
-        def __init__(self, _root, *, restore_recovery=True):
-            events.append(("controller.construct", restore_recovery))
+        def __init__(
+            self,
+            _root,
+            *,
+            restore_recovery=True,
+            runtime_socket_path=None,
+        ):
+            events.append(
+                (
+                    "controller.construct",
+                    restore_recovery,
+                    runtime_socket_path,
+                )
+            )
 
         def _restore_trigger_journal_state(self):
             events.append(("controller.restore", True))

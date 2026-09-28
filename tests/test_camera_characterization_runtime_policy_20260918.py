@@ -231,3 +231,192 @@ def test_characterization_recovers_poisoned_exploratory_session_before_final_qua
     assert "direct_nodes.clear()" in recovery_block
     assert "camera.init()" in recovery_block
     assert "converge_characterized_preflight()" in recovery_block
+
+
+
+def test_single_rearm_search_finds_lowest_stable_50ms_candidate_and_reverifies():
+    calls = []
+    recoveries = []
+
+    def probe(delay_ms):
+        calls.append(delay_ms)
+        if delay_ms < 600:
+            raise RuntimeError("device busy")
+        return {"delay_ms": delay_ms, "photos": 10}
+
+    def recover(delay_ms, exc):
+        recoveries.append((delay_ms, str(exc)))
+
+    result = characterization._search_single_rearm_ms(
+        probe,
+        recover,
+        start_ms=1200,
+    )
+
+    assert result["minimum_stable_ms"] == 600
+    assert calls.count(600) == 2
+    assert all(value % 50 == 0 for value in calls)
+    assert recoveries
+    assert any(not item["passed"] for item in result["tested"])
+    assert result["tested"][-1]["verification"] is True
+    assert result["tested"][-1]["passed"] is True
+
+
+def test_single_rearm_search_accepts_zero_only_after_real_probe():
+    calls = []
+
+    result = characterization._search_single_rearm_ms(
+        lambda delay_ms: calls.append(delay_ms) or {"ok": True},
+        lambda _delay_ms, _exc: pytest.fail("recovery should not be needed"),
+        start_ms=1200,
+    )
+
+    assert result["minimum_stable_ms"] == 0
+    assert 0 in calls
+    assert calls.count(0) == 2
+
+
+def test_single_rearm_search_expands_upper_bound_after_failure():
+    recoveries = []
+
+    def probe(delay_ms):
+        if delay_ms < 1500:
+            raise RuntimeError("too fast")
+        return {"ok": True}
+
+    result = characterization._search_single_rearm_ms(
+        probe,
+        lambda delay_ms, _exc: recoveries.append(delay_ms),
+        start_ms=1000,
+        max_ms=2000,
+    )
+
+    assert result["minimum_stable_ms"] == 1500
+    assert 1000 in recoveries
+    assert 1250 in recoveries
+    assert any(
+        item["delay_ms"] == 1500 and item["passed"]
+        for item in result["tested"]
+    )
+
+
+def test_characterization_single_rearm_probe_uses_real_set_then_immediate_trigger():
+    source = inspect.getsource(characterization.characterize)
+    marker = "# Critical point: no FILE_ADDED wait"
+    assert marker in source
+    assert 'runtime_set("shutter", second_value)' in source
+    tail = source[source.index(marker):]
+    assert "camera.trigger_capture()" in tail
+    assert "_confirm_rearm_files(2, timeout_s=6.0)" in tail
+    assert "SINGLE REARM RESULT" in source
+    assert "SINGLE REARM SUSTAINED" in source
+    assert "SINGLE_REARM_SUSTAINED_FRAMES" in source
+
+
+
+def test_sustained_rearm_qualification_keeps_first_passing_guarded_value():
+    calls = []
+
+    result = characterization._qualify_guarded_single_rearm_ms(
+        lambda delay_ms: calls.append(delay_ms) or {
+            "bursts": 3,
+            "frames_per_burst": 15,
+            "total_frames": 45,
+        },
+        lambda _delay_ms, _exc: pytest.fail("recovery should not be needed"),
+        start_ms=50,
+    )
+
+    assert result["stable_ms"] == 50
+    assert calls == [50]
+    assert result["tested"] == [
+        {
+            "delay_ms": 50,
+            "passed": True,
+            "detail": {
+                "bursts": 3,
+                "frames_per_burst": 15,
+                "total_frames": 45,
+            },
+        }
+    ]
+
+
+def test_sustained_rearm_qualification_increases_by_50ms_after_failure():
+    calls = []
+    recoveries = []
+
+    def probe(delay_ms):
+        calls.append(delay_ms)
+        if delay_ms < 150:
+            raise RuntimeError("buffer pressure")
+        return {"bursts": 3, "frames_per_burst": 15}
+
+    result = characterization._qualify_guarded_single_rearm_ms(
+        probe,
+        lambda delay_ms, exc: recoveries.append((delay_ms, str(exc))),
+        start_ms=50,
+        max_ms=500,
+    )
+
+    assert result["stable_ms"] == 150
+    assert calls == [50, 100, 150]
+    assert [item[0] for item in recoveries] == [50, 100]
+    assert [item["passed"] for item in result["tested"]] == [
+        False,
+        False,
+        True,
+    ]
+
+
+def test_sustained_rearm_probe_has_no_file_wait_inside_15_frame_burst():
+    source = inspect.getsource(characterization.characterize)
+    start = source.index("def _probe_sustained_single_rearm")
+    end = source.index(
+        'job.log(\n                "SINGLE REARM SUSTAINED: validating guarded delay',
+        start,
+    )
+    block = source[start:end]
+
+    loop_start = block.index(
+        "for frame in range(SINGLE_REARM_SUSTAINED_FRAMES):"
+    )
+    confirm = block.index("_confirm_rearm_files(", loop_start)
+    loop_block = block[loop_start:confirm]
+
+    assert "camera.trigger_capture()" in loop_block
+    assert 'runtime_set(\n                                "shutter",' in loop_block
+    assert "wait_for_event" not in loop_block
+    assert "characterization_read" not in loop_block
+    assert "SINGLE_REARM_SUSTAINED_FRAMES" in block
+    assert "SINGLE_REARM_SUSTAINED_REPETITIONS" in block
+
+
+
+def test_exposure_rearm_probe_covers_reference_regimes_without_mid_pair_observation():
+    source = inspect.getsource(characterization.characterize)
+    start = source.index("def _probe_exposure_single_rearm")
+    end = source.index(
+        'job.log(\n                    "SINGLE REARM EXPOSURE: validating guarded delay',
+        start,
+    )
+    block = source[start:end]
+
+    assert "SINGLE_REARM_EXPOSURE_REPETITIONS" in block
+    assert "camera.trigger_capture()" in block
+    assert 'runtime_set("shutter", second_value)' in block
+    assert "_confirm_rearm_files(" in block
+
+    critical = block[
+        block.index("# Critical multi-exposure transition"):
+        block.index("confirmed = _confirm_rearm_files(")
+    ]
+    assert "wait_for_event" not in critical
+    assert "characterization_read" not in critical
+
+    assert characterization.SINGLE_REARM_EXPOSURE_REGIMES == (
+        ("fast", "1/1000", "1/500"),
+        ("medium", "1/30", "1/15"),
+        ("long", "1", "2"),
+        ("very_long", "2", "4"),
+    )

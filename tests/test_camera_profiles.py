@@ -249,7 +249,10 @@ class SimulatedCamera:
 def test_full_local_characterization_without_network(monkeypatch, profile, bracket_label):
     import sys
     from backend import camera_characterization as module
-    camera = SimulatedCamera(list(profile["commands"]["shutter"]["values"]))
+    characterization_speeds = list(
+        profile["commands"]["shutter"]["values"]
+    ) + ["1/15", "1", "2", "4"]
+    camera = SimulatedCamera(characterization_speeds)
     camera.config.get_child_by_name("capturemode").choices = ["Single Shot", bracket_label.format(3), bracket_label.format(5)]
     monkeypatch.setitem(sys.modules, "gphoto2", SimpleNamespace(GP_CAPTURE_IMAGE=2, GP_EVENT_FILE_ADDED=1, GP_EVENT_TIMEOUT=0))
     monkeypatch.setattr(module.time, "monotonic", lambda: camera.now)
@@ -279,8 +282,34 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     # two single primitives receive five trials each; bracket primitives are
     # functionally checked at 3/5, then the selected primitive receives five
     # timing trials at the two available calibration sizes.  The operational
-    # validation recipe then adds 12 RAWs.
-    assert camera.counter == 71
+    # validation recipe adds 12 RAWs. The pairwise rearm search adds three
+    # five-pair candidates in this fully stable simulation: conservative start,
+    # 0 ms, then the mandatory final 0 ms verification (30 RAWs). Sustained
+    # qualification then proves the guarded 50 ms value with 3 x 15 continuous
+    # photos (45 RAWs). Multi-exposure qualification adds 4 regimes x 5 pairs
+    # x 2 RAWs = 40 more captures.
+    assert camera.counter == 186
+    assert result["timing_contract"]["single_rearm_ms"] == 50
+    assert (
+        timing["raw_components"]["single_rearm_search"]["minimum_stable_ms"]
+        == 0
+    )
+    sustained = timing["raw_components"]["single_rearm_search"][
+        "sustained_qualification"
+    ]
+    assert sustained["stable_ms"] == 50
+    assert sustained["tested"][0]["passed"] is True
+    assert sustained["tested"][0]["detail"]["total_frames"] == 45
+    exposure = timing["raw_components"]["single_rearm_search"][
+        "exposure_qualification"
+    ]
+    assert exposure["stable_ms"] == 50
+    assert exposure["tested"][0]["passed"] is True
+    assert exposure["tested"][0]["detail"]["total_pairs"] == 20
+    assert [
+        item["name"]
+        for item in exposure["tested"][0]["detail"]["regimes"]
+    ] == ["fast", "medium", "long", "very_long"]
     # Characterization/qualification never own the gphoto lifecycle.
     assert camera.exit_count == 0
     assert camera.init_count == 0

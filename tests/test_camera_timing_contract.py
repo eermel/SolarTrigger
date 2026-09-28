@@ -56,6 +56,16 @@ def test_session_first_photo_overhead_must_be_a_multiple_of_50_when_present():
         )
 
 
+def test_single_rearm_is_optional_and_uses_50ms_grid():
+    validate_timing_contract_v3(_base_contract(single_rearm_ms=750))
+    validate_timing_contract_v3(_base_contract(single_rearm_ms=0))
+
+    with pytest.raises(ValueError):
+        validate_timing_contract_v3(_base_contract(single_rearm_ms=725))
+    with pytest.raises(ValueError):
+        validate_timing_contract_v3(_base_contract(single_rearm_ms=-50))
+
+
 def test_exposure_is_not_counted_twice():
     block = {"duration_ms": 1000, "reference_exposure_s": .002}
     assert photo_budget_ms(block, .002) == 1000

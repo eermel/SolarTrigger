@@ -178,6 +178,17 @@ def validate_timing_contract_v3(contract, *, bracket_frames=None):
             allow_zero=True,
         )
 
+    # Contract-v3.3 optional field. Characterization measures the lowest stable
+    # delay from trigger_capture() returning to the next real runtime SET, then
+    # applies SAFETY_POLICY before publication. It is intentionally separate
+    # from single_overhead_ms, which remains the complete PHOTO budget.
+    if "single_rearm_ms" in contract:
+        _multiple_of_50(
+            contract.get("single_rearm_ms"),
+            "single_rearm_ms",
+            allow_zero=True,
+        )
+
     raw_supported = contract.get("supported_bracket_frames", [])
     if not isinstance(raw_supported, list):
         raise ValueError("supported_bracket_frames must be an array")

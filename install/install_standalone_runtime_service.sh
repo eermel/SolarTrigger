@@ -105,8 +105,10 @@ Environment="LD_LIBRARY_PATH=/usr/local/lib"
 Environment="SOLARTRIGGER_ROOT=$APP_DIR"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$PORTAL_GROUP"
+Environment="SOLARTRIGGER_CAMERA_IPC_DIR=/run/solartrigger/camera-ipc"
 $CAMLIBS_ENV
 $IOLIBS_ENV
+ExecStartPre=/usr/bin/install -d -o root -g $PORTAL_GROUP -m 0750 /run/solartrigger/camera-ipc
 ExecStart=$VENV_DIR/bin/python -m backend.runtime_daemon \
     --root $APP_DIR \
     --socket /run/solartrigger/runtime.sock
@@ -156,9 +158,11 @@ EOF
 # required by the installed hardware stack, and share only this runtime
 # directory with the portal's group.
 install -d -o root -g "$PORTAL_GROUP" -m 0770 /run/solartrigger
+install -d -o root -g "$PORTAL_GROUP" -m 0750 /run/solartrigger/camera-ipc
 mkdir -p /etc/tmpfiles.d
 cat > /etc/tmpfiles.d/solartrigger.conf <<EOF
 d /run/solartrigger 0770 root $PORTAL_GROUP -
+d /run/solartrigger/camera-ipc 0750 root $PORTAL_GROUP -
 EOF
 
 # RuntimeDirectory ownership is derived directly from User=root + Group=$PORTAL_GROUP.

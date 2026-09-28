@@ -1080,8 +1080,10 @@ Environment="LD_LIBRARY_PATH=/usr/local/lib"
 Environment="SOLARTRIGGER_ROOT=$APP_DIR"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET_GROUP=$CURRENT_USER"
+Environment="SOLARTRIGGER_CAMERA_IPC_DIR=/run/solartrigger/camera-ipc"
 ${CAMLIBS_ENV_LINE}
 ${IOLIBS_ENV_LINE}
+ExecStartPre=/usr/bin/install -d -o root -g $CURRENT_USER -m 0750 /run/solartrigger/camera-ipc
 ExecStart=$VENV_DIR/bin/python -m backend.runtime_daemon \
     --root $APP_DIR \
     --socket /run/solartrigger/runtime.sock

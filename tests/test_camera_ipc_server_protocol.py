@@ -551,6 +551,24 @@ def test_endpoint_permissions_filename_and_stale_socket_cleanup(tmp_path):
     server.stop()
 
 
+def test_endpoint_permissions_can_be_shared_with_runtime_group(tmp_path):
+    endpoint_dir = tmp_path / "shared-ipc"
+    endpoint_dir.mkdir(mode=0o750)
+
+    server = CameraIpcServer(
+        FakeRuntime(),
+        endpoint_dir=endpoint_dir,
+        parent_pid=4321,
+        socket_mode=0o660,
+        log_fn=lambda _message: None,
+    )
+    server.start()
+    try:
+        assert stat.S_IMODE(server.socket_path.stat().st_mode) == 0o660
+    finally:
+        server.stop()
+
+
 def test_unsafe_endpoint_directory_and_file_are_refused(tmp_path):
     unsafe_dir = tmp_path / "unsafe"
     unsafe_dir.mkdir(mode=0o777)

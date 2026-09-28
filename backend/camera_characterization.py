@@ -11,6 +11,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import multiprocessing
 import os
 from pathlib import Path
@@ -43,6 +44,199 @@ CANCEL_KILL_GRACE_S = 1.0
 
 class Cancelled(RuntimeError):
     pass
+
+
+SINGLE_REARM_STEP_MS = 50
+SINGLE_REARM_REPETITIONS = 5
+SINGLE_REARM_MAX_MS = 5000
+SINGLE_REARM_SUSTAINED_FRAMES = 15
+SINGLE_REARM_SUSTAINED_REPETITIONS = 3
+SINGLE_REARM_EXPOSURE_REPETITIONS = 5
+SINGLE_REARM_EXPOSURE_REGIMES = (
+    ("fast", "1/1000", "1/500"),
+    ("medium", "1/30", "1/15"),
+    ("long", "1", "2"),
+    ("very_long", "2", "4"),
+)
+
+
+def _ceil_rearm_step_ms(value_ms, step_ms=SINGLE_REARM_STEP_MS):
+    if isinstance(value_ms, bool) or not isinstance(value_ms, (int, float)):
+        raise ValueError("single rearm delay must be numeric")
+    if not math.isfinite(float(value_ms)) or float(value_ms) < 0:
+        raise ValueError("single rearm delay must be finite and nonnegative")
+    if not isinstance(step_ms, int) or isinstance(step_ms, bool) or step_ms <= 0:
+        raise ValueError("single rearm step must be a positive integer")
+    return int(math.ceil(float(value_ms) / step_ms) * step_ms)
+
+
+def _search_single_rearm_ms(
+    probe_candidate,
+    recover_after_failure,
+    *,
+    start_ms,
+    step_ms=SINGLE_REARM_STEP_MS,
+    max_ms=SINGLE_REARM_MAX_MS,
+):
+    """Find the lowest stable trigger-return -> next-SET delay on a fixed grid.
+
+    The hardware probe owns the repetition count and must fail closed when any
+    SET, immediate following trigger, readback, or file-count check fails.
+    Search is monotonic: once a delay is stable, longer delays are assumed safe.
+    A final forced verification is always performed after the binary search so
+    the published threshold is backed by a fresh hardware pass.
+    """
+    if not callable(probe_candidate) or not callable(recover_after_failure):
+        raise ValueError("single rearm search requires probe and recovery callbacks")
+    if not isinstance(step_ms, int) or isinstance(step_ms, bool) or step_ms <= 0:
+        raise ValueError("single rearm step must be a positive integer")
+    if not isinstance(max_ms, int) or isinstance(max_ms, bool) or max_ms < step_ms:
+        raise ValueError("single rearm maximum must be >= one step")
+
+    ceiling_ms = _ceil_rearm_step_ms(max_ms, step_ms)
+    start_ms = min(
+        ceiling_ms,
+        max(step_ms, _ceil_rearm_step_ms(start_ms, step_ms)),
+    )
+    outcomes = {}
+    evidence = []
+
+    def run(delay_ms, *, verification=False):
+        if not verification and delay_ms in outcomes:
+            return outcomes[delay_ms]
+        try:
+            detail = probe_candidate(delay_ms)
+        except Cancelled:
+            raise
+        except Exception as exc:
+            evidence.append(
+                {
+                    "delay_ms": int(delay_ms),
+                    "passed": False,
+                    "verification": bool(verification),
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            outcomes[delay_ms] = False
+            recover_after_failure(delay_ms, exc)
+            return False
+
+        evidence.append(
+            {
+                "delay_ms": int(delay_ms),
+                "passed": True,
+                "verification": bool(verification),
+                "detail": deepcopy(detail),
+            }
+        )
+        outcomes[delay_ms] = True
+        return True
+
+    high_ms = start_ms
+    while not run(high_ms):
+        if high_ms >= ceiling_ms:
+            raise RuntimeError(
+                "No stable single-photo rearm delay found within "
+                f"{ceiling_ms} ms"
+            )
+        high_ms = min(ceiling_ms, high_ms + max(step_ms, 250))
+
+    if run(0):
+        minimum_ms = 0
+    else:
+        low_units = 1
+        high_units = high_ms // step_ms
+        while low_units < high_units:
+            mid_units = (low_units + high_units) // 2
+            candidate_ms = mid_units * step_ms
+            if run(candidate_ms):
+                high_units = mid_units
+            else:
+                low_units = mid_units + 1
+        minimum_ms = low_units * step_ms
+
+    verified_ms = minimum_ms
+    while not run(verified_ms, verification=True):
+        verified_ms += step_ms
+        if verified_ms > ceiling_ms:
+            raise RuntimeError(
+                "Single-photo rearm threshold was not repeatable within "
+                f"{ceiling_ms} ms"
+            )
+
+    return {
+        "step_ms": step_ms,
+        "minimum_stable_ms": int(verified_ms),
+        "tested": evidence,
+    }
+
+
+def _qualify_guarded_single_rearm_ms(
+    probe_candidate,
+    recover_after_failure,
+    *,
+    start_ms,
+    step_ms=SINGLE_REARM_STEP_MS,
+    max_ms=SINGLE_REARM_MAX_MS,
+):
+    """Find the first guarded rearm delay accepted by a hardware qualification.
+
+    The supplied probe owns the qualification policy (sustained burst or
+    multi-exposure transitions). A candidate is publishable only when the full
+    probe passes. Failed candidates recover the camera session and advance by
+    one fixed grid step.
+    """
+    if not callable(probe_candidate) or not callable(recover_after_failure):
+        raise ValueError(
+            "sustained single rearm qualification requires probe and recovery callbacks"
+        )
+    if not isinstance(step_ms, int) or isinstance(step_ms, bool) or step_ms <= 0:
+        raise ValueError("single rearm step must be a positive integer")
+    if not isinstance(max_ms, int) or isinstance(max_ms, bool) or max_ms < step_ms:
+        raise ValueError("single rearm maximum must be >= one step")
+
+    ceiling_ms = _ceil_rearm_step_ms(max_ms, step_ms)
+    candidate_ms = _ceil_rearm_step_ms(start_ms, step_ms)
+    if candidate_ms > ceiling_ms:
+        raise RuntimeError(
+            "Guarded single-photo rearm delay exceeds sustained qualification ceiling"
+        )
+
+    evidence = []
+    while candidate_ms <= ceiling_ms:
+        try:
+            detail = probe_candidate(candidate_ms)
+        except Cancelled:
+            raise
+        except Exception as exc:
+            evidence.append(
+                {
+                    "delay_ms": int(candidate_ms),
+                    "passed": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            recover_after_failure(candidate_ms, exc)
+            candidate_ms += step_ms
+            continue
+
+        evidence.append(
+            {
+                "delay_ms": int(candidate_ms),
+                "passed": True,
+                "detail": deepcopy(detail),
+            }
+        )
+        return {
+            "step_ms": step_ms,
+            "stable_ms": int(candidate_ms),
+            "tested": evidence,
+        }
+
+    raise RuntimeError(
+        "No sustained single-photo rearm delay passed within "
+        f"{ceiling_ms} ms"
+    )
 
 
 class CharacterizationJob:
@@ -847,9 +1041,10 @@ def _select_bracket_candidate(entries):
 def characterize(camera, entry, job):
     """Discover commands and build the simplified timing contract v3.
 
-    Runtime budgets are deliberately reduced to four values:
+    Runtime budgets are deliberately compact:
       * one maximum SET reservation shared by every runtime SET;
       * one fixed overhead for a single PHOTO;
+      * one measured single-photo rearm delay when the trigger primitive allows it;
       * one fixed bracket overhead;
       * one per-gap bracket inter-image overhead.
 
@@ -2999,12 +3194,486 @@ def characterize(camera, entry, job):
         else 0
     )
 
+    # Measure the minimum stable delay from trigger_capture() returning to
+    # the next real shutter SET. This is deliberately different from
+    # single_overhead_ms: the latter remains the conservative complete PHOTO
+    # budget used for planning/deadlines, while single_rearm_ms will later let
+    # reactive runtime issue the next necessary SET as soon as the body has
+    # proven it can sustain that cadence.
+    #
+    # No PTP event wait occurs between the first trigger and the tested SET /
+    # second trigger. Each candidate therefore exercises the exact critical
+    # transition we care about. File events are consumed only afterwards to
+    # verify that both physical captures really happened.
+    single_rearm_search = None
+    single_rearm_ms = None
+
+    if trigger_single.get("method") == "trigger_capture":
+        rearm_speed_a = "1/500"
+        alternate_rearm_speeds = [
+            value
+            for value in speeds
+            if value != rearm_speed_a
+        ]
+        if alternate_rearm_speeds:
+            rearm_speed_b = min(
+                alternate_rearm_speeds,
+                key=lambda value: abs(
+                    _parse_speed(value) - _parse_speed("1/1000")
+                ),
+            )
+            rearm_values = (
+                commands["shutter"]["values"][rearm_speed_a],
+                commands["shutter"]["values"][rearm_speed_b],
+            )
+            post_pair_guard_s = max(
+                float(single_usb_return_ms),
+                float(set_overhead_ms),
+            ) / 1000.0
+
+            def _sleep_rearm_delay(delay_ms):
+                deadline = time.monotonic() + float(delay_ms) / 1000.0
+                while True:
+                    job.check()
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return
+                    time.sleep(min(0.01, remaining))
+
+            def _drain_rearm_events():
+                for _ in range(100):
+                    job.check()
+                    kind, _data = camera.wait_for_event(1)
+                    if kind == gp.GP_EVENT_TIMEOUT:
+                        return
+
+            def _confirm_rearm_files(expected, *, timeout_s):
+                seen = set()
+                deadline = time.monotonic() + float(timeout_s)
+                while len(seen) < expected and time.monotonic() < deadline:
+                    job.check()
+                    kind, data = camera.wait_for_event(100)
+                    if kind != gp.GP_EVENT_FILE_ADDED:
+                        continue
+                    seen.add(
+                        (
+                            getattr(data, "folder", ""),
+                            getattr(data, "name", str(data)),
+                        )
+                    )
+                if len(seen) != expected:
+                    raise RuntimeError(
+                        "single rearm probe confirmed "
+                        f"{len(seen)}/{expected} files"
+                    )
+                return len(seen)
+
+            def _probe_single_rearm_candidate(delay_ms):
+                records = []
+                for repetition in range(SINGLE_REARM_REPETITIONS):
+                    job.check()
+                    _drain_rearm_events()
+
+                    if repetition % 2:
+                        first_value, second_value = rearm_values[1], rearm_values[0]
+                    else:
+                        first_value, second_value = rearm_values[0], rearm_values[1]
+
+                    runtime_set("shutter", first_value)
+                    baseline = characterization_read("shutter")
+                    if str(baseline) != str(first_value):
+                        raise RuntimeError(
+                            "single rearm baseline shutter mismatch: "
+                            f"requested={first_value!r}, actual={baseline!r}"
+                        )
+
+                    first_begin = time.monotonic()
+                    camera.trigger_capture()
+                    first_trigger_ms = (
+                        time.monotonic() - first_begin
+                    ) * 1000.0
+
+                    _sleep_rearm_delay(delay_ms)
+
+                    set_begin = time.monotonic()
+                    runtime_set("shutter", second_value)
+                    next_set_ms = (
+                        time.monotonic() - set_begin
+                    ) * 1000.0
+
+                    # Critical point: no FILE_ADDED wait, GET or artificial
+                    # settle is allowed before this second trigger.
+                    second_begin = time.monotonic()
+                    camera.trigger_capture()
+                    second_trigger_ms = (
+                        time.monotonic() - second_begin
+                    ) * 1000.0
+
+                    _confirm_rearm_files(2, timeout_s=6.0)
+
+                    actual = characterization_read("shutter")
+                    if str(actual) != str(second_value):
+                        raise RuntimeError(
+                            "single rearm SET readback mismatch: "
+                            f"requested={second_value!r}, actual={actual!r}"
+                        )
+
+                    records.append(
+                        {
+                            "repetition": repetition + 1,
+                            "delay_ms": int(delay_ms),
+                            "first_trigger_call_ms": first_trigger_ms,
+                            "next_set_ms": next_set_ms,
+                            "second_trigger_call_ms": second_trigger_ms,
+                            "files_confirmed": 2,
+                        }
+                    )
+                    job.log(
+                        "SINGLE REARM PASS "
+                        f"delay={int(delay_ms)} ms "
+                        f"{repetition + 1}/{SINGLE_REARM_REPETITIONS}; "
+                        f"first_trigger={first_trigger_ms:.1f} ms; "
+                        f"next_set={next_set_ms:.1f} ms; "
+                        f"second_trigger={second_trigger_ms:.1f} ms"
+                    )
+
+                    if post_pair_guard_s > 0:
+                        _sleep_rearm_delay(post_pair_guard_s * 1000.0)
+
+                return {
+                    "repetitions": SINGLE_REARM_REPETITIONS,
+                    "records": records,
+                }
+
+            def _recover_single_rearm_candidate(delay_ms, exc):
+                job.log(
+                    "SINGLE REARM FAIL "
+                    f"delay={int(delay_ms)} ms: {type(exc).__name__}: {exc}; "
+                    "reopening characterization session"
+                )
+                try:
+                    camera.exit()
+                except Exception as close_exc:
+                    job.log(
+                        "SINGLE REARM recovery close warning: "
+                        f"{close_exc}"
+                    )
+                direct_nodes.clear()
+                camera.init()
+                converge_characterized_preflight()
+                job.log("SINGLE REARM recovery complete")
+
+            job.log(
+                "SINGLE REARM SEARCH: 5 two-photo repetitions per candidate; "
+                "50 ms grid; each candidate requires SET + immediate second "
+                "trigger + exact 2/2 file confirmation"
+            )
+            single_rearm_search = _search_single_rearm_ms(
+                _probe_single_rearm_candidate,
+                _recover_single_rearm_candidate,
+                start_ms=single_overhead_ms,
+            )
+            single_rearm_ms = budget_ms(
+                [single_rearm_search["minimum_stable_ms"]]
+            )
+            single_rearm_search["guarded_ms"] = single_rearm_ms
+            job.log(
+                "SINGLE REARM RESULT: "
+                f"minimum stable={single_rearm_search['minimum_stable_ms']} ms; "
+                f"guarded={single_rearm_ms} ms"
+            )
+
+            def _probe_sustained_single_rearm(delay_ms):
+                bursts = []
+                for burst in range(SINGLE_REARM_SUSTAINED_REPETITIONS):
+                    job.check()
+                    _drain_rearm_events()
+
+                    current_index = burst % 2
+                    runtime_set("shutter", rearm_values[current_index])
+                    baseline = characterization_read("shutter")
+                    if str(baseline) != str(rearm_values[current_index]):
+                        raise RuntimeError(
+                            "sustained rearm baseline shutter mismatch: "
+                            f"requested={rearm_values[current_index]!r}, "
+                            f"actual={baseline!r}"
+                        )
+
+                    frame_records = []
+                    for frame in range(SINGLE_REARM_SUSTAINED_FRAMES):
+                        job.check()
+                        trigger_begin = time.monotonic()
+                        camera.trigger_capture()
+                        trigger_ms = (
+                            time.monotonic() - trigger_begin
+                        ) * 1000.0
+
+                        record = {
+                            "frame": frame + 1,
+                            "trigger_call_ms": trigger_ms,
+                        }
+
+                        if frame + 1 < SINGLE_REARM_SUSTAINED_FRAMES:
+                            _sleep_rearm_delay(delay_ms)
+                            current_index = 1 - current_index
+                            set_begin = time.monotonic()
+                            runtime_set(
+                                "shutter",
+                                rearm_values[current_index],
+                            )
+                            record["next_set_ms"] = (
+                                time.monotonic() - set_begin
+                            ) * 1000.0
+                            record["next_shutter"] = str(
+                                rearm_values[current_index]
+                            )
+
+                        frame_records.append(record)
+
+                    # Deliberately no FILE_ADDED wait occurred inside the burst.
+                    # Only after all 15 trigger/SET transitions have completed do
+                    # we consume USB evidence and require the exact expected count.
+                    confirmed = _confirm_rearm_files(
+                        SINGLE_REARM_SUSTAINED_FRAMES,
+                        timeout_s=20.0,
+                    )
+                    actual = characterization_read("shutter")
+                    if str(actual) != str(rearm_values[current_index]):
+                        raise RuntimeError(
+                            "sustained rearm final shutter mismatch: "
+                            f"requested={rearm_values[current_index]!r}, "
+                            f"actual={actual!r}"
+                        )
+
+                    bursts.append(
+                        {
+                            "burst": burst + 1,
+                            "delay_ms": int(delay_ms),
+                            "frames": SINGLE_REARM_SUSTAINED_FRAMES,
+                            "files_confirmed": confirmed,
+                            "records": frame_records,
+                        }
+                    )
+                    job.log(
+                        "SINGLE REARM SUSTAINED PASS "
+                        f"delay={int(delay_ms)} ms "
+                        f"burst={burst + 1}/{SINGLE_REARM_SUSTAINED_REPETITIONS}; "
+                        f"confirmed={confirmed}/{SINGLE_REARM_SUSTAINED_FRAMES}"
+                    )
+
+                return {
+                    "bursts": SINGLE_REARM_SUSTAINED_REPETITIONS,
+                    "frames_per_burst": SINGLE_REARM_SUSTAINED_FRAMES,
+                    "total_frames": (
+                        SINGLE_REARM_SUSTAINED_REPETITIONS
+                        * SINGLE_REARM_SUSTAINED_FRAMES
+                    ),
+                    "records": bursts,
+                }
+
+            job.log(
+                "SINGLE REARM SUSTAINED: validating guarded delay with "
+                "3 x 15 continuous photos; no FILE_ADDED wait between frames"
+            )
+            sustained_rearm = _qualify_guarded_single_rearm_ms(
+                _probe_sustained_single_rearm,
+                _recover_single_rearm_candidate,
+                start_ms=single_rearm_ms,
+            )
+            single_rearm_ms = sustained_rearm["stable_ms"]
+            single_rearm_search["sustained_qualification"] = sustained_rearm
+            single_rearm_search["guarded_ms"] = single_rearm_ms
+            job.log(
+                "SINGLE REARM SUSTAINED RESULT: "
+                f"stable={single_rearm_ms} ms; "
+                f"{SINGLE_REARM_SUSTAINED_REPETITIONS}x"
+                f"{SINGLE_REARM_SUSTAINED_FRAMES} confirmed"
+            )
+
+            exposure_regimes = [
+                {
+                    "name": name,
+                    "first_speed": first_speed,
+                    "second_speed": second_speed,
+                }
+                for name, first_speed, second_speed
+                in SINGLE_REARM_EXPOSURE_REGIMES
+                if first_speed in commands["shutter"]["values"]
+                and second_speed in commands["shutter"]["values"]
+            ]
+
+            if exposure_regimes:
+                def _probe_exposure_single_rearm(delay_ms):
+                    regime_records = []
+                    for regime in exposure_regimes:
+                        name = regime["name"]
+                        speed_a = regime["first_speed"]
+                        speed_b = regime["second_speed"]
+                        value_a = commands["shutter"]["values"][speed_a]
+                        value_b = commands["shutter"]["values"][speed_b]
+                        records = []
+
+                        for repetition in range(
+                            SINGLE_REARM_EXPOSURE_REPETITIONS
+                        ):
+                            job.check()
+                            _drain_rearm_events()
+
+                            if repetition % 2:
+                                first_speed, second_speed = speed_b, speed_a
+                                first_value, second_value = value_b, value_a
+                            else:
+                                first_speed, second_speed = speed_a, speed_b
+                                first_value, second_value = value_a, value_b
+
+                            runtime_set("shutter", first_value)
+                            baseline = characterization_read("shutter")
+                            if str(baseline) != str(first_value):
+                                raise RuntimeError(
+                                    "exposure rearm baseline shutter mismatch: "
+                                    f"requested={first_value!r}, "
+                                    f"actual={baseline!r}"
+                                )
+
+                            first_begin = time.monotonic()
+                            camera.trigger_capture()
+                            first_trigger_ms = (
+                                time.monotonic() - first_begin
+                            ) * 1000.0
+
+                            _sleep_rearm_delay(delay_ms)
+
+                            set_begin = time.monotonic()
+                            runtime_set("shutter", second_value)
+                            next_set_ms = (
+                                time.monotonic() - set_begin
+                            ) * 1000.0
+
+                            # Critical multi-exposure transition: no event wait,
+                            # GET or artificial settle before the second trigger.
+                            second_begin = time.monotonic()
+                            camera.trigger_capture()
+                            second_trigger_ms = (
+                                time.monotonic() - second_begin
+                            ) * 1000.0
+
+                            confirm_timeout_s = max(
+                                10.0,
+                                _parse_speed(first_speed)
+                                + _parse_speed(second_speed)
+                                + 8.0,
+                            )
+                            confirmed = _confirm_rearm_files(
+                                2,
+                                timeout_s=confirm_timeout_s,
+                            )
+
+                            actual = characterization_read("shutter")
+                            if str(actual) != str(second_value):
+                                raise RuntimeError(
+                                    "exposure rearm SET readback mismatch: "
+                                    f"requested={second_value!r}, "
+                                    f"actual={actual!r}"
+                                )
+
+                            records.append(
+                                {
+                                    "repetition": repetition + 1,
+                                    "delay_ms": int(delay_ms),
+                                    "first_speed": first_speed,
+                                    "second_speed": second_speed,
+                                    "first_trigger_call_ms": first_trigger_ms,
+                                    "next_set_ms": next_set_ms,
+                                    "second_trigger_call_ms": second_trigger_ms,
+                                    "files_confirmed": confirmed,
+                                }
+                            )
+                            job.log(
+                                "SINGLE REARM EXPOSURE PASS "
+                                f"regime={name} "
+                                f"{first_speed}->{second_speed} "
+                                f"delay={int(delay_ms)} ms "
+                                f"{repetition + 1}/"
+                                f"{SINGLE_REARM_EXPOSURE_REPETITIONS}; "
+                                f"confirmed={confirmed}/2"
+                            )
+
+                            if post_pair_guard_s > 0:
+                                _sleep_rearm_delay(
+                                    post_pair_guard_s * 1000.0
+                                )
+
+                        regime_records.append(
+                            {
+                                **regime,
+                                "repetitions":
+                                    SINGLE_REARM_EXPOSURE_REPETITIONS,
+                                "records": records,
+                            }
+                        )
+
+                    return {
+                        "regimes": regime_records,
+                        "total_pairs": (
+                            len(regime_records)
+                            * SINGLE_REARM_EXPOSURE_REPETITIONS
+                        ),
+                    }
+
+                job.log(
+                    "SINGLE REARM EXPOSURE: validating guarded delay across "
+                    + ", ".join(
+                        f"{item['name']}="
+                        f"{item['first_speed']}<->{item['second_speed']}"
+                        for item in exposure_regimes
+                    )
+                    + "; 5 pairs per regime"
+                )
+                exposure_rearm = _qualify_guarded_single_rearm_ms(
+                    _probe_exposure_single_rearm,
+                    _recover_single_rearm_candidate,
+                    start_ms=single_rearm_ms,
+                )
+                single_rearm_ms = exposure_rearm["stable_ms"]
+                single_rearm_search["exposure_qualification"] = (
+                    exposure_rearm
+                )
+                single_rearm_search["guarded_ms"] = single_rearm_ms
+                job.log(
+                    "SINGLE REARM EXPOSURE RESULT: "
+                    f"stable={single_rearm_ms} ms; "
+                    f"regimes={len(exposure_regimes)}; "
+                    f"pairs={len(exposure_regimes) * SINGLE_REARM_EXPOSURE_REPETITIONS}"
+                )
+            else:
+                job.log(
+                    "SINGLE REARM EXPOSURE skipped: none of the reference "
+                    "exposure pairs is fully supported"
+                )
+
+            job.checkpoint(
+                single_rearm_search=deepcopy(single_rearm_search)
+            )
+        else:
+            job.log(
+                "SINGLE REARM skipped: no alternate shutter value is available"
+            )
+    else:
+        job.log(
+            "SINGLE REARM skipped: selected single trigger is not trigger_capture"
+        )
+
     contract = {
         "version": 3,
         "safety_policy": deepcopy(SAFETY_POLICY),
         "set_overhead_ms": set_overhead_ms,
         "single_overhead_ms": single_overhead_ms,
         "single_usb_return_ms": single_usb_return_ms,
+        **(
+            {"single_rearm_ms": single_rearm_ms}
+            if single_rearm_ms is not None
+            else {}
+        ),
         # Dedicated floor for the very first PHOTO of a fresh session (see
         # the "Session cold-start measurement" block above). Never lower
         # than single_overhead_ms: if the cold trial happened to be faster
@@ -3324,6 +3993,7 @@ def characterize(camera, entry, job):
             "single_usb_return_samples_ms": (
                 single_usb_return_samples
             ),
+            "single_rearm_search": deepcopy(single_rearm_search),
             "bracket_usb_return_samples_ms": (
                 bracket_usb_return_samples
             ),
@@ -3352,6 +4022,11 @@ def characterize(camera, entry, job):
             ),
             "trigger_single_lead_ms": "scheduler_default",
             "single_usb_return_ms": "measured",
+            "single_rearm_ms": (
+                "measured_stable_transition"
+                if single_rearm_ms is not None
+                else "not_applicable"
+            ),
             "bracket_usb_return_ms": (
                 "measured" if profile["brackets"] else "not_applicable"
             ),
@@ -3377,6 +4052,7 @@ def characterize(camera, entry, job):
         f"prepare lead={contract.get('prepare_lead_ms', 0)} ms; "
         f"single overhead={contract['single_overhead_ms']} ms; "
         f"single USB return={contract.get('single_usb_return_ms', 0)} ms; "
+        f"single rearm={contract.get('single_rearm_ms', 'n/a')} ms; "
         f"bracket overhead={contract['bracket_overhead_ms']} ms; "
         f"inter-image={contract['bracket_inter_image_ms']} ms; "
         f"bracket USB return={contract.get('bracket_usb_return_ms', 0)} ms"
@@ -3690,6 +4366,7 @@ def qualify_operational_contract_v3(
         f"attempts={attempt}; SET={contract['set_overhead_ms']} ms; "
         f"single overhead={contract['single_overhead_ms']} ms; "
         f"single USB return={contract.get('single_usb_return_ms', 0)} ms; "
+        f"single rearm={contract.get('single_rearm_ms', 'n/a')} ms; "
         f"bracket overhead={contract['bracket_overhead_ms']} ms; "
         f"inter-image={contract['bracket_inter_image_ms']} ms; "
         f"bracket USB return={contract.get('bracket_usb_return_ms', 0)} ms"
