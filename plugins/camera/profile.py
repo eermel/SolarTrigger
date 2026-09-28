@@ -1932,10 +1932,15 @@ class ProfilePlugin(CameraPlugin):
                                     next_effective_group
                                 )
                             )
-                        frames += self.execute_photo(
-                            operation,
-                            release_after_rearm=release_after_rearm,
-                        ).frames
+                        if release_after_rearm:
+                            frames += self.execute_photo(
+                                operation,
+                                release_after_rearm=True,
+                            ).frames
+                        else:
+                            # Preserve the historical call shape for every
+                            # unqualified transition and for non-timed cameras.
+                            frames += self.execute_photo(operation).frames
             except Exception:
                 self._known_settings.clear()
                 self._writable_cache.clear()
