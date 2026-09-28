@@ -966,28 +966,36 @@ def analyse_validation(
                 }
             )
 
+    # RecordingCameraClient measures PHOTO duration outside the IPC boundary,
+    # while params["duration_ms"] is the worker-side camera PHOTO budget.
+    # Comparing those values produces an unavoidable few milliseconds of false
+    # overrun after a successful PHOTO. The worker already fails closed when
+    # the native timed trigger exceeds its PHOTO budget, and late FILE_ADDED
+    # confirmation has its own explicit diagnostic below.
+    #
+    # SETs do not deliberately consume their full budget, so their outer RPC
+    # duration remains a useful validation warning.
     budget_overruns = []
-    for operation, events in (("SET", sets), ("PHOTO", photos)):
-        for event in events:
-            duration = event.get("duration_ms")
-            budget = event.get("budget_ms")
-            if (
-                isinstance(duration, (int, float))
-                and not isinstance(duration, bool)
-                and isinstance(budget, (int, float))
-                and not isinstance(budget, bool)
-                and float(duration) > float(budget)
-            ):
-                budget_overruns.append(
-                    {
-                        "operation": operation,
-                        "duration_ms": float(duration),
-                        "budget_ms": float(budget),
-                        "overrun_ms": float(duration) - float(budget),
-                        "parameter": event.get("parameter"),
-                        "photo_id": event.get("validation_photo_id"),
-                    }
-                )
+    for event in sets:
+        duration = event.get("duration_ms")
+        budget = event.get("budget_ms")
+        if (
+            isinstance(duration, (int, float))
+            and not isinstance(duration, bool)
+            and isinstance(budget, (int, float))
+            and not isinstance(budget, bool)
+            and float(duration) > float(budget)
+        ):
+            budget_overruns.append(
+                {
+                    "operation": "SET",
+                    "duration_ms": float(duration),
+                    "budget_ms": float(budget),
+                    "overrun_ms": float(duration) - float(budget),
+                    "parameter": event.get("parameter"),
+                    "photo_id": None,
+                }
+            )
     if budget_overruns:
         errors.append(
             {

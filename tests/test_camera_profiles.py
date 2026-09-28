@@ -1270,6 +1270,196 @@ def test_timed_budget_trigger_never_waits_for_ptp_events(
     assert "frame count not observed" in result.detail
 
 
+def test_timed_budget_trigger_releases_at_characterized_shutter_rearm(
+    monkeypatch,
+    profile,
+):
+    import plugins.camera.profile as module
+
+    timed = _timed_budget_test_profile(profile)
+    timed["timing_contract"]["single_rearm_ms"] = 50
+    clock = [10.0]
+
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        module.time,
+        "sleep",
+        lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+    )
+
+    def trigger_capture():
+        clock[0] += 0.234
+
+    plugin = ProfilePlugin(
+        SimpleNamespace(
+            trigger_capture=trigger_capture,
+            wait_for_event=lambda *_args, **_kwargs: (
+                pytest.fail("timed_budget must never call wait_for_event")
+            ),
+        ),
+        profile=timed,
+    )
+
+    result = plugin.execute_photo(
+        {
+            "frames": 1,
+            "shutter": "1/500",
+            "physical_views": ["1/500"],
+            "duration_ms": 1200,
+            "timing_contract_version": 2,
+        },
+        release_after_rearm=True,
+    )
+
+    assert clock[0] == pytest.approx(10.284)
+    assert "characterized shutter rearm" in result.detail
+
+
+def test_trigger_prepared_uses_rearm_only_before_next_effective_shutter_set(
+    profile,
+):
+    timed = _timed_budget_test_profile(profile)
+    timed["timing_contract"]["single_rearm_ms"] = 50
+    plugin = ProfilePlugin(SimpleNamespace(), profile=timed)
+
+    iso_100 = timed["commands"]["iso"]["values"]["100"]
+    shutter_500 = timed["commands"]["shutter"]["values"]["1/500"]
+    plugin._known_settings = {
+        "iso": iso_100,
+        "shutter": shutter_500,
+    }
+
+    releases = []
+
+    def fake_set(parameter, value, **_kwargs):
+        key = plugin._SEMANTIC[str(parameter)]
+        plugin._known_settings[key] = plugin._resolved_value(key, value)
+        return True
+
+    def fake_photo(_params, *, release_after_rearm=False, **_kwargs):
+        releases.append(release_after_rearm)
+        return SimpleNamespace(frames=1)
+
+    plugin.set_parameter = fake_set
+    plugin.execute_photo = fake_photo
+
+    operations = [
+        {
+            "action": "set",
+            "parameter": "iso",
+            "value": "100",
+            "duration_ms": 950,
+        },
+        {
+            "action": "set",
+            "parameter": "shutterspeed",
+            "value": "1/500",
+            "duration_ms": 950,
+        },
+        {
+            "action": "trigger_capture",
+            "shutter": "1/500",
+            "physical_views": ["1/500"],
+            "frames": 1,
+            "duration_ms": 1200,
+        },
+        {
+            "action": "set",
+            "parameter": "iso",
+            "value": "100",
+            "duration_ms": 950,
+        },
+        {
+            "action": "set",
+            "parameter": "shutterspeed",
+            "value": "1/250",
+            "duration_ms": 950,
+        },
+        {
+            "action": "trigger_capture",
+            "shutter": "1/250",
+            "physical_views": ["1/250"],
+            "frames": 1,
+            "duration_ms": 1200,
+        },
+    ]
+    prepared = SimpleNamespace(
+        token=("profile", operations),
+        planned_count=2,
+        target_time=None,
+    )
+
+    result = plugin.trigger_prepared(prepared)
+
+    assert result.frames == 2
+    assert releases == [True, False]
+
+
+def test_trigger_prepared_does_not_rearm_early_before_iso_set(profile):
+    timed = _timed_budget_test_profile(profile)
+    timed["timing_contract"]["single_rearm_ms"] = 50
+    plugin = ProfilePlugin(SimpleNamespace(), profile=timed)
+
+    iso_100 = timed["commands"]["iso"]["values"]["100"]
+    shutter_500 = timed["commands"]["shutter"]["values"]["1/500"]
+    plugin._known_settings = {
+        "iso": iso_100,
+        "shutter": shutter_500,
+    }
+
+    releases = []
+
+    def fake_set(parameter, value, **_kwargs):
+        key = plugin._SEMANTIC[str(parameter)]
+        plugin._known_settings[key] = plugin._resolved_value(key, value)
+        return True
+
+    def fake_photo(_params, *, release_after_rearm=False, **_kwargs):
+        releases.append(release_after_rearm)
+        return SimpleNamespace(frames=1)
+
+    plugin.set_parameter = fake_set
+    plugin.execute_photo = fake_photo
+
+    operations = [
+        {
+            "action": "trigger_capture",
+            "shutter": "1/500",
+            "physical_views": ["1/500"],
+            "frames": 1,
+            "duration_ms": 1200,
+        },
+        {
+            "action": "set",
+            "parameter": "iso",
+            "value": "200",
+            "duration_ms": 950,
+        },
+        {
+            "action": "set",
+            "parameter": "shutterspeed",
+            "value": "1/250",
+            "duration_ms": 950,
+        },
+        {
+            "action": "trigger_capture",
+            "shutter": "1/250",
+            "physical_views": ["1/250"],
+            "frames": 1,
+            "duration_ms": 1200,
+        },
+    ]
+    prepared = SimpleNamespace(
+        token=("profile", operations),
+        planned_count=2,
+        target_time=None,
+    )
+
+    plugin.trigger_prepared(prepared)
+
+    assert releases == [False, False]
+
+
 def test_timed_budget_trigger_fails_when_native_call_exceeds_budget(
     monkeypatch,
     profile,

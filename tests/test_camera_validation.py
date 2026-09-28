@@ -307,6 +307,89 @@ def test_validation_recipe_has_diagnostic_isolation_and_confirmation_grace():
         assert slot == pytest.approx(current["duration_ms"] + 2000.0)
 
 
+def test_photo_ipc_roundtrip_overhead_is_not_reported_as_budget_overrun():
+    recipe = build_validation_recipe(_profile())
+    events = []
+    for command in recipe["commands"]:
+        if command["action"] != "PHOTO":
+            continue
+        events.append(
+            {
+                "validation_photo_id": command["params"]["validation_photo_id"],
+                "expected_frames": command["frames"],
+                "confirmed_frames": command["frames"],
+                "status": "success",
+                "dispatch_error_ms": 0.0,
+                "duration_ms": command["duration_ms"] + 7.0,
+                "budget_ms": command["duration_ms"],
+                "result": {"detail": "profile capture"},
+            }
+        )
+
+    result = analyse_validation(
+        recipe=recipe,
+        recording={
+            "preflight": {},
+            "sets": _successful_sets(recipe),
+            "photos": events,
+            "gets": [],
+        },
+        runtime_logs=[],
+        readbacks=[],
+        operator_outcome="ok",
+    )
+
+    assert result["verdict"] == "PASS"
+    assert not any(
+        error["type"] == "BUDGET_OVERRUN"
+        for error in result["errors"]
+    )
+
+
+def test_set_rpc_budget_overrun_is_still_reported():
+    recipe = build_validation_recipe(_profile())
+    sets = _successful_sets(recipe)
+    sets[0]["duration_ms"] = sets[0]["budget_ms"] + 1.0
+
+    photos = []
+    for command in recipe["commands"]:
+        if command["action"] != "PHOTO":
+            continue
+        photos.append(
+            {
+                "validation_photo_id": command["params"]["validation_photo_id"],
+                "expected_frames": command["frames"],
+                "confirmed_frames": command["frames"],
+                "status": "success",
+                "dispatch_error_ms": 0.0,
+                "duration_ms": command["duration_ms"],
+                "budget_ms": command["duration_ms"],
+            }
+        )
+
+    result = analyse_validation(
+        recipe=recipe,
+        recording={
+            "preflight": {},
+            "sets": sets,
+            "photos": photos,
+            "gets": [],
+        },
+        runtime_logs=[],
+        readbacks=[],
+        operator_outcome="ok",
+    )
+
+    warning = next(
+        error
+        for error in result["errors"]
+        if error["type"] == "BUDGET_OVERRUN"
+    )
+    assert result["verdict"] == "WARNING"
+    assert warning["count"] == 1
+    assert warning["items"][0]["operation"] == "SET"
+
+
 def test_late_file_confirmation_is_counted_and_reported_as_warning():
     recipe = build_validation_recipe(_profile())
     events = []

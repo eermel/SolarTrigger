@@ -841,12 +841,66 @@ class ProfilePlugin(CameraPlugin):
         else:
             raise ValueError("unsupported trigger")
 
-    def _execute_timed_budget_trigger(self, spec, params, views, check):
+    def _single_rearm_s(self):
+        """Return the characterized trigger-return -> shutter-SET guard.
+
+        single_rearm_ms is optional for backward compatibility. It is
+        deliberately not a PHOTO completion budget: it only qualifies how soon
+        the next characterized shutter SET may start after trigger_capture()
+        returns.
+        """
+        contract = self.profile.get("timing_contract")
+        if not isinstance(contract, dict) or contract.get("version") != 3:
+            return None
+        if "single_rearm_ms" not in contract:
+            return None
+
+        value = contract.get("single_rearm_ms")
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0
+        ):
+            raise ValueError("invalid single_rearm_ms")
+        return float(value) / 1000.0
+
+    def _rearm_release_allowed_before_group(self, group):
+        """Use early release only for the transition actually characterized.
+
+        Characterization proves trigger_capture() -> delay -> shutter SET ->
+        immediate trigger. It does not prove an ISO or capture-mode SET at that
+        point, and it does not prove a bare trigger -> trigger transition.
+        """
+        rearm_s = self._single_rearm_s()
+        if rearm_s is None or not group:
+            return False
+
+        first = group[0]
+        if first.get("action") != "set":
+            return False
+        key = self._SEMANTIC.get(str(first.get("parameter")))
+        return key == "shutter"
+
+    def _execute_timed_budget_trigger(
+        self,
+        spec,
+        params,
+        views,
+        check,
+        *,
+        release_after_rearm=False,
+    ):
         """Execute trigger_capture without touching the unreliable PTP event queue.
 
-        The characterized PHOTO duration is the completion authority.  A native
-        trigger call that itself exceeds that budget is a hard failure; a quick
-        return consumes the remaining budget before the next SET may run.
+        The complete characterized PHOTO duration remains the planning/deadline
+        authority. A native trigger call that itself exceeds that budget is a
+        hard failure.
+
+        When release_after_rearm is true, runtime has already established that
+        the next effective operation is the characterized shutter SET. In that
+        one case we may return after single_rearm_ms measured from the native
+        trigger return instead of consuming the complete PHOTO budget.
         """
         if spec.get("method") != "trigger_capture":
             raise ValueError("timed_budget requires trigger_capture")
@@ -873,12 +927,25 @@ class ProfilePlugin(CameraPlugin):
             check()
         self._trigger(spec)
 
-        deadline = started + budget_s
-        elapsed_s = time.monotonic() - started
+        native_returned = time.monotonic()
+        elapsed_s = native_returned - started
         if elapsed_s > budget_s:
             raise RuntimeError(
                 "trigger_capture exceeded timed PHOTO budget: "
                 f"{elapsed_s * 1000.0:.1f} ms > {budget_s * 1000.0:.1f} ms"
+            )
+
+        rearm_s = self._single_rearm_s() if release_after_rearm else None
+        if rearm_s is None:
+            deadline = started + budget_s
+            detail = "timed-budget trigger; frame count not observed"
+        else:
+            # Characterization defines rearm from trigger_capture() RETURN,
+            # not from the start of the native call.
+            deadline = native_returned + rearm_s
+            detail = (
+                "timed-budget trigger; released at characterized shutter rearm; "
+                "frame count not observed"
             )
 
         while True:
@@ -892,7 +959,7 @@ class ProfilePlugin(CameraPlugin):
         return CaptureResult(
             frames=1,
             planned=1,
-            detail="timed-budget trigger; frame count not observed",
+            detail=detail,
         )
 
     def execute_photo(
@@ -901,6 +968,7 @@ class ProfilePlugin(CameraPlugin):
         *,
         observation_timeout_s=None,
         check=None,
+        release_after_rearm=False,
     ):
         """A PHOTO is atomic; release a held shutter even after failure."""
         count = int(params.get("frames", 1))
@@ -945,6 +1013,7 @@ class ProfilePlugin(CameraPlugin):
                 params,
                 views,
                 check,
+                release_after_rearm=release_after_rearm,
             )
 
         from backend.gphoto_runtime import import_gphoto2
@@ -1815,8 +1884,10 @@ class ProfilePlugin(CameraPlugin):
         truncated = False
         first_photo_pending = True
         target_time = getattr(prepared, "target_time", None)
-        groups = self._capture_groups(self.audit_prepared_capture(prepared))
-        for group in groups:
+        groups = list(
+            self._capture_groups(self.audit_prepared_capture(prepared))
+        )
+        for group_index, group in enumerate(groups):
             effective_group = self._effective_capture_group(group)
             if deadline is not None:
                 remaining = seconds_until_deadline(deadline)
@@ -1848,7 +1919,23 @@ class ProfilePlugin(CameraPlugin):
                                 time.sleep(min(0.05, remaining))
                                 remaining = seconds_until_deadline(target_time)
                             first_photo_pending = False
-                        frames += self.execute_photo(operation).frames
+                        release_after_rearm = False
+                        if group_index + 1 < len(groups):
+                            # SETs in the current group have already updated the
+                            # authoritative local cache, so look ahead now to
+                            # determine the first SET that will really be sent.
+                            next_effective_group = self._effective_capture_group(
+                                groups[group_index + 1]
+                            )
+                            release_after_rearm = (
+                                self._rearm_release_allowed_before_group(
+                                    next_effective_group
+                                )
+                            )
+                        frames += self.execute_photo(
+                            operation,
+                            release_after_rearm=release_after_rearm,
+                        ).frames
             except Exception:
                 self._known_settings.clear()
                 self._writable_cache.clear()
