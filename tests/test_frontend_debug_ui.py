@@ -170,6 +170,26 @@ def test_diamond_ring_trigger_label_cannot_wrap():
     assert "min-width: 100px" in block
 
 
+def test_debug_countdown_mirror_does_not_rebuild_on_live_ticks():
+    assert "debugContacts.innerHTML = contacts.innerHTML;" not in INDEX
+    assert "mirror.querySelectorAll('[id]')" in INDEX
+    assert "node.id = `debug-${node.id}`;" in INDEX
+    assert "['cd-', 'td-', 'debug-td-']" in INDEX
+    assert "[k, `debug-${k}`].forEach(rowId => {" in INDEX
+
+    install_start = INDEX.index("function installDebugUiMirror()")
+    install_end = INDEX.index("\n}\n", install_start) + 2
+    install = INDEX[install_start:install_end]
+
+    assert (
+        "_observeDebugMirror(\n"
+        "    'trigger-contacts',\n"
+        "    syncDebugCircumstances,\n"
+        "    {subtree: false, characterData: false, attributes: false}\n"
+        "  );"
+    ) in install
+
+
 def test_debug_stop_state_tracks_trigger_stop_attribute_changes():
     assert "_observeDebugMirror('btn-stop', syncDebugActionState);" in INDEX
     assert "window._triggerStopPendingRigs" in INDEX

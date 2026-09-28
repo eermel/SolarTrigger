@@ -3924,8 +3924,9 @@ function updateCountdowns(data) {
     const sign = diff > 0 ? '\u2212' : '+';
     const str  = `${sign}${fmt(Math.floor(abs/3600))}:${fmt(Math.floor((abs%3600)/60))}:${fmt(Math.floor(abs%60))}`;
 
-    // Mettre à jour countdowns (onglet éclipse cd- et trigger td-)
-    ['cd-', 'td-'].forEach(p => {
+    // Update every visible countdown directly. DEBUG owns prefixed IDs so
+    // its live timer never depends on rebuilding the mirrored DOM.
+    ['cd-', 'td-', 'debug-td-'].forEach(p => {
       const el = document.getElementById(p + k);
       if (el) {
         el.textContent = str;
@@ -3933,14 +3934,17 @@ function updateCountdowns(data) {
       }
     });
 
-    // Highlight contact row actif (onglet éclipse cr-, trigger = ID direct)
+    // Highlight active contact rows without forcing a DEBUG mirror rebuild.
     ['cr-'].forEach(p => {
       const row = document.getElementById(p + k);
       if (row) row.classList.toggle('active-phase', diff >= 0 && diff < 120);
     });
-    const trigRow = document.getElementById(k);
-    if (trigRow && trigRow.classList.contains('contact-row'))
-      trigRow.classList.toggle('active-phase', diff >= 0 && diff < 120);
+    [k, `debug-${k}`].forEach(rowId => {
+      const row = document.getElementById(rowId);
+      if (row && row.classList.contains('contact-row')) {
+        row.classList.toggle('active-phase', diff >= 0 && diff < 120);
+      }
+    });
 
     if (diff > 0 && diff < nextDiff) { nextDiff = diff; nextKey = k; }
   });
@@ -6899,7 +6903,13 @@ function syncDebugCircumstances() {
   const debugContacts = document.getElementById('debug-contacts');
 
   if (contacts && debugContacts) {
-    debugContacts.innerHTML = contacts.innerHTML;
+    // Mirror the structure once, but never duplicate DOM IDs. Live countdown
+    // values are updated independently by updateCountdowns().
+    const mirror = contacts.cloneNode(true);
+    mirror.querySelectorAll('[id]').forEach(node => {
+      node.id = `debug-${node.id}`;
+    });
+    debugContacts.replaceChildren(...Array.from(mirror.childNodes));
   }
 
   const mappings = [
@@ -7098,7 +7108,11 @@ function _observeDebugMirror(id, callback, options = {}) {
 
 
 function installDebugUiMirror() {
-  _observeDebugMirror('trigger-contacts', syncDebugCircumstances);
+  _observeDebugMirror(
+    'trigger-contacts',
+    syncDebugCircumstances,
+    {subtree: false, characterData: false, attributes: false}
+  );
   _observeDebugMirror('trig-eclipse-type2', syncDebugCircumstances);
   _observeDebugMirror('trig-eclipse-type-gps', syncDebugCircumstances);
 
