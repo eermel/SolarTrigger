@@ -1,7 +1,12 @@
 from types import SimpleNamespace
 import pytest
-from backend.camera_characterization import (choose_common_bracket_command,
-    check_qualification_margins, QualificationOverrun)
+from backend.camera_characterization import (
+    choose_common_bracket_command,
+    _select_common_bracket_calibration_candidate,
+    check_qualification_margins,
+    QualificationOverrun,
+)
+from backend.camera_candidate_optimizer import CandidateEvidence
 
 
 def candidate(peaks, setup):
@@ -24,6 +29,60 @@ def test_rejected_command_cannot_return_using_earlier_successes():
 def test_never_mix_partial_candidates():
     candidates = {'capture': candidate({3: 100}, 0), 'bulb': candidate({5: 100}, 0)}
     assert choose_common_bracket_command(candidates, {}, [3, 5]) is None
+
+
+def _combined_calibration_candidate(command_id, durations):
+    evidence = CandidateEvidence(
+        candidate_id=command_id,
+        recipe={"method": command_id},
+        expected_trials=len(durations),
+        durations_ms=list(durations),
+        functional_ok=True,
+    )
+    return {
+        "command_id": command_id,
+        "evidence": evidence,
+        "calibration_total_capture_ms": sum(durations),
+        "calibration_worst_capture_ms": max(durations),
+        "calibration_total_prepare_to_first_file_ms": sum(durations),
+    }
+
+
+def test_common_calibration_primitive_uses_aggregate_cost_not_largest_bracket_only():
+    # A6600-style case: bulb is only 98 ms faster on BRK9 but more than
+    # 2.3 s slower on BRK3.  The common primitive must minimize total cost
+    # across the calibration pair instead of letting BRK9 dominate.
+    capture = _combined_calibration_candidate(
+        "capture",
+        [3223.1, 8516.6],
+    )
+    bulb = _combined_calibration_candidate(
+        "bulb",
+        [5574.2, 8418.6],
+    )
+
+    selected = _select_common_bracket_calibration_candidate(
+        [bulb, capture]
+    )
+
+    assert selected["command_id"] == "capture"
+
+
+def test_common_calibration_primitive_uses_worst_cost_as_tie_breaker():
+    first = _combined_calibration_candidate(
+        "first",
+        [3000.0, 7000.0],
+    )
+    second = _combined_calibration_candidate(
+        "second",
+        [4000.0, 6000.0],
+    )
+
+    selected = _select_common_bracket_calibration_candidate(
+        [first, second]
+    )
+
+    assert selected["command_id"] == "second"
 
 
 def test_late_maximum_requires_margin_even_below_budget():

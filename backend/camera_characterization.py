@@ -1122,6 +1122,30 @@ def _capture_validation_state(expected, observed, error):
     return "incomplete"
 
 
+def _select_common_bracket_calibration_candidate(entries):
+    """Choose one reliable primitive shared by calibration bracket sizes.
+
+    A calibration primitive must be acceptable across *all* selected sizes.
+    Selection therefore minimizes the aggregate complete operational duration
+    across those sizes first.  Using only the worst absolute duration lets the
+    largest bracket dominate the decision and can select a primitive that is
+    catastrophically slower on the smaller calibration bracket because of
+    measurement noise on the largest one.
+    """
+    reliable = [entry for entry in entries if entry["evidence"].reliable]
+    if not reliable:
+        return None
+    return min(
+        reliable,
+        key=lambda entry: (
+            entry["calibration_total_capture_ms"],
+            entry["calibration_worst_capture_ms"],
+            entry["calibration_total_prepare_to_first_file_ms"],
+            entry["command_id"],
+        ),
+    )
+
+
 def _select_bracket_candidate(entries):
     """Choose one reliable capture recipe for one bracket size only.
 
@@ -2916,40 +2940,33 @@ def characterize(camera, entry, job):
                     functional_ok=True,
                 )
 
+                capture_durations = [
+                    item["samples"][0][1]
+                    for item in entries
+                ]
+                prepare_to_first_file = [
+                    item["samples"][0][4]
+                    + item["samples"][0][3]["first_file_ms"]
+                    for item in entries
+                ]
+
                 combined_candidates.append(
                     {
                         "command_id":
                             command_id,
                         "evidence":
                             evidence,
-                        "spec": {
-                            "peak_prepare_to_first_file_ms":
-                                max(
-                                    item[
-                                        "samples"
-                                    ][0][4]
-                                    + item[
-                                        "samples"
-                                    ][0][3][
-                                        "first_file_ms"
-                                    ]
-                                    for item
-                                    in entries
-                                ),
-                            "peak_capture_ms":
-                                max(
-                                    item[
-                                        "samples"
-                                    ][0][1]
-                                    for item
-                                    in entries
-                                ),
-                        },
+                        "calibration_total_capture_ms":
+                            sum(capture_durations),
+                        "calibration_worst_capture_ms":
+                            max(capture_durations),
+                        "calibration_total_prepare_to_first_file_ms":
+                            sum(prepare_to_first_file),
                     }
                 )
 
             selected_calibration = (
-                _select_bracket_candidate(
+                _select_common_bracket_calibration_candidate(
                     combined_candidates
                 )
             )
