@@ -343,3 +343,32 @@ def test_diamond_duration_reload_has_no_transient_null_before_await():
     assert "state.triggerDiamondDurationS = null;" not in source[filename_guard_end:first_fetch]
     assert "let nextDuration = null;" in source
     assert "state.triggerDiamondDurationS = nextDuration;" in source
+
+
+def test_debug_circumstances_embed_authoritative_diamond_duration():
+    route_start = APP.index(
+        '@app.route("/api/trigger/debug", methods=["POST"])'
+    )
+    route_end = APP.index(
+        '\n@app.route(',
+        route_start + 1,
+    )
+    route = APP[route_start:route_end]
+
+    assert 'debug_photo_setup = json.load(handle)' in route
+    assert 'generated["_diamond_ring_duration_s"] = diamond_duration' in route
+
+
+def test_trigger_and_debug_use_embedded_diamond_duration_before_ui_state():
+    assert "function _triggerDiamondDurationFor(data)" in INDEX
+    assert "data._diamond_ring_duration_s" in INDEX
+
+    render_start = INDEX.index("function renderContacts(data)")
+    render_end = INDEX.index("\nfunction updateCountdowns(data)", render_start)
+    render = INDEX[render_start:render_end]
+    assert "const diamondDuration = _triggerDiamondDurationFor(data);" in render
+
+    countdown_start = INDEX.index("function updateCountdowns(data)")
+    countdown_end = INDEX.index("\nfunction fmt(", countdown_start)
+    countdown = INDEX[countdown_start:countdown_end]
+    assert "const diamondDuration = _triggerDiamondDurationFor(data);" in countdown

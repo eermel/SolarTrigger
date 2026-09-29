@@ -3574,6 +3574,17 @@ function _fromSec(s) {
 
 // Calcule TMAX à partir d'un objet {C1, C2, C3, C4} (clés UTC HH:MM:SS)
 // Détecte partielle si C2 == C3 ou si C2/C3 absents
+function _triggerDiamondDurationFor(data) {
+  const embedded = data && data._diamond_ring_duration_s;
+  if (embedded !== null && embedded !== undefined) {
+    const numeric = Number(embedded);
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      return numeric;
+    }
+  }
+  return state.triggerDiamondDurationS;
+}
+
 function _calcTmax(c1, c2, c3, c4) {
   const midpoint = (a, b) => {
     if (a === null || b === null) return null;
@@ -3779,7 +3790,7 @@ function renderContacts(data) {
       contacts.find(c => c.key === 'TEND'),
     ].filter(Boolean);
   } else {
-    const diamondDuration = state.triggerDiamondDurationS;
+    const diamondDuration = _triggerDiamondDurationFor(data);
 
     const diamondBefore = Number.isFinite(diamondDuration)
       ? _fromSec(_toSec(c2Value) - diamondDuration)
@@ -3887,7 +3898,7 @@ function updateCountdowns(data) {
     TEND:    data.TEND || data.tend,
   };
 
-  const diamondDuration = state.triggerDiamondDurationS;
+  const diamondDuration = _triggerDiamondDurationFor(data);
 
   if (
     Number.isFinite(diamondDuration)

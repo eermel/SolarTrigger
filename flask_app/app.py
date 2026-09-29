@@ -5289,6 +5289,34 @@ def api_trigger_debug():
     exposure_path = CONFIGS_DIR / "exposure_opt" / exposure_name
     if not photo_path.is_file() or not exposure_path.is_file():
         return jsonify({"error": "Select valid Photo Setup and Exposure Optimization files", "code": "TRIGGER_INPUTS_NOT_LOADED"}), 400
+
+    try:
+        with open(photo_path, encoding="utf-8") as handle:
+            debug_photo_setup = json.load(handle)
+    except Exception:
+        return jsonify({
+            "error": "Selected Photo Setup cannot be loaded",
+            "code": "TRIGGER_INPUTS_NOT_LOADED",
+            "rig_id": rig_id,
+        }), 400
+
+    diamond_duration = None
+    try:
+        candidate = (
+            debug_photo_setup
+            .get("phases", {})
+            .get("diamond_ring", {})
+            .get("duration_s")
+        )
+        if (
+            isinstance(candidate, (int, float))
+            and not isinstance(candidate, bool)
+            and candidate >= 0
+        ):
+            diamond_duration = float(candidate)
+    except Exception:
+        diamond_duration = None
+
     destination_path = None
     try:
         raw_anchor = payload.get("debug_anchor_utc")
@@ -5328,6 +5356,8 @@ def api_trigger_debug():
                 }), 400
 
         generated = generate_debug_now(now_utc)
+        if diamond_duration is not None:
+            generated["_diamond_ring_duration_s"] = diamond_duration
         destination_dir = CONFIGS_DIR / "circumstances"
         destination_dir.mkdir(parents=True, exist_ok=True)
         filename = f"debug_rig_{rig_id}_{now_utc.strftime('%Y%m%d_%H%M%S_%f')}.json"
