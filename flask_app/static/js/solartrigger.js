@@ -1276,6 +1276,84 @@ function renderRigCameraBattery(element, value) {
 }
 
 
+function formatCameraStorageKiB(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return '—';
+
+  const gib = numeric / (1024 * 1024);
+  if (gib >= 1) return `${gib.toFixed(gib >= 100 ? 0 : 1)} GiB`;
+
+  const mib = numeric / 1024;
+  return `${mib.toFixed(mib >= 100 ? 0 : 1)} MiB`;
+}
+
+
+function renderRigCameraStorage(column, storageInfo) {
+  if (!column) return;
+
+  const mediaElement = column.querySelector('.cam-rig-storage-media');
+  const capacityElement = column.querySelector('.cam-rig-storage-capacity');
+  const freeElement = column.querySelector('.cam-rig-storage-free');
+  const imagesElement = column.querySelector('.cam-rig-storage-images');
+
+  [mediaElement, capacityElement, freeElement, imagesElement].forEach(element => {
+    if (element) element.style.color = 'var(--text-dim)';
+  });
+
+  if (!storageInfo || storageInfo.supported !== true) {
+    if (mediaElement) {
+      mediaElement.textContent =
+        storageInfo?.status === 'error' ? 'Unavailable' : 'Not reported';
+    }
+    if (capacityElement) capacityElement.textContent = '—';
+    if (freeElement) freeElement.textContent = '—';
+    if (imagesElement) imagesElement.textContent = '—';
+    return;
+  }
+
+  const mediaCount = Number(storageInfo.media_count);
+  if (mediaElement) {
+    if (!Number.isFinite(mediaCount) || mediaCount <= 0) {
+      mediaElement.textContent = 'No media';
+      mediaElement.style.color = 'var(--red)';
+    } else {
+      mediaElement.textContent = mediaCount === 1 ? '1 media' : `${mediaCount} media`;
+    }
+  }
+
+  if (capacityElement) {
+    capacityElement.textContent = formatCameraStorageKiB(
+      storageInfo.total_capacity_kib
+    );
+  }
+
+  if (freeElement) {
+    freeElement.textContent = formatCameraStorageKiB(storageInfo.total_free_kib);
+    const freePercent = Number(storageInfo.total_free_percent);
+    if (Number.isFinite(freePercent)) {
+      freeElement.textContent += ` (${freePercent.toFixed(1)}%)`;
+      if (freePercent <= 5) {
+        freeElement.style.color = 'var(--red)';
+      } else if (freePercent <= 15) {
+        freeElement.style.color = 'var(--orange)';
+      } else {
+        freeElement.style.color = 'var(--green)';
+      }
+    }
+  }
+
+  if (imagesElement) {
+    const freeImages = Number(storageInfo.total_free_images);
+    if (Number.isFinite(freeImages) && freeImages >= 0) {
+      imagesElement.textContent = String(Math.trunc(freeImages));
+      if (freeImages === 0) imagesElement.style.color = 'var(--red)';
+    } else {
+      imagesElement.textContent = '—';
+    }
+  }
+}
+
+
 async function readRigCameraInfo(rigId, button) {
   const column = document.getElementById(`cam-rig-column-${rigId}`);
   if (!column) return;
@@ -1319,6 +1397,7 @@ async function readRigCameraInfo(rigId, button) {
 
     const battery = column.querySelector('.cam-rig-battery');
     renderRigCameraBattery(battery, data.battery);
+    renderRigCameraStorage(column, data.storage_info);
 
     if (lastRead) {
       lastRead.textContent = new Date().toISOString().slice(11, 19) + ' UTC';
@@ -1347,6 +1426,14 @@ async function testRigCameraPhoto(rigId, button) {
     });
 
     const data = await response.json();
+
+    if (data.storage_info) {
+      renderRigCameraStorage(column, data.storage_info);
+      const lastRead = column.querySelector('.cam-rig-last-read');
+      if (lastRead) {
+        lastRead.textContent = new Date().toISOString().slice(11, 19) + ' UTC';
+      }
+    }
 
     if (!response.ok) {
       throw new Error(data.error || `HTTP error ${response.status}`);

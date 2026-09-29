@@ -1435,15 +1435,35 @@ def characterize(camera, entry, job):
     auxiliary_capabilities = {
         "clock": {"local_sync_supported": False, "probe_error": "not_run"},
         "shutter": {"control_detected": False, "probe_error": "not_run"},
+        "storage": {"query_supported": False, "probe_error": "not_run"},
+    }
+    storage_snapshot = {
+        "supported": False,
+        "status": "not_run",
+        "media": [],
+        "media_count": 0,
     }
     try:
         from backend.camera_auxiliary_capabilities import (
             characterize_auxiliary_capabilities,
+            format_storage_snapshot,
+            read_camera_storage,
+            storage_capability_from_snapshot,
         )
         auxiliary_capabilities, auxiliary_commands = (
             characterize_auxiliary_capabilities(camera, job, items=initial)
         )
         commands.update(auxiliary_commands)
+
+        storage_snapshot = read_camera_storage(camera)
+        auxiliary_capabilities["storage"] = storage_capability_from_snapshot(
+            storage_snapshot
+        )
+        job.checkpoint(storage_characterization=deepcopy(storage_snapshot))
+        job.log(
+            "OPTIONAL STORAGE: "
+            + format_storage_snapshot(storage_snapshot)
+        )
 
         shutter_mode_spec = commands.get("shutter_mode")
         if (

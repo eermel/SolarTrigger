@@ -42,6 +42,213 @@ _SHUTTER_MODE_NAMES = {
 }
 
 
+def _storage_scalar(item, name):
+    """Read one libgphoto2 storage field from a SWIG object or test mapping."""
+    try:
+        if isinstance(item, dict):
+            return item.get(name)
+        return getattr(item, name)
+    except Exception:
+        return None
+
+
+def _storage_number(value, *, allow_zero=True):
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if number < 0 or (number == 0 and not allow_zero):
+        return None
+    return number
+
+
+def read_camera_storage(camera):
+    """Return a normalized, best-effort snapshot of camera storage media.
+
+    libgphoto2 exposes storage capacity in KiB through get_storageinfo().
+    This capability is optional: unsupported cameras and transient read errors
+    return a structured non-fatal result instead of raising.
+    """
+    getter = getattr(camera, "get_storageinfo", None)
+    if not callable(getter):
+        return {
+            "supported": False,
+            "status": "unsupported",
+            "media": [],
+            "media_count": 0,
+        }
+
+    try:
+        raw_media = list(getter() or [])
+    except Exception as exc:
+        return {
+            "supported": False,
+            "status": "error",
+            "media": [],
+            "media_count": 0,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    media = []
+    for index, item in enumerate(raw_media):
+        capacity_kib = _storage_number(
+            _storage_scalar(item, "capacitykbytes"),
+            allow_zero=False,
+        )
+        free_kib = _storage_number(
+            _storage_scalar(item, "freekbytes"),
+            allow_zero=True,
+        )
+        # A zero free-space value is meaningful when total capacity is known:
+        # it is exactly the full-card condition that this diagnostic must expose.
+        if capacity_kib is None and free_kib == 0:
+            free_kib = None
+        if (
+            capacity_kib is not None
+            and free_kib is not None
+            and free_kib > capacity_kib
+        ):
+            free_kib = None
+
+        used_kib = (
+            capacity_kib - free_kib
+            if capacity_kib is not None and free_kib is not None
+            else None
+        )
+        free_percent = (
+            round((free_kib / capacity_kib) * 100.0, 2)
+            if capacity_kib and free_kib is not None
+            else None
+        )
+
+        entry = {
+            "index": index,
+            "basedir": _storage_scalar(item, "basedir"),
+            "label": _storage_scalar(item, "label"),
+            "description": _storage_scalar(item, "description"),
+            "capacity_kib": capacity_kib,
+            "free_kib": free_kib,
+            "used_kib": used_kib,
+            "free_percent": free_percent,
+            "free_images": _storage_number(
+                _storage_scalar(item, "freeimages"),
+                allow_zero=True,
+            ),
+        }
+        media.append(entry)
+
+    capacities = [
+        item["capacity_kib"]
+        for item in media
+        if item["capacity_kib"] is not None
+    ]
+    free_values = [
+        item["free_kib"]
+        for item in media
+        if item["free_kib"] is not None
+    ]
+    complete_capacity = len(capacities) == len(media) and bool(media)
+    complete_free = len(free_values) == len(media) and bool(media)
+
+    total_capacity_kib = sum(capacities) if complete_capacity else None
+    total_free_kib = sum(free_values) if complete_free else None
+    total_used_kib = (
+        total_capacity_kib - total_free_kib
+        if total_capacity_kib is not None and total_free_kib is not None
+        else None
+    )
+    total_free_percent = (
+        round((total_free_kib / total_capacity_kib) * 100.0, 2)
+        if total_capacity_kib and total_free_kib is not None
+        else None
+    )
+
+    return {
+        "supported": True,
+        "status": "ok" if media else "no_media",
+        "media": media,
+        "media_count": len(media),
+        "total_capacity_kib": total_capacity_kib,
+        "total_free_kib": total_free_kib,
+        "total_used_kib": total_used_kib,
+        "total_free_percent": total_free_percent,
+        "total_free_images": (
+            sum(
+                item["free_images"]
+                for item in media
+                if item["free_images"] is not None
+            )
+            if media
+            and all(item["free_images"] is not None for item in media)
+            else None
+        ),
+    }
+
+
+def storage_capability_from_snapshot(snapshot):
+    """Persist only stable support metadata, never stale free-space values."""
+    media = snapshot.get("media") if isinstance(snapshot, dict) else []
+    media = media if isinstance(media, list) else []
+    return {
+        "query_supported": bool(
+            isinstance(snapshot, dict) and snapshot.get("supported") is True
+        ),
+        "media_count_at_characterization": len(media),
+        "capacity_reported": any(
+            item.get("capacity_kib") is not None
+            for item in media
+            if isinstance(item, dict)
+        ),
+        "free_space_reported": any(
+            item.get("free_kib") is not None
+            for item in media
+            if isinstance(item, dict)
+        ),
+        "free_images_reported": any(
+            item.get("free_images") is not None
+            for item in media
+            if isinstance(item, dict)
+        ),
+        **(
+            {"probe_error": snapshot.get("error")}
+            if isinstance(snapshot, dict) and snapshot.get("error")
+            else {}
+        ),
+    }
+
+
+def format_storage_snapshot(snapshot):
+    """Short operator-facing storage summary for characterization logs."""
+    if not isinstance(snapshot, dict) or snapshot.get("supported") is not True:
+        error = snapshot.get("error") if isinstance(snapshot, dict) else None
+        return f"unavailable{': ' + error if error else ''}"
+
+    media = snapshot.get("media") or []
+    if not media:
+        return "supported; no storage media reported"
+
+    def gib(kib):
+        return f"{float(kib) / (1024.0 * 1024.0):.2f} GiB"
+
+    parts = []
+    for item in media:
+        label = item.get("label") or item.get("description") or f"media {item.get('index', 0) + 1}"
+        capacity = item.get("capacity_kib")
+        free = item.get("free_kib")
+        free_images = item.get("free_images")
+        details = []
+        if capacity is not None:
+            details.append(f"capacity={gib(capacity)}")
+        if free is not None:
+            details.append(f"free={gib(free)}")
+        if free_images is not None:
+            details.append(f"free_images={free_images}")
+        parts.append(f"{label}: " + (", ".join(details) if details else "size unavailable"))
+    return "; ".join(parts)
+
+
 def _norm(value):
     text = unicodedata.normalize("NFKD", str(value))
     text = "".join(ch for ch in text if not unicodedata.combining(ch))

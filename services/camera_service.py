@@ -574,6 +574,8 @@ class CameraService:
                     pass
             return None
 
+        from backend.camera_auxiliary_capabilities import read_camera_storage
+
         return {
             "plugin": getattr(self.plugin, "name", None),
             "model": self.model or get_camera_model(self.camera),
@@ -582,7 +584,10 @@ class CameraService:
             "aperture": read_config("f-number"),
             "shutterspeed": read_config("shutterspeed", "shutterspeed2"),
             "mode": read_config("expprogram", "capturemode"),
+            # Preserve the historical capture-target field while exposing
+            # real media capacity/free-space as a separate structured snapshot.
             "storage": read_config("capturetarget"),
+            "storage_info": read_camera_storage(self.camera),
         }
 
     def sync_datetime(self, ref):

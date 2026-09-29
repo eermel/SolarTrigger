@@ -185,6 +185,12 @@ def test_read_info_autoconnects_and_tolerates_missing_config(monkeypatch):
         'shutterspeed': '1/500',
         'mode': None,
         'storage': None,
+        'storage_info': {
+            'supported': False,
+            'status': 'unsupported',
+            'media': [],
+            'media_count': 0,
+        },
     }
 
 

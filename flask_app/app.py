@@ -3393,6 +3393,23 @@ def api_rig_camera_test_photo(rig_id):
             "device_type": "camera",
         }), 409
 
+    # Read storage before the shutter command as well as after success.
+    # This is what makes a full card diagnosable even when the test photo itself
+    # cannot be written.
+    storage_info = None
+    try:
+        info_before_photo = worker.read_info()
+        if isinstance(info_before_photo, dict):
+            candidate = info_before_photo.get("storage_info")
+            if isinstance(candidate, dict):
+                storage_info = candidate
+    except Exception as exc:
+        log.info(
+            "Camera storage preflight unavailable before test photo for rig %s: %s",
+            rig_id,
+            exc,
+        )
+
     start_utc = datetime.now(timezone.utc)
     started_at = start_utc.isoformat()
     t0 = time.monotonic()
@@ -3411,11 +3428,14 @@ def api_rig_camera_test_photo(rig_id):
             "error": str(exc),
             "code": "CAMERA_BUSY",
         })
-        return jsonify({
+        payload = {
             "error": str(exc),
             "code": "CAMERA_BUSY",
             "rig_id": rig_id,
-        }), 409
+        }
+        if storage_info is not None:
+            payload["storage_info"] = storage_info
+        return jsonify(payload), 409
     except Exception as exc:
         end_utc = datetime.now(timezone.utc)
         get_default_log().append({
@@ -3430,12 +3450,31 @@ def api_rig_camera_test_photo(rig_id):
             "code": "CAMERA_UNAVAILABLE",
         })
         log.warning("Camera test photo unavailable for rig %s: %s", rig_id, exc)
-        return jsonify({
+        payload = {
             "error": "camera unavailable",
             "code": "CAMERA_UNAVAILABLE",
             "rig_id": rig_id,
-        }), 404
+        }
+        if storage_info is not None:
+            payload["storage_info"] = storage_info
+        return jsonify(payload), 404
     t1 = time.monotonic()
+
+    # Storage is diagnostic metadata, not part of the photo success contract.
+    # Refresh it after a successful test so a full/nearly-full card is visible
+    # immediately without turning an optional storage query into a photo error.
+    try:
+        info_after_photo = worker.read_info()
+        if isinstance(info_after_photo, dict):
+            candidate = info_after_photo.get("storage_info")
+            if isinstance(candidate, dict):
+                storage_info = candidate
+    except Exception as exc:
+        log.info(
+            "Camera storage refresh unavailable after test photo for rig %s: %s",
+            rig_id,
+            exc,
+        )
 
     end_utc = datetime.now(timezone.utc)
     trace_payload = {
@@ -3462,6 +3501,8 @@ def api_rig_camera_test_photo(rig_id):
     for field in ("frames", "planned", "detail"):
         if hasattr(result, field):
             response[field] = getattr(result, field)
+    if storage_info is not None:
+        response["storage_info"] = storage_info
     return jsonify(response)
 
 

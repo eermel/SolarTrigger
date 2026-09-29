@@ -4,6 +4,9 @@ import time
 
 from backend.camera_auxiliary_capabilities import (
     characterize_auxiliary_capabilities,
+    format_storage_snapshot,
+    read_camera_storage,
+    storage_capability_from_snapshot,
     sync_profile_datetime,
 )
 
@@ -329,3 +332,112 @@ def test_auxiliary_clock_probe_accepts_initial_discovery_without_widget_metadata
     assert capabilities["clock"]["local_sync_supported"] is True
     assert commands == {}
     assert _leaf(camera, "datetime").get_value() == now
+
+
+class FakeStorageInfo:
+    def __init__(
+        self,
+        *,
+        basedir="/store_00010001",
+        label="SD Card",
+        description="Memory card",
+        capacitykbytes=64 * 1024 * 1024,
+        freekbytes=16 * 1024 * 1024,
+        freeimages=1234,
+    ):
+        self.basedir = basedir
+        self.label = label
+        self.description = description
+        self.capacitykbytes = capacitykbytes
+        self.freekbytes = freekbytes
+        self.freeimages = freeimages
+
+
+def test_storage_snapshot_reports_capacity_free_space_and_free_images():
+    camera = FakeCamera([])
+    camera.get_storageinfo = lambda: [
+        FakeStorageInfo(
+            capacitykbytes=64 * 1024 * 1024,
+            freekbytes=0,
+            freeimages=0,
+        )
+    ]
+
+    snapshot = read_camera_storage(camera)
+
+    assert snapshot["supported"] is True
+    assert snapshot["status"] == "ok"
+    assert snapshot["media_count"] == 1
+    assert snapshot["total_capacity_kib"] == 64 * 1024 * 1024
+    assert snapshot["total_free_kib"] == 0
+    assert snapshot["total_used_kib"] == 64 * 1024 * 1024
+    assert snapshot["total_free_percent"] == 0.0
+    assert snapshot["total_free_images"] == 0
+    assert "free=0.00 GiB" in format_storage_snapshot(snapshot)
+
+    capability = storage_capability_from_snapshot(snapshot)
+    assert capability == {
+        "query_supported": True,
+        "media_count_at_characterization": 1,
+        "capacity_reported": True,
+        "free_space_reported": True,
+        "free_images_reported": True,
+    }
+
+
+def test_storage_snapshot_aggregates_multiple_media_when_all_sizes_are_known():
+    camera = FakeCamera([])
+    camera.get_storageinfo = lambda: [
+        FakeStorageInfo(
+            label="Slot 1",
+            capacitykbytes=32 * 1024 * 1024,
+            freekbytes=8 * 1024 * 1024,
+            freeimages=500,
+        ),
+        FakeStorageInfo(
+            label="Slot 2",
+            capacitykbytes=64 * 1024 * 1024,
+            freekbytes=16 * 1024 * 1024,
+            freeimages=900,
+        ),
+    ]
+
+    snapshot = read_camera_storage(camera)
+
+    assert snapshot["media_count"] == 2
+    assert snapshot["total_capacity_kib"] == 96 * 1024 * 1024
+    assert snapshot["total_free_kib"] == 24 * 1024 * 1024
+    assert snapshot["total_free_percent"] == 25.0
+    assert snapshot["total_free_images"] == 1400
+
+
+def test_storage_snapshot_is_nonfatal_when_camera_does_not_support_query():
+    camera = FakeCamera([])
+
+    snapshot = read_camera_storage(camera)
+
+    assert snapshot == {
+        "supported": False,
+        "status": "unsupported",
+        "media": [],
+        "media_count": 0,
+    }
+    capability = storage_capability_from_snapshot(snapshot)
+    assert capability["query_supported"] is False
+    assert capability["capacity_reported"] is False
+    assert capability["free_space_reported"] is False
+
+
+def test_storage_snapshot_is_nonfatal_when_libgphoto_query_fails():
+    camera = FakeCamera([])
+
+    def fail():
+        raise RuntimeError("storage unavailable")
+
+    camera.get_storageinfo = fail
+
+    snapshot = read_camera_storage(camera)
+
+    assert snapshot["supported"] is False
+    assert snapshot["status"] == "error"
+    assert "RuntimeError: storage unavailable" in snapshot["error"]

@@ -52,3 +52,27 @@ def test_update_rigs_toggles_exposure_opt_column_visibility():
         in body
     )
     assert "cameraColumn.hidden = !triggerEnabled" in body
+
+
+def test_camera_tab_contains_storage_rows_for_all_four_rigs():
+    assert INDEX_HTML.count(
+        '<span class="cam-rig-meta-value cam-rig-storage-media">'
+    ) == 4
+    assert INDEX_HTML.count(
+        '<span class="cam-rig-meta-value cam-rig-storage-capacity">'
+    ) == 4
+    assert INDEX_HTML.count(
+        '<span class="cam-rig-meta-value cam-rig-storage-free">'
+    ) == 4
+    assert INDEX_HTML.count(
+        '<span class="cam-rig-meta-value cam-rig-storage-images">'
+    ) == 4
+
+
+def test_camera_info_and_photo_test_render_fresh_storage():
+    assert "function renderRigCameraStorage(column, storageInfo)" in INDEX_HTML
+    assert "renderRigCameraStorage(column, data.storage_info);" in INDEX_HTML
+    assert "storageInfo.total_capacity_kib" in INDEX_HTML
+    assert "storageInfo.total_free_kib" in INDEX_HTML
+    assert "storageInfo.total_free_percent" in INDEX_HTML
+    assert "storageInfo.total_free_images" in INDEX_HTML

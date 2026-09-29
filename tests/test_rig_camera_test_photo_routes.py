@@ -46,9 +46,11 @@ def _rig_config(*, rig_2_enabled=True):
 
 
 class FakeCameraWorker:
-    def __init__(self, result=None, error=None):
+    def __init__(self, result=None, error=None, info=None, info_error=None):
         self._result = result
         self._error = error
+        self._info = info
+        self._info_error = info_error
         self.calls = []
 
     def test_photo(self, speeds, *, photo_num_start, deadline):
@@ -62,6 +64,12 @@ class FakeCameraWorker:
         if self._error is not None:
             raise self._error
         return self._result
+
+    def read_info(self):
+        self.calls.append(("read_info",))
+        if self._info_error is not None:
+            raise self._info_error
+        return self._info
 
 
 class FakeCameraWorkerRuntime:
@@ -202,7 +210,7 @@ def test_test_photo_returns_capture_result_and_timing(monkeypatch):
     }
     assert datetime.fromisoformat(payload["started_at"]).tzinfo is not None
     assert payload["duration_s"] > 0
-    assert worker.calls == [("fast", "1/125")]
+    assert worker.calls == [("read_info",), ("fast", "1/125"), ("read_info",)]
     assert runtime.reconciled_config is not None
     assert len(events) == 1
     kind, trace = events[0]
@@ -214,3 +222,78 @@ def test_test_photo_returns_capture_result_and_timing(monkeypatch):
     assert trace["frames"] == 1
     datetime.fromisoformat(trace["start_utc"])
     datetime.fromisoformat(trace["end_utc"])
+
+
+def test_test_photo_returns_fresh_storage_info_when_available(monkeypatch):
+    result = SimpleNamespace(frames=1, planned=1, detail="single")
+    storage_info = {
+        "supported": True,
+        "status": "ok",
+        "media_count": 1,
+        "media": [],
+        "total_capacity_kib": 64 * 1024 * 1024,
+        "total_free_kib": 8 * 1024 * 1024,
+        "total_used_kib": 56 * 1024 * 1024,
+        "total_free_percent": 12.5,
+        "total_free_images": 321,
+    }
+    worker = FakeCameraWorker(
+        result=result,
+        info={"storage_info": storage_info},
+    )
+    client, _runtime = _client(monkeypatch, _rig_config(), {1: worker})
+
+    response = client.post(
+        "/api/rigs/1/camera/test_photo", json={"speed": "1/125"}
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["storage_info"] == storage_info
+    assert worker.calls == [("read_info",), ("fast", "1/125"), ("read_info",)]
+
+
+def test_test_photo_storage_refresh_failure_does_not_fail_successful_photo(monkeypatch):
+    result = SimpleNamespace(frames=1, planned=1, detail="single")
+    worker = FakeCameraWorker(
+        result=result,
+        info_error=RuntimeError("storage read failed"),
+    )
+    client, _runtime = _client(monkeypatch, _rig_config(), {1: worker})
+
+    response = client.post(
+        "/api/rigs/1/camera/test_photo", json={"speed": "1/125"}
+    )
+
+    assert response.status_code == 200
+    assert "storage_info" not in response.get_json()
+    assert response.get_json()["frames"] == 1
+    assert worker.calls == [("read_info",), ("fast", "1/125"), ("read_info",)]
+
+
+def test_test_photo_failure_still_returns_preflight_storage_info(monkeypatch):
+    storage_info = {
+        "supported": True,
+        "status": "ok",
+        "media_count": 1,
+        "media": [],
+        "total_capacity_kib": 64 * 1024 * 1024,
+        "total_free_kib": 0,
+        "total_used_kib": 64 * 1024 * 1024,
+        "total_free_percent": 0.0,
+        "total_free_images": 0,
+    }
+    worker = FakeCameraWorker(
+        error=RuntimeError("camera card full"),
+        info={"storage_info": storage_info},
+    )
+    client, _runtime = _client(monkeypatch, _rig_config(), {1: worker})
+
+    response = client.post(
+        "/api/rigs/1/camera/test_photo", json={"speed": "1/125"}
+    )
+
+    assert response.status_code == 404
+    payload = response.get_json()
+    assert payload["code"] == "CAMERA_UNAVAILABLE"
+    assert payload["storage_info"] == storage_info
+    assert worker.calls == [("read_info",), ("fast", "1/125")]
