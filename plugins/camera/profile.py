@@ -1905,10 +1905,18 @@ class ProfilePlugin(CameraPlugin):
             try:
                 for operation in effective_group:
                     if operation["action"] == "set":
-                        self.set_parameter(
-                            operation["parameter"],
-                            operation["value"],
-                        )
+                        try:
+                            self.set_parameter(
+                                operation["parameter"],
+                                operation["value"],
+                            )
+                        except Exception as exc:
+                            parameter = operation.get("parameter", "unknown")
+                            value = operation.get("value")
+                            raise RuntimeError(
+                                f"camera SET {parameter}={value!r} failed: "
+                                f"{type(exc).__name__}: {exc}"
+                            ) from exc
                     else:
                         # SET preparation may start before the scheduled slot.
                         # The first PHOTO command is dispatched at target_time.
@@ -1932,15 +1940,26 @@ class ProfilePlugin(CameraPlugin):
                                     next_effective_group
                                 )
                             )
-                        if release_after_rearm:
-                            frames += self.execute_photo(
-                                operation,
-                                release_after_rearm=True,
-                            ).frames
-                        else:
-                            # Preserve the historical call shape for every
-                            # unqualified transition and for non-timed cameras.
-                            frames += self.execute_photo(operation).frames
+                        try:
+                            if release_after_rearm:
+                                result = self.execute_photo(
+                                    operation,
+                                    release_after_rearm=True,
+                                )
+                            else:
+                                # Preserve the historical call shape for every
+                                # unqualified transition and for non-timed cameras.
+                                result = self.execute_photo(operation)
+                        except Exception as exc:
+                            action = operation.get("action", "PHOTO")
+                            shutter = operation.get("shutter")
+                            context = f"camera PHOTO {action}"
+                            if shutter is not None:
+                                context += f" shutter={shutter}"
+                            raise RuntimeError(
+                                f"{context} failed: {type(exc).__name__}: {exc}"
+                            ) from exc
+                        frames += result.frames
             except Exception:
                 self._known_settings.clear()
                 self._writable_cache.clear()

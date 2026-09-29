@@ -1497,3 +1497,83 @@ def test_timed_budget_trigger_fails_when_native_call_exceeds_budget(
                 "timing_contract_version": 2,
             }
         )
+
+
+def test_trigger_prepared_reports_failing_set_operation(profile):
+    plugin = ProfilePlugin(SimpleNamespace(), profile=_timed_budget_test_profile(profile))
+    plugin._known_settings = {}
+
+    def fail_set(parameter, value, **_kwargs):
+        raise RuntimeError("synthetic USB SET failure")
+
+    plugin.set_parameter = fail_set
+
+    prepared = SimpleNamespace(
+        token=(
+            "profile",
+            [
+                {
+                    "action": "set",
+                    "parameter": "shutterspeed",
+                    "value": "1/1000",
+                    "duration_ms": 950,
+                },
+                {
+                    "action": "trigger_capture",
+                    "shutter": "1/1000",
+                    "physical_views": ["1/1000"],
+                    "frames": 1,
+                    "duration_ms": 1200,
+                },
+            ],
+        ),
+        planned_count=1,
+        target_time=None,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"camera SET shutterspeed='1/1000' failed: RuntimeError: synthetic USB SET failure",
+    ):
+        plugin.trigger_prepared(prepared)
+
+
+def test_trigger_prepared_reports_failing_photo_operation(profile):
+    plugin = ProfilePlugin(SimpleNamespace(), profile=_timed_budget_test_profile(profile))
+    plugin._known_settings = {}
+
+    plugin.set_parameter = lambda *_args, **_kwargs: True
+
+    def fail_photo(_operation, **_kwargs):
+        raise RuntimeError("synthetic shutter failure")
+
+    plugin.execute_photo = fail_photo
+
+    prepared = SimpleNamespace(
+        token=(
+            "profile",
+            [
+                {
+                    "action": "set",
+                    "parameter": "shutterspeed",
+                    "value": "1/1000",
+                    "duration_ms": 950,
+                },
+                {
+                    "action": "trigger_capture",
+                    "shutter": "1/1000",
+                    "physical_views": ["1/1000"],
+                    "frames": 1,
+                    "duration_ms": 1200,
+                },
+            ],
+        ),
+        planned_count=1,
+        target_time=None,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"camera PHOTO trigger_capture shutter=1/1000 failed: RuntimeError: synthetic shutter failure",
+    ):
+        plugin.trigger_prepared(prepared)
