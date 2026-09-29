@@ -498,6 +498,74 @@ def build_validation_recipe(profile: dict[str, Any]) -> dict[str, Any]:
             add_set("capturemode", str(spec["mode"]), "capture_mode")
         add_photo(views, label=f"bracket-{frames}")
 
+    logical_bracket_frames = list(supported_brackets)
+
+    # A camera may not expose every useful bracket size natively.  The A6600,
+    # for example, advertises 3/5/9 frames at 1 EV but not 7.  Runtime planning
+    # is nevertheless able to cover a seven-exposure 1 EV plan exactly by
+    # composing characterized native brackets and single captures.  Validate
+    # that *actual runtime decomposition* here instead of inventing a fake
+    # native mode in the profile.
+    if profile["strategy"] == "bracket" and 7 not in supported_brackets:
+        from types import SimpleNamespace
+        from plugins.camera.profile import ProfilePlugin
+
+        logical_views = _bracket_views(shutters, 7)
+        exposure_plan = [
+            {"shutter": shutter, "iso": iso_base}
+            for shutter in logical_views
+        ]
+        prepared = ProfilePlugin(None, profile=profile).prepare_capture(
+            SimpleNamespace(exposure_plan=exposure_plan)
+        )
+        token = getattr(prepared, "token", None)
+        if (
+            not isinstance(token, tuple)
+            or len(token) != 2
+            or token[0] != "profile"
+            or not isinstance(token[1], list)
+        ):
+            raise CameraValidationError(
+                "camera runtime planner did not return a profile operation list "
+                "for logical bracket 7"
+            )
+
+        emitted_views: list[str] = []
+        logical_part = 0
+        for operation in token[1]:
+            action = operation.get("action")
+            if action == "set":
+                add_set(
+                    str(operation["parameter"]),
+                    operation["value"],
+                )
+                continue
+            if action not in {"trigger_capture", "bracket_press"}:
+                raise CameraValidationError(
+                    f"logical bracket 7 uses unsupported runtime action {action!r}"
+                )
+
+            views = [
+                str(value)
+                for value in operation.get("physical_views", [])
+            ]
+            if not views:
+                raise CameraValidationError(
+                    "logical bracket 7 runtime PHOTO has no physical views"
+                )
+            logical_part += 1
+            add_photo(
+                views,
+                label=f"logical-bracket-7-part-{logical_part}",
+            )
+            emitted_views.extend(views)
+
+        if emitted_views != logical_views:
+            raise CameraValidationError(
+                "camera runtime planner does not cover logical bracket 7 exactly"
+            )
+        logical_bracket_frames.append(7)
+
     # Deterministic final state, itself exercised through scheduled SETs.
     final_shutter = single_speeds[1]
     if has_capture_mode:
@@ -584,6 +652,7 @@ def build_validation_recipe(profile: dict[str, Any]) -> dict[str, Any]:
         "photo_command_count": photo_commands,
         "set_command_count": set_commands,
         "supported_bracket_frames": supported_brackets,
+        "validated_logical_bracket_frames": sorted(set(logical_bracket_frames)),
         "sequence_duration_s": offset_ms / 1000.0,
         "preflight_reserve_s": preflight_reserve_s,
         "estimated_duration_s": preflight_reserve_s + offset_ms / 1000.0,

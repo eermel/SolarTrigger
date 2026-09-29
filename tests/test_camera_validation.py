@@ -143,6 +143,52 @@ def test_runtime_optional_aperture_is_not_exercised_or_required_for_readback():
     assert recipe["supported_bracket_frames"] == [3, 5, 7, 9]
 
 
+def test_validation_synthesizes_exact_logical_bracket_7_when_not_native():
+    profile = _profile()
+    profile["brackets"].pop("7")
+    profile["timing_contract"]["supported_bracket_frames"] = [3, 5, 9]
+
+    recipe = build_validation_recipe(profile)
+
+    assert recipe["supported_bracket_frames"] == [3, 5, 9]
+    assert recipe["validated_logical_bracket_frames"] == [3, 5, 7, 9]
+    assert recipe["expected_photos"] == 28
+
+    logical_parts = [
+        command
+        for command in recipe["commands"]
+        if command["action"] == "PHOTO"
+        and "logical-bracket-7-part-" in command["params"]["validation_photo_id"]
+    ]
+    assert logical_parts
+    assert sum(command["frames"] for command in logical_parts) == 7
+    assert all(command["frames"] in {1, 3, 5, 9} for command in logical_parts)
+    assert all(command["frames"] != 7 for command in logical_parts)
+
+    emitted = [
+        view
+        for command in logical_parts
+        for view in command["params"]["physical_views"]
+    ]
+    assert len(emitted) == 7
+    assert len(set(emitted)) == 7
+
+
+def test_native_bracket_7_is_not_duplicated_by_logical_validation():
+    recipe = build_validation_recipe(_profile())
+
+    assert recipe["supported_bracket_frames"] == [3, 5, 7, 9]
+    assert recipe["validated_logical_bracket_frames"] == [3, 5, 7, 9]
+    assert recipe["expected_photos"] == 28
+    assert not any(
+        "logical-bracket-7-part-" in command["params"].get(
+            "validation_photo_id", ""
+        )
+        for command in recipe["commands"]
+        if command["action"] == "PHOTO"
+    )
+
+
 def test_recipe_is_deterministic_and_covers_all_brackets():
     first = build_validation_recipe(_profile())
     second = build_validation_recipe(_profile())
@@ -151,6 +197,7 @@ def test_recipe_is_deterministic_and_covers_all_brackets():
     assert first["expected_photos"] == 28
     assert first["photo_command_count"] == 8
     assert first["supported_bracket_frames"] == [3, 5, 7, 9]
+    assert first["validated_logical_bracket_frames"] == [3, 5, 7, 9]
     frames = [
         command["frames"]
         for command in first["commands"]

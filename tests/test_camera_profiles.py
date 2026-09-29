@@ -282,13 +282,15 @@ def test_full_local_characterization_without_network(monkeypatch, profile, brack
     # two single primitives receive five trials each; bracket primitives are
     # functionally checked at 3/5, then the selected primitive receives five
     # timing trials at the two available calibration sizes.  The operational
-    # validation recipe adds 12 RAWs. The pairwise rearm search adds three
+    # validation recipe adds 19 RAWs: four singles, native BRK3/5, plus the
+    # exact seven-view logical bracket synthesized by the runtime planner.
+    # The pairwise rearm search adds three
     # five-pair candidates in this fully stable simulation: conservative start,
     # 0 ms, then the mandatory final 0 ms verification (30 RAWs). Sustained
     # qualification then proves the guarded 50 ms value with 3 x 15 continuous
     # photos (45 RAWs). Multi-exposure qualification adds 4 regimes x 5 pairs
     # x 2 RAWs = 40 more captures.
-    assert camera.counter == 186
+    assert camera.counter == 193
     assert result["timing_contract"]["single_rearm_ms"] == 50
     assert (
         timing["raw_components"]["single_rearm_search"]["minimum_stable_ms"]
