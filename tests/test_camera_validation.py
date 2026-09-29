@@ -598,3 +598,146 @@ def test_validation_thread_start_failure_restores_prepared_authorization(
     assert job.job_id is None
     assert job.prepared is prepared
     assert job.cancel_event.is_set() is False
+
+
+def test_bound_validation_runtime_start_failure_releases_usb_ownership(monkeypatch):
+    job = CameraValidationJob()
+
+    class Runtime:
+        def __init__(self):
+            self.reconcile_calls = 0
+            self.revoke_calls = 0
+            self.release_calls = 0
+
+        def reconcile(self, _config):
+            self.reconcile_calls += 1
+            raise RuntimeError("synthetic reconcile failure")
+
+        def open_ipc_session(self, _rig_ids):
+            pytest.fail("session must not open after reconcile failure")
+
+        def revoke_portal_sessions(self):
+            self.revoke_calls += 1
+            return 0
+
+        def release_idle_workers(self):
+            self.release_calls += 1
+
+    runtime = Runtime()
+    monkeypatch.setattr(
+        camera_validation,
+        "load_rig_configuration",
+        lambda: {"rigs": [{"rig_id": 1}]},
+    )
+    monkeypatch.setattr(
+        camera_validation,
+        "_bound_rig_for_camera",
+        lambda _entry, _config: 1,
+    )
+    monkeypatch.setattr(
+        camera_validation,
+        "get_camera_worker_runtime",
+        lambda log_fn=None: runtime,
+    )
+
+    with pytest.raises(RuntimeError, match="synthetic reconcile failure"):
+        job._open_runtime({"serial": "SERIAL-1"})
+
+    assert runtime.reconcile_calls == 1
+    assert runtime.revoke_calls == 1
+    assert runtime.release_calls == 1
+
+
+def test_supervised_validation_crash_clears_running_state_and_publishes_fail(
+    monkeypatch, tmp_path
+):
+    job = CameraValidationJob()
+    job.running = True
+    job.phase = "starting"
+    job.job_id = "validation-job"
+    cleanup_calls = []
+
+    monkeypatch.setattr(
+        job,
+        "_run",
+        lambda _prepared, _root: (_ for _ in ()).throw(
+            RuntimeError("synthetic worker crash")
+        ),
+    )
+    monkeypatch.setattr(
+        job,
+        "_release_idle_validation_usb",
+        lambda runtime=None: cleanup_calls.append(runtime) or [],
+    )
+
+    prepared = {"recipe": {"expected_photos": 4}}
+    job._run_supervised(prepared, tmp_path)
+
+    assert cleanup_calls == [None]
+    assert job.running is False
+    assert job.phase == "failed"
+    assert job.result["analysis"]["verdict"] == "FAIL"
+    assert job.result["analysis"]["expected_photos"] == 4
+    assert job.result["analysis"]["confirmed_photos"] == 0
+    assert job.result["analysis"]["errors"][0]["type"] == "VALIDATION_WORKER_CRASH"
+
+
+def test_supervised_validation_crash_reports_usb_cleanup_failure(
+    monkeypatch, tmp_path
+):
+    job = CameraValidationJob()
+    job.running = True
+    job.phase = "starting"
+    job.job_id = "validation-job"
+
+    monkeypatch.setattr(
+        job,
+        "_run",
+        lambda _prepared, _root: (_ for _ in ()).throw(
+            RuntimeError("synthetic worker crash")
+        ),
+    )
+    monkeypatch.setattr(
+        job,
+        "_release_idle_validation_usb",
+        lambda runtime=None: ["release_idle_workers: RuntimeError: USB still owned"],
+    )
+
+    job._run_supervised({"recipe": {"expected_photos": 4}}, tmp_path)
+
+    errors = job.result["analysis"]["errors"]
+    assert job.running is False
+    assert job.phase == "failed"
+    assert any(item["type"] == "USB_CLEANUP_ERROR" for item in errors)
+
+
+def test_validation_start_uses_supervised_thread_target(monkeypatch):
+    job = CameraValidationJob()
+    prepared = {
+        "token": "token",
+        "prepared_monotonic": camera_validation.time.monotonic(),
+    }
+    job.prepared = prepared
+    captured = {}
+
+    class Thread:
+        def __init__(self, *, target, args, daemon, name):
+            captured.update(
+                target=target,
+                args=args,
+                daemon=daemon,
+                name=name,
+            )
+
+        def start(self):
+            captured["started"] = True
+
+    monkeypatch.setattr(camera_validation.threading, "Thread", Thread)
+
+    job.start("token")
+
+    assert captured["started"] is True
+    assert captured["target"] == job._run_supervised
+    assert captured["daemon"] is True
+    assert job.running is True
+    assert job.phase == "starting"

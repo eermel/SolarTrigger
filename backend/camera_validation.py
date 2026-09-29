@@ -1250,10 +1250,12 @@ class CameraValidationJob:
             self.question = None
             self.answer = None
             self.result = None
+            self.log_path = None
+            self.report_path = None
             self.logs.clear()
             try:
                 thread = threading.Thread(
-                    target=self._run,
+                    target=self._run_supervised,
                     args=(prepared, Path(root)),
                     daemon=True,
                     name=f"camera-validation-{self.job_id[:8]}",
@@ -1377,8 +1379,33 @@ class CameraValidationJob:
         bound_rig = _bound_rig_for_camera(entry, config)
         if bound_rig is not None:
             runtime = get_camera_worker_runtime(log_fn=self.log)
-            runtime.reconcile(config)
-            session = runtime.open_ipc_session([bound_rig])
+            try:
+                runtime.reconcile(config)
+                session = runtime.open_ipc_session([bound_rig])
+            except BaseException as start_exc:
+                cleanup_errors = []
+                revoke = getattr(runtime, "revoke_portal_sessions", None)
+                if callable(revoke):
+                    try:
+                        revoke()
+                    except Exception as exc:
+                        cleanup_errors.append(
+                            f"revoke_portal_sessions: {type(exc).__name__}: {exc}"
+                        )
+                try:
+                    runtime.release_idle_workers()
+                except Exception as exc:
+                    cleanup_errors.append(
+                        f"release_idle_workers: {type(exc).__name__}: {exc}"
+                    )
+                if cleanup_errors:
+                    raise CameraValidationError(
+                        "configured validation runtime startup failed and USB "
+                        "ownership could not be fully released ("
+                        + "; ".join(cleanup_errors)
+                        + ")"
+                    ) from start_exc
+                raise
             return runtime, session, bound_rig, False, "configured_rig"
 
         if not str(entry.get("serial") or "").strip():
@@ -1412,6 +1439,110 @@ class CameraValidationJob:
                 ) from start_exc
             raise
         return temp_runtime, session, 1, True, "temporary_rig"
+
+    def _release_idle_validation_usb(self, runtime=None) -> list[str]:
+        """Best-effort emergency cleanup after an abnormal validation path.
+
+        Validation is admitted only while Trigger is idle, so revoking stale
+        portal leases and releasing idle camera workers is safe here.  Every
+        cleanup step is bounded by the runtime facade itself.
+        """
+        errors = []
+        runtime = runtime or get_camera_worker_runtime(log_fn=self.log)
+
+        revoke = getattr(runtime, "revoke_portal_sessions", None)
+        if callable(revoke):
+            try:
+                revoke()
+            except Exception as exc:
+                errors.append(
+                    f"revoke_portal_sessions: {type(exc).__name__}: {exc}"
+                )
+
+        try:
+            runtime.release_idle_workers()
+        except Exception as exc:
+            errors.append(
+                f"release_idle_workers: {type(exc).__name__}: {exc}"
+            )
+        return errors
+
+    def _run_supervised(self, prepared: dict[str, Any], root: Path) -> None:
+        """Never leave a dead validation thread published as running.
+
+        _run() owns normal camera/session cleanup.  This outer guard catches
+        failures outside that normal block too (filesystem/reporting bugs,
+        unexpected analysis errors, etc.) and makes the maintenance state
+        recoverable without rebooting the Pi.
+        """
+        try:
+            self._run(prepared, root)
+            return
+        except BaseException as exc:
+            try:
+                self.log(
+                    "VALIDATION WORKER CRASH: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+            except Exception:
+                pass
+
+            cleanup_errors = []
+            try:
+                cleanup_errors = self._release_idle_validation_usb()
+            except Exception as cleanup_exc:
+                cleanup_errors = [
+                    f"emergency cleanup: {type(cleanup_exc).__name__}: "
+                    f"{cleanup_exc}"
+                ]
+
+            fatal = self._exception_payload(exc)
+            expected = 0
+            try:
+                expected = int(prepared.get("recipe", {}).get("expected_photos", 0))
+            except Exception:
+                expected = 0
+
+            errors = [
+                {
+                    "type": "VALIDATION_WORKER_CRASH",
+                    "code": fatal["code"],
+                    "message": fatal["message"],
+                }
+            ]
+            if cleanup_errors:
+                errors.append(
+                    {
+                        "type": "USB_CLEANUP_ERROR",
+                        "message": "; ".join(cleanup_errors),
+                    }
+                )
+
+            report = {
+                "schema_version": 1,
+                "config_type": "camera_validation_report",
+                "validation_id": self.job_id or uuid.uuid4().hex,
+                "completed_at_utc": _utc_text(_utc_now()),
+                "analysis": {
+                    "verdict": "FAIL",
+                    "expected_photos": expected,
+                    "confirmed_photos": 0,
+                    "actual_count_complete": True,
+                    "timing": {},
+                    "errors": errors,
+                    "fatal_error": fatal,
+                },
+            }
+
+            with self.condition:
+                self.result = report
+                self.running = False
+                self.phase = "failed"
+                self.question = None
+                self.answer = None
+                self.prepared = None
+                self.condition.notify_all()
+            self._notify()
 
     def _run(self, prepared: dict[str, Any], root: Path) -> None:
         runtime_owner = None
@@ -1474,6 +1605,9 @@ class CameraValidationJob:
                     runtime_owner.close_ipc_session(session.session_id)
                 except Exception as exc:
                     self.log(f"IPC close warning: {exc}")
+                    if fatal_error is None:
+                        fatal_error = self._exception_payload(exc)
+
             if owns_runtime and runtime_owner is not None:
                 try:
                     runtime_owner.shutdown()
@@ -1487,6 +1621,15 @@ class CameraValidationJob:
                     self.log(f"worker shutdown ERROR: {cleanup_error}")
                     if fatal_error is None:
                         fatal_error = self._exception_payload(cleanup_error)
+            elif fatal_error is not None and runtime_owner is not None:
+                cleanup_errors = self._release_idle_validation_usb(runtime_owner)
+                if cleanup_errors:
+                    cleanup_error = CameraValidationError(
+                        "failed validation could not fully release camera USB "
+                        "ownership (" + "; ".join(cleanup_errors) + ")"
+                    )
+                    self.log(f"worker shutdown ERROR: {cleanup_error}")
+                    fatal_error = self._exception_payload(cleanup_error)
 
         recording = recorder.snapshot() if recorder is not None else {
             "preflight": None,
