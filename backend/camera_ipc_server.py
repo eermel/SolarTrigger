@@ -1383,17 +1383,19 @@ class CameraIpcServer:
                 raise
             except Exception as exc:
                 end_utc = datetime.now(timezone.utc)
+                diagnostic = self._diagnostic_exception_message(exc)
+                message = f"camera operation failed: {diagnostic}"
                 payload = self._trigger_trace_payload(
                     metadata, start_utc, end_utc
                 )
                 payload.update(
                     status="error",
                     code="INTERNAL_ERROR",
-                    message="camera operation failed",
+                    message=message,
                 )
                 rig_trace.trace_event("camera.trigger_prepared", payload)
                 raise IpcError(
-                    "INTERNAL_ERROR", "camera operation failed"
+                    "INTERNAL_ERROR", message
                 ) from exc
 
             end_utc = datetime.now(timezone.utc)
@@ -1990,6 +1992,20 @@ class CameraIpcServer:
                 "INVALID_DEADLINE", f"{field} must include a UTC offset"
             )
         return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+    @staticmethod
+    def _diagnostic_exception_message(exc: BaseException) -> str:
+        """Return a bounded, single-line error detail safe for runtime logs."""
+        detail = re.sub(r"[\r\n]+", " ", str(exc)).strip()
+        detail = re.sub(
+            r"(?i)\b(session_id|token_id)\s*=\s*\S+",
+            lambda match: f"{match.group(1)}=[redacted]",
+            detail,
+        )
+        if len(detail) > 512:
+            detail = detail[:509] + "..."
+        class_name = type(exc).__name__
+        return f"{class_name}: {detail}" if detail else class_name
 
     def _safe_log(self, message: str, exc: BaseException) -> None:
         try:

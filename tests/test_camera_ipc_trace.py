@@ -280,7 +280,7 @@ def test_trigger_prepared_traces_success_with_explicit_deadline_only(
         (
             RuntimeError("private worker detail"),
             "INTERNAL_ERROR",
-            "camera operation failed",
+            "camera operation failed: RuntimeError: private worker detail",
             "error",
         ),
     ],
@@ -423,3 +423,27 @@ def test_shoot_speed_list_traces_errors_without_deadline(
     assert payload["status"] == expected_status
     assert payload["code"] == expected_code
     assert payload["message"] == expected_message
+
+
+def test_trigger_prepared_internal_error_detail_is_single_line_bounded_and_redacted(
+    monkeypatch,
+    tmp_path,
+):
+    class FailingWorker(FakeWorker):
+        def trigger_prepared(self, token, deadline=None):
+            raise RuntimeError(
+                "token_id=secret-value\nUSB transport failed"
+            )
+
+    server, session, token_id = _prepared_server(tmp_path, FailingWorker())
+
+    with pytest.raises(IpcError) as caught:
+        server.handle_request(_trigger_request(session, token_id))
+
+    assert caught.value.code == "INTERNAL_ERROR"
+    assert caught.value.message == (
+        "camera operation failed: RuntimeError: "
+        "token_id=[redacted] USB transport failed"
+    )
+    assert "\n" not in caught.value.message
+    assert "secret-value" not in caught.value.message
