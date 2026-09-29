@@ -984,9 +984,23 @@ class ProfilePlugin(CameraPlugin):
         # The execution-plan runtime currently uses envelope version 2 for
         # guarded SET/PHOTO admission. Contract v3 deliberately reuses that
         # transport envelope; its duration values are computed by the v3 model.
+        #
+        # duration_ms is the COMPLETE PHOTO budget:
+        #   head + exposures + inter-frame gaps + USB-ready tail.
+        # Reserve that characterized tail here. FILE_ADDED confirmation must
+        # complete before the tail begins; otherwise adding the tail afterwards
+        # could silently exceed the planner/deadline budget.
         guarded = params.get("timing_contract_version") == 2
+        usb_return_s = self._photo_usb_return_s(count)
         if guarded:
-            timeout = float(params["duration_ms"]) / 1000.0
+            complete_budget_s = float(params["duration_ms"]) / 1000.0
+            timeout = complete_budget_s - usb_return_s
+            if not math.isfinite(timeout) or timeout <= 0:
+                raise ValueError(
+                    "invalid guarded PHOTO confirmation budget: "
+                    f"complete={complete_budget_s:.6f}s "
+                    f"tail={usb_return_s:.6f}s"
+                )
 
         if observation_timeout_s is not None:
             # Characterization can observe beyond a candidate budget, but this
@@ -1158,7 +1172,6 @@ class ProfilePlugin(CameraPlugin):
             error.expected_frames = count
             raise error
 
-        usb_return_s = self._photo_usb_return_s(count)
         if usb_return_s > 0:
             guard_deadline = time.monotonic() + usb_return_s
             while True:

@@ -134,6 +134,98 @@ def test_v3_profile_planner_emits_discrete_set_commands():
     )
 
 
+def _fake_profile_capture_runtime(monkeypatch, *, event_at_s):
+    clock = [0.0]
+
+    class GP:
+        GP_EVENT_TIMEOUT = "timeout"
+        GP_EVENT_FILE_ADDED = "file"
+
+    class Camera:
+        def __init__(self):
+            self.drained = False
+            self.triggered = False
+            self.delivered = False
+
+        def trigger_capture(self):
+            self.triggered = True
+
+        def wait_for_event(self, timeout_ms):
+            if not self.triggered:
+                return GP.GP_EVENT_TIMEOUT, None
+            if self.delivered:
+                clock[0] += timeout_ms / 1000.0
+                return GP.GP_EVENT_TIMEOUT, None
+            clock[0] += timeout_ms / 1000.0
+            if clock[0] >= event_at_s:
+                self.delivered = True
+                return GP.GP_EVENT_FILE_ADDED, SimpleNamespace(
+                    folder="/",
+                    name="frame.raw",
+                )
+            return GP.GP_EVENT_TIMEOUT, None
+
+    data = profile()
+    data["timing_contract"]["single_usb_return_ms"] = 200
+    camera = Camera()
+    plugin = ProfilePlugin(camera, profile=data)
+
+    monkeypatch.setattr(
+        "backend.gphoto_runtime.import_gphoto2",
+        lambda: GP,
+    )
+    monkeypatch.setattr(
+        "plugins.camera.profile.time.monotonic",
+        lambda: clock[0],
+    )
+    monkeypatch.setattr(
+        "plugins.camera.profile.time.sleep",
+        lambda delay: clock.__setitem__(0, clock[0] + delay),
+    )
+    return plugin, clock
+
+
+def test_v3_photo_budget_reserves_usb_tail_before_file_confirmation(monkeypatch):
+    plugin, clock = _fake_profile_capture_runtime(
+        monkeypatch,
+        event_at_s=0.9,
+    )
+
+    with pytest.raises(RuntimeError, match="Capture not confirmed"):
+        plugin.execute_photo(
+            {
+                "shutter": "1/1000",
+                "frames": 1,
+                "physical_views": ["1/1000"],
+                "duration_ms": 1000,
+                "timing_contract_version": 2,
+            }
+        )
+
+    assert clock[0] == pytest.approx(0.8, abs=0.11)
+
+
+def test_v3_photo_budget_consumes_tail_once_inside_complete_budget(monkeypatch):
+    plugin, clock = _fake_profile_capture_runtime(
+        monkeypatch,
+        event_at_s=0.7,
+    )
+
+    result = plugin.execute_photo(
+        {
+            "shutter": "1/1000",
+            "frames": 1,
+            "physical_views": ["1/1000"],
+            "duration_ms": 1000,
+            "timing_contract_version": 2,
+        }
+    )
+
+    assert result.frames == 1
+    assert clock[0] <= 1.0 + 1e-9
+    assert clock[0] == pytest.approx(0.9, abs=0.11)
+
+
 def test_deadline_executes_groups_that_fit_instead_of_rejecting_full_cycle(
     monkeypatch,
 ):

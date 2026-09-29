@@ -92,6 +92,44 @@ def _select_single_trigger_candidate(evidence):
         return capture
     return fastest
 
+def _operational_ready_timings(
+    operation_begin,
+    ready_origin,
+    successful_ready_started,
+    successful_ready_verified,
+):
+    """Separate runtime readiness from characterization-only proof latency."""
+    values = [
+        float(operation_begin),
+        float(ready_origin),
+        float(successful_ready_started),
+        float(successful_ready_verified),
+    ]
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("camera readiness timestamps must be finite")
+    if not (
+        operation_begin
+        <= ready_origin
+        <= successful_ready_started
+        <= successful_ready_verified
+    ):
+        raise ValueError("camera readiness timestamps are not monotonic")
+    return {
+        "usb_return_ms": (
+            successful_ready_started - ready_origin
+        ) * 1000.0,
+        "runtime_total_ms": (
+            successful_ready_started - operation_begin
+        ) * 1000.0,
+        "verification_ms": (
+            successful_ready_verified - successful_ready_started
+        ) * 1000.0,
+        "wall_ms": (
+            successful_ready_verified - operation_begin
+        ) * 1000.0,
+    }
+
+
 def _ceil_rearm_step_ms(value_ms, step_ms=SINGLE_REARM_STEP_MS):
     if isinstance(value_ms, bool) or not isinstance(value_ms, (int, float)):
         raise ValueError("single rearm delay must be numeric")
@@ -2236,9 +2274,12 @@ def characterize(camera, entry, job):
         ready_deadline = time.monotonic() + 5.0
         ready_attempts = 0
         last_ready_error = None
+        successful_ready_started = None
+        successful_ready_verified = None
         while True:
             job.check()
             ready_attempts += 1
+            attempt_started = time.monotonic()
             try:
                 ready_key, ready_value = ready_set or (
                     "iso",
@@ -2250,6 +2291,11 @@ def characterize(camera, entry, job):
                 # bodies can transiently accept the USB transaction while still
                 # keeping the previous drive mode after a bracket. Characterization
                 # is allowed to perform an authoritative GET here; runtime is not.
+                #
+                # IMPORTANT: the GET is validation instrumentation only. It must
+                # never be charged to the runtime tail. The operational tail ends
+                # when the first SET that is later proven valid was *started*;
+                # runtime performs that SET but does not perform this GET.
                 actual_ready_value = characterization_read(ready_key)
                 if str(actual_ready_value) != str(ready_value):
                     raise RuntimeError(
@@ -2257,6 +2303,8 @@ def characterize(camera, entry, job):
                         f"{ready_key} requested={ready_value!r}, "
                         f"actual={actual_ready_value!r}"
                     )
+                successful_ready_started = attempt_started
+                successful_ready_verified = time.monotonic()
                 break
             except Cancelled:
                 raise
@@ -2274,11 +2322,21 @@ def characterize(camera, entry, job):
                     ) from exc
                 time.sleep(0.01)
 
-        usb_return_ms = max(
-            0.0,
-            (time.monotonic() - ready_origin) * 1000.0,
+        assert successful_ready_started is not None
+        assert successful_ready_verified is not None
+
+        ready_timings = _operational_ready_timings(
+            operation_begin,
+            ready_origin,
+            successful_ready_started,
+            successful_ready_verified,
         )
-        duration_ms = (time.monotonic() - operation_begin) * 1000.0
+        usb_return_ms = ready_timings["usb_return_ms"]
+        # Runtime duration ends exactly where the next proven-valid SET may
+        # begin. The SET itself is budgeted separately by set_overhead_ms.
+        duration_ms = ready_timings["runtime_total_ms"]
+        readiness_verification_ms = ready_timings["verification_ms"]
+        characterization_wall_ms = ready_timings["wall_ms"]
 
         if discovery:
             validated_trials.add(trial_key)
@@ -2302,6 +2360,8 @@ def characterize(camera, entry, job):
             "file_complete_ms": file_complete_ms,
             "usb_return_ms": usb_return_ms,
             "usb_ready_attempts": ready_attempts,
+            "usb_ready_verification_ms": readiness_verification_ms,
+            "characterization_wall_ms": characterization_wall_ms,
             "settle_ms": 0.0,
             "test_pause_ms": 0.0,
             "total_ms": duration_ms,
@@ -2309,13 +2369,15 @@ def characterize(camera, entry, job):
 
         job.log(
             f"AUTO CONFIRM: USB reported exactly {len(seen)}/{expected} "
-            f"file(s); USB SET-ready after {usb_return_ms:.1f} ms "
-            f"({ready_attempts} attempt(s))"
+            f"file(s); USB SET-ready runtime tail={usb_return_ms:.1f} ms "
+            f"({ready_attempts} attempt(s)); "
+            f"readback verification={readiness_verification_ms:.1f} ms"
         )
         job.log(
             f"TEST END {'discovery confirmed' if discovery else 'automatic timing'}: "
             f"{expected} photo(s), file_complete={file_complete_ms:.1f} ms, "
-            f"usb_ready_total={duration_ms:.1f} ms"
+            f"runtime_ready_total={duration_ms:.1f} ms, "
+            f"characterization_wall={characterization_wall_ms:.1f} ms"
         )
 
         return (

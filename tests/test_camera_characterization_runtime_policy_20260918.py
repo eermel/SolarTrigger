@@ -368,6 +368,38 @@ def test_single_rearm_search_expands_upper_bound_after_failure():
     )
 
 
+def test_operational_ready_timing_excludes_characterization_readback():
+    timings = characterization._operational_ready_timings(
+        10.0,
+        11.0,
+        11.25,
+        12.05,
+    )
+
+    assert timings["usb_return_ms"] == pytest.approx(250.0)
+    assert timings["runtime_total_ms"] == pytest.approx(1250.0)
+    assert timings["verification_ms"] == pytest.approx(800.0)
+    assert timings["wall_ms"] == pytest.approx(2050.0)
+
+
+def test_characterization_ready_probe_excludes_final_readback_from_runtime_tail():
+    source = inspect.getsource(characterization.characterize)
+
+    assert "successful_ready_started = attempt_started" in source
+    assert "USB SET-ready runtime tail=" in source
+    assert "readback verification=" in source
+
+
+def test_operational_ready_timing_rejects_non_monotonic_timestamps():
+    with pytest.raises(ValueError, match="not monotonic"):
+        characterization._operational_ready_timings(
+            10.0,
+            11.0,
+            10.5,
+            12.0,
+        )
+
+
 def test_rearm_baseline_readback_waits_for_delayed_sony_convergence():
     values = iter(["1/1000", "1/1000", "1/500"])
     sleeps = []
