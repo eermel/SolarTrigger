@@ -3844,7 +3844,12 @@ function renderContacts(data) {
       </div>`;
     }).join('');
   };
-  if (tlist) tlist.innerHTML = _buildContactsHtml();
+  if (tlist) {
+    tlist.innerHTML = _buildContactsHtml();
+    // Never expose the "--" placeholders between two one-second ticks when
+    // runtime/status resynchronization rebuilds the circumstances table.
+    updateCountdowns(data);
+  }
 
   // Mettre à jour les timezones
   if (state.gps && state.gps.timezone) {
@@ -4296,25 +4301,37 @@ async function loadTriggerCircumstances(filename) {
   }
 }
 
-async function loadTriggerDiamondDuration() {
-  state.triggerDiamondDurationS = null;
+async function loadTriggerDiamondDuration(filenameOverride = '') {
+  const filename = (
+    filenameOverride
+    || document.getElementById('trigger-photo-select')?.value
+    || ''
+  );
 
-  const filename = document.getElementById('trigger-photo-select')?.value || '';
-  if (!filename) return;
+  if (!filename) {
+    state.triggerDiamondDurationS = null;
+    return;
+  }
+
+  // Do not clear the current valid value before the asynchronous read:
+  // renderContacts() could otherwise briefly render DIAMOND RING as "--".
+  let nextDuration = null;
 
   try {
     const r = await fetch(`/api/configs/load_photo/${encodeURIComponent(filename)}`);
     const data = await r.json();
 
-    if (!r.ok || data.error) return;
-
-    const value = Number(data?.phases?.diamond_ring?.duration_s);
-    if (Number.isFinite(value) && value >= 0) {
-      state.triggerDiamondDurationS = value;
+    if (r.ok && !data.error) {
+      const value = Number(data?.phases?.diamond_ring?.duration_s);
+      if (Number.isFinite(value) && value >= 0) {
+        nextDuration = value;
+      }
     }
   } catch (_error) {
-    state.triggerDiamondDurationS = null;
+    nextDuration = null;
   }
+
+  state.triggerDiamondDurationS = nextDuration;
 }
 
 async function refreshTriggerCircumstancesForPhoto() {
@@ -4432,6 +4449,10 @@ async function startDebug() {
     'The currently selected Photo Setup and Exposure Optimization will be used.\n\n' +
     'Continue?'
   )) return;
+
+  // DEBUG circumstances do not carry the Photo Setup diamond-ring duration.
+  // Load it before /api/trigger/debug can emit eclipse_calculated.
+  await loadTriggerDiamondDuration(inputs.photo_file);
 
   const failures = [];
   const results = [];

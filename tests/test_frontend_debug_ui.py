@@ -300,3 +300,46 @@ def test_camera_buttons_match_trigger_start_height():
     assert expected_min in cam_button
     assert expected in trigger_button
     assert expected_min in trigger_button
+
+
+def test_circumstances_rerender_refreshes_countdown_without_placeholder_flash():
+    render_start = INDEX.index("function renderContacts(data)")
+    render_end = INDEX.index("\nfunction updateCountdowns(data)", render_start)
+    render = INDEX[render_start:render_end]
+
+    rebuild = "tlist.innerHTML = _buildContactsHtml();"
+    refresh = "updateCountdowns(data);"
+
+    assert rebuild in render
+    assert refresh in render
+    assert render.index(rebuild) < render.index(refresh)
+
+
+def test_debug_loads_diamond_duration_before_backend_can_render_generated_contacts():
+    start = INDEX.index("async function startDebug()")
+    end = INDEX.index("\nasync function startDryRun()", start)
+    source = INDEX[start:end]
+
+    load = "await loadTriggerDiamondDuration(inputs.photo_file);"
+    request = "fetch('/api/trigger/debug'"
+
+    assert load in source
+    assert request in source
+    assert source.index(load) < source.index(request)
+
+
+def test_diamond_duration_reload_has_no_transient_null_before_await():
+    start = INDEX.index("async function loadTriggerDiamondDuration(")
+    end = INDEX.index("\nasync function refreshTriggerCircumstancesForPhoto()", start)
+    source = INDEX[start:end]
+
+    first_fetch = source.index("await fetch(")
+    filename_guard_end = source.index("  // Do not clear", 0, first_fetch)
+
+    # Clearing is legitimate only when there is no Photo Setup filename.
+    # Once a real file is selected, the previous valid duration must survive
+    # until the asynchronous read has completed.
+    assert "state.triggerDiamondDurationS = null;" in source[:filename_guard_end]
+    assert "state.triggerDiamondDurationS = null;" not in source[filename_guard_end:first_fetch]
+    assert "let nextDuration = null;" in source
+    assert "state.triggerDiamondDurationS = nextDuration;" in source
