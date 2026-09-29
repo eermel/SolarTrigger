@@ -300,10 +300,56 @@ def test_single_rearm_search_expands_upper_bound_after_failure():
     )
 
 
+def test_rearm_baseline_readback_waits_for_delayed_sony_convergence():
+    values = iter(["1/1000", "1/1000", "1/500"])
+    sleeps = []
+    checks = []
+
+    result = characterization._settle_characterization_readback(
+        lambda: next(values),
+        "1/500",
+        check=lambda: checks.append(True),
+        sleep_fn=lambda delay: sleeps.append(delay),
+        delays_s=(0.10, 0.25, 0.50),
+    )
+
+    assert result == "1/500"
+    assert sleeps == [0.10, 0.25]
+    assert len(checks) == 3
+
+
+def test_rearm_baseline_readback_does_not_delay_when_already_converged():
+    sleeps = []
+
+    result = characterization._settle_characterization_readback(
+        lambda: "1/500",
+        "1/500",
+        sleep_fn=lambda delay: sleeps.append(delay),
+        delays_s=(0.10, 0.25, 0.50),
+    )
+
+    assert result == "1/500"
+    assert sleeps == []
+
+
+def test_rearm_baseline_readback_returns_last_stale_value_after_bounded_settle():
+    values = iter(["1/1000", "1/1000", "1/1000"])
+
+    result = characterization._settle_characterization_readback(
+        lambda: next(values),
+        "1/500",
+        sleep_fn=lambda _delay: None,
+        delays_s=(0.10, 0.25),
+    )
+
+    assert result == "1/1000"
+
+
 def test_characterization_single_rearm_probe_uses_real_set_then_immediate_trigger():
     source = inspect.getsource(characterization.characterize)
     marker = "# Critical point: no FILE_ADDED wait"
     assert marker in source
+    assert "_settle_characterization_readback(" in source
     assert 'runtime_set("shutter", second_value)' in source
     tail = source[source.index(marker):]
     assert "camera.trigger_capture()" in tail
@@ -384,6 +430,8 @@ def test_sustained_rearm_probe_has_no_file_wait_inside_15_frame_burst():
     confirm = block.index("_confirm_rearm_files(", loop_start)
     loop_block = block[loop_start:confirm]
 
+    baseline_block = block[:loop_start]
+    assert "_settle_characterization_readback(" in baseline_block
     assert "camera.trigger_capture()" in loop_block
     assert 'runtime_set(\n                                "shutter",' in loop_block
     assert "wait_for_event" not in loop_block
@@ -406,6 +454,9 @@ def test_exposure_rearm_probe_covers_reference_regimes_without_mid_pair_observat
     assert "camera.trigger_capture()" in block
     assert 'runtime_set("shutter", second_value)' in block
     assert "_confirm_rearm_files(" in block
+
+    baseline = block[:block.index("first_begin = time.monotonic()")]
+    assert "_settle_characterization_readback(" in baseline
 
     critical = block[
         block.index("# Critical multi-exposure transition"):

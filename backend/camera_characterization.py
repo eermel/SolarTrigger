@@ -70,6 +70,50 @@ def _ceil_rearm_step_ms(value_ms, step_ms=SINGLE_REARM_STEP_MS):
     return int(math.ceil(float(value_ms) / step_ms) * step_ms)
 
 
+def _settle_characterization_readback(
+    read_value,
+    target,
+    *,
+    check=None,
+    sleep_fn=time.sleep,
+    delays_s=None,
+):
+    """Wait for an untimed characterization SET readback to converge.
+
+    Sony bodies can acknowledge set_single_config() before a fresh get_config()
+    reflects the new value. This helper is only for pre-probe/baseline evidence;
+    it must never be inserted between the measured rearm SET and trigger.
+    """
+    if not callable(read_value):
+        raise ValueError("characterization readback requires a callable reader")
+    if delays_s is None:
+        delays_s = ProfilePlugin.PREFLIGHT_SETTLE_DELAYS_S
+
+    last = None
+    last_error = None
+    attempts = [0.0, *tuple(float(value) for value in delays_s)]
+    for index, delay_s in enumerate(attempts):
+        if check is not None:
+            check()
+        if index and delay_s > 0:
+            sleep_fn(delay_s)
+        try:
+            last = read_value()
+            last_error = None
+        except Exception as exc:
+            last_error = exc
+            continue
+        if str(last) == str(target):
+            return last
+
+    if last is None and last_error is not None:
+        raise RuntimeError(
+            "characterization readback unavailable after settling: "
+            f"{type(last_error).__name__}: {last_error}"
+        ) from last_error
+    return last
+
+
 def _search_single_rearm_ms(
     probe_candidate,
     recover_after_failure,
@@ -3300,10 +3344,14 @@ def characterize(camera, entry, job):
                         first_value, second_value = rearm_values[0], rearm_values[1]
 
                     runtime_set("shutter", first_value)
-                    baseline = characterization_read("shutter")
+                    baseline = _settle_characterization_readback(
+                        lambda: characterization_read("shutter"),
+                        first_value,
+                        check=job.check,
+                    )
                     if str(baseline) != str(first_value):
                         raise RuntimeError(
-                            "single rearm baseline shutter mismatch: "
+                            "single rearm baseline shutter mismatch after settling: "
                             f"requested={first_value!r}, actual={baseline!r}"
                         )
 
@@ -3411,10 +3459,14 @@ def characterize(camera, entry, job):
 
                     current_index = burst % 2
                     runtime_set("shutter", rearm_values[current_index])
-                    baseline = characterization_read("shutter")
+                    baseline = _settle_characterization_readback(
+                        lambda: characterization_read("shutter"),
+                        rearm_values[current_index],
+                        check=job.check,
+                    )
                     if str(baseline) != str(rearm_values[current_index]):
                         raise RuntimeError(
-                            "sustained rearm baseline shutter mismatch: "
+                            "sustained rearm baseline shutter mismatch after settling: "
                             f"requested={rearm_values[current_index]!r}, "
                             f"actual={baseline!r}"
                         )
@@ -3547,10 +3599,14 @@ def characterize(camera, entry, job):
                                 first_value, second_value = value_a, value_b
 
                             runtime_set("shutter", first_value)
-                            baseline = characterization_read("shutter")
+                            baseline = _settle_characterization_readback(
+                                lambda: characterization_read("shutter"),
+                                first_value,
+                                check=job.check,
+                            )
                             if str(baseline) != str(first_value):
                                 raise RuntimeError(
-                                    "exposure rearm baseline shutter mismatch: "
+                                    "exposure rearm baseline shutter mismatch after settling: "
                                     f"requested={first_value!r}, "
                                     f"actual={baseline!r}"
                                 )
