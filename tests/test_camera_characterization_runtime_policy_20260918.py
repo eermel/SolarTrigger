@@ -234,6 +234,74 @@ def test_characterization_recovers_poisoned_exploratory_session_before_final_qua
 
 
 
+def test_single_trigger_selection_prefers_capture_inside_50ms_tie_band():
+    from backend.camera_candidate_optimizer import CandidateEvidence
+
+    trigger = CandidateEvidence(
+        candidate_id='trigger',
+        recipe={'method': 'trigger_capture'},
+        expected_trials=5,
+        durations_ms=[1440.0, 1445.0, 1450.0, 1451.9, 1447.0],
+        functional_ok=True,
+    )
+    capture = CandidateEvidence(
+        candidate_id='capture',
+        recipe={'method': 'capture'},
+        expected_trials=5,
+        durations_ms=[1470.0, 1475.0, 1480.0, 1497.3, 1473.8],
+        functional_ok=True,
+    )
+
+    selected = characterization._select_single_trigger_candidate([trigger, capture])
+
+    assert selected is capture
+
+
+def test_single_trigger_selection_keeps_materially_faster_trigger_capture():
+    from backend.camera_candidate_optimizer import CandidateEvidence
+
+    trigger = CandidateEvidence(
+        candidate_id='trigger',
+        recipe={'method': 'trigger_capture'},
+        expected_trials=5,
+        durations_ms=[1090.0, 1110.0, 1175.0, 1247.0, 1120.0],
+        functional_ok=True,
+    )
+    capture = CandidateEvidence(
+        candidate_id='capture',
+        recipe={'method': 'capture'},
+        expected_trials=5,
+        durations_ms=[1125.0, 1175.0, 1190.0, 1238.0, 1320.0],
+        functional_ok=True,
+    )
+
+    selected = characterization._select_single_trigger_candidate([trigger, capture])
+
+    assert selected is trigger
+
+
+def test_single_trigger_selection_ignores_unreliable_capture_candidate():
+    from backend.camera_candidate_optimizer import CandidateEvidence
+
+    trigger = CandidateEvidence(
+        candidate_id='trigger',
+        recipe={'method': 'trigger_capture'},
+        expected_trials=5,
+        durations_ms=[1000.0] * 5,
+        functional_ok=True,
+    )
+    capture = CandidateEvidence(
+        candidate_id='capture',
+        recipe={'method': 'capture'},
+        expected_trials=5,
+        durations_ms=[990.0] * 4,
+        functional_ok=True,
+    )
+
+    selected = characterization._select_single_trigger_candidate([trigger, capture])
+
+    assert selected is trigger
+
 def test_single_rearm_search_finds_lowest_stable_50ms_candidate_and_reverifies():
     calls = []
     recoveries = []

@@ -46,6 +46,7 @@ class Cancelled(RuntimeError):
     pass
 
 
+SINGLE_TRIGGER_CAPTURE_TIE_MS = 50
 SINGLE_REARM_STEP_MS = 50
 SINGLE_REARM_REPETITIONS = 5
 SINGLE_REARM_MAX_MS = 5000
@@ -59,6 +60,37 @@ SINGLE_REARM_EXPOSURE_REGIMES = (
     ("very_long", "2", "4"),
 )
 
+
+def _select_single_trigger_candidate(evidence):
+    """Select a stable single trigger without reacting to sub-grid timing noise.
+
+    The capture method is operationally simpler than trigger_capture because it
+    does not require a separate trigger-return -> shutter-SET rearm contract.
+    If a reliable capture candidate is within one 50 ms safety grid step of
+    the fastest reliable candidate, prefer it. Larger measured advantages
+    remain authoritative, so cameras such as the D850 can still select
+    trigger_capture when it is materially faster.
+    """
+    from backend.camera_candidate_optimizer import select_best
+
+    fastest = select_best(evidence)
+    capture_candidates = [
+        item
+        for item in evidence
+        if item.reliable
+        and isinstance(item.recipe, dict)
+        and item.recipe.get("method") == "capture"
+    ]
+    if not capture_candidates:
+        return fastest
+
+    capture = min(
+        capture_candidates,
+        key=lambda item: (item.peak_ms, item.median_ms, item.candidate_id),
+    )
+    if capture.peak_ms <= fastest.peak_ms + SINGLE_TRIGGER_CAPTURE_TIE_MS:
+        return capture
+    return fastest
 
 def _ceil_rearm_step_ms(value_ms, step_ms=SINGLE_REARM_STEP_MS):
     if isinstance(value_ms, bool) or not isinstance(value_ms, (int, float)):
@@ -2464,7 +2496,7 @@ def characterize(camera, entry, job):
             "No validated single trigger"
         )
 
-    selected_single = select_best(single_evidence)
+    selected_single = _select_single_trigger_candidate(single_evidence)
     _ev, trigger_single, single_samples = next(
         item for item in valid_single
         if item[0].candidate_id == selected_single.candidate_id
@@ -2473,10 +2505,24 @@ def characterize(camera, entry, job):
     selection_evidence["trigger_single"] = compact_selection(
         "trigger_single", single_evidence, selected_single
     )
+    selection_evidence["trigger_single"]["policy"] = (
+        "correctness_then_reliability_then_peak_with_capture_50ms_tie_band"
+    )
+    selection_evidence["trigger_single"]["capture_tie_ms"] = (
+        SINGLE_TRIGGER_CAPTURE_TIE_MS
+    )
+    fastest_single = select_best(single_evidence)
+    selection_note = ""
+    if selected_single.candidate_id != fastest_single.candidate_id:
+        selection_note = (
+            f"; preferred capture within {SINGLE_TRIGGER_CAPTURE_TIE_MS} ms "
+            f"of fastest peak={fastest_single.peak_ms:.1f} ms"
+        )
     job.log(
         f"SELECT trigger_single: {selected_single.candidate_id}; "
         f"peak={selected_single.peak_ms:.1f} ms; "
         f"median={selected_single.median_ms:.1f} ms"
+        f"{selection_note}"
     )
 
     reference_single_s = _parse_speed("1/500")
