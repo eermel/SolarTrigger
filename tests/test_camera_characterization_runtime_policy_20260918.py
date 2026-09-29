@@ -386,6 +386,7 @@ def test_characterization_ready_probe_excludes_final_readback_from_runtime_tail(
     source = inspect.getsource(characterization.characterize)
 
     assert "successful_ready_started = attempt_started" in source
+    assert "_settle_characterization_readback(" in source
     assert "USB SET-ready runtime tail=" in source
     assert "readback verification=" in source
 

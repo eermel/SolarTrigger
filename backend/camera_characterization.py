@@ -2296,10 +2296,15 @@ def characterize(camera, entry, job):
                 # never be charged to the runtime tail. The operational tail ends
                 # when the first SET that is later proven valid was *started*;
                 # runtime performs that SET but does not perform this GET.
-                actual_ready_value = characterization_read(ready_key)
+                actual_ready_value = _settle_characterization_readback(
+                    lambda: characterization_read(ready_key),
+                    ready_value,
+                    check=job.check,
+                )
                 if str(actual_ready_value) != str(ready_value):
                     raise RuntimeError(
-                        "SET returned without applying the requested value: "
+                        "SET returned without applying the requested value "
+                        "after settled readback: "
                         f"{ready_key} requested={ready_value!r}, "
                         f"actual={actual_ready_value!r}"
                     )
