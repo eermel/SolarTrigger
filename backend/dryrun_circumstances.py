@@ -47,6 +47,24 @@ def generate_dryrun_now(
     return generated
 
 
+def generate_dryrun_today(
+    circumstances: Mapping[str, Any],
+    now_utc: datetime,
+) -> dict[str, Any]:
+    """Rebase circumstances onto the current UTC date without moving UTC times."""
+    if now_utc.tzinfo is None:
+        raise ValueError("now_utc must be timezone-aware")
+
+    current_utc = now_utc.astimezone(timezone.utc)
+    current_date = current_utc.date().isoformat()
+    generated = deepcopy(dict(circumstances))
+    generated["_date"] = current_date
+    generated["_date_utc"] = current_date
+    generated["_generated_utc"] = current_utc.isoformat()
+    generated["_comment"] = "Temporary DRY-RUN TODAY circumstances"
+    return generated
+
+
 DEBUG_TSTART_DELAY_S = 60
 DEBUG_C1_AFTER_TSTART_S = 5 * 60 + 12
 DEBUG_C2_AFTER_C1_S = 6 * 60 + 6
@@ -101,4 +119,4 @@ def generate_debug_now(now_utc: datetime) -> dict[str, Any]:
     }
 
 
-__all__ = ["generate_dryrun_now", "generate_debug_now"]
+__all__ = ["generate_dryrun_now", "generate_dryrun_today", "generate_debug_now"]
