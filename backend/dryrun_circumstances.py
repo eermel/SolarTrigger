@@ -65,7 +65,7 @@ def generate_dryrun_today(
     return generated
 
 
-DEBUG_TSTART_DELAY_S = 60
+DEBUG_TSTART_DELAY_S = 3 * 60
 DEBUG_C1_AFTER_TSTART_S = 5 * 60 + 12
 DEBUG_C2_AFTER_C1_S = 6 * 60 + 6
 DEBUG_C3_AFTER_C2_S = 3 * 60 + 24
