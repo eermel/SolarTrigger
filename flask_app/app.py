@@ -5177,7 +5177,19 @@ def _trigger_preflight_identity(rig_id, selected):
         "rig_id": rig_id,
         "photo_file": str(selected.get("photo_file") or ""),
         "exposure_opt_file": str(selected.get("exposure_opt_file") or ""),
-        "gps_sync_time": gps.get("sync_time"),
+        "camera_preflight_state": _camera_preflight_state_from_selection(
+            selected
+        ),
+        "gps": {
+            key: gps.get(key)
+            for key in (
+                "sync_time",
+                "lat",
+                "lon",
+                "alt",
+                "utc_offset_minutes",
+            )
+        },
         "rig": rig,
     }
 
