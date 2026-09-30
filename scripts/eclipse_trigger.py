@@ -357,7 +357,7 @@ def _phase_alerts(schedule, timeline: dict) -> list[tuple[datetime, str]]:
     # Filter handling follows the actual phase boundaries.
     alerts.append((
         schedule.tstart - timedelta(seconds=10),
-        f"{human}/filters_on.wav",
+        "filter_on.wav",
     ))
 
     windows = {window.name: window for window in schedule.windows}
@@ -368,11 +368,11 @@ def _phase_alerts(schedule, timeline: dict) -> list[tuple[datetime, str]]:
         alerts.extend((
             (
                 diamond_c2.start - timedelta(seconds=3),
-                f"{human}/filters_off.wav",
+                "filter_off.wav",
             ),
             (
                 diamond_c3.end + timedelta(seconds=3),
-                f"{human}/filters_on.wav",
+                "filter_on.wav",
             ),
         ))
 
