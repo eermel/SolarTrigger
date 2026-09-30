@@ -5661,7 +5661,12 @@ def api_trigger_debug():
         filename = f"debug_rig_{rig_id}_{now_utc.strftime('%Y%m%d_%H%M%S_%f')}.json"
         destination_path = destination_dir / filename
         destination_path.write_text(json.dumps(generated, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        selected = {"circumstances_file": filename, "photo_file": photo_name, "exposure_opt_file": exposure_name}
+        selected = {
+            "circumstances_file": filename,
+            "photo_file": photo_name,
+            "exposure_opt_file": exposure_name,
+            "preflight_token": payload.get("preflight_token"),
+        }
         if not _trigger_start_guarded(
             lambda: _start_trigger_with_hardware_preflight(
                 rig_id=rig_id,
