@@ -790,18 +790,11 @@ function renderTriggerRigSelection() {
   const multiRig = activeRigIds.length > 1;
 
   const debugButton = document.getElementById('btn-debug');
-  const dryRunButton = document.getElementById('btn-dryrun');
 
   if (debugButton) {
     debugButton.textContent = multiRig
       ? '🧪 DEBUG ALL'
       : '🧪 DEBUG';
-  }
-
-  if (dryRunButton) {
-    dryRunButton.textContent = multiRig
-      ? '🧪 DRY-RUN ALL'
-      : '🧪 DRY-RUN';
   }
 
   let selectedRig = selectedTriggerRig();
@@ -3362,6 +3355,7 @@ function _tickClock() {
   const utcH = fmt(now.getUTCHours()), utcM = fmt(now.getUTCMinutes()), utcS = fmt(now.getUTCSeconds());
   const utcTime = `${utcH}:${utcM}:${utcS}`;
   const utcDate = now.toISOString().slice(0,10);
+  updateTriggerStartButtonMode();
   const localMs = _nowAdjustedLocalMs();
   const hasLocalAnchor = Number.isFinite(localMs);
   const localDateObj = hasLocalAnchor ? new Date(localMs) : null;
@@ -3563,17 +3557,15 @@ function updatePhase(phase) {
   if (dot)   { dot.className = phase !== 'idle' ? 'dot on' : 'dot off'; }
 
   const btnStart     = document.getElementById('btn-start');
-  const btnDryRun    = document.getElementById('btn-dryrun');
   const btnDebug     = document.getElementById('btn-debug');
   const btnStop      = document.getElementById('btn-stop');
   const btnTot       = document.getElementById('btn-totality-only');
 
   const triggerStartLocked = anyActiveTriggerRunning();
 
-  // START / DRY-RUN / DEBUG are global multi-RIG actions.
-  if (btnStart)  btnStart.disabled  = triggerStartLocked;
-  if (btnDryRun) btnDryRun.disabled = triggerStartLocked;
-  if (btnDebug)  btnDebug.disabled  = triggerStartLocked;
+  // Trigger START and DEBUG are global multi-RIG actions.
+  if (btnStart) btnStart.disabled = triggerStartLocked;
+  if (btnDebug) btnDebug.disabled = triggerStartLocked;
 
   // STOP / Totality override remain targeted at the selected RIG only.
   const selectedRigState =
@@ -4392,6 +4384,10 @@ async function loadTriggerCircumstances(filename) {
     }
 
     state.triggerCircumstances = d;
+    state.selectedTriggerCircumstancesDate = (
+      d?._date || d?._date_utc || null
+    );
+    updateTriggerStartButtonMode();
     await loadTriggerDiamondDuration();
     renderContacts(d);
   } catch (e) {
@@ -4437,6 +4433,56 @@ async function refreshTriggerCircumstancesForPhoto() {
 
   if (state.triggerCircumstances) {
     renderContacts(state.triggerCircumstances);
+  }
+}
+
+function currentUtcDateIso() {
+  if (
+    !Number.isFinite(_clockAnchorUtcMs) ||
+    !Number.isFinite(_clockAnchorPerfMs)
+  ) {
+    return null;
+  }
+  return new Date(_nowAdjustedUtcMs()).toISOString().slice(0, 10);
+}
+
+function selectedEclipseDateIso() {
+  const raw = state.selectedTriggerCircumstancesDate;
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+function triggerButtonIsRealDate() {
+  const eclipseDate = selectedEclipseDateIso();
+  return Boolean(eclipseDate && eclipseDate === currentUtcDateIso());
+}
+
+function updateTriggerStartButtonMode() {
+  const isRealDate = triggerButtonIsRealDate();
+  const label = isRealDate ? '▶ START' : '🧪 DRY-RUN';
+  const title = isRealDate
+    ? 'Selected eclipse date matches the current UTC system date.'
+    : 'Selected eclipse date differs from the current UTC system date. Execution is identical; only the label is different.';
+
+  for (const id of ['btn-start', 'btn-debug-start']) {
+    const button = document.getElementById(id);
+    if (!button) continue;
+
+    button.textContent = label;
+    button.title = title;
+
+    if (isRealDate) {
+      button.classList.add('btn-success');
+      button.style.background = '';
+      button.style.border = '';
+      button.style.color = '';
+    } else {
+      button.classList.remove('btn-success');
+      button.style.background = 'rgba(0,140,200,.20)';
+      button.style.border = '1px solid rgba(0,140,200,.5)';
+      button.style.color = '#70c8ff';
+    }
   }
 }
 
@@ -4562,7 +4608,7 @@ async function startTrigger() {
     rigIds.length > 1
       ? `Trigger started on ${rigIds.length} RIGs ▶`
       : `Trigger started on RIG ${rigIds[0]} ▶`,
-    'green'
+    triggerButtonIsRealDate() ? 'green' : 'blue'
   );
 }
 
@@ -4681,87 +4727,6 @@ async function startDebug() {
   );
 }
 
-
-async function startDryRun() {
-  const rigIds = activeTriggerRigIds();
-
-  if (!rigIds.length) {
-    flash('No active RIG.', 'red');
-    return;
-  }
-
-  if (!confirm(
-    rigIds.length > 1
-      ? `🧪 Start a DRY-RUN on all ${rigIds.length} active RIGs?\n` +
-        'The selected circumstances will use their original UTC times,\n' +
-        'using today\'s UTC date. Sounds are included.'
-      : '🧪 Start a DRY-RUN?\n' +
-        'The selected circumstances will use their original UTC times,\n' +
-        'using today\'s UTC date. Sounds are included.'
-  )) return;
-
-  const inputs = selectedTriggerInputs();
-  const preflightTokens = await preflightTriggerRigs(rigIds, inputs);
-  if (!preflightTokens) return;
-
-  const failures = [];
-
-  for (const rigId of rigIds) {
-    try {
-      const r = await fetch('/api/trigger/dryrun', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          rig_id: rigId,
-          ...inputs,
-          preflight_token: preflightTokens[String(rigId)]
-        })
-      });
-
-      const d = await r.json();
-
-      if (!r.ok || d.error) {
-        failures.push({
-          rigId,
-          error: d.message || d.error || `HTTP error ${r.status}`,
-          code: d.code
-        });
-      }
-    } catch (error) {
-      failures.push({
-        rigId,
-        error: error.message || 'Network error'
-      });
-    }
-  }
-
-  if (failures.length) {
-    const codes = new Set(failures.map(item => item.code));
-    flash(
-      failures
-        .map(item => `RIG ${item.rigId}: ${item.error}`)
-        .join(' | '),
-      codes.has('RPC_OUTCOME_UNKNOWN') ? 'yellow' : 'red'
-    );
-
-    if (
-      codes.has('GPS_NOT_SYNCED') ||
-      codes.has('GPS_SYNC_STALE') ||
-      codes.has('GPS_SYNC_TIME_INVALID')
-    ) {
-      setTimeout(() => showTab(1), 1500);
-    }
-
-    return;
-  }
-
-  flash(
-    rigIds.length > 1
-      ? `Dry-run started on ${rigIds.length} RIGs`
-      : `Dry-run started on RIG ${rigIds[0]}`,
-    'blue'
-  );
-}
 
 async function stopTrigger() {
   const rigId = selectedTriggerRigId;
@@ -7298,6 +7263,7 @@ function syncDebugUiFromTrigger() {
   syncDebugRigSelection();
   syncDebugLog();
   syncDebugActionState();
+  updateTriggerStartButtonMode();
 }
 
 
@@ -7354,13 +7320,6 @@ function selectDebugTriggerRig(rigId) {
 async function startDebugFromDebugTab() {
   syncTriggerInputsFromDebug();
   await startDebug();
-  syncDebugUiFromTrigger();
-}
-
-
-async function startDryRunFromDebugTab() {
-  syncTriggerInputsFromDebug();
-  await startDryRun();
   syncDebugUiFromTrigger();
 }
 
@@ -7463,6 +7422,7 @@ function installDebugUiMirror() {
   _observeDebugMirror('btn-stop', syncDebugActionState);
 
   syncDebugUiFromTrigger();
+  setInterval(updateTriggerStartButtonMode, 30000);
 }
 
 
