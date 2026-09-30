@@ -265,7 +265,10 @@ def prepare_trigger_hardware_batch(
         utc_offset_hours = offset_minutes / 60.0
 
         def sync_mount(rig_id):
-            return mount_workers[rig_id].sync_site_time(
+            worker = mount_workers[rig_id]
+            fast = getattr(worker, "sync_site_time_fast", None)
+            operation = fast if callable(fast) else worker.sync_site_time
+            return operation(
                 float(latitude),
                 float(longitude),
                 float(elevation),
@@ -293,8 +296,26 @@ def prepare_trigger_hardware_batch(
 
         def enable_tracking(rig_id):
             worker = mount_workers[rig_id]
-            worker.set_tracking_mode("solar")
-            result = worker.start_tracking()
+            set_mode_fast = getattr(
+                worker,
+                "set_tracking_mode_fast",
+                None,
+            )
+            start_fast = getattr(
+                worker,
+                "start_tracking_fast",
+                None,
+            )
+            (
+                set_mode_fast("solar")
+                if callable(set_mode_fast)
+                else worker.set_tracking_mode("solar")
+            )
+            result = (
+                start_fast()
+                if callable(start_fast)
+                else worker.start_tracking()
+            )
             if (
                 isinstance(result, dict)
                 and result.get("tracking_enabled") is False
