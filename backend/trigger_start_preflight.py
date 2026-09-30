@@ -335,7 +335,7 @@ def prepare_trigger_hardware(
     mount_runtime,
     camera_required_state_loader: Callable[[], dict] | None = None,
     trigger_active_fn: Callable[[int], bool] | None = None,
-    log_fn: Callable[[str], None] | None = None,
+    log_fn: Callable[[int, str], None] | None = None,
     now_fn: Callable[[], datetime] | None = None,
 ) -> dict:
     """Compatibility wrapper for a single-RIG start path."""
