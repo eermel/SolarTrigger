@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from numbers import Real
 from typing import Callable
 
 from backend.trigger_service import (
@@ -54,8 +53,18 @@ def prepare_trigger_hardware(
     """
 
     # Contract: GPS is always the first start-time verification.  Do not
-    # reconcile or touch any hardware before this succeeds.
-    gps = validate_trigger_gps_state(state_store.snapshot("gps") or {})
+    # reconcile or touch any hardware before this succeeds.  Use one UTC
+    # instant for both freshness validation and mount synchronization so tests
+    # and field behavior cannot disagree across a clock tick.
+    current = (now_fn or (lambda: datetime.now(timezone.utc)))()
+    if current.tzinfo is None or current.utcoffset() is None:
+        current = current.replace(tzinfo=timezone.utc)
+    else:
+        current = current.astimezone(timezone.utc)
+    gps = validate_trigger_gps_state(
+        state_store.snapshot("gps") or {},
+        now_utc=current,
+    )
 
     if callable(trigger_active_fn) and trigger_active_fn(rig_id):
         raise TriggerValidationError(
@@ -158,11 +167,6 @@ def prepare_trigger_hardware(
             "MOUNT_SYNC_GPS_INVALID",
         )
 
-    current = (now_fn or (lambda: datetime.now(timezone.utc)))()
-    if current.tzinfo is None or current.utcoffset() is None:
-        current = current.replace(tzinfo=timezone.utc)
-    else:
-        current = current.astimezone(timezone.utc)
     utc_iso = current.strftime("%Y-%m-%dT%H:%M:%S")
     utc_offset_hours = offset_minutes / 60.0
 
