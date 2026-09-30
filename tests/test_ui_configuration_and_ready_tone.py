@@ -111,16 +111,17 @@ def test_system_ui_configuration_section_precedes_log_section():
     )
 
     assert ui_pos < log_pos
-    assert 'id="ui-debug-tab-visible-switch"' in source
+    assert 'id="ui-debug-tab-visible-switch"' not in source
     assert 'id="ui-logs-visible-switch"' in source
     assert 'role="switch"' in source
 
 
-def test_ui_configuration_frontend_controls_debug_and_all_log_cards():
+def test_ui_configuration_frontend_controls_only_log_cards():
     source = JS.read_text(encoding="utf-8")
 
     assert "function applyUiConfiguration(value)" in source
-    assert "document.getElementById('debug-tab')" in source
+    assert "ui-debug-tab-visible-switch" not in source
+    assert "document.getElementById('debug-tab')" not in source
     assert "document.querySelectorAll('[id^=\"log-container-\"]')" in source
     assert "document.querySelector('.system-log-group')" in source
     assert "'ui-config-hidden'" in source

@@ -3556,9 +3556,10 @@ function updatePhase(phase) {
   if (ring)  { ring.classList.toggle('active', phase === 'totality' || phase === 'diamond_ring'); }
   if (dot)   { dot.className = phase !== 'idle' ? 'dot on' : 'dot off'; }
 
-  const btnStart     = document.getElementById('btn-start');
-  const btnDebug     = document.getElementById('btn-debug');
-  const btnStop      = document.getElementById('btn-stop');
+  const btnStart      = document.getElementById('btn-start');
+  const btnDebug      = document.getElementById('btn-debug');
+  const btnDebugClean = document.getElementById('btn-debug-clean');
+  const btnStop       = document.getElementById('btn-stop');
   const btnTot       = document.getElementById('btn-totality-only');
 
   const triggerStartLocked = anyActiveTriggerRunning();
@@ -3566,6 +3567,7 @@ function updatePhase(phase) {
   // Trigger START and DEBUG are global multi-RIG actions.
   if (btnStart) btnStart.disabled = triggerStartLocked;
   if (btnDebug) btnDebug.disabled = triggerStartLocked;
+  if (btnDebugClean) btnDebugClean.disabled = triggerStartLocked;
 
   // STOP / Totality override remain targeted at the selected RIG only.
   const selectedRigState =
@@ -6585,7 +6587,7 @@ async function erasePersistentDataAndReboot() {
 // ════════════════════════════════════════════════════════════════
 function showTab(n) {
   document.querySelectorAll('#tabs > .tab').forEach(t => t.classList.toggle('active', Number(t.dataset.pageIndex) === n));
-  const pageIds = ['devices-panel', 'page-0', 'page-1', 'page-2', 'page-exposure-opt', 'retired-page-5', 'page-3', 'controls-panel', 'page-4', 'add-camera-panel', 'debug-panel'];
+  const pageIds = ['devices-panel', 'page-0', 'page-1', 'page-2', 'page-exposure-opt', 'retired-page-5', 'page-3', 'controls-panel', 'page-4', 'add-camera-panel'];
   document.querySelectorAll('#pages > .page').forEach(p => p.classList.toggle('active', p.id === pageIds[n]));
   state.currentPage = n;
   if (n === 3) {
@@ -6609,11 +6611,6 @@ function showTab(n) {
   }
   if (n === 8) {
     loadTriggerConfigList();
-    loadEclipseFileList();
-  }
-  if (n === 10) {
-    Promise.resolve(loadTriggerConfigList())
-      .then(() => syncDebugUiFromTrigger());
     loadEclipseFileList();
   }
 }
@@ -6952,7 +6949,6 @@ async function deleteFailedCameraValidationFiles() {
 // ════════════════════════════════════════════════════════════════
 
 const UI_CONFIGURATION_DEFAULTS = Object.freeze({
-  debug_tab_visible: true,
   logs_visible: true
 });
 
@@ -6994,29 +6990,12 @@ function uiLogSections() {
 function applyUiConfiguration(value) {
   const config = normalizeUiConfiguration(value);
 
-  const debugSwitch = document.getElementById(
-    'ui-debug-tab-visible-switch'
-  );
   const logsSwitch = document.getElementById(
     'ui-logs-visible-switch'
   );
-  const debugTab = document.getElementById('debug-tab');
 
-  if (debugSwitch) {
-    debugSwitch.checked = config.debug_tab_visible;
-  }
   if (logsSwitch) {
     logsSwitch.checked = config.logs_visible;
-  }
-  if (debugTab) {
-    debugTab.classList.toggle(
-      'ui-config-hidden',
-      !config.debug_tab_visible
-    );
-    debugTab.setAttribute(
-      'aria-hidden',
-      config.debug_tab_visible ? 'false' : 'true'
-    );
   }
 
   uiLogSections().forEach(section => {
@@ -7028,7 +7007,6 @@ function applyUiConfiguration(value) {
 
   return config;
 }
-
 
 async function loadUiConfiguration() {
   try {
@@ -7050,17 +7028,11 @@ async function loadUiConfiguration() {
 
 
 async function persistUiConfiguration() {
-  const debugSwitch = document.getElementById(
-    'ui-debug-tab-visible-switch'
-  );
   const logsSwitch = document.getElementById(
     'ui-logs-visible-switch'
   );
 
   const requested = {
-    debug_tab_visible: debugSwitch
-      ? Boolean(debugSwitch.checked)
-      : UI_CONFIGURATION_DEFAULTS.debug_tab_visible,
     logs_visible: logsSwitch
       ? Boolean(logsSwitch.checked)
       : UI_CONFIGURATION_DEFAULTS.logs_visible
@@ -7376,7 +7348,6 @@ async function cleanDebugGeneratedFiles() {
     );
 
     await loadTriggerConfigList();
-    syncDebugUiFromTrigger();
 
   } catch (error) {
     flash(`DEBUG CLEAN: ${error.message}`, 'red');

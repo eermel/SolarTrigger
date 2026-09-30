@@ -1080,10 +1080,27 @@ header {
 /* ── TRIGGER ACTION BUTTONS ───────────────────────────────────
  * Primary trigger actions use 1.5x the standard 30 px height.
  */
-.trigger-action-stack > .trigger-action-button {
+.trigger-action-stack > .trigger-action-button,
+.trigger-debug-actions > .trigger-action-button {
   height: calc(var(--btn-h) * 1.5);
   min-height: calc(var(--btn-h) * 1.5);
   flex: 0 0 calc(var(--btn-h) * 1.5);
+}
+
+.trigger-debug-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+.trigger-debug-actions > .trigger-debug-action-button {
+  width: 100%;
+  min-width: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 

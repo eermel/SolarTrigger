@@ -38,7 +38,8 @@ def test_system_tab_has_camera_update_ui_config_and_log_sections():
 
     ui_config_section = source[ui_config:log]
     assert '<div class="system-section-title">UI Configuration</div>' in ui_config_section
-    assert 'id="ui-debug-tab-visible-switch"' in ui_config_section
+    assert 'id="ui-debug-tab-visible-switch"' not in ui_config_section
+    assert "Debug tab" not in ui_config_section
     assert 'id="ui-logs-visible-switch"' in ui_config_section
 
     log_end = source.index("</section>", log)

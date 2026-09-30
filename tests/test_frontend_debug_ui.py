@@ -23,63 +23,44 @@ def _panel(panel_id):
     return HTML[start:end]
 
 
-def test_debug_tab_follows_trigger_and_is_outside_numbered_workflow():
-    trigger_pos = HTML.index("<span>TRIGGER</span>")
-    debug_pos = HTML.index("<span>DEBUG</span>")
-
-    assert trigger_pos < debug_pos
-    assert 'id="debug-tab"' in HTML
-    assert 'data-page-index="10"' in HTML
-    assert 'onclick="showTab(10)"' in HTML
-
-    debug_button_start = HTML.index('id="debug-tab"')
-    debug_button_start = HTML.rfind("<button", 0, debug_button_start)
-    debug_button_end = HTML.index("</button>", debug_button_start)
-    debug_tab = HTML[debug_button_start:debug_button_end]
-
-    assert "data-workflow-step" not in debug_tab
-    assert "workflow-step-number" not in debug_tab
-
-    trigger_button_start = HTML.rfind("<button", 0, trigger_pos)
-    trigger_button_end = HTML.index("</button>", trigger_button_start)
-    trigger_tab = HTML[trigger_button_start:trigger_button_end]
-
-    assert "data-workflow-last" in trigger_tab
+def test_debug_tab_and_panel_are_removed_from_ui():
+    assert 'id="debug-tab"' not in HTML
+    assert '<span>DEBUG</span>' not in HTML
+    assert 'id="debug-panel"' not in HTML
+    assert 'onclick="showTab(10)"' not in HTML
 
 
-def test_trigger_no_longer_contains_debug_or_dryrun_actions():
+def test_trigger_contains_debug_clean_and_unified_start_actions():
     trigger = _panel("page-4")
 
-    assert 'id="btn-debug"' not in trigger
+    assert 'id="btn-debug"' in trigger
+    assert 'id="btn-debug-clean"' in trigger
     assert 'id="btn-dryrun"' not in trigger
     assert 'id="btn-start"' in trigger
     assert 'id="btn-stop"' in trigger
     assert 'id="btn-totality-only"' in trigger
+    assert 'onclick="startDebug()"' in trigger
+    assert 'onclick="cleanDebugGeneratedFiles()"' in trigger
 
 
-def test_debug_panel_contains_test_actions_and_white_clean_button():
-    debug = _panel("debug-panel")
+def test_debug_and_clean_share_half_width_row_above_start():
+    trigger = _panel("page-4")
 
-    assert "DEBUG / TEST MODE" in debug
-    assert 'id="btn-debug"' in debug
-    assert 'id="btn-dryrun"' not in debug
-    assert 'id="btn-debug-start"' in debug
-    assert 'id="btn-debug-totality-only"' in debug
-    assert 'id="btn-debug-stop"' in debug
-    assert 'id="btn-debug-clean"' in debug
+    row = trigger.index('class="trigger-debug-actions"')
+    debug = trigger.index('id="btn-debug"', row)
+    clean = trigger.index('id="btn-debug-clean"', row)
+    start = trigger.index('id="btn-start"', row)
 
-    clean_match = re.search(
-        r'<button[^>]*class="([^"]*)"[^>]*id="btn-debug-clean"',
-        debug,
-        re.DOTALL,
-    )
-    assert clean_match
-    assert "btn-secondary" in clean_match.group(1)
+    assert row < debug < start
+    assert row < clean < start
+
+    assert ".trigger-debug-actions {" in CSS
+    block = CSS.split(".trigger-debug-actions {", 1)[1].split("}", 1)[0]
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in block
+    assert "width: 100%;" in block
 
 
-def test_debug_panel_duplicates_trigger_configuration_rig_and_log_ui():
-    debug = _panel("debug-panel")
-
+def test_removed_debug_panel_has_no_duplicate_controls():
     for identifier in (
         "debug-circumstances-select",
         "debug-photo-select",
@@ -88,39 +69,31 @@ def test_debug_panel_duplicates_trigger_configuration_rig_and_log_ui():
         "debug-target-label",
         "debug-log-title",
         "log-container-debug",
+        "btn-debug-start",
+        "btn-debug-totality-only",
+        "btn-debug-stop",
     ):
-        assert f'id="{identifier}"' in debug
-
-    for rig_id in range(1, 5):
-        assert f'id="debug-rig-{rig_id}"' in debug
-        assert f'onclick="selectDebugTriggerRig({rig_id})"' in debug
+        assert f'id="{identifier}"' not in HTML
 
 
-def test_debug_banner_is_yellow_and_visually_distinct():
-    assert ".debug-mode-banner {" in CSS
-    block = CSS.split(".debug-mode-banner {", 1)[1].split("}", 1)[0]
-    assert "var(--yellow)" in block
+def test_debug_clean_button_keeps_secondary_style():
+    trigger = _panel("page-4")
+    clean_match = re.search(
+        r'<button[^>]*class="([^"]*)"[^>]*id="btn-debug-clean"',
+        trigger,
+        re.DOTALL,
+    )
+    assert clean_match
+    assert "btn-secondary" in clean_match.group(1)
 
 
-def test_debug_frontend_reuses_existing_trigger_functions():
-    for function_name in (
-        "startDebugFromDebugTab",
-        "startTriggerFromDebugTab",
-        "startTotalityOnlyFromDebugTab",
-        "stopTriggerFromDebugTab",
-        "syncDebugUiFromTrigger",
-        "syncTriggerInputsFromDebug",
-        "cleanDebugGeneratedFiles",
-    ):
-        assert f"function {function_name}" in INDEX
+def test_trigger_debug_button_uses_existing_debug_engine_directly():
+    trigger = _panel("page-4")
 
-    assert "await startDebug();" in INDEX
-    assert "startDryRunFromDebugTab" not in INDEX
-    assert "await startDryRun();" not in INDEX
-    assert "await startTrigger();" in INDEX
-    assert "await startTotalityOnly();" in INDEX
-    assert "await stopTrigger();" in INDEX
-    assert "selectTriggerRig(rigId);" in INDEX
+    assert 'onclick="startDebug()"' in trigger
+    assert "async function startDebug()" in INDEX
+    assert "fetch('/api/trigger/debug'" in INDEX
+    assert "async function cleanDebugGeneratedFiles()" in INDEX
 
 
 def test_debug_clean_endpoint_only_targets_generated_debug_files():
@@ -139,12 +112,13 @@ def test_debug_clean_endpoint_only_targets_generated_debug_files():
     assert "path.unlink()" in source
 
 
-def test_debug_navigation_is_registered():
-    assert "'debug-panel'" in INDEX
-    assert re.search(
-        r"if\s*\(\s*n\s*===\s*10\s*\)",
-        INDEX,
-    )
+def test_debug_navigation_is_removed():
+    show_start = INDEX.index("function showTab(n)")
+    show_end = INDEX.index("\n}\n", show_start) + 2
+    show_tab = INDEX[show_start:show_end]
+
+    assert "'debug-panel'" not in show_tab
+    assert "n === 10" not in show_tab
 
 
 def test_debug_log_uses_same_visual_container_as_other_logs():
@@ -289,7 +263,7 @@ def test_camera_buttons_match_trigger_start_height():
     cam_end = CSS.index("}", cam_start)
     cam_button = CSS[cam_start:cam_end]
 
-    trigger_start = CSS.index(".trigger-action-stack > .trigger-action-button {")
+    trigger_start = CSS.index(".trigger-action-stack > .trigger-action-button,")
     trigger_end = CSS.index("}", trigger_start)
     trigger_button = CSS[trigger_start:trigger_end]
 

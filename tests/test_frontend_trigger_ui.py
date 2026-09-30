@@ -101,7 +101,8 @@ def test_trigger_ui_is_simplified_and_ordered(monkeypatch):
     trigger_panel = html[trigger_start:trigger_end]
 
     assert 'id="btn-dryrun"' not in trigger_panel
-    assert 'id="btn-debug"' not in trigger_panel
+    assert 'id="btn-debug"' in trigger_panel
+    assert 'id="btn-debug-clean"' in trigger_panel
     assert 'id="btn-start"' in trigger_panel
     assert 'id="btn-stop"' in trigger_panel
     assert 'id="btn-stop"' in html
