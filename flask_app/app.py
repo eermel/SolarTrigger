@@ -246,7 +246,7 @@ from backend.rig_config import (
     validate as validate_rig_config,
 )
 from backend.rig_manager import RigManager
-from backend.dryrun_circumstances import generate_debug_now
+from backend.dryrun_circumstances import generate_debug_now, generate_dryrun_today
 
 from backend.rig_runtime import (
     _resolve_rig_config_file,
@@ -5276,13 +5276,31 @@ def _issue_trigger_preflight_tokens(rig_ids, selected):
                 "identity": _trigger_preflight_identity(rig_id, selected),
             }
             issued[str(rig_id)] = token
+    _append_log(
+        "TRIGGER_PREFLIGHT tokens issued "
+        f"rigs={list(rig_ids)} ttl_s={_TRIGGER_PREFLIGHT_TTL_S:g}",
+        "info",
+        "trigger",
+    )
     return issued
 
 
 def _consume_trigger_preflight_token(token, rig_id, selected):
     if not isinstance(token, str) or not token:
+        _append_log(
+            f"TRIGGER_PREFLIGHT token absent rig={rig_id}",
+            "warning",
+            "trigger",
+            rig_id=rig_id,
+        )
         return False
 
+    _append_log(
+        f"TRIGGER_PREFLIGHT token consume begin rig={rig_id}",
+        "info",
+        "trigger",
+        rig_id=rig_id,
+    )
     now = time.monotonic()
     with _trigger_preflight_lock:
         _prune_trigger_preflight_tokens_locked(now)
@@ -5297,10 +5315,22 @@ def _consume_trigger_preflight_token(token, rig_id, selected):
     expected = entry.get("identity")
     actual = _trigger_preflight_identity(rig_id, selected)
     if expected != actual:
+        _append_log(
+            f"TRIGGER_PREFLIGHT token stale rig={rig_id}",
+            "error",
+            "trigger",
+            rig_id=rig_id,
+        )
         raise TriggerValidationError(
             f"RIG {rig_id} hardware/GPS configuration changed after preflight.",
             "TRIGGER_PREFLIGHT_STALE",
         )
+    _append_log(
+        f"TRIGGER_PREFLIGHT token consumed rig={rig_id}",
+        "success",
+        "trigger",
+        rig_id=rig_id,
+    )
     return True
 
 
@@ -5356,7 +5386,7 @@ def _validate_sequence_gps_first():
 
 
 def _run_trigger_hardware_preflight(rig_id, selected):
-    """GPS-first hardware preparation shared by Trigger, DEBUG and dry-run."""
+    """GPS-first hardware preparation shared by every Trigger launch."""
     return prepare_trigger_hardware(
         rig_id=rig_id,
         state_store=_state_store,
@@ -5403,30 +5433,131 @@ def _run_trigger_hardware_preflight_batch(rig_ids, selected):
     )
 
 
+def _prepare_trigger_runtime_circumstances(rig_id, selected):
+    """Prepare circumstances for the validated Trigger engine.
+
+    The selected eclipse date is UI metadata only.  Execution keeps every
+    original UTC contact time and replaces only the calendar date with the
+    current system UTC date before calling the unchanged Trigger engine.
+    """
+    selected = selected if isinstance(selected, dict) else {}
+    source_name = str(selected.get("circumstances_file") or "").strip()
+    if (
+        not source_name
+        or Path(source_name).name != source_name
+        or Path(source_name).suffix.lower() != ".json"
+    ):
+        raise TriggerValidationError(
+            "Select a valid circumstances file.",
+            "TRIGGER_INPUTS_NOT_LOADED",
+        )
+
+    source_path = CONFIGS_DIR / "circumstances" / source_name
+    if not source_path.is_file():
+        raise TriggerValidationError(
+            "Selected circumstances cannot be loaded.",
+            "TRIGGER_INPUTS_NOT_LOADED",
+        )
+
+    try:
+        source = json.loads(source_path.read_text(encoding="utf-8"))
+        if not isinstance(source, dict):
+            raise ValueError("circumstances root must be an object")
+        now_utc = datetime.now(timezone.utc)
+        prepared = generate_dryrun_today(source, now_utc)
+        # This file is generated now, even when the source eclipse metadata
+        # comes from another date.  Keep scheduler logs/recovery metadata
+        # consistent with the actual prepared input.
+        prepared["_generated_utc"] = now_utc.isoformat()
+    except TriggerValidationError:
+        raise
+    except Exception as exc:
+        raise TriggerValidationError(
+            f"Selected circumstances cannot be prepared for Trigger: {exc}",
+            "TRIGGER_INPUTS_INVALID",
+        ) from exc
+
+    destination_dir = CONFIGS_DIR / "circumstances"
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    filename = (
+        f"trigger_runtime_rig_{rig_id}_"
+        f"{now_utc.strftime('%Y%m%d_%H%M%S_%f')}.json"
+    )
+    destination_path = destination_dir / filename
+    tmp_path = destination_path.with_suffix(".json.tmp")
+    tmp_path.write_text(
+        json.dumps(prepared, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp_path, destination_path)
+
+    effective = dict(selected)
+    effective["circumstances_file"] = filename
+    return destination_path, effective, source_name, prepared["_date"]
+
+
 def _start_trigger_with_hardware_preflight(
     *,
     rig_id,
-    dry_run=False,
     selected=None,
 ):
+    """Single hardware Trigger entrypoint for every prepared input set."""
     selected = selected if isinstance(selected, dict) else {}
     token = selected.get("preflight_token")
+    _append_log(
+        "TRIGGER_START handoff begin "
+        f"rig={rig_id} "
+        f"circumstances={selected.get('circumstances_file')!r} "
+        f"photo={selected.get('photo_file')!r} "
+        f"exposure_opt={selected.get('exposure_opt_file')!r} "
+        f"preflight_token={'yes' if token else 'no'}",
+        "info",
+        "trigger",
+        rig_id=rig_id,
+    )
     if token:
         _consume_trigger_preflight_token(token, rig_id, selected)
     else:
+        _append_log(
+            f"TRIGGER_START hardware preflight fallback begin rig={rig_id}",
+            "warning",
+            "trigger",
+            rig_id=rig_id,
+        )
         _run_trigger_hardware_preflight(rig_id, selected)
-    return _trigger_service.start(
+        _append_log(
+            f"TRIGGER_START hardware preflight fallback OK rig={rig_id}",
+            "success",
+            "trigger",
+            rig_id=rig_id,
+        )
+    started = _trigger_service.start(
         rig_id=rig_id,
         simulate=False,
-        dry_run=dry_run,
         selected=selected,
     )
+    _append_log(
+        f"TRIGGER_START service returned rig={rig_id} started={bool(started)}",
+        "success" if started else "warning",
+        "trigger",
+        rig_id=rig_id,
+    )
+    return started
 
 
 @app.route("/api/trigger/preflight", methods=["POST"])
 def api_trigger_preflight():
     """GPS-first hardware preflight for all RIGs before any sequence starts."""
     payload = request.get_json(silent=True) or {}
+    _append_log(
+        "TRIGGER_PREFLIGHT request "
+        f"rigs={payload.get('rig_ids')!r} "
+        f"circumstances={payload.get('circumstances_file')!r} "
+        f"photo={payload.get('photo_file')!r} "
+        f"exposure_opt={payload.get('exposure_opt_file')!r}",
+        "info",
+        "trigger",
+    )
 
     try:
         # Explicit contract: GPS is the first verification, even before the
@@ -5452,9 +5583,19 @@ def api_trigger_preflight():
         rig_ids = tuple(dict.fromkeys(raw_rig_ids))
 
         def run_all():
+            _append_log(
+                f"TRIGGER_PREFLIGHT hardware begin rigs={list(rig_ids)}",
+                "info",
+                "trigger",
+            )
             _run_trigger_hardware_preflight_batch(
                 rig_ids,
                 payload,
+            )
+            _append_log(
+                f"TRIGGER_PREFLIGHT hardware OK rigs={list(rig_ids)}",
+                "success",
+                "trigger",
             )
             # Do not issue any token until every RIG has passed.  Therefore a
             # camera/mount failure can never leave an earlier RIG sequence
@@ -5469,14 +5610,30 @@ def api_trigger_preflight():
         return jsonify(_trigger_start_guarded(run_all))
 
     except TriggerValidationError as exc:
+        _append_log(
+            "TRIGGER_PREFLIGHT FAILED "
+            f"code={exc.code} error={type(exc).__name__}: {exc}",
+            "error",
+            "trigger",
+        )
         return jsonify({
             "error": str(exc),
             "code": exc.code,
         }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
     except RuntimeOutcomeUnknownError as exc:
+        _append_log(
+            f"TRIGGER_PREFLIGHT OUTCOME_UNKNOWN error={type(exc).__name__}: {exc}",
+            "warning",
+            "trigger",
+        )
         return _runtime_outcome_unknown_response(exc)
-    except Exception:
+    except Exception as exc:
         app.logger.exception("Trigger hardware preflight failed")
+        _append_log(
+            f"TRIGGER_PREFLIGHT ERROR error={type(exc).__name__}: {exc}",
+            "error",
+            "trigger",
+        )
         return jsonify({
             "error": "Trigger hardware preflight failed.",
             "code": "TRIGGER_PREFLIGHT_FAILED",
@@ -5485,16 +5642,34 @@ def api_trigger_preflight():
 
 @app.route("/api/trigger/start", methods=["POST"])
 def api_trigger_start():
-    """Démarrage réel d'un seul RIG."""
+    """Prepare inputs, then call the unchanged hardware Trigger engine."""
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
+    generated_path = None
+    preserve_generated = False
 
     try:
         _validate_sequence_gps_first()
+        (
+            generated_path,
+            effective_payload,
+            source_name,
+            runtime_date,
+        ) = _prepare_trigger_runtime_circumstances(rig_id, payload)
+
+        _append_log(
+            "TRIGGER_INPUT prepared "
+            f"rig={rig_id} source={source_name!r} "
+            f"runtime_date={runtime_date} UTC_times=unchanged",
+            "info",
+            "trigger",
+            rig_id=rig_id if isinstance(rig_id, int) else None,
+        )
+
         if not _trigger_start_guarded(
             lambda: _start_trigger_with_hardware_preflight(
                 rig_id=rig_id,
-                selected=payload,
+                selected=effective_payload,
             )
         ):
             return jsonify({
@@ -5515,6 +5690,9 @@ def api_trigger_start():
             "rig_id": rig_id,
         }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
     except RuntimeOutcomeUnknownError as exc:
+        # The runtime may already have consumed/snapshotted this prepared input.
+        # Preserve it rather than racing an ambiguous remote START outcome.
+        preserve_generated = True
         return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
 
     except Exception:
@@ -5527,6 +5705,17 @@ def api_trigger_start():
             "code": "TRIGGER_START_FAILED",
             "rig_id": rig_id,
         }), 500
+    finally:
+        if generated_path is not None and not preserve_generated:
+            try:
+                generated_path.unlink(missing_ok=True)
+            except OSError as exc:
+                _append_log(
+                    f"Trigger runtime circumstances cleanup warning: {exc}",
+                    "warning",
+                    "trigger",
+                    rig_id=rig_id if isinstance(rig_id, int) else None,
+                )
 
 @app.route("/api/trigger/simulate", methods=["POST"])
 def api_trigger_simulate():
@@ -5544,7 +5733,7 @@ def api_trigger_simulate():
             return jsonify({"error": "Trigger is already running."}), 409
         return jsonify({"status": "started", "mode": "simulation", "speed": float(speed)})
     except TriggerValidationError as exc:
-        if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED", "CIRCUMSTANCES_DATE_INVALID"):
+        if exc.code in ("CIRCUMSTANCES_NOT_LOADED", "CAPTURE_NOT_LOADED"):
             return jsonify({"error": exc.code, "message": str(exc)}), 409
         return jsonify({"error": str(exc), "code": exc.code}), (
             409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
@@ -5610,50 +5799,6 @@ def api_trigger_debug_clean():
         "deleted": deleted,
         "files": deleted_files,
     })
-
-
-@app.route("/api/trigger/dryrun", methods=["POST"])
-def api_trigger_dryrun():
-    """Dry-run ×1 d'un seul RIG."""
-    payload = request.get_json(silent=True) or {}
-    rig_id = payload.get("rig_id", 1)
-    try:
-        _validate_sequence_gps_first()
-        if not _trigger_start_guarded(
-            lambda: _start_trigger_with_hardware_preflight(
-                rig_id=rig_id,
-                dry_run=True,
-                selected=payload,
-            )
-        ):
-            return jsonify({
-                "error": f"Trigger RIG {rig_id} is already running.",
-                "rig_id": rig_id,
-            }), 409
-
-        return jsonify({
-            "status": "started",
-            "mode": "dryrun",
-            "speed": 1.0,
-            "rig_id": rig_id,
-        })
-
-    except TriggerValidationError as exc:
-        return jsonify({
-            "error": str(exc),
-            "code": exc.code,
-            "rig_id": rig_id,
-        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
-    except RuntimeOutcomeUnknownError as exc:
-        return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
-
-    except Exception:
-        app.logger.exception("Trigger dry-run failed for RIG %s", rig_id)
-        return jsonify({
-            "error": "Trigger dry-run failed.",
-            "code": "TRIGGER_DRYRUN_FAILED",
-            "rig_id": rig_id,
-        }), 500
 
 
 @app.route("/api/trigger/debug", methods=["POST"])
@@ -5766,7 +5911,6 @@ def api_trigger_debug():
         if not _trigger_start_guarded(
             lambda: _start_trigger_with_hardware_preflight(
                 rig_id=rig_id,
-                dry_run=True,
                 selected=selected,
             )
         ):
