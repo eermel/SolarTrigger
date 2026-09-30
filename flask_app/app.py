@@ -415,6 +415,66 @@ def _append_log(text, level="info", source="system", rig_id=None):
     return _event_log.append(text, level, source, rig_id=rig_id)
 def _trim_log_file(): _event_log.trim_forever()
 
+_UI_CONFIG_DEFAULTS = {
+    "debug_tab_visible": True,
+    "logs_visible": True,
+}
+
+
+def _normalized_ui_config(value=None):
+    result = dict(_UI_CONFIG_DEFAULTS)
+    if isinstance(value, dict):
+        for key in _UI_CONFIG_DEFAULTS:
+            raw = value.get(key)
+            if isinstance(raw, bool):
+                result[key] = raw
+    return result
+
+
+@app.route("/api/ui-config", methods=["GET", "POST"])
+def api_ui_config():
+    if request.method == "GET":
+        return jsonify(
+            _normalized_ui_config(_state_store.snapshot("ui_config"))
+        )
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({
+            "error": "UI configuration payload must be an object.",
+            "code": "UI_CONFIG_INVALID",
+        }), 400
+
+    unknown = set(payload) - set(_UI_CONFIG_DEFAULTS)
+    if unknown:
+        return jsonify({
+            "error": "Unsupported UI configuration field(s): "
+            + ", ".join(sorted(unknown)),
+            "code": "UI_CONFIG_INVALID",
+        }), 400
+
+    current = _normalized_ui_config(
+        _state_store.snapshot("ui_config")
+    )
+    for key in _UI_CONFIG_DEFAULTS:
+        if key not in payload:
+            continue
+        value = payload[key]
+        if not isinstance(value, bool):
+            return jsonify({
+                "error": f"{key} must be boolean.",
+                "code": "UI_CONFIG_INVALID",
+            }), 400
+        current[key] = value
+
+    saved = _state_store.update_section(
+        "ui_config",
+        current,
+        persist=True,
+    )
+    return jsonify(_normalized_ui_config(saved))
+
+
 def _sync_runtime_relay(*, initial=False):
     """Mirror autonomous-runtime logs/events into the current portal process.
 
