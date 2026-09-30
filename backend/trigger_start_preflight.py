@@ -26,9 +26,9 @@ def _finite_number(value) -> bool:
     )
 
 
-def _log(log_fn, message: str) -> None:
+def _log(log_fn, rig_id: int, message: str) -> None:
     if callable(log_fn):
-        log_fn(message)
+        log_fn(rig_id, message)
 
 
 def _normalize_rig_ids(rig_ids: Iterable[int]) -> tuple[int, ...]:
@@ -97,7 +97,7 @@ def prepare_trigger_hardware_batch(
     mount_runtime,
     camera_required_state_loader: Callable[[], dict] | None = None,
     trigger_active_fn: Callable[[int], bool] | None = None,
-    log_fn: Callable[[str], None] | None = None,
+    log_fn: Callable[[int, str], None] | None = None,
     now_fn: Callable[[], datetime] | None = None,
 ) -> dict:
     """Prepare every participating RIG before any sequence is started.
@@ -200,6 +200,7 @@ def prepare_trigger_hardware_batch(
         model = result.get("model") if isinstance(result, dict) else None
         _log(
             log_fn,
+            rig_id,
             f"RIG {rig_id} camera preflight OK"
             + (f": {model}" if model else ""),
         )
@@ -226,6 +227,7 @@ def prepare_trigger_hardware_batch(
         if mount_workers.get(rig_id) is None:
             _log(
                 log_fn,
+                rig_id,
                 f"RIG {rig_id} has no pilotable mount: mount preflight skipped",
             )
 
@@ -283,7 +285,11 @@ def prepare_trigger_hardware_batch(
             )
 
         for rig_id in mounted_ids:
-            _log(log_fn, f"RIG {rig_id} mount GPS/time synchronization OK")
+            _log(
+                log_fn,
+                rig_id,
+                f"RIG {rig_id} mount GPS/time synchronization OK",
+            )
 
         def enable_tracking(rig_id):
             worker = mount_workers[rig_id]
@@ -310,7 +316,7 @@ def prepare_trigger_hardware_batch(
             )
 
         for rig_id in mounted_ids:
-            _log(log_fn, f"RIG {rig_id} solar tracking ON")
+            _log(log_fn, rig_id, f"RIG {rig_id} solar tracking ON")
 
     return {
         "rig_ids": list(normalized_ids),
