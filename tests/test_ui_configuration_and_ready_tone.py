@@ -5,6 +5,8 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+sys.modules.setdefault("gphoto2", ModuleType("gphoto2"))
+
 from backend.state_store import StateStore
 from backend.runtime_daemon import RuntimeController
 import backend.runtime_daemon as runtime_daemon
@@ -12,7 +14,6 @@ import backend.runtime_daemon as runtime_daemon
 
 pytest.importorskip("flask")
 pytest.importorskip("flask_socketio")
-sys.modules.setdefault("gphoto2", ModuleType("gphoto2"))
 
 import flask_app.app as flask_module
 
