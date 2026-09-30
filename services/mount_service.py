@@ -306,6 +306,25 @@ class MountService:
                 self._tracking_mode = mode
             return self._status_locked(plugin)
 
+    def set_tracking_mode_fast(self, mode: str) -> dict:
+        """Set tracking mode without a full post-command telemetry snapshot."""
+        if mode not in {"solar", "sidereal"}:
+            raise ValueError("tracking mode must be 'solar' or 'sidereal'")
+        with self._lock:
+            plugin = self._plugin_for_operation()
+            setter = getattr(plugin, "set_tracking_mode", None)
+            if not callable(setter):
+                raise RuntimeError("tracking mode selection is unsupported by this mount")
+            setter(mode)
+            self._tracking_mode = mode
+            return {
+                "active": True,
+                "connected": bool(plugin.connected),
+                "tracking_mode": self._tracking_mode,
+                "tracking_enabled": bool(self._tracking_enabled),
+                "plugin": self._plugin_id,
+            }
+
     @staticmethod
     def _require_tracking_toggle(plugin) -> None:
         get_capabilities = getattr(plugin, "get_tracking_capabilities", None)
@@ -320,6 +339,21 @@ class MountService:
             plugin.start_tracking(self._tracking_mode)
             self._tracking_enabled = True
             return self._status_locked(plugin)
+
+    def start_tracking_fast(self) -> dict:
+        """Start tracking without a full post-command telemetry snapshot."""
+        with self._lock:
+            plugin = self._plugin_for_operation()
+            self._require_tracking_toggle(plugin)
+            plugin.start_tracking(self._tracking_mode)
+            self._tracking_enabled = True
+            return {
+                "active": True,
+                "connected": bool(plugin.connected),
+                "tracking_mode": self._tracking_mode,
+                "tracking_enabled": True,
+                "plugin": self._plugin_id,
+            }
 
     def stop_tracking(self) -> dict:
         with self._lock:
@@ -410,6 +444,46 @@ class MountService:
             status = self._status_locked(plugin)
             status["synchronization"] = dict(applied or {})
             return status
+
+    def sync_site_time_fast(
+        self,
+        latitude,
+        longitude,
+        elevation,
+        utc_iso,
+        utc_offset_hours,
+    ) -> dict:
+        """Synchronize mount site/time without a full telemetry readback.
+
+        The plugin-level sync operation remains authoritative and is expected to
+        perform its own command/readback verification where supported.
+        """
+        self._validate_location(latitude, longitude, elevation)
+        if not isinstance(utc_iso, str) or not utc_iso.strip():
+            raise ValueError("mount UTC timestamp must be a non-empty string")
+        if (
+            not self._valid_location_value(utc_offset_hours)
+            or not -24.0 <= float(utc_offset_hours) <= 24.0
+        ):
+            raise ValueError("mount UTC offset is invalid")
+        with self._lock:
+            plugin = self._plugin_for_operation()
+            sync = getattr(plugin, "sync_site_time", None)
+            if not callable(sync):
+                raise RuntimeError("site/time synchronization is unsupported by this mount")
+            applied = sync(
+                latitude,
+                longitude,
+                elevation,
+                utc_iso,
+                utc_offset_hours,
+            )
+            return {
+                "active": True,
+                "connected": bool(plugin.connected),
+                "plugin": self._plugin_id,
+                "synchronization": dict(applied or {}),
+            }
 
     def start_slew(self, direction: str) -> dict:
         if direction not in self._DIRECTIONS:
