@@ -420,3 +420,30 @@ def test_generic_ptp_ability_does_not_mask_specific_config_model():
         def get_abilities(self): return Ability()
         def get_config(self): return Config()
     assert get_camera_model(Camera()).startswith('Sony ILCE-7M5')
+
+
+def test_clear_runtime_recovery_state_invalidates_plugin_run_cache():
+    class RunStatePlugin(FakePlugin):
+        def __init__(self, camera):
+            super().__init__(camera)
+            self.clear_calls = 0
+
+        def clear_runtime_state(self):
+            self.clear_calls += 1
+
+    plugin = RunStatePlugin(FakeCamera())
+    service = CameraService()
+    service.plugin = plugin
+    service._last_phase_settings = {"iso": "800"}
+    service._last_init_settings = {
+        "aperture": "f/8",
+        "iso": "800",
+        "image_format": "RAW",
+        "white_balance": "Daylight",
+    }
+
+    service.clear_runtime_recovery_state()
+
+    assert service._last_phase_settings == {}
+    assert service._last_init_settings is None
+    assert plugin.clear_calls == 1

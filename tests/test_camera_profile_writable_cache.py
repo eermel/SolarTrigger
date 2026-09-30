@@ -346,3 +346,103 @@ def test_preflight_changed_direct_value_uses_snapshot_set_and_readback():
     assert camera.set_single_config_calls == 1
     assert camera.iso.get_value() == "200"
     assert plugin._known_settings["iso"] == "200"
+
+
+def test_tstart_init_reuses_authoritative_hardware_preflight_snapshot():
+    camera = SnapshotPreflightCamera()
+    plugin = make_direct_plugin(camera)
+
+    preflight = plugin.preflight({"iso": "100"})
+    assert preflight["ok"] is True
+    assert camera.get_config_calls == 1
+    primed_reads = camera.get_single_config_calls
+
+    result = plugin.init_settings(
+        aperture=None,
+        iso="100",
+        image_format="RAW",
+        white_balance=None,
+    )
+
+    assert result["ok"] is True
+    assert result["changed"] == []
+    assert camera.get_config_calls == 1
+    assert camera.get_single_config_calls == primed_reads
+    assert camera.set_single_config_calls == 0
+
+
+def test_init_without_prior_hardware_preflight_still_wakes_once():
+    camera = SnapshotPreflightCamera()
+    plugin = make_direct_plugin(camera)
+
+    result = plugin.init_settings(
+        aperture=None,
+        iso="100",
+        image_format="RAW",
+        white_balance=None,
+    )
+
+    assert result["ok"] is True
+    assert camera.get_config_calls == 1
+    assert plugin._wake_state_valid is True
+
+
+def test_run_teardown_invalidates_wake_snapshot_before_next_init():
+    camera = SnapshotPreflightCamera()
+    plugin = make_direct_plugin(camera)
+
+    plugin.preflight({"iso": "100"})
+    assert camera.get_config_calls == 1
+    assert plugin._wake_state_valid is True
+
+    plugin.clear_runtime_state()
+
+    assert plugin._wake_state_valid is False
+    assert plugin._known_settings == {}
+    assert plugin._writable_cache == set()
+    assert plugin._single_config_widgets == {}
+
+    plugin.init_settings(
+        aperture=None,
+        iso="100",
+        image_format="RAW",
+        white_balance=None,
+    )
+    assert camera.get_config_calls == 2
+
+
+def test_capture_failure_invalidates_wake_snapshot(monkeypatch):
+    camera = SnapshotPreflightCamera()
+    plugin = make_direct_plugin(camera)
+    plugin.preflight({"iso": "100"})
+    assert plugin._wake_state_valid is True
+
+    operation = {"action": "set", "parameter": "iso", "value": "200"}
+    monkeypatch.setattr(
+        plugin,
+        "audit_prepared_capture",
+        lambda _prepared: (operation,),
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_capture_groups",
+        lambda _operations: ((operation,),),
+    )
+    monkeypatch.setattr(
+        plugin,
+        "_effective_capture_group",
+        lambda group: group,
+    )
+    monkeypatch.setattr(
+        plugin,
+        "set_parameter",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("simulated runtime SET failure")
+        ),
+    )
+
+    prepared = SimpleNamespace(planned_count=0, target_time=None)
+    with pytest.raises(RuntimeError, match="simulated runtime SET failure"):
+        plugin.trigger_prepared(prepared)
+
+    assert plugin._wake_state_valid is False

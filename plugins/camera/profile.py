@@ -214,6 +214,11 @@ class ProfilePlugin(CameraPlugin):
         # only.  Once START/timed execution begins, this cache is the sole
         # source used by direct SETs: no configuration GET is permitted.
         self._single_config_widgets = {}
+        # True only after an authoritative wake/preflight snapshot in the
+        # current worker generation. Trigger initialization may reuse this
+        # snapshot, but run teardown/capture failure must invalidate it.
+        self._wake_state_valid = False
+        self._reuse_cached_preflight_once = False
 
     @staticmethod
     def matches(model_string):
@@ -256,6 +261,14 @@ class ProfilePlugin(CameraPlugin):
         _, node = widget(self.camera, spec["path"])
         return node.get_value()
 
+    def clear_runtime_state(self):
+        """Invalidate run-scoped camera knowledge without touching USB."""
+        self._wake_state_valid = False
+        self._reuse_cached_preflight_once = False
+        self._known_settings.clear()
+        self._writable_cache.clear()
+        self._single_config_widgets.clear()
+
     def wake_state(self):
         """Wake the camera and cache one authoritative configuration snapshot.
 
@@ -264,6 +277,7 @@ class ProfilePlugin(CameraPlugin):
         camera setting. The resulting values live in this persistent camera
         worker process and are the reference used by timed SET decisions.
         """
+        self._wake_state_valid = False
         get_config = getattr(self.camera, "get_config", None)
         config = None
         if callable(get_config):
@@ -327,6 +341,7 @@ class ProfilePlugin(CameraPlugin):
 
         self._known_settings.clear()
         self._known_settings.update(known)
+        self._wake_state_valid = True
         return dict(observed)
 
     def _preflight_read(self, key):
@@ -754,17 +769,26 @@ class ProfilePlugin(CameraPlugin):
         return True
 
     def preflight(self, required_state=None):
-        """Wake once, then converge only values that really need to change.
+        """Converge required state from one authoritative wake snapshot.
 
-        The wake snapshot is the authoritative current camera state. Timed
-        execution subsequently uses the in-process cache and never performs a
-        GET merely to decide whether a characterized SET is necessary.
+        External hardware preflight always refreshes from the camera. The
+        immediately following Trigger initialization may consume a private
+        one-shot permission to reuse that snapshot, avoiding a second full USB
+        configuration read at TSTART while preserving the public API.
         """
         required_state = required_state or {}
         if not isinstance(required_state, dict):
             raise ValueError("required_state must be an object")
 
-        self.wake_state()
+        reuse_cached = bool(
+            getattr(self, "_reuse_cached_preflight_once", False)
+        )
+        self._reuse_cached_preflight_once = False
+        if (
+            not reuse_cached
+            or not getattr(self, "_wake_state_valid", False)
+        ):
+            self.wake_state()
         changed = []
         for key in (
             "manual_mode",
@@ -849,7 +873,16 @@ class ProfilePlugin(CameraPlugin):
 
         if white_balance is not None and "white_balance" in self.commands:
             required["white_balance"] = white_balance
-        return self.preflight(required)
+
+        # Hardware preflight immediately preceding START already performed the
+        # authoritative full-tree GET and primed direct writers. Grant exactly
+        # this init_settings()->preflight() call permission to reuse it. If no
+        # valid snapshot exists, preflight() still performs a normal wake.
+        self._reuse_cached_preflight_once = True
+        try:
+            return self.preflight(required)
+        finally:
+            self._reuse_cached_preflight_once = False
 
     def set_exposure_settings(self, aperture=None, iso=None):
         changed = False
@@ -2076,6 +2109,7 @@ class ProfilePlugin(CameraPlugin):
                             ) from exc
                         frames += result.frames
             except Exception:
+                self._wake_state_valid = False
                 self._known_settings.clear()
                 self._writable_cache.clear()
                 raise

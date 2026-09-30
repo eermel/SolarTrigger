@@ -359,6 +359,13 @@ class CameraService:
         """
         self._last_phase_settings.clear()
         self._last_init_settings = None
+        clear_plugin_state = getattr(
+            self.plugin,
+            "clear_runtime_state",
+            None,
+        )
+        if callable(clear_plugin_state):
+            clear_plugin_state()
 
     def close(self):
         self.release()
@@ -370,8 +377,9 @@ class CameraService:
                       white_balance="Daylight"):
         if not self.plugin:
             raise RuntimeError("camera is not connected")
-        # A new trigger run or phase entry treats camera state as unknown.
-        # Only a fully successful initialization may repopulate the SET cache.
+        # Service-level phase state is run-scoped, but the profile plugin may
+        # already own a fresh authoritative hardware-preflight snapshot. Keep
+        # that plugin cache intact so TSTART does not repeat a full USB GET.
         self._last_phase_settings.clear()
         result = self.plugin.init_settings(
             aperture=aperture,
