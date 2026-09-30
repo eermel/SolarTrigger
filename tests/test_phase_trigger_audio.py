@@ -92,17 +92,17 @@ def test_audio_filter_announcements_follow_runtime_boundaries():
 
     assert (
         schedule.tstart - timedelta(seconds=10),
-        "human_wav/filters_on.wav",
+        "filter_on.wav",
     ) in alerts
 
     assert (
         schedule.windows[1].start - timedelta(seconds=3),
-        "human_wav/filters_off.wav",
+        "filter_off.wav",
     ) in alerts
 
     assert (
         schedule.windows[3].end + timedelta(seconds=3),
-        "human_wav/filters_on.wav",
+        "filter_on.wav",
     ) in alerts
 
 
