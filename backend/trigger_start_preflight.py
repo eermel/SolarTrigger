@@ -37,6 +37,7 @@ def prepare_trigger_hardware(
     rig_config_loader: Callable[[], dict],
     camera_runtime,
     mount_runtime,
+    camera_required_state_loader: Callable[[], dict] | None = None,
     trigger_active_fn: Callable[[int], bool] | None = None,
     log_fn: Callable[[str], None] | None = None,
     now_fn: Callable[[], datetime] | None = None,
@@ -73,15 +74,34 @@ def prepare_trigger_hardware(
             "RIG_CONFIG_INVALID",
         ) from exc
 
-    # Camera probe is intentionally before every mount operation.  It opens
-    # the authoritative camera worker and proves that the configured USB body
-    # is reachable, without taking an extra exposure.
+    required_camera_state = {}
+    if callable(camera_required_state_loader):
+        try:
+            required_camera_state = camera_required_state_loader()
+        except TriggerValidationError:
+            raise
+        except Exception as exc:
+            raise TriggerValidationError(
+                f"RIG {rig_id} camera preflight configuration is invalid: {exc}",
+                "TRIGGER_INPUTS_INVALID",
+            ) from exc
+        if not isinstance(required_camera_state, dict):
+            raise TriggerValidationError(
+                f"RIG {rig_id} camera preflight state is invalid.",
+                "TRIGGER_INPUTS_INVALID",
+            )
+
+    # Characterized camera preflight is intentionally before every mount
+    # operation.  It connects the authoritative camera worker, verifies the
+    # critical acquisition invariants (including RAW/capture mode), converges
+    # the first phase ISO/aperture and primes runtime writers.  No exposure is
+    # taken.
     try:
         camera_runtime.reconcile(config)
         camera_worker = camera_runtime.get_for_rig(rig_id)
         if camera_worker is None:
             raise RuntimeError("camera worker is unavailable")
-        camera_info = camera_worker.probe_info()
+        camera_info = camera_worker.preflight(required_camera_state)
     except Exception as exc:
         raise TriggerValidationError(
             f"RIG {rig_id} camera preflight failed: {exc}",
