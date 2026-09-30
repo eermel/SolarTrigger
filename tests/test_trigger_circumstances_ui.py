@@ -37,3 +37,36 @@ def test_trigger_diamond_duration_comes_from_selected_photo_setup():
     assert "/api/configs/load_photo/" in UI
     assert "data?.phases?.diamond_ring?.duration_s" in UI
     assert 'onchange="refreshTriggerCircumstancesForPhoto()"' in UI
+
+
+def test_trigger_dryrun_countdown_ignores_source_calendar_date():
+    assert "const clockOnlyCountdown = !triggerButtonIsRealDate();" in UI
+    assert "if (!clockOnlyCountdown && eclipseDateUtc)" in UI
+    assert "DRY-RUN (and legacy date-less JSON): compare UTC clock time only." in UI
+
+
+def test_trigger_start_reloads_diamond_duration_before_preflight():
+    start = UI.index("async function startTrigger()")
+    end = UI.index("async function startDebug()", start)
+    source = UI[start:end]
+
+    load_index = source.index(
+        "await loadTriggerDiamondDuration(inputs.photo_file);"
+    )
+    preflight_index = source.index(
+        "const preflightTokens = await preflightTriggerRigs(rigIds, inputs);"
+    )
+
+    assert load_index < preflight_index
+    assert "renderContacts(state.triggerCircumstances);" in source
+
+
+def test_trigger_countdown_timer_prefers_trigger_circumstances():
+    assert (
+        "const countdownCircumstances = state.triggerCircumstances || state.eclipse;"
+        in UI
+    )
+    assert (
+        "if (countdownCircumstances) updateCountdowns(countdownCircumstances);"
+        in UI
+    )

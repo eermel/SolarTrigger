@@ -3993,6 +3993,10 @@ function updateCountdowns(data) {
   // UTC courant provenant exclusivement de l'ancre Pi.
   const nowUtcMs = _nowAdjusted().getTime();
   const eclipseDateUtc = data._date || data._date_utc || (data._generated_utc ? String(data._generated_utc).slice(0,10) : null);
+  // START uses the real calendar date. DRY-RUN deliberately reuses the
+  // selected eclipse clock times on the current day, so its UI countdown must
+  // compare HH:MM:SS only and must never include the source eclipse date.
+  const clockOnlyCountdown = !triggerButtonIsRealDate();
 
   let nextKey  = null;
   let nextDiff = Infinity;
@@ -4000,14 +4004,15 @@ function updateCountdowns(data) {
   Object.entries(contacts).forEach(([k, t]) => {
     if (!t) return;
 
-    // Mode réel : _date + heures UTC. Le dry-run rebase cette timeline côté backend.
     let diff;
-    if (eclipseDateUtc) {
+    if (!clockOnlyCountdown && eclipseDateUtc) {
+      // Real START: use the actual eclipse calendar date.
       const targetMs = Date.parse(`${eclipseDateUtc}T${t}Z`);
       if (!Number.isFinite(targetMs)) return;
       diff = (targetMs - nowUtcMs) / 1000;
     } else {
-      // Compatibilité vieux JSON sans date : fallback HH:MM:SS avec fenêtre ±12 h.
+      // DRY-RUN (and legacy date-less JSON): compare UTC clock time only.
+      // Normalize around midnight so 23:59 -> 00:01 remains a two-minute gap.
       const nowUtc = new Date(nowUtcMs);
       const nowUtcSec = nowUtc.getUTCHours()*3600+nowUtc.getUTCMinutes()*60+nowUtc.getUTCSeconds();
       const contactUtcSec = toSec(t);
@@ -4547,6 +4552,14 @@ async function startTrigger() {
   if (!rigIds.length) {
     flash('No active RIG.', 'red');
     return;
+  }
+
+  // Guarantee that the Trigger circumstances table has the two Diamond Ring
+  // boundaries before START/DRY-RUN. The duration belongs to Photo Setup, not
+  // to the circumstances JSON.
+  await loadTriggerDiamondDuration(inputs.photo_file);
+  if (state.triggerCircumstances) {
+    renderContacts(state.triggerCircumstances);
   }
 
   const preflightTokens = await preflightTriggerRigs(rigIds, inputs);
@@ -6675,8 +6688,11 @@ async function loadCameraStatus() {
   } catch(e) {}
 }
 
-// Countdown toutes les secondes
-setInterval(() => { if (state.eclipse) updateCountdowns(state.eclipse); }, 1000);
+// Countdown toutes les secondes — Trigger selection is authoritative when set.
+setInterval(() => {
+  const countdownCircumstances = state.triggerCircumstances || state.eclipse;
+  if (countdownCircumstances) updateCountdowns(countdownCircumstances);
+}, 1000);
 // Camera toutes les 10s
 // Camera status is refreshed by Socket.IO status_update.  Keep the explicit
 // load at startup, but do not add a second periodic /api/status poll.

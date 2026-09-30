@@ -119,10 +119,23 @@ def test_frontend_displays_recompute_time_from_anchor_on_every_refresh():
     assert not re.search(r'\bdisplayed\s*\+=\s*1000\b', html, re.IGNORECASE)
     assert not re.search(r'\b(?:now|time|timestamp|epoch|clock)\w*\s*\+=\s*1000\b', display_time_code)
     assert 'setInterval(_tickClock, 1000)' in html
+    assert (
+        'const countdownCircumstances = '
+        'state.triggerCircumstances || state.eclipse;'
+        in html
+    )
+    assert (
+        'if (countdownCircumstances) '
+        'updateCountdowns(countdownCircumstances);'
+        in html
+    )
     assert re.search(
-        r'setInterval\(\s*\(\)\s*=>\s*\{\s*if \(state\.eclipse\) '
-        r'updateCountdowns\(state\.eclipse\);\s*\},\s*1000\s*\)',
+        r'setInterval\(\s*\(\)\s*=>\s*\{.*?'
+        r'state\.triggerCircumstances\s*\|\|\s*state\.eclipse.*?'
+        r'updateCountdowns\(countdownCircumstances\).*?'
+        r'\},\s*1000\s*\)',
         html,
+        re.DOTALL,
     )
 
 
