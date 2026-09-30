@@ -209,6 +209,43 @@
           </div>
         </div>
 
+        <div class="system-section system-ui-config-group" data-system-section="ui-config">
+          <div class="system-section-title">UI Configuration</div>
+          <div class="system-section-content">
+            <div class="card">
+              <div class="ui-config-row">
+                <div>
+                  <div class="ui-config-label">Debug tab</div>
+                  <div class="ui-config-help">Show or hide the DEBUG / TEST MODE tab.</div>
+                </div>
+                <div class="focuser-mode-switch">
+                  <input
+                    type="checkbox"
+                    id="ui-debug-tab-visible-switch"
+                    role="switch"
+                    aria-label="Show Debug tab"
+                    onchange="persistUiConfiguration()">
+                </div>
+              </div>
+
+              <div class="ui-config-row">
+                <div>
+                  <div class="ui-config-label">Logs</div>
+                  <div class="ui-config-help">Show or hide log sections in all tabs.</div>
+                </div>
+                <div class="focuser-mode-switch">
+                  <input
+                    type="checkbox"
+                    id="ui-logs-visible-switch"
+                    role="switch"
+                    aria-label="Show log sections"
+                    onchange="persistUiConfiguration()">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="system-section system-log-group" data-system-section="log">
           <div class="system-section-title">Log</div>
           <div class="system-section-content">
