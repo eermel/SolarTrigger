@@ -16,24 +16,30 @@ def test_system_tab_contains_camera_and_maintenance_tools():
     assert "Update Solar Eclipse Trigger" in source
 
 
-def test_system_tab_has_camera_update_and_log_sections():
+def test_system_tab_has_camera_update_ui_config_and_log_sections():
     source = frontend_source()
 
     camera = source.index('data-system-section="camera"')
     update = source.index('data-system-section="update"')
+    ui_config = source.index('data-system-section="ui-config"')
     log = source.index('data-system-section="log"')
 
-    assert camera < update < log
-    assert source.count('data-system-section=') == 3
+    assert camera < update < ui_config < log
+    assert source.count('data-system-section=') == 4
 
     camera_section = source[camera:update]
     assert "Device discovery" in camera_section
     assert '<div class="card-title">Camera</div>' in camera_section
 
-    update_section = source[update:log]
+    update_section = source[update:ui_config]
     assert "Persistent data" in update_section
     assert "Update System" in update_section
     assert "Update Solar Eclipse Trigger" in update_section
+
+    ui_config_section = source[ui_config:log]
+    assert '<div class="system-section-title">UI Configuration</div>' in ui_config_section
+    assert 'id="ui-debug-tab-visible-switch"' in ui_config_section
+    assert 'id="ui-logs-visible-switch"' in ui_config_section
 
     log_end = source.index("</section>", log)
     log_section = source[log:log_end]
