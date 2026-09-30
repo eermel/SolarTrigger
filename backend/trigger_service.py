@@ -103,6 +103,77 @@ def validate_eclipse(ecl):
             "JSON_INVALID",
         )
 
+def validate_trigger_gps_state(gps, *, now_utc=None):
+    """Validate the GPS state required before any Trigger hardware preflight.
+
+    This is intentionally the first start-time validation: camera and mount
+    I/O must never begin until the system clock synchronization is known-good.
+    """
+    gps = gps if isinstance(gps, dict) else {}
+
+    if gps.get("gps_sync_running") is True:
+        raise TriggerValidationError(
+            "⚠️ GPS synchronization is still in progress. "
+            "Wait for it to finish before starting.",
+            "GPS_SYNC_IN_PROGRESS",
+        )
+    if not gps.get("synced"):
+        raise TriggerValidationError(
+            "⚠️ GPS is not synchronized. Synchronize the clock before starting.",
+            "GPS_NOT_SYNCED",
+        )
+
+    sync_time = gps.get("sync_time")
+    if not isinstance(sync_time, str) or not sync_time.strip():
+        raise TriggerValidationError(
+            "⚠️ GPS synchronization timestamp is missing or invalid. "
+            "Synchronize again.",
+            "GPS_SYNC_TIME_INVALID",
+        )
+
+    try:
+        sync_dt = datetime.fromisoformat(
+            sync_time.strip().replace("Z", "+00:00")
+        )
+        if sync_dt.tzinfo is None:
+            # Backward compatibility: historical state may contain a
+            # timezone-naive timestamp, which SolarTrigger treated as UTC.
+            sync_dt = sync_dt.replace(tzinfo=timezone.utc)
+
+        current = now_utc or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        else:
+            current = current.astimezone(timezone.utc)
+
+        age = (
+            current
+            - sync_dt.astimezone(timezone.utc)
+        ).total_seconds()
+    except Exception as exc:
+        raise TriggerValidationError(
+            "⚠️ GPS synchronization timestamp is invalid. "
+            "Synchronize again.",
+            "GPS_SYNC_TIME_INVALID",
+        ) from exc
+
+    if age < -5:
+        raise TriggerValidationError(
+            "⚠️ GPS synchronization timestamp is in the future. "
+            "Synchronize again.",
+            "GPS_SYNC_TIME_INVALID",
+        )
+
+    if age > 7200:
+        raise TriggerValidationError(
+            f"⚠️ Last GPS synchronization was "
+            f"{int(age // 60)} min ago. Synchronize again.",
+            "GPS_SYNC_STALE",
+        )
+
+    return gps
+
+
 def validate_execution_rigs(config):
     """Validate rig requirements only when real hardware execution starts."""
     if not isinstance(config, dict):
@@ -893,66 +964,7 @@ class TriggerService:
         _resolved_paths=None,
     ):
         if require_gps:
-            gps = self.state.snapshot("gps") or {}
-            if gps.get("gps_sync_running") is True:
-                raise TriggerValidationError(
-                    "⚠️ GPS synchronization is still in progress. "
-                    "Wait for it to finish before starting.",
-                    "GPS_SYNC_IN_PROGRESS",
-                )
-            if not gps.get("synced"):
-                raise TriggerValidationError(
-                    "⚠️ GPS is not synchronized. Synchronize the clock before starting.",
-                    "GPS_NOT_SYNCED",
-                )
-
-            sync_time = gps.get("sync_time")
-            if not isinstance(sync_time, str) or not sync_time.strip():
-                raise TriggerValidationError(
-                    "⚠️ GPS synchronization timestamp is missing or invalid. "
-                    "Synchronize again.",
-                    "GPS_SYNC_TIME_INVALID",
-                )
-
-            try:
-                sync_dt = datetime.fromisoformat(
-                    sync_time.strip().replace("Z", "+00:00")
-                )
-                if sync_dt.tzinfo is None:
-                    # Backward compatibility: historical state may contain a
-                    # timezone-naive timestamp, which SolarTrigger treated as UTC.
-                    sync_dt = sync_dt.replace(tzinfo=timezone.utc)
-
-                age = (
-                    datetime.now(timezone.utc)
-                    - sync_dt.astimezone(timezone.utc)
-                ).total_seconds()
-            except Exception as exc:
-                # START is safety-critical: an unreadable synchronization
-                # timestamp must never bypass the freshness check.
-                raise TriggerValidationError(
-                    "⚠️ GPS synchronization timestamp is invalid. "
-                    "Synchronize again.",
-                    "GPS_SYNC_TIME_INVALID",
-                ) from exc
-
-            # A synchronization timestamp meaningfully ahead of the Pi clock
-            # is inconsistent: accepting a negative age would bypass the
-            # freshness guard entirely. Keep a small tolerance for scheduling
-            # and serialization races around the synchronization operation.
-            if age < -5:
-                raise TriggerValidationError(
-                    "⚠️ GPS synchronization timestamp is in the future. "
-                    "Synchronize again.",
-                    "GPS_SYNC_TIME_INVALID",
-                )
-
-            if age > 7200:
-                raise TriggerValidationError(
-                    f"⚠️ Last GPS synchronization was "
-                    f"{int(age // 60)} min ago. Synchronize again.",
-                    "GPS_SYNC_STALE",
-                )
+            validate_trigger_gps_state(self.state.snapshot("gps") or {})
 
         paths = (
             _resolved_paths
