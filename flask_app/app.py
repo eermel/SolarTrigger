@@ -5433,6 +5433,14 @@ def _run_trigger_hardware_preflight_batch(rig_ids, selected):
     )
 
 
+def _trigger_runtime_configs_dir():
+    """Return the config root used by the active Trigger service."""
+    service_root = getattr(_trigger_service, "configs_dir", None)
+    if service_root is not None:
+        return Path(service_root)
+    return CONFIGS_DIR
+
+
 def _prepare_trigger_runtime_circumstances(rig_id, selected):
     """Prepare circumstances for the validated Trigger engine.
 
@@ -5448,14 +5456,15 @@ def _prepare_trigger_runtime_circumstances(rig_id, selected):
         or Path(source_name).suffix.lower() != ".json"
     ):
         raise TriggerValidationError(
-            "Select a valid circumstances file.",
+            "Select the circumstances, Photo Setup and Exposure Optimization files.",
             "TRIGGER_INPUTS_NOT_LOADED",
         )
 
-    source_path = CONFIGS_DIR / "circumstances" / source_name
+    configs_dir = _trigger_runtime_configs_dir()
+    source_path = configs_dir / "circumstances" / source_name
     if not source_path.is_file():
         raise TriggerValidationError(
-            "Selected circumstances cannot be loaded.",
+            "Select the circumstances, Photo Setup and Exposure Optimization files.",
             "TRIGGER_INPUTS_NOT_LOADED",
         )
 
@@ -5477,7 +5486,7 @@ def _prepare_trigger_runtime_circumstances(rig_id, selected):
             "TRIGGER_INPUTS_INVALID",
         ) from exc
 
-    destination_dir = CONFIGS_DIR / "circumstances"
+    destination_dir = configs_dir / "circumstances"
     destination_dir.mkdir(parents=True, exist_ok=True)
     filename = (
         f"trigger_runtime_rig_{rig_id}_"

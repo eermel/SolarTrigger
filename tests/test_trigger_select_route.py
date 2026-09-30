@@ -261,7 +261,7 @@ def test_trigger_start_does_not_require_legacy_global_capture(
     }
 
 
-def test_trigger_start_rejects_operator_selected_wrong_circumstances_date(
+def test_trigger_start_rebases_operator_selected_other_date(
     tmp_path, monkeypatch
 ):
     another_date = datetime.now(timezone.utc).date() + timedelta(days=30)
@@ -271,9 +271,20 @@ def test_trigger_start_rejects_operator_selected_wrong_circumstances_date(
         eclipse_date=another_date,
     )
 
+    source_path = (
+        tmp_path / "configs" / "circumstances" / "test_circumstances.json"
+    )
+    source_before = json.loads(source_path.read_text(encoding="utf-8"))
+
     response = client.post("/api/trigger/start", json=TRIGGER_SELECTION)
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "started",
+        "mode": "real",
+        "rig_id": 1,
+    }
+    assert json.loads(source_path.read_text(encoding="utf-8")) == source_before
 
 
 def test_trigger_start_succeeds_when_preconditions_are_met(tmp_path, monkeypatch):
@@ -569,26 +580,15 @@ def test_boot_does_not_restore_missing_capture_file(tmp_path, monkeypatch):
     assert restored.snapshot("capture")["loaded"] is False
 
 
-def test_trigger_dryrun_accepts_circumstances_from_another_date(tmp_path, monkeypatch):
-    another_date = datetime.now(timezone.utc).date() + timedelta(days=30)
-    client = _configure_trigger_route(
-        tmp_path,
-        monkeypatch,
-        eclipse_date=another_date,
-    )
+def test_legacy_trigger_dryrun_route_is_removed(tmp_path, monkeypatch):
+    client = _configure_trigger_route(tmp_path, monkeypatch)
 
     response = client.post(
         "/api/trigger/dryrun",
         json=TRIGGER_SELECTION,
     )
 
-    assert response.status_code == 200
-    assert response.get_json() == {
-        "status": "started",
-        "mode": "dryrun",
-        "speed": 1.0,
-        "rig_id": 1,
-    }
+    assert response.status_code == 404
 
 
 def test_trigger_simulation_accepts_circumstances_from_another_date(

@@ -11,8 +11,8 @@ def test_trigger_global_actions_fan_out_to_all_active_rigs():
     assert "for (const rigId of rigIds)" in UI
     assert "'/api/trigger/start'" in UI
 
-    assert "async function startDryRun()" in UI
-    assert "'/api/trigger/dryrun'" in UI
+    assert "async function startDryRun()" not in UI
+    assert "'/api/trigger/dryrun'" not in UI
 
     assert "async function startDebug()" in UI
     assert "'/api/trigger/debug'" in UI
@@ -20,9 +20,10 @@ def test_trigger_global_actions_fan_out_to_all_active_rigs():
     assert "Deliberately sequential" in UI
 
 
-def test_trigger_global_action_labels_switch_to_all():
+def test_trigger_global_action_labels_keep_debug_all_and_date_driven_start():
     assert "'🧪 DEBUG ALL'" in UI
-    assert "'🧪 DRY-RUN ALL'" in UI
+    assert "const label = isRealDate ? '▶ START' : '🧪 DRY-RUN';" in UI
+    assert "'🧪 DRY-RUN ALL'" not in UI
 
 
 def test_stop_and_totality_override_remain_selected_rig_actions():
@@ -36,9 +37,9 @@ def test_stop_and_totality_override_remain_selected_rig_actions():
 def test_global_start_actions_lock_when_any_active_rig_runs():
     assert "function anyActiveTriggerRunning()" in UI
     assert "const triggerStartLocked = anyActiveTriggerRunning();" in UI
-    assert "btnStart.disabled  = triggerStartLocked" in UI
-    assert "btnDryRun.disabled = triggerStartLocked" in UI
-    assert "btnDebug.disabled  = triggerStartLocked" in UI
+    assert "if (btnStart) btnStart.disabled = triggerStartLocked;" in UI
+    assert "btnDryRun" not in UI
+    assert "if (btnDebug) btnDebug.disabled = triggerStartLocked;" in UI
 
 
 def test_trigger_log_is_single_panel_for_selected_rig():

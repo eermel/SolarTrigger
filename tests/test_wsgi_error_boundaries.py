@@ -18,7 +18,8 @@ def test_wsgi_starts_background_threads():
 
 def test_trigger_error_boundaries_exist():
     assert '"TRIGGER_SIMULATION_FAILED"' in APP
-    assert '"TRIGGER_DRYRUN_FAILED"' in APP
+    assert '"TRIGGER_START_FAILED"' in APP
+    assert '"TRIGGER_DRYRUN_FAILED"' not in APP
     assert '"DEBUG_START_FAILED"' in APP
     assert '"error": "Trigger simulation failed."' in APP
     assert '"error": "Trigger dry-run failed."' in APP

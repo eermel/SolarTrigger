@@ -60,7 +60,7 @@ def test_calculator_json_keeps_ms_and_location(tmp_path):
     assert 'contacts_utc' not in cfg
 
 
-def test_frontend_preserves_decimal_contacts_and_dryrun_route():
+def test_frontend_preserves_decimal_contacts_and_unified_start_route():
     root=Path(__file__).resolve().parents[1]
     html=frontend_source()
     app=(root/'flask_app/app.py').read_text(encoding='utf-8')
@@ -71,8 +71,10 @@ def test_frontend_preserves_decimal_contacts_and_dryrun_route():
     assert "hms.split(':').map(Number)" in html
     assert "sec.toFixed(3)" in html
 
-    assert '/api/trigger/dryrun' in html
-    assert '@app.route("/api/trigger/dryrun"' in app
+    assert '/api/trigger/start' in html
+    assert '/api/trigger/dryrun' not in html
+    assert '@app.route("/api/trigger/start"' in app
+    assert '@app.route("/api/trigger/dryrun"' not in app
 
 
 

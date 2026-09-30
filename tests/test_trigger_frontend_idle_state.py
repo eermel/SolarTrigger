@@ -21,4 +21,4 @@ def test_start_lock_uses_running_state():
 
     assert "function anyActiveTriggerRunning()" in source
     assert "rigState.running === true" in source
-    assert "btnStart.disabled  = triggerStartLocked" in source
+    assert "if (btnStart) btnStart.disabled = triggerStartLocked;" in source
