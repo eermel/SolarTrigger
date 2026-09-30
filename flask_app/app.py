@@ -5353,9 +5353,8 @@ def api_trigger_preflight():
         rig_ids = tuple(dict.fromkeys(raw_rig_ids))
 
         def run_all():
-            results = {}
             for rig_id in rig_ids:
-                results[str(rig_id)] = _run_trigger_hardware_preflight(
+                _run_trigger_hardware_preflight(
                     rig_id,
                     payload,
                 )
@@ -5367,7 +5366,6 @@ def api_trigger_preflight():
                 "status": "ok",
                 "rig_ids": list(rig_ids),
                 "tokens": tokens,
-                "results": results,
             }
 
         return jsonify(_trigger_start_guarded(run_all))
