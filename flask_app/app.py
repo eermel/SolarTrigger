@@ -260,6 +260,7 @@ from backend.focuser_worker_runtime import get_focuser_worker_runtime
 from backend.generic_worker import BusyDeviceError
 from backend.mount_worker_runtime import get_mount_worker_runtime
 from backend.trigger_service import TriggerService, TriggerValidationError
+from backend.trigger_start_preflight import prepare_trigger_hardware
 from backend.runtime_rpc import (
     RemoteTriggerService,
     RuntimeOutcomeUnknownError,
@@ -5145,6 +5146,42 @@ else:
         product_configs_dir=PRODUCT_CONFIGS_DIR,
     )
 
+def _run_trigger_hardware_preflight(rig_id):
+    """GPS-first hardware preparation shared by Trigger, DEBUG and dry-run."""
+    return prepare_trigger_hardware(
+        rig_id=rig_id,
+        state_store=_state_store,
+        rig_config_loader=load_rig_configuration,
+        camera_runtime=get_camera_worker_runtime(log_fn=log.info),
+        mount_runtime=get_mount_worker_runtime(
+            log_fn=log.info,
+            state_path=STATE_FILE,
+        ),
+        trigger_active_fn=_trigger_active_or_starting,
+        log_fn=lambda message: _append_log(
+            message,
+            "success",
+            "trigger",
+            rig_id=rig_id,
+        ),
+    )
+
+
+def _start_trigger_with_hardware_preflight(
+    *,
+    rig_id,
+    dry_run=False,
+    selected=None,
+):
+    _run_trigger_hardware_preflight(rig_id)
+    return _trigger_service.start(
+        rig_id=rig_id,
+        simulate=False,
+        dry_run=dry_run,
+        selected=selected,
+    )
+
+
 @app.route("/api/trigger/start", methods=["POST"])
 def api_trigger_start():
     """Démarrage réel d'un seul RIG."""
@@ -5152,11 +5189,12 @@ def api_trigger_start():
     rig_id = payload.get("rig_id", 1)
 
     try:
-        if not _trigger_start_guarded(lambda: _trigger_service.start(
-            rig_id=rig_id,
-            simulate=False,
-            selected=payload,
-        )):
+        if not _trigger_start_guarded(
+            lambda: _start_trigger_with_hardware_preflight(
+                rig_id=rig_id,
+                selected=payload,
+            )
+        ):
             return jsonify({
                 "error": f"Trigger RIG {rig_id} is already running.",
                 "rig_id": rig_id,
@@ -5278,11 +5316,13 @@ def api_trigger_dryrun():
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
     try:
-        if not _trigger_start_guarded(lambda: _trigger_service.start(
-            rig_id=rig_id,
-            dry_run=True,
-            selected=payload,
-        )):
+        if not _trigger_start_guarded(
+            lambda: _start_trigger_with_hardware_preflight(
+                rig_id=rig_id,
+                dry_run=True,
+                selected=payload,
+            )
+        ):
             return jsonify({
                 "error": f"Trigger RIG {rig_id} is already running.",
                 "rig_id": rig_id,
@@ -5406,8 +5446,10 @@ def api_trigger_debug():
         destination_path.write_text(json.dumps(generated, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         selected = {"circumstances_file": filename, "photo_file": photo_name, "exposure_opt_file": exposure_name}
         if not _trigger_start_guarded(
-            lambda: _trigger_service.start(
-                rig_id=rig_id, dry_run=True, selected=selected
+            lambda: _start_trigger_with_hardware_preflight(
+                rig_id=rig_id,
+                dry_run=True,
+                selected=selected,
             )
         ):
             destination_path.unlink(missing_ok=True)
