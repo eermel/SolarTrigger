@@ -3,7 +3,10 @@ from datetime import datetime, timezone
 import pytest
 
 from backend.trigger_service import TriggerValidationError
-from backend.trigger_start_preflight import prepare_trigger_hardware
+from backend.trigger_start_preflight import (
+    prepare_trigger_hardware,
+    prepare_trigger_hardware_batch,
+)
 
 
 class FakeState:
@@ -314,3 +317,112 @@ def test_mount_sync_failure_prevents_tracking_activation():
     assert "mount.sync" in events
     assert "mount.mode:solar" not in events
     assert "mount.start" not in events
+
+
+def test_batch_preflights_every_camera_before_any_mount_sync():
+    events = []
+
+    class CameraWorker:
+        def __init__(self, rig_id):
+            self.rig_id = rig_id
+
+        def preflight(self, required_state):
+            events.append(f"camera.preflight:{self.rig_id}")
+            assert required_state == {"iso": "100", "f-number": "f/8"}
+            return {"ok": True, "model": f"CAM {self.rig_id}"}
+
+    class CameraRuntime:
+        def reconcile(self, _config):
+            events.append("camera.reconcile")
+
+        def get_for_rig(self, rig_id):
+            events.append(f"camera.get:{rig_id}")
+            return CameraWorker(rig_id)
+
+    class MountWorker:
+        def __init__(self, rig_id):
+            self.rig_id = rig_id
+
+        def sync_site_time(self, *_args):
+            events.append(f"mount.sync:{self.rig_id}")
+            return {"ok": True}
+
+        def set_tracking_mode(self, mode):
+            events.append(f"mount.mode:{self.rig_id}:{mode}")
+
+        def start_tracking(self):
+            events.append(f"mount.start:{self.rig_id}")
+            return {"tracking_enabled": True}
+
+    class MountRuntime:
+        def reconcile(self, _config):
+            events.append("mount.reconcile")
+
+        def get_for_rig(self, rig_id):
+            events.append(f"mount.get:{rig_id}")
+            return MountWorker(rig_id)
+
+    config = {
+        "rigs": [
+            {
+                "rig_id": rig_id,
+                "enabled": True,
+                "devices": {
+                    "camera": {
+                        "backend": "profile-test",
+                        "serial": f"CAM-{rig_id}",
+                    },
+                    "mount": {
+                        "backend": "onstep" if rig_id == 1 else "indi",
+                        "serial": f"MOUNT-{rig_id}",
+                    },
+                },
+            }
+            for rig_id in (1, 2)
+        ]
+    }
+
+    result = prepare_trigger_hardware_batch(
+        rig_ids=(1, 2),
+        state_store=FakeState(_gps(), events),
+        rig_config_loader=lambda: events.append("config") or config,
+        camera_runtime=CameraRuntime(),
+        mount_runtime=MountRuntime(),
+        camera_required_state_loader=lambda: {
+            "iso": "100",
+            "f-number": "f/8",
+        },
+        trigger_active_fn=lambda rig_id: events.append(
+            f"active:{rig_id}"
+        ) or False,
+        log_fn=lambda rig_id, message: events.append(
+            f"log:{rig_id}:{message}"
+        ),
+        now_fn=lambda: datetime(
+            2026, 9, 30, 8, 5, 0, tzinfo=timezone.utc
+        ),
+    )
+
+    camera_positions = [
+        events.index("camera.preflight:1"),
+        events.index("camera.preflight:2"),
+    ]
+    first_mount_sync = min(
+        events.index("mount.sync:1"),
+        events.index("mount.sync:2"),
+    )
+    last_mount_sync = max(
+        events.index("mount.sync:1"),
+        events.index("mount.sync:2"),
+    )
+    first_tracking = min(
+        events.index("mount.mode:1:solar"),
+        events.index("mount.mode:2:solar"),
+    )
+
+    assert events[0] == "gps"
+    assert max(camera_positions) < events.index("mount.reconcile")
+    assert max(camera_positions) < first_mount_sync
+    assert last_mount_sync < first_tracking
+    assert result["tracking"][1]["tracking_enabled"] is True
+    assert result["tracking"][2]["tracking_enabled"] is True
