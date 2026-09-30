@@ -146,7 +146,7 @@ def _ready_controller(active=False):
     return controller
 
 
-def test_runtime_ready_tone_uses_one_contact_beep(monkeypatch):
+def test_runtime_ready_tone_uses_dedicated_boot_sound(monkeypatch):
     controller = _ready_controller(active=False)
     calls = []
 
@@ -175,7 +175,7 @@ def test_runtime_ready_tone_uses_one_contact_beep(monkeypatch):
     assert calls == [
         ("init", "alsa"),
         ("dir", "Sounds"),
-        ("play", "contact.wav"),
+        ("play", "boot_ready.wav"),
     ]
 
 
