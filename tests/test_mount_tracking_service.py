@@ -80,6 +80,10 @@ def test_tracking_capabilities_are_passed_through_unmodified(tmp_path):
 
 def test_connect_and_reconnect_preserve_running_tracking(tmp_path):
     class AlreadyTrackingMountPlugin(TrackingMountPlugin):
+        @property
+        def tracking(self):
+            return True
+
         def status(self):
             status = super().status()
             status["tracking"] = True
@@ -160,5 +164,64 @@ def test_tracking_toggle_requires_plugin_capability(tmp_path, operation):
 
         assert service.status()["tracking_enabled"] is False
         assert plugin.calls == []
+    finally:
+        service.close()
+
+
+def test_fast_trigger_preflight_operations_skip_full_status(tmp_path):
+    class FastPlugin(TrackingMountPlugin):
+        def __init__(self):
+            super().__init__({"toggle": True})
+            self.status_calls = 0
+
+        @property
+        def tracking(self):
+            return False
+
+        def status(self):
+            self.status_calls += 1
+            raise AssertionError("full status must not be used by fast preflight")
+
+        def sync_site_time(self, lat, lon, elev, utc_iso, offset):
+            self.calls.append(
+                ("sync_site_time", lat, lon, elev, utc_iso, offset)
+            )
+            return {
+                "latitude": lat,
+                "longitude": lon,
+                "elevation": elev,
+                "utc": utc_iso,
+                "utc_offset_hours": offset,
+            }
+
+    plugin = FastPlugin()
+    service = make_service(tmp_path, plugin)
+    try:
+        synced = service.sync_site_time_fast(
+            48.0,
+            2.0,
+            100.0,
+            "2026-09-30T09:00:00",
+            2.0,
+        )
+        mode = service.set_tracking_mode_fast("solar")
+        started = service.start_tracking_fast()
+
+        assert synced["synchronization"]["latitude"] == 48.0
+        assert mode["tracking_mode"] == "solar"
+        assert started["tracking_enabled"] is True
+        assert plugin.status_calls == 0
+        assert plugin.calls == [
+            (
+                "sync_site_time",
+                48.0,
+                2.0,
+                100.0,
+                "2026-09-30T09:00:00",
+                2.0,
+            ),
+            ("set_tracking_mode", "solar"),
+            ("start_tracking", "solar"),
+        ]
     finally:
         service.close()
