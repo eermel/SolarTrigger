@@ -73,7 +73,33 @@ def test_tracking_capabilities_are_passed_through_unmodified(tmp_path):
         service.status()
 
         assert status["tracking_caps"] is capabilities
-        assert plugin.calls == [("stop_tracking",)]
+        assert plugin.calls == []
+    finally:
+        service.close()
+
+
+def test_connect_and_reconnect_preserve_running_tracking(tmp_path):
+    class AlreadyTrackingMountPlugin(TrackingMountPlugin):
+        def status(self):
+            status = super().status()
+            status["tracking"] = True
+            return status
+
+    plugin = AlreadyTrackingMountPlugin({"toggle": True})
+    service = make_service(tmp_path, plugin)
+    try:
+        first = service.status()
+
+        assert first["tracking_enabled"] is True
+        assert plugin.calls == []
+
+        # Force a real service reconnect.  Re-opening the physical mount must
+        # observe the existing tracking state without issuing stop_tracking().
+        service.close()
+        second = service.status()
+
+        assert second["tracking_enabled"] is True
+        assert plugin.calls == []
     finally:
         service.close()
 
@@ -87,7 +113,6 @@ def test_set_tracking_mode_changes_mode_without_enabling(tmp_path):
         assert status["tracking_mode"] == "sidereal"
         assert status["tracking_enabled"] is False
         assert plugin.calls == [
-            ("stop_tracking",),
             ("set_tracking_mode", "sidereal"),
         ]
     finally:
@@ -117,7 +142,6 @@ def test_start_and_stop_tracking_call_plugin_and_update_state(tmp_path):
         stopped = service.stop_tracking()
         assert stopped["tracking_enabled"] is False
         assert plugin.calls == [
-            ("stop_tracking",),
             ("set_tracking_mode", "sidereal"),
             ("start_tracking", "sidereal"),
             ("stop_tracking",),
