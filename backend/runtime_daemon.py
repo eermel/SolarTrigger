@@ -56,8 +56,9 @@ _RPC_SHUTDOWN_DRAIN_S = 5.0
 _RPC_RESULT_CACHE_SIZE = 2048
 _RPC_RESULT_TTL_S = 15 * 60.0
 
-# Only operator-facing diagnostic calls are proxied through the portal. The
-# real-time trigger uses CameraIpcServer directly through an explicit lease.
+# Only operator-facing diagnostic/start-preflight calls are proxied through
+# the portal. The real-time trigger uses CameraIpcServer directly through an
+# explicit lease.
 _ALLOWED_WORKER_METHODS = frozenset({
     "probe_info",
     "read_info",
