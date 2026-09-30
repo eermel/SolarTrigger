@@ -264,7 +264,10 @@ from backend.trigger_service import (
     TriggerValidationError,
     validate_trigger_gps_state,
 )
-from backend.trigger_start_preflight import prepare_trigger_hardware
+from backend.trigger_start_preflight import (
+    prepare_trigger_hardware,
+    prepare_trigger_hardware_batch,
+)
 from backend.runtime_rpc import (
     RemoteTriggerService,
     RuntimeOutcomeUnknownError,
@@ -5304,6 +5307,29 @@ def _run_trigger_hardware_preflight(rig_id, selected):
     )
 
 
+def _run_trigger_hardware_preflight_batch(rig_ids, selected):
+    """Preflight all active RIGs with camera and mount phase barriers."""
+    return prepare_trigger_hardware_batch(
+        rig_ids=rig_ids,
+        state_store=_state_store,
+        rig_config_loader=load_rig_configuration,
+        camera_runtime=get_camera_worker_runtime(log_fn=log.info),
+        mount_runtime=get_mount_worker_runtime(
+            log_fn=log.info,
+            state_path=STATE_FILE,
+        ),
+        camera_required_state_loader=lambda: (
+            _camera_preflight_state_from_selection(selected)
+        ),
+        trigger_active_fn=_trigger_active_or_starting,
+        log_fn=lambda message: _append_log(
+            message,
+            "success",
+            "trigger",
+        ),
+    )
+
+
 def _start_trigger_with_hardware_preflight(
     *,
     rig_id,
@@ -5353,11 +5379,10 @@ def api_trigger_preflight():
         rig_ids = tuple(dict.fromkeys(raw_rig_ids))
 
         def run_all():
-            for rig_id in rig_ids:
-                _run_trigger_hardware_preflight(
-                    rig_id,
-                    payload,
-                )
+            _run_trigger_hardware_preflight_batch(
+                rig_ids,
+                payload,
+            )
             # Do not issue any token until every RIG has passed.  Therefore a
             # camera/mount failure can never leave an earlier RIG sequence
             # already running.
