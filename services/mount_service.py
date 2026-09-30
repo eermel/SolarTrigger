@@ -91,7 +91,10 @@ class MountService:
                     isinstance(tracking_capabilities, dict)
                     and tracking_capabilities.get("toggle") is True
                 ):
-                    plugin.stop_tracking()
+                    # Connecting or reconnecting to a mount must be
+                    # observational only.  Never alter physical tracking as a
+                    # side effect of status/warmup: tracking is changed solely
+                    # by the explicit start_tracking()/stop_tracking() APIs.
                     raw_status = dict(plugin.status() or {})
                     if "tracking" in raw_status:
                         self._tracking_enabled = bool(raw_status["tracking"])
