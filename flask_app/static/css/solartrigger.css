@@ -871,6 +871,7 @@ header {
 #btn-focuser-home,
 #btn-focuser-go,
 #btn-mount-home,
+#btn-mount-sync,
 [id^="btn-run-sequencer-rig-"],
 [id^="btn-clean-execution-plans-rig-"],
 #btn-run-all-sequencers {
