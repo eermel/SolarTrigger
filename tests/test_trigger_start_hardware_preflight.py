@@ -165,7 +165,7 @@ def _run(
         trigger_active_fn=lambda rig_id: events.append(
             f"active:{rig_id}"
         ) or False,
-        log_fn=lambda _message: None,
+        log_fn=lambda _rig_id, _message: None,
         now_fn=lambda: datetime(
             2026, 9, 30, 8, 5, 0, tzinfo=timezone.utc
         ),
