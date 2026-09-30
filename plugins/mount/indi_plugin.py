@@ -303,9 +303,9 @@ class IndiMount(MountPlugin):
                 # contain elements from the pre-connect driver generation.
                 self._ensure_onstep_runtime_ready(force_refresh=True)
 
-            # Safety invariant: selecting/connecting a mount in SolarTrigger
-            # must never inherit tracking left active by a previous client.
-            self._ensure_tracking_stopped()
+            # Connection and reconnection are observational only.
+            # Never change physical tracking as a side effect of connecting;
+            # tracking is controlled exclusively by explicit tracking APIs.
             self._connected = True
         except IndiClientError:
             self._cleanup_runtime_channels()
