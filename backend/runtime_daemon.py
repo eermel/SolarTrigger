@@ -264,6 +264,52 @@ class RuntimeController:
         if restore_recovery:
             self._restore_trigger_journal_state()
 
+    def announce_ready(self):
+        """Play one best-effort local tone once the runtime is operational.
+
+        A recovered in-flight Trigger takes precedence over the boot tone: never
+        inject an unrelated sound into an eclipse sequence after a service
+        restart.  Audio failure is observability-only and cannot make startup
+        fail.
+        """
+        if self.trigger.any_active_or_starting():
+            self._runtime_log(
+                "Runtime ready tone skipped because a Trigger is active.",
+                "info",
+                "audio",
+            )
+            return False
+
+        def _play():
+            try:
+                with self._failure_audio_lock:
+                    audio_service.init(
+                        lambda message: self._runtime_log(
+                            message,
+                            "warning",
+                            "audio",
+                        ),
+                        driver="alsa",
+                    )
+                    audio_service.set_sounds_dir(
+                        self.project_root / "Sounds"
+                    )
+                    audio_service.play("contact.wav")
+            except Exception as exc:
+                self._runtime_log(
+                    "Runtime ready tone failed: "
+                    f"{type(exc).__name__}: {exc}",
+                    "warning",
+                    "audio",
+                )
+
+        threading.Thread(
+            target=_play,
+            name="runtime-ready-tone",
+            daemon=True,
+        ).start()
+        return True
+
     def _trigger_failure_alert(self, rig_id, code, detail):
         """Play a local alarm for a live trigger failure without blocking supervision."""
         def _play():
@@ -1253,6 +1299,7 @@ def main(argv=None) -> int:
             os.getpid(),
             args.socket,
         )
+        controller.announce_ready()
         server.serve_forever(poll_interval=0.2)
     finally:
         server.begin_shutdown()
