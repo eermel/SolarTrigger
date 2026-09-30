@@ -399,9 +399,13 @@ class SupervisedDeviceProcess:
                     }
                 )
             except (BrokenPipeError, EOFError, OSError) as exc:
+                diagnostics = self._process_diagnostics_locked(
+                    process,
+                    settle_s=0.0,
+                )
                 message = (
                     f"{self.device_kind} child IPC send failed "
-                    f"during {operation}"
+                    f"during {operation} ({diagnostics})"
                 )
                 self._record_error(
                     "DEVICE_UNAVAILABLE",
@@ -418,9 +422,13 @@ class SupervisedDeviceProcess:
 
             while time.monotonic() < deadline:
                 if not process.is_alive():
+                    diagnostics = self._process_diagnostics_locked(
+                        process,
+                        settle_s=0.0,
+                    )
                     message = (
                         f"{self.device_kind} child exited during "
-                        f"{operation} (exitcode={process.exitcode})"
+                        f"{operation} ({diagnostics})"
                     )
                     self._record_error(
                         "DEVICE_UNAVAILABLE",
@@ -441,9 +449,10 @@ class SupervisedDeviceProcess:
                 try:
                     response = conn.recv()
                 except (EOFError, OSError) as exc:
+                    diagnostics = self._process_diagnostics_locked(process)
                     message = (
                         f"{self.device_kind} child IPC closed "
-                        f"during {operation}"
+                        f"during {operation} ({diagnostics})"
                     )
                     self._record_error(
                         "DEVICE_UNAVAILABLE",
@@ -539,6 +548,12 @@ class SupervisedDeviceProcess:
         self._process = process
         self._conn = parent_conn
         self._generation += 1
+        self._emit_log(
+            f"{self.device_kind} child started "
+            f"rig={self.rig_id} pid={process.pid} "
+            f"supervisor_pid={os.getpid()} "
+            f"generation={self._generation}"
+        )
         try:
             child_conn.close()
         except OSError:
@@ -548,9 +563,13 @@ class SupervisedDeviceProcess:
 
         while time.monotonic() < deadline:
             if not process.is_alive():
+                diagnostics = self._process_diagnostics_locked(
+                    process,
+                    settle_s=0.0,
+                )
                 message = (
                     f"{self.device_kind} child exited during startup "
-                    f"(exitcode={process.exitcode})"
+                    f"({diagnostics})"
                 )
                 self._record_error(
                     "DEVICE_UNAVAILABLE",
@@ -571,11 +590,18 @@ class SupervisedDeviceProcess:
             try:
                 response = parent_conn.recv()
             except (EOFError, OSError) as exc:
+                diagnostics = self._process_diagnostics_locked(process)
+                message = (
+                    f"{self.device_kind} child IPC closed during startup "
+                    f"({diagnostics})"
+                )
+                self._record_error(
+                    "DEVICE_UNAVAILABLE",
+                    message,
+                    "startup",
+                )
                 self._discard_dead_process_locked()
-                raise WorkerUnavailableError(
-                    f"{self.device_kind} child IPC closed "
-                    "during startup"
-                ) from exc
+                raise WorkerUnavailableError(message) from exc
 
             if not isinstance(response, dict):
                 continue
@@ -682,6 +708,43 @@ class SupervisedDeviceProcess:
             self._log(str(message))
         except Exception:
             pass
+
+    def _process_diagnostics_locked(
+        self,
+        process=None,
+        *,
+        settle_s: float = 0.05,
+    ) -> str:
+        """Return bounded child diagnostics before its handle is discarded."""
+
+        current = self._process if process is None else process
+        if current is None:
+            return (
+                f"pid=None generation={self._generation} "
+                "alive=False exitcode=None"
+            )
+
+        try:
+            current.join(timeout=max(0.0, float(settle_s)))
+        except BaseException:
+            pass
+
+        try:
+            alive = bool(current.is_alive())
+        except BaseException:
+            alive = None
+
+        try:
+            exitcode = current.exitcode
+        except BaseException:
+            exitcode = None
+
+        return (
+            f"pid={getattr(current, 'pid', None)} "
+            f"supervisor_pid={os.getpid()} "
+            f"generation={self._generation} "
+            f"alive={alive} exitcode={exitcode}"
+        )
 
     def _terminate_process_locked(self, process) -> bool:
         if process.is_alive():

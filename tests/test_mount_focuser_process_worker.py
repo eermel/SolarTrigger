@@ -11,7 +11,7 @@ import backend.focuser_process_worker as focuser_process_worker
 import backend.mount_process_worker as mount_process_worker
 from backend.device_process_worker import MotionStateUnknownError, arm_parent_death_signal
 from backend.focuser_process_worker import ProcessFocuserWorker
-from backend.generic_worker import WorkerTimeoutError
+from backend.generic_worker import WorkerTimeoutError, WorkerUnavailableError
 from backend.mount_process_worker import ProcessMountWorker
 from plugins.mount.indi_client import IndiClientError
 
@@ -92,6 +92,61 @@ def _focuser(timeout=0.05):
     )
     worker.start()
     return worker
+
+
+def _clean_exit_child(conn, spec, call_timeout_s):
+    conn.send({"kind": "ready"})
+    conn.recv()
+    conn.close()
+
+
+def test_process_start_log_includes_pid_generation_and_rig():
+    logs = []
+    worker = ProcessMountWorker(
+        rig_id=3,
+        backend="indi",
+        device_config={"serial": "mount-3"},
+        state_path="/tmp/process-worker-test-state.json",
+        call_timeout_s=0.05,
+        log_fn=logs.append,
+        process_target=_fake_device_child,
+    )
+
+    try:
+        worker.start()
+        assert any(
+            "mount child started rig=3 pid=" in message
+            and "generation=1" in message
+            for message in logs
+        )
+    finally:
+        worker.shutdown()
+
+
+def test_ipc_close_reports_pid_generation_alive_and_exitcode():
+    worker = ProcessMountWorker(
+        rig_id=4,
+        backend="indi",
+        device_config={"serial": "mount-4"},
+        state_path="/tmp/process-worker-test-state.json",
+        call_timeout_s=0.05,
+        log_fn=lambda _message: None,
+        process_target=_clean_exit_child,
+    )
+    worker.start()
+
+    try:
+        with pytest.raises(WorkerUnavailableError) as caught:
+            worker.status()
+
+        message = str(caught.value)
+        assert "mount child IPC closed during status" in message
+        assert "pid=" in message
+        assert "generation=1" in message
+        assert "alive=False" in message
+        assert "exitcode=0" in message
+    finally:
+        worker.shutdown()
 
 
 def test_mount_process_returns_normal_result():
