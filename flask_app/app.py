@@ -5298,11 +5298,11 @@ def _run_trigger_hardware_preflight(rig_id, selected):
             _camera_preflight_state_from_selection(selected)
         ),
         trigger_active_fn=_trigger_active_or_starting,
-        log_fn=lambda message: _append_log(
+        log_fn=lambda log_rig_id, message: _append_log(
             message,
             "success",
             "trigger",
-            rig_id=rig_id,
+            rig_id=log_rig_id,
         ),
     )
 
@@ -5322,10 +5322,11 @@ def _run_trigger_hardware_preflight_batch(rig_ids, selected):
             _camera_preflight_state_from_selection(selected)
         ),
         trigger_active_fn=_trigger_active_or_starting,
-        log_fn=lambda message: _append_log(
+        log_fn=lambda log_rig_id, message: _append_log(
             message,
             "success",
             "trigger",
+            rig_id=log_rig_id,
         ),
     )
 
