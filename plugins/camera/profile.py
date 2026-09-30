@@ -16,15 +16,20 @@ from .base import (
 from backend.camera_profiles import validate_profile
 
 
-def widget(camera, path):
-    config = camera.get_config()
+def _widget_from_config(config, path):
+    """Resolve one characterized path from an already fetched config tree."""
     node = config
     parts = path.strip("/").split("/")
     if parts and parts[0] == config.get_name():
         parts.pop(0)
     for part in parts:
         node = node.get_child_by_name(part)
-    return config, node
+    return node
+
+
+def widget(camera, path):
+    config = camera.get_config()
+    return config, _widget_from_config(config, path)
 
 
 def write_widget(camera, path, value):
@@ -171,6 +176,24 @@ class ProfilePlugin(CameraPlugin):
     # get_config() readback to converge instead. Total settling budget: 1.85 s.
     PREFLIGHT_SETTLE_DELAYS_S = (0.10, 0.25, 0.50, 1.00)
 
+    # One wake snapshot is the authoritative starting state for a Trigger run.
+    # These are stable camera values that may be inspected or changed by the
+    # trigger/action paths. Capture/bulb action widgets are deliberately absent.
+    WAKE_STATE_KEYS = (
+        "manual_mode",
+        "capture_target",
+        "raw",
+        "shutter_mode",
+        "capture_mode",
+        "self_timer",
+        "time_lapse",
+        "white_balance",
+        "iso",
+        "shutter",
+        "aperture",
+        "battery",
+    )
+
     def __init__(self, camera, log_fn=print, profile=None):
         super().__init__(camera, log_fn)
         self.profile = validate_profile(profile)
@@ -232,6 +255,79 @@ class ProfilePlugin(CameraPlugin):
             return node.get_value()
         _, node = widget(self.camera, spec["path"])
         return node.get_value()
+
+    def wake_state(self):
+        """Wake the camera and cache one authoritative configuration snapshot.
+
+        Wake-up has exactly two responsibilities: prove USB connectivity and
+        learn the current values needed by Trigger/actions. It never changes a
+        camera setting. The resulting values live in this persistent camera
+        worker process and are the reference used by timed SET decisions.
+        """
+        get_config = getattr(self.camera, "get_config", None)
+        config = None
+        if callable(get_config):
+            try:
+                config = get_config()
+            except Exception as exc:
+                self._known_settings.clear()
+                raise CameraPreflightError(
+                    f"Communication with {self._display_model()} failed "
+                    f"during camera wake-up: {exc}"
+                ) from exc
+
+        observed = {}
+        known = {}
+        for key in self.WAKE_STATE_KEYS:
+            spec = self.commands.get(key)
+            if (
+                not isinstance(spec, dict)
+                or spec.get("get") is False
+                or not isinstance(spec.get("path"), str)
+                or not spec["path"].strip()
+            ):
+                continue
+
+            try:
+                if config is not None:
+                    node = _widget_from_config(config, spec["path"])
+                else:
+                    # Compatibility path for injected/fake cameras and legacy
+                    # adapters that expose the historical widget() contract but
+                    # no direct get_config(). Real gphoto2 cameras always use
+                    # the single full-tree snapshot above.
+                    _, node = widget(self.camera, spec["path"])
+                value = node.get_value()
+            except Exception as exc:
+                # Battery and runtime-optional controls are diagnostics, not a
+                # reason to reject an otherwise usable camera connection.
+                if key == "battery" or spec.get("runtime_optional") is True:
+                    self.log(
+                        f"WARNING camera wake-up could not read {key}: {exc}"
+                    )
+                    continue
+                self._known_settings.clear()
+                raise CameraPreflightError(
+                    f"Communication with {self._display_model()} failed "
+                    f"while reading {key} during camera wake-up: {exc}"
+                ) from exc
+
+            observed[key] = value
+            known[key] = value
+
+            # Reuse positive writability evidence from the same snapshot.
+            # Never cache a negative result: Sony writability can be transient,
+            # and characterized single_config writers remain authoritative.
+            if spec.get("set") is not False:
+                try:
+                    if not bool(node.get_readonly()):
+                        self._writable_cache.add(key)
+                except Exception:
+                    pass
+
+        self._known_settings.clear()
+        self._known_settings.update(known)
+        return dict(observed)
 
     def _preflight_read(self, key):
         """Read authoritative camera state during preflight.
@@ -470,13 +566,17 @@ class ProfilePlugin(CameraPlugin):
                 return last
         return last
 
-    def _ensure(self, key, value=None) -> bool:
-        """Preflight GET first; SET only when the required value differs."""
+    def _ensure(self, key, value=None, *, use_cached=False) -> bool:
+        """Converge one setting, reusing the authoritative wake snapshot."""
         spec = self.commands[key]
         target = self._resolved_value(key, value)
         optional = spec.get("runtime_optional") is True
         try:
-            actual = self._preflight_read(key)
+            if use_cached and key in self._known_settings:
+                actual = self._known_settings[key]
+            else:
+                actual = self._preflight_read(key)
+                self._known_settings[key] = actual
         except Exception as exc:
             if optional:
                 self._known_settings.pop(key, None)
@@ -491,7 +591,9 @@ class ProfilePlugin(CameraPlugin):
             return False
 
         if key == "aperture" and spec.get("set") is False:
-            self._known_settings.pop(key, None)
+            # Manual lens/telescope: retain the observed value for diagnostics,
+            # but never attempt to change a non-controllable aperture.
+            self._known_settings[key] = actual
             return False
 
         if spec.get("writer") == "single_config":
@@ -652,17 +754,17 @@ class ProfilePlugin(CameraPlugin):
         return True
 
     def preflight(self, required_state=None):
-        """Validate/configure the body before any timed Trigger command runs.
+        """Wake once, then converge only values that really need to change.
 
-        Characterized invariants are checked with GET first.  A GET-only
-        invariant is accepted when already correct and produces an actionable
-        error when a physical control must be changed.  Dynamic state is then
-        converged to the effective plan state at the current UTC time.
+        The wake snapshot is the authoritative current camera state. Timed
+        execution subsequently uses the in-process cache and never performs a
+        GET merely to decide whether a characterized SET is necessary.
         """
         required_state = required_state or {}
         if not isinstance(required_state, dict):
             raise ValueError("required_state must be an object")
 
+        self.wake_state()
         changed = []
         for key in (
             "manual_mode",
@@ -673,7 +775,7 @@ class ProfilePlugin(CameraPlugin):
             "self_timer",
             "time_lapse",
         ):
-            if key in self.commands and self._ensure(key):
+            if key in self.commands and self._ensure(key, use_cached=True):
                 changed.append(key)
 
         for parameter, value in required_state.items():
@@ -690,7 +792,7 @@ class ProfilePlugin(CameraPlugin):
                 # Manual lens / telescope: aperture is not a controllable camera
                 # variable and therefore is never a preflight failure.
                 continue
-            if self._ensure(key, value):
+            if self._ensure(key, value, use_cached=True):
                 changed.append(str(parameter))
 
         # Prime every direct writer now, while camera GETs are still allowed.

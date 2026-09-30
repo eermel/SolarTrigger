@@ -272,6 +272,34 @@ class CameraService:
         self.invalidate_connection()
         return self.connect()
 
+    def wake_state(self):
+        """Prove connectivity and refresh the in-process camera state cache.
+
+        This operation is read-only. Profile backends perform one authoritative
+        full configuration read and remember the values used by Trigger/actions.
+        """
+        if not self.connected:
+            self.connect()
+
+        method = getattr(self.plugin, "wake_state", None)
+        if callable(method):
+            state = method()
+            return dict(state) if isinstance(state, dict) else {}
+
+        # Compatibility path for legacy non-profile plugins.
+        state = {}
+        for key, parameter in (
+            ("iso", "iso"),
+            ("aperture", "f-number"),
+            ("shutter", "shutterspeed"),
+            ("capture_mode", "capturemode"),
+        ):
+            try:
+                state[key] = self.get_parameter(parameter)
+            except Exception:
+                continue
+        return state
+
     def recover_runtime_connection(self):
         """Reconnect and restore the last successful Trigger initialization.
 
@@ -556,37 +584,37 @@ class CameraService:
         return dict(getattr(self.plugin, "get_vibration_capabilities", lambda: {})())
 
     def read_info(self):
-        if not self.connected:
-            self.connect()
-
-        try:
-            config = self.camera.get_config()
-        except Exception:
-            config = None
-
-        def read_config(*names):
-            if config is None:
-                return None
-            for name in names:
-                try:
-                    return config.get_child_by_name(name).get_value()
-                except Exception:
-                    pass
-            return None
+        state = self.wake_state()
 
         from backend.camera_auxiliary_capabilities import read_camera_storage
+
+        battery = state.get("battery")
+        if battery is not None:
+            try:
+                battery = int(float(str(battery).rstrip("%")))
+            except (TypeError, ValueError):
+                battery = None
+        if battery is None:
+            try:
+                battery = self.plugin.get_battery_level()
+            except Exception:
+                battery = None
 
         return {
             "plugin": getattr(self.plugin, "name", None),
             "model": self.model or get_camera_model(self.camera),
-            "battery": self.plugin.get_battery_level(),
-            "iso": read_config("iso"),
-            "aperture": read_config("f-number"),
-            "shutterspeed": read_config("shutterspeed", "shutterspeed2"),
-            "mode": read_config("expprogram", "capturemode"),
+            "battery": battery,
+            "iso": state.get("iso"),
+            "aperture": state.get("aperture"),
+            "shutterspeed": state.get("shutter"),
+            "mode": (
+                state.get("manual_mode")
+                if state.get("manual_mode") is not None
+                else state.get("capture_mode")
+            ),
             # Preserve the historical capture-target field while exposing
             # real media capacity/free-space as a separate structured snapshot.
-            "storage": read_config("capturetarget"),
+            "storage": state.get("capture_target"),
             "storage_info": read_camera_storage(self.camera),
         }
 

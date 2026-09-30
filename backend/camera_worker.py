@@ -318,15 +318,32 @@ class CameraWorker:
     def sync_datetime(self, ref):
         return self._call("sync_datetime", ref, recover_connection=True)
 
-    def probe_info(self) -> dict[str, str | int | None]:
+    def probe_info(self) -> dict[str, Any]:
         def probe():
             service = self._ensure_service()
-            if not service.connected:
-                service.connect()
+            wake = getattr(service, "wake_state", None)
+            if callable(wake):
+                state = wake()
+            else:
+                if not service.connected:
+                    service.connect()
+                state = {}
+            state = dict(state) if isinstance(state, dict) else {}
+            battery = state.get("battery")
+            if battery is not None:
+                try:
+                    battery = int(float(str(battery).rstrip("%")))
+                except (TypeError, ValueError):
+                    battery = None
+            if battery is None:
+                try:
+                    battery = service.get_battery_level()
+                except Exception:
+                    battery = None
             return {
                 "model": service.model or None,
                 "plugin": getattr(service.plugin, "name", None),
-                "battery": service.get_battery_level(),
+                "battery": battery,
             }
 
         future = self._worker.submit_with_priority(

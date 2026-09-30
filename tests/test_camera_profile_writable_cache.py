@@ -208,3 +208,141 @@ def test_capture_group_failure_clears_state_and_writable_caches(monkeypatch):
 
     assert plugin._known_settings == {}
     assert plugin._writable_cache == set()
+
+
+class SnapshotPreflightCamera:
+    """Camera stub exposing one full configuration tree for wake-up tests."""
+
+    def __init__(self, *, iso="100", target="card", image_format="RAW"):
+        self.get_config_calls = 0
+        self.set_config_calls = 0
+        self.get_single_config_calls = 0
+        self.set_single_config_calls = 0
+
+        self.mode = CountingWidget("mode", "M")
+        self.target = CountingWidget("target", target)
+        self.image_format = CountingWidget("format", image_format)
+        self.iso = CountingWidget("iso", iso)
+        self.shutter = CountingWidget("shutterspeed", "1/500")
+        self.capture_mode = CountingWidget("capturemode", "Single Shot")
+        self.root = CountingWidget(
+            "main",
+            None,
+            children=[
+                self.mode,
+                self.target,
+                self.image_format,
+                self.iso,
+                self.shutter,
+                self.capture_mode,
+            ],
+        )
+
+    def get_config(self):
+        self.get_config_calls += 1
+        return self.root
+
+    def set_config(self, config):
+        assert config is self.root
+        self.set_config_calls += 1
+
+    def get_single_config(self, name):
+        self.get_single_config_calls += 1
+        return {
+            "iso": self.iso,
+            "shutterspeed": self.shutter,
+            "capturemode": self.capture_mode,
+        }[name]
+
+    def set_single_config(self, name, node):
+        expected = {
+            "iso": self.iso,
+            "shutterspeed": self.shutter,
+            "capturemode": self.capture_mode,
+        }[name]
+        assert node is expected
+        self.set_single_config_calls += 1
+
+
+def profile_with_direct_iso_writer():
+    profile = profile_without_timing_contract()
+    profile["commands"]["iso"].update({
+        "name": "iso",
+        "writer": "single_config",
+        "get": True,
+        "set": True,
+    })
+    return profile
+
+
+def make_direct_plugin(camera):
+    return ProfilePlugin(
+        camera,
+        log_fn=lambda _msg: None,
+        profile=profile_with_direct_iso_writer(),
+    )
+
+
+def test_wake_state_reads_one_snapshot_and_never_sets_camera():
+    camera = SnapshotPreflightCamera()
+    plugin = make_plugin(camera)
+
+    state = plugin.wake_state()
+
+    assert camera.get_config_calls == 1
+    assert camera.set_config_calls == 0
+    assert camera.set_single_config_calls == 0
+    assert state["iso"] == "100"
+    assert state["shutter"] == "1/500"
+    assert state["capture_mode"] == "Single Shot"
+    assert plugin._known_settings["iso"] == "100"
+    assert plugin._known_settings["shutter"] == "1/500"
+
+
+def test_preflight_reuses_single_wake_snapshot_when_camera_is_ready():
+    camera = SnapshotPreflightCamera()
+    plugin = make_plugin(camera)
+
+    result = plugin.preflight({"iso": "100"})
+
+    assert result["ok"] is True
+    assert result["changed"] == []
+    assert camera.get_config_calls == 1
+    assert camera.set_config_calls == 0
+    assert plugin._known_settings["iso"] == "100"
+
+
+def test_direct_runtime_set_uses_cache_and_only_sets_on_value_change():
+    camera = SnapshotPreflightCamera()
+    plugin = make_direct_plugin(camera)
+
+    result = plugin.preflight({"iso": "100"})
+    assert result["ok"] is True
+    assert camera.get_config_calls == 1
+
+    full_reads = camera.get_config_calls
+    direct_sets = camera.set_single_config_calls
+
+    assert plugin._apply("iso", "100") is False
+    assert camera.get_config_calls == full_reads
+    assert camera.set_single_config_calls == direct_sets
+
+    assert plugin._apply("iso", "200") is True
+    assert camera.get_config_calls == full_reads
+    assert camera.set_single_config_calls == direct_sets + 1
+    assert plugin._known_settings["iso"] == "200"
+
+
+def test_preflight_changed_direct_value_uses_snapshot_set_and_readback():
+    camera = SnapshotPreflightCamera(iso="100")
+    plugin = make_direct_plugin(camera)
+
+    result = plugin.preflight({"iso": "200"})
+
+    assert result["ok"] is True
+    assert result["changed"] == ["iso"]
+    # One wake snapshot + one authoritative full-tree readback after the SET.
+    assert camera.get_config_calls == 2
+    assert camera.set_single_config_calls == 1
+    assert camera.iso.get_value() == "200"
+    assert plugin._known_settings["iso"] == "200"
