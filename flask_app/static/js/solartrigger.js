@@ -4448,6 +4448,50 @@ function selectedTriggerInputs() {
   };
 }
 
+async function preflightTriggerRigs(rigIds, inputs) {
+  try {
+    const response = await fetch('/api/trigger/preflight', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        rig_ids: rigIds,
+        ...inputs
+      })
+    });
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      const code = data.code;
+      const detail = data.message || data.error || ('HTTP error ' + response.status);
+      flash(
+        'Preflight: ' + detail,
+        code === 'RPC_OUTCOME_UNKNOWN' ? 'yellow' : 'red'
+      );
+
+      if (
+        code === 'GPS_NOT_SYNCED' ||
+        code === 'GPS_SYNC_STALE' ||
+        code === 'GPS_SYNC_TIME_INVALID' ||
+        code === 'GPS_SYNC_IN_PROGRESS'
+      ) {
+        setTimeout(() => showTab(1), 1500);
+      }
+      return null;
+    }
+
+    const tokens = data.tokens || {};
+    if (rigIds.some(rigId => !tokens[String(rigId)])) {
+      flash('Preflight did not return a token for every active RIG.', 'red');
+      return null;
+    }
+
+    return tokens;
+  } catch (error) {
+    flash('Preflight: ' + (error.message || 'Network error'), 'red');
+    return null;
+  }
+}
+
 async function startTrigger() {
   const rigIds = activeTriggerRigIds();
   const inputs = selectedTriggerInputs();
@@ -4456,6 +4500,9 @@ async function startTrigger() {
     flash('No active RIG.', 'red');
     return;
   }
+
+  const preflightTokens = await preflightTriggerRigs(rigIds, inputs);
+  if (!preflightTokens) return;
 
   const failures = [];
 
@@ -4466,7 +4513,8 @@ async function startTrigger() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           rig_id: rigId,
-          ...inputs
+          ...inputs,
+          preflight_token: preflightTokens[String(rigId)]
         })
       });
 
@@ -4548,6 +4596,11 @@ async function startDebug() {
     'Continue?'
   )) return;
 
+  // Test every active RIG before creating the common DEBUG time anchor.
+  // If one camera or mount fails, no DEBUG sequence has started yet.
+  const preflightTokens = await preflightTriggerRigs(rigIds, inputs);
+  if (!preflightTokens) return;
+
   // DEBUG circumstances do not carry the Photo Setup diamond-ring duration.
   // Load it before /api/trigger/debug can emit eclipse_calculated.
   await loadTriggerDiamondDuration(inputs.photo_file);
@@ -4570,7 +4623,8 @@ async function startDebug() {
           rig_id: rigId,
           debug_anchor_utc: debugAnchorUtc,
           photo_file: inputs.photo_file,
-          exposure_opt_file: inputs.exposure_opt_file
+          exposure_opt_file: inputs.exposure_opt_file,
+          preflight_token: preflightTokens[String(rigId)]
         })
       });
 
@@ -4655,6 +4709,9 @@ async function startDryRun() {
   )) return;
 
   const inputs = selectedTriggerInputs();
+  const preflightTokens = await preflightTriggerRigs(rigIds, inputs);
+  if (!preflightTokens) return;
+
   const failures = [];
 
   for (const rigId of rigIds) {
@@ -4664,7 +4721,8 @@ async function startDryRun() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           rig_id: rigId,
-          ...inputs
+          ...inputs,
+          preflight_token: preflightTokens[String(rigId)]
         })
       });
 
