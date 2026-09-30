@@ -7,7 +7,7 @@ JS = Path("flask_app/static/js/solartrigger.js")
 def _start_debug_source():
     source = JS.read_text(encoding="utf-8")
     start = source.index("async function startDebug()")
-    end = source.index("\n\nasync function startDryRun()", start)
+    end = source.index("\n\nasync function stopTrigger()", start)
     return source[start:end]
 
 

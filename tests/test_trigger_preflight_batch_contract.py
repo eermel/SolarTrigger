@@ -46,7 +46,7 @@ def test_normal_trigger_preflights_all_rigs_before_first_start_request():
 
 
 def test_debug_creates_shared_anchor_only_after_all_rigs_preflight():
-    source = _function_source("startDebug", "startDryRun")
+    source = _function_source("startDebug", "stopTrigger")
 
     preflight = source.index(
         "await preflightTriggerRigs(rigIds, inputs)"
@@ -58,12 +58,14 @@ def test_debug_creates_shared_anchor_only_after_all_rigs_preflight():
     assert "preflight_token: preflightTokens[String(rigId)]" in source
 
 
-def test_dryrun_uses_same_hardware_preflight_contract():
-    source = _function_source("startDryRun", "stopTrigger")
+def test_unified_start_uses_one_hardware_preflight_contract_for_all_dates():
+    source = _function_source("startTrigger", "startDebug")
 
     assert "await preflightTriggerRigs(rigIds, inputs)" in source
-    assert "fetch('/api/trigger/dryrun'" in source
+    assert "fetch('/api/trigger/start'" in source
     assert "preflight_token: preflightTokens[String(rigId)]" in source
+    assert "startDryRun" not in JS
+    assert "/api/trigger/dryrun" not in JS
 
 
 def test_debug_backend_carries_preflight_token_into_start_selection():

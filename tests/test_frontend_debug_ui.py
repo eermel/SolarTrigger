@@ -62,7 +62,7 @@ def test_debug_panel_contains_test_actions_and_white_clean_button():
 
     assert "DEBUG / TEST MODE" in debug
     assert 'id="btn-debug"' in debug
-    assert 'id="btn-dryrun"' in debug
+    assert 'id="btn-dryrun"' not in debug
     assert 'id="btn-debug-start"' in debug
     assert 'id="btn-debug-totality-only"' in debug
     assert 'id="btn-debug-stop"' in debug
@@ -105,7 +105,6 @@ def test_debug_banner_is_yellow_and_visually_distinct():
 def test_debug_frontend_reuses_existing_trigger_functions():
     for function_name in (
         "startDebugFromDebugTab",
-        "startDryRunFromDebugTab",
         "startTriggerFromDebugTab",
         "startTotalityOnlyFromDebugTab",
         "stopTriggerFromDebugTab",
@@ -116,7 +115,8 @@ def test_debug_frontend_reuses_existing_trigger_functions():
         assert f"function {function_name}" in INDEX
 
     assert "await startDebug();" in INDEX
-    assert "await startDryRun();" in INDEX
+    assert "startDryRunFromDebugTab" not in INDEX
+    assert "await startDryRun();" not in INDEX
     assert "await startTrigger();" in INDEX
     assert "await startTotalityOnly();" in INDEX
     assert "await stopTrigger();" in INDEX
@@ -128,7 +128,7 @@ def test_debug_clean_endpoint_only_targets_generated_debug_files():
         '@app.route("/api/trigger/debug/clean", methods=["POST"])'
     )
     route_end = APP.index(
-        '@app.route("/api/trigger/dryrun", methods=["POST"])',
+        '@app.route("/api/trigger/debug", methods=["POST"])',
         route_start,
     )
     source = APP[route_start:route_end]
@@ -317,7 +317,7 @@ def test_circumstances_rerender_refreshes_countdown_without_placeholder_flash():
 
 def test_debug_loads_diamond_duration_before_backend_can_render_generated_contacts():
     start = INDEX.index("async function startDebug()")
-    end = INDEX.index("\nasync function startDryRun()", start)
+    end = INDEX.index("\nasync function stopTrigger()", start)
     source = INDEX[start:end]
 
     load = "await loadTriggerDiamondDuration(inputs.photo_file);"
