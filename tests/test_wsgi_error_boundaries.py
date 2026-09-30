@@ -22,7 +22,7 @@ def test_trigger_error_boundaries_exist():
     assert '"TRIGGER_DRYRUN_FAILED"' not in APP
     assert '"DEBUG_START_FAILED"' in APP
     assert '"error": "Trigger simulation failed."' in APP
-    assert '"error": "Trigger dry-run failed."' in APP
+    assert '"error": "Trigger dry-run failed."' not in APP
     assert '"error": "DEBUG start failed."' in APP
 
 
