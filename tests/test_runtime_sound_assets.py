@@ -86,8 +86,18 @@ def test_new_trigger_announcements_live_under_human_wav():
     assert 'f"{human}/last_contact.wav"' in source
     assert 'f"{human}/sequence_started.wav"' in source
     assert '_play_audio_alert("human_wav/sequence_ended.wav")' in source
-    assert 'f"{human}/filters_on.wav"' in source
-    assert 'f"{human}/filters_off.wav"' in source
+    assert '"filter_on.wav"' in source
+    assert '"filter_off.wav"' in source
+
+
+def test_dedicated_boot_and_filter_assets_exist():
+    for relative in (
+        "boot_ready.wav",
+        "filter_on.wav",
+        "filter_off.wav",
+    ):
+        path = SOUNDS_DIR / relative
+        assert path.is_file(), f"Missing runtime WAV asset: {path}"
 
 
 def test_scheduled_wav_paths_are_relative_and_safe():
