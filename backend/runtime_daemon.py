@@ -294,7 +294,7 @@ class RuntimeController:
                     audio_service.set_sounds_dir(
                         self.project_root / "Sounds"
                     )
-                    audio_service.play("contact.wav")
+                    audio_service.play("boot_ready.wav")
             except Exception as exc:
                 self._runtime_log(
                     "Runtime ready tone failed: "
