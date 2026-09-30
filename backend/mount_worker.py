@@ -101,8 +101,14 @@ class MountWorker:
     def set_tracking_mode(self, mode: str):
         return self._call("set_tracking_mode", mode)
 
+    def set_tracking_mode_fast(self, mode: str):
+        return self._call("set_tracking_mode_fast", mode)
+
     def start_tracking(self):
         return self._call("start_tracking")
+
+    def start_tracking_fast(self):
+        return self._call("start_tracking_fast")
 
     def stop_tracking(self):
         return self._call("stop_tracking")
@@ -123,6 +129,23 @@ class MountWorker:
     ):
         return self._call(
             "sync_site_time",
+            latitude,
+            longitude,
+            elevation,
+            utc_iso,
+            utc_offset_hours,
+        )
+
+    def sync_site_time_fast(
+        self,
+        latitude,
+        longitude,
+        elevation,
+        utc_iso,
+        utc_offset_hours,
+    ):
+        return self._call(
+            "sync_site_time_fast",
             latitude,
             longitude,
             elevation,
