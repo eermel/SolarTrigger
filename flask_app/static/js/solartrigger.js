@@ -4576,14 +4576,6 @@ async function startDebug() {
     return;
   }
 
-  if (!inputs.photo_file || !inputs.exposure_opt_file) {
-    flash(
-      'DEBUG requires a selected Photo Setup and Exposure Optimization file.',
-      'red'
-    );
-    return;
-  }
-
   const targetText = rigIds.length > 1
     ? `${rigIds.length} active RIGs`
     : `RIG ${rigIds[0]}`;
