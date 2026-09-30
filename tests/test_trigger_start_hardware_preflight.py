@@ -21,15 +21,17 @@ class FakeCameraWorker:
     def __init__(self, events, *, fail=None):
         self.events = events
         self.fail = fail
+        self.required_state = None
 
-    def probe_info(self):
-        self.events.append("camera.probe")
+    def preflight(self, required_state):
+        self.events.append("camera.preflight")
+        self.required_state = dict(required_state)
         if self.fail is not None:
             raise self.fail
         return {
+            "ok": True,
             "model": "TEST CAMERA",
-            "plugin": "test",
-            "battery": "100%",
+            "changed": [],
         }
 
 
@@ -156,6 +158,10 @@ def _run(
         rig_config_loader=config_loader,
         camera_runtime=camera_runtime,
         mount_runtime=mount_runtime,
+        camera_required_state_loader=lambda: {
+            "iso": "100",
+            "f-number": "f/8",
+        },
         trigger_active_fn=lambda rig_id: events.append(
             f"active:{rig_id}"
         ) or False,
@@ -164,7 +170,7 @@ def _run(
             2026, 9, 30, 8, 5, 0, tzinfo=timezone.utc
         ),
     )
-    return result, events, mount_worker
+    return result, events, mount_worker, camera_worker
 
 
 def test_gps_is_first_verification_and_blocks_all_hardware():
@@ -180,6 +186,9 @@ def test_gps_is_first_verification_and_blocks_all_hardware():
             rig_config_loader=forbidden_config,
             camera_runtime=None,
             mount_runtime=None,
+            camera_required_state_loader=lambda: pytest.fail(
+                "camera state must not be loaded before GPS passes"
+            ),
             trigger_active_fn=lambda _rig_id: pytest.fail(
                 "trigger state must not be queried before GPS passes"
             ),
@@ -190,7 +199,7 @@ def test_gps_is_first_verification_and_blocks_all_hardware():
 
 
 def test_preflight_order_is_camera_then_mount_sync_then_solar_tracking():
-    result, events, mount_worker = _run()
+    result, events, mount_worker, camera_worker = _run()
 
     assert events == [
         "gps",
@@ -198,13 +207,17 @@ def test_preflight_order_is_camera_then_mount_sync_then_solar_tracking():
         "config",
         "camera.reconcile",
         "camera.get:1",
-        "camera.probe",
+        "camera.preflight",
         "mount.reconcile",
         "mount.get:1",
         "mount.sync",
         "mount.mode:solar",
         "mount.start",
     ]
+    assert camera_worker.required_state == {
+        "iso": "100",
+        "f-number": "f/8",
+    }
     assert mount_worker.sync_args == (
         48.0,
         2.0,
@@ -217,7 +230,9 @@ def test_preflight_order_is_camera_then_mount_sync_then_solar_tracking():
 
 
 def test_rig_without_mount_still_gets_camera_preflight():
-    result, events, _mount_worker = _run(mount_worker_marker=False)
+    result, events, _mount_worker, camera_worker = _run(
+        mount_worker_marker=False
+    )
 
     assert events == [
         "gps",
@@ -225,10 +240,14 @@ def test_rig_without_mount_still_gets_camera_preflight():
         "config",
         "camera.reconcile",
         "camera.get:1",
-        "camera.probe",
+        "camera.preflight",
         "mount.reconcile",
         "mount.get:1",
     ]
+    assert camera_worker.required_state == {
+        "iso": "100",
+        "f-number": "f/8",
+    }
     assert result["mount"] is None
 
 
@@ -250,6 +269,10 @@ def test_camera_failure_prevents_any_mount_operation():
             rig_config_loader=lambda: events.append("config") or _config(),
             camera_runtime=camera_runtime,
             mount_runtime=mount_runtime,
+            camera_required_state_loader=lambda: {
+                "iso": "100",
+                "f-number": "f/8",
+            },
             trigger_active_fn=lambda _rig_id: False,
             now_fn=lambda: datetime(
                 2026, 9, 30, 8, 5, 0, tzinfo=timezone.utc
@@ -277,6 +300,10 @@ def test_mount_sync_failure_prevents_tracking_activation():
             rig_config_loader=lambda: events.append("config") or _config(),
             camera_runtime=camera_runtime,
             mount_runtime=mount_runtime,
+            camera_required_state_loader=lambda: {
+                "iso": "100",
+                "f-number": "f/8",
+            },
             trigger_active_fn=lambda _rig_id: False,
             now_fn=lambda: datetime(
                 2026, 9, 30, 8, 5, 0, tzinfo=timezone.utc
