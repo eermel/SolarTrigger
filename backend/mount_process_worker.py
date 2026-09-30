@@ -21,11 +21,14 @@ _MOUNT_OPERATIONS = frozenset(
     {
         "status",
         "set_tracking_mode",
+        "set_tracking_mode_fast",
         "start_tracking",
+        "start_tracking_fast",
         "stop_tracking",
         "set_speed",
         "set_location",
         "sync_site_time",
+        "sync_site_time_fast",
         "start_slew",
         "home_start",
         "stop",
@@ -140,8 +143,14 @@ class ProcessMountWorker(SupervisedDeviceProcess):
     def set_tracking_mode(self, mode: str):
         return self.call("set_tracking_mode", mode)
 
+    def set_tracking_mode_fast(self, mode: str):
+        return self.call("set_tracking_mode_fast", mode)
+
     def start_tracking(self):
         return self.call("start_tracking")
+
+    def start_tracking_fast(self):
+        return self.call("start_tracking_fast")
 
     def stop_tracking(self):
         return self.call("stop_tracking")
@@ -167,6 +176,23 @@ class ProcessMountWorker(SupervisedDeviceProcess):
     ):
         return self.call(
             "sync_site_time",
+            latitude,
+            longitude,
+            elevation,
+            utc_iso,
+            utc_offset_hours,
+        )
+
+    def sync_site_time_fast(
+        self,
+        latitude,
+        longitude,
+        elevation,
+        utc_iso,
+        utc_offset_hours,
+    ):
+        return self.call(
+            "sync_site_time_fast",
             latitude,
             longitude,
             elevation,
