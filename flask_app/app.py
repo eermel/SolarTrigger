@@ -259,7 +259,11 @@ from backend.camera_worker_runtime import get_camera_worker_runtime
 from backend.focuser_worker_runtime import get_focuser_worker_runtime
 from backend.generic_worker import BusyDeviceError
 from backend.mount_worker_runtime import get_mount_worker_runtime
-from backend.trigger_service import TriggerService, TriggerValidationError
+from backend.trigger_service import (
+    TriggerService,
+    TriggerValidationError,
+    validate_trigger_gps_state,
+)
 from backend.trigger_start_preflight import prepare_trigger_hardware
 from backend.runtime_rpc import (
     RemoteTriggerService,
@@ -5146,7 +5150,58 @@ else:
         product_configs_dir=PRODUCT_CONFIGS_DIR,
     )
 
-def _run_trigger_hardware_preflight(rig_id):
+def _camera_preflight_state_from_selection(selected):
+    selected = selected if isinstance(selected, dict) else {}
+    photo_name = str(selected.get("photo_file") or "").strip()
+    if (
+        not photo_name
+        or Path(photo_name).name != photo_name
+        or Path(photo_name).suffix.lower() != ".json"
+    ):
+        raise TriggerValidationError(
+            "Select a valid Photo Setup file.",
+            "TRIGGER_INPUTS_NOT_LOADED",
+        )
+
+    photo_path = CONFIGS_DIR / "photo_cfg" / photo_name
+    if not photo_path.is_file():
+        bundled = PRODUCT_CONFIGS_DIR / "photo_cfg" / photo_name
+        if bundled.is_file():
+            photo_path = bundled
+    if not photo_path.is_file():
+        raise TriggerValidationError(
+            "Selected Photo Setup cannot be loaded.",
+            "TRIGGER_INPUTS_NOT_LOADED",
+        )
+
+    try:
+        photo_setup = json.loads(photo_path.read_text(encoding="utf-8"))
+        partial = photo_setup.get("phases", {}).get("partial", {})
+        if not isinstance(partial, dict):
+            raise ValueError("Photo Setup partial phase is invalid")
+    except Exception as exc:
+        raise TriggerValidationError(
+            f"Selected Photo Setup cannot be loaded: {exc}",
+            "TRIGGER_INPUTS_NOT_LOADED",
+        ) from exc
+
+    required = {
+        "iso": str(partial.get("iso", "100")),
+    }
+    aperture = partial.get("aperture", "f/8")
+    if aperture is not None:
+        required["f-number"] = aperture
+    return required
+
+
+def _validate_sequence_gps_first():
+    """Run before every other sequence-start validation."""
+    return validate_trigger_gps_state(
+        _state_store.snapshot("gps") or {}
+    )
+
+
+def _run_trigger_hardware_preflight(rig_id, selected):
     """GPS-first hardware preparation shared by Trigger, DEBUG and dry-run."""
     return prepare_trigger_hardware(
         rig_id=rig_id,
@@ -5156,6 +5211,9 @@ def _run_trigger_hardware_preflight(rig_id):
         mount_runtime=get_mount_worker_runtime(
             log_fn=log.info,
             state_path=STATE_FILE,
+        ),
+        camera_required_state_loader=lambda: (
+            _camera_preflight_state_from_selection(selected)
         ),
         trigger_active_fn=_trigger_active_or_starting,
         log_fn=lambda message: _append_log(
@@ -5173,7 +5231,7 @@ def _start_trigger_with_hardware_preflight(
     dry_run=False,
     selected=None,
 ):
-    _run_trigger_hardware_preflight(rig_id)
+    _run_trigger_hardware_preflight(rig_id, selected)
     return _trigger_service.start(
         rig_id=rig_id,
         simulate=False,
@@ -5189,6 +5247,7 @@ def api_trigger_start():
     rig_id = payload.get("rig_id", 1)
 
     try:
+        _validate_sequence_gps_first()
         if not _trigger_start_guarded(
             lambda: _start_trigger_with_hardware_preflight(
                 rig_id=rig_id,
@@ -5316,6 +5375,7 @@ def api_trigger_dryrun():
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
     try:
+        _validate_sequence_gps_first()
         if not _trigger_start_guarded(
             lambda: _start_trigger_with_hardware_preflight(
                 rig_id=rig_id,
@@ -5358,6 +5418,16 @@ def api_trigger_debug():
     """Generate and immediately start the short DEBUG scenario on one RIG."""
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
+
+    # GPS synchronization is deliberately the first validation for DEBUG too.
+    try:
+        _validate_sequence_gps_first()
+    except TriggerValidationError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": exc.code,
+            "rig_id": rig_id,
+        }), 400
     photo_name = str(payload.get("photo_file", "")).strip()
     exposure_name = str(payload.get("exposure_opt_file", "")).strip()
     if (not isinstance(rig_id, int) or isinstance(rig_id, bool) or not 1 <= rig_id <= 4):
