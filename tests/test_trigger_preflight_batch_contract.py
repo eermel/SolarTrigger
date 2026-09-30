@@ -26,7 +26,7 @@ def test_batch_preflight_route_checks_gps_before_rig_validation():
 
     gps = source.index("_validate_sequence_gps_first()")
     rig_ids = source.index('raw_rig_ids = payload.get("rig_ids")')
-    run = source.index("_run_trigger_hardware_preflight(")
+    run = source.index("_run_trigger_hardware_preflight_batch(")
     tokens = source.index("_issue_trigger_preflight_tokens(")
 
     assert gps < rig_ids < run < tokens
