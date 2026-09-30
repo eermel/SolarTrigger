@@ -426,3 +426,58 @@ def test_batch_preflights_every_camera_before_any_mount_sync():
     assert last_mount_sync < first_tracking
     assert result["tracking"][1]["tracking_enabled"] is True
     assert result["tracking"][2]["tracking_enabled"] is True
+
+
+def test_preflight_prefers_low_latency_mount_operations():
+    events = []
+    camera_runtime = FakeCameraRuntime(
+        events,
+        FakeCameraWorker(events),
+    )
+
+    class FastMountWorker:
+        def sync_site_time_fast(self, *args):
+            events.append("mount.sync.fast")
+            self.sync_args = args
+            return {"connected": True}
+
+        def sync_site_time(self, *_args):
+            raise AssertionError("slow mount sync must not be used")
+
+        def set_tracking_mode_fast(self, mode):
+            events.append(f"mount.mode.fast:{mode}")
+            return {"tracking_mode": mode}
+
+        def set_tracking_mode(self, _mode):
+            raise AssertionError("slow tracking mode must not be used")
+
+        def start_tracking_fast(self):
+            events.append("mount.start.fast")
+            return {"tracking_enabled": True}
+
+        def start_tracking(self):
+            raise AssertionError("slow tracking start must not be used")
+
+    worker = FastMountWorker()
+    mount_runtime = FakeMountRuntime(events, worker)
+
+    result = prepare_trigger_hardware(
+        rig_id=1,
+        state_store=FakeState(_gps(), events),
+        rig_config_loader=lambda: events.append("config") or _config(),
+        camera_runtime=camera_runtime,
+        mount_runtime=mount_runtime,
+        camera_required_state_loader=lambda: {
+            "iso": "100",
+            "f-number": "f/8",
+        },
+        trigger_active_fn=lambda _rig_id: False,
+        now_fn=lambda: datetime(
+            2026, 9, 30, 8, 5, 0, tzinfo=timezone.utc
+        ),
+    )
+
+    assert "mount.sync.fast" in events
+    assert "mount.mode.fast:solar" in events
+    assert "mount.start.fast" in events
+    assert result["mount"]["tracking"]["tracking_enabled"] is True
