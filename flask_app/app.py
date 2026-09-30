@@ -388,6 +388,14 @@ _device_detection_cache = {}
 _mount_selection_warmup_lock = threading.Lock()
 _mount_selection_generation_lock = threading.Lock()
 _mount_selection_generation = 0
+
+# Successful hardware preflight is consumed exactly once by the immediately
+# following sequence START.  This lets the UI preflight every active RIG before
+# starting any of them, without repeating slow camera/mount I/O afterward.
+_trigger_preflight_lock = threading.Lock()
+_trigger_preflight_tokens = {}
+_TRIGGER_PREFLIGHT_TTL_S = 120.0
+
 _DEVICE_DETECTION_TIMEOUTS = {
     "camera": 2.0,
     "gps": 2.0,
@@ -5150,6 +5158,77 @@ else:
         product_configs_dir=PRODUCT_CONFIGS_DIR,
     )
 
+def _trigger_preflight_identity(rig_id, selected):
+    config = load_rig_configuration()
+    rig = next(
+        (
+            deepcopy(item)
+            for item in config.get("rigs", ())
+            if isinstance(item, dict) and item.get("rig_id") == rig_id
+        ),
+        None,
+    )
+    gps = _state_store.snapshot("gps") or {}
+    selected = selected if isinstance(selected, dict) else {}
+    return {
+        "rig_id": rig_id,
+        "photo_file": str(selected.get("photo_file") or ""),
+        "exposure_opt_file": str(selected.get("exposure_opt_file") or ""),
+        "gps_sync_time": gps.get("sync_time"),
+        "rig": rig,
+    }
+
+
+def _prune_trigger_preflight_tokens_locked(now):
+    stale = [
+        token
+        for token, entry in _trigger_preflight_tokens.items()
+        if float(entry.get("expires_at", 0.0)) <= now
+    ]
+    for token in stale:
+        _trigger_preflight_tokens.pop(token, None)
+
+
+def _issue_trigger_preflight_tokens(rig_ids, selected):
+    now = time.monotonic()
+    issued = {}
+    with _trigger_preflight_lock:
+        _prune_trigger_preflight_tokens_locked(now)
+        for rig_id in rig_ids:
+            token = os.urandom(24).hex()
+            _trigger_preflight_tokens[token] = {
+                "expires_at": now + _TRIGGER_PREFLIGHT_TTL_S,
+                "identity": _trigger_preflight_identity(rig_id, selected),
+            }
+            issued[str(rig_id)] = token
+    return issued
+
+
+def _consume_trigger_preflight_token(token, rig_id, selected):
+    if not isinstance(token, str) or not token:
+        return False
+
+    now = time.monotonic()
+    with _trigger_preflight_lock:
+        _prune_trigger_preflight_tokens_locked(now)
+        entry = _trigger_preflight_tokens.pop(token, None)
+
+    if not isinstance(entry, dict):
+        raise TriggerValidationError(
+            f"RIG {rig_id} hardware preflight is missing or expired.",
+            "TRIGGER_PREFLIGHT_REQUIRED",
+        )
+
+    expected = entry.get("identity")
+    actual = _trigger_preflight_identity(rig_id, selected)
+    if expected != actual:
+        raise TriggerValidationError(
+            f"RIG {rig_id} hardware/GPS configuration changed after preflight.",
+            "TRIGGER_PREFLIGHT_STALE",
+        )
+    return True
+
+
 def _camera_preflight_state_from_selection(selected):
     selected = selected if isinstance(selected, dict) else {}
     photo_name = str(selected.get("photo_file") or "").strip()
@@ -5231,13 +5310,81 @@ def _start_trigger_with_hardware_preflight(
     dry_run=False,
     selected=None,
 ):
-    _run_trigger_hardware_preflight(rig_id, selected)
+    selected = selected if isinstance(selected, dict) else {}
+    token = selected.get("preflight_token")
+    if token:
+        _consume_trigger_preflight_token(token, rig_id, selected)
+    else:
+        _run_trigger_hardware_preflight(rig_id, selected)
     return _trigger_service.start(
         rig_id=rig_id,
         simulate=False,
         dry_run=dry_run,
         selected=selected,
     )
+
+
+@app.route("/api/trigger/preflight", methods=["POST"])
+def api_trigger_preflight():
+    """GPS-first hardware preflight for all RIGs before any sequence starts."""
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        # Explicit contract: GPS is the first verification, even before the
+        # requested RIG list or selected Photo Setup is validated.
+        _validate_sequence_gps_first()
+
+        raw_rig_ids = payload.get("rig_ids")
+        if not isinstance(raw_rig_ids, list) or not raw_rig_ids:
+            raise TriggerValidationError(
+                "Select at least one active RIG.",
+                "RIG_ID_INVALID",
+            )
+        if any(
+            not isinstance(rig_id, int)
+            or isinstance(rig_id, bool)
+            or not 1 <= rig_id <= 4
+            for rig_id in raw_rig_ids
+        ):
+            raise TriggerValidationError(
+                "RIG ids must be integers from 1 to 4.",
+                "RIG_ID_INVALID",
+            )
+        rig_ids = tuple(dict.fromkeys(raw_rig_ids))
+
+        def run_all():
+            results = {}
+            for rig_id in rig_ids:
+                results[str(rig_id)] = _run_trigger_hardware_preflight(
+                    rig_id,
+                    payload,
+                )
+            # Do not issue any token until every RIG has passed.  Therefore a
+            # camera/mount failure can never leave an earlier RIG sequence
+            # already running.
+            tokens = _issue_trigger_preflight_tokens(rig_ids, payload)
+            return {
+                "status": "ok",
+                "rig_ids": list(rig_ids),
+                "tokens": tokens,
+                "results": results,
+            }
+
+        return jsonify(_trigger_start_guarded(run_all))
+
+    except TriggerValidationError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": exc.code,
+        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+    except RuntimeOutcomeUnknownError as exc:
+        return _runtime_outcome_unknown_response(exc)
+    except Exception:
+        app.logger.exception("Trigger hardware preflight failed")
+        return jsonify({
+            "error": "Trigger hardware preflight failed.",
+            "code": "TRIGGER_PREFLIGHT_FAILED",
+        }), 500
 
 
 @app.route("/api/trigger/start", methods=["POST"])
