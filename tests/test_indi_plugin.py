@@ -1027,7 +1027,7 @@ def test_runtime_control_session_is_opened_drained_and_closed(monkeypatch, full_
     assert events[0][1]["device"] == "Test Mount"
 
 
-def test_connect_disables_inherited_tracking(full_props):
+def test_connect_preserves_inherited_tracking(full_props):
     props = deepcopy(full_props)
     props["TELESCOPE_TRACK_STATE"] = {
         "TRACK_ON": "On",
@@ -1043,9 +1043,9 @@ def test_connect_disables_inherited_tracking(full_props):
             "TRACK_ON": "Off",
             "TRACK_OFF": "On",
         }
-    } in client.set_calls
+    } not in client.set_calls
     assert plugin.connected is True
-    assert plugin.tracking is False
+    assert plugin.tracking is True
 
 
 def test_connect_failure_cleans_monitor_and_persistent_session(monkeypatch, full_props):
