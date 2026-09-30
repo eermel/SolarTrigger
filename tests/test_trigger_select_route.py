@@ -136,7 +136,18 @@ def _configure_trigger_route(
         lambda *args: None,
         lambda *args: None,
     )
+    # Route-level GPS validation must use the same isolated StateStore as the
+    # TriggerService under test.  Hardware preflight has its own dedicated
+    # tests; keep these selection-route tests focused on input semantics.
+    monkeypatch.setattr(flask_module, "_state_store", state_store)
+    monkeypatch.setattr(flask_module, "_state", state_store.data)
+    monkeypatch.setattr(flask_module, "_state_lock", state_store.lock)
     monkeypatch.setattr(flask_module, "_trigger_service", service)
+    monkeypatch.setattr(
+        flask_module,
+        "_run_trigger_hardware_preflight",
+        lambda _rig_id, _selected: {"status": "ok"},
+    )
 
     class DummyThread:
         def __init__(self, *args, **kwargs):
