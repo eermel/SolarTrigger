@@ -24,6 +24,10 @@ DEFAULT_STATE = {
     "focuser_settings": {
         "mode": "slow", "slow_step": 20, "fast_step": 150, "updated_at": None,
     },
+    "ui_config": {
+        "debug_tab_visible": True,
+        "logs_visible": True,
+    },
     "trigger": {
         "running": False,
         "phase": "idle",
@@ -52,6 +56,7 @@ class StateStore:
         "capture",
         "devices",
         "focuser_settings",
+        "ui_config",
     )
     DEVICE_NAMES = ("camera", "gps", "focuser", "mount")
 
