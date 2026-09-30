@@ -64,6 +64,7 @@ _ALLOWED_WORKER_METHODS = frozenset({
     "test_photo_fast",
     "sync_datetime",
     "get_battery_level",
+    "preflight",
 })
 
 
