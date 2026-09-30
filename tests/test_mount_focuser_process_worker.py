@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+import threading
 import time
 
 import pytest
@@ -145,6 +146,32 @@ def test_ipc_close_reports_pid_generation_alive_and_exitcode():
         assert "generation=1" in message
         assert "alive=False" in message
         assert "exitcode=0" in message
+    finally:
+        worker.shutdown()
+
+
+def test_mount_process_survives_creator_thread_exit():
+    holder = {}
+    errors = []
+
+    def create_worker():
+        try:
+            holder["worker"] = _mount(timeout=0.2)
+        except BaseException as exc:
+            errors.append(exc)
+
+    creator = threading.Thread(target=create_worker)
+    creator.start()
+    creator.join(timeout=5.0)
+
+    assert not creator.is_alive()
+    assert errors == []
+    worker = holder["worker"]
+
+    try:
+        time.sleep(0.1)
+        assert worker.running
+        assert worker.status()["backend"] == "indi"
     finally:
         worker.shutdown()
 
@@ -323,58 +350,57 @@ def test_focuser_timeout_interlocks_new_motion_until_stop():
         worker.shutdown()
 
 
-def test_parent_death_signal_arms_sigterm_and_validates_parent(monkeypatch):
-    calls = []
+def test_parent_death_guard_starts_process_watcher(monkeypatch):
+    events = []
 
-    class FakePrctl:
-        argtypes = None
-        restype = None
+    class FakeThread:
+        def __init__(self, *, target, args, name, daemon):
+            events.append(("construct", target, args, name, daemon))
 
-        def __call__(self, *args):
-            calls.append(args)
-            return 0
-
-    class FakeLibc:
-        prctl = FakePrctl()
+        def start(self):
+            events.append(("start",))
 
     monkeypatch.setattr(device_process_worker.sys, "platform", "linux")
-    monkeypatch.setattr(
-        device_process_worker.ctypes,
-        "CDLL",
-        lambda *_args, **_kwargs: FakeLibc(),
-    )
     monkeypatch.setattr(device_process_worker.os, "getppid", lambda: 4321)
+    monkeypatch.setattr(device_process_worker.threading, "Thread", FakeThread)
 
     arm_parent_death_signal(4321)
 
-    assert calls == [
-        (
-            device_process_worker._PR_SET_PDEATHSIG,
-            int(signal.SIGTERM),
-            0,
-            0,
-            0,
-        )
-    ]
+    construct = events[0]
+    assert construct[0] == "construct"
+    assert construct[1] is device_process_worker._watch_parent_process
+    assert construct[2] == (4321,)
+    assert construct[3] == "hardware-parent-process-guard"
+    assert construct[4] is True
+    assert events[1] == ("start",)
+
+
+def test_parent_process_watchdog_signals_when_supervisor_process_changes(
+    monkeypatch,
+):
+    parents = iter((4321, 1))
+    kills = []
+
+    monkeypatch.setattr(
+        device_process_worker.os,
+        "getppid",
+        lambda: next(parents),
+    )
+    monkeypatch.setattr(device_process_worker.os, "getpid", lambda: 9876)
+    monkeypatch.setattr(
+        device_process_worker.os,
+        "kill",
+        lambda pid, sig: kills.append((pid, sig)),
+    )
+    monkeypatch.setattr(device_process_worker.time, "sleep", lambda _delay: None)
+
+    device_process_worker._watch_parent_process(4321)
+
+    assert kills == [(9876, signal.SIGTERM)]
 
 
 def test_parent_death_signal_rejects_child_already_reparented(monkeypatch):
-    class FakePrctl:
-        argtypes = None
-        restype = None
-
-        def __call__(self, *_args):
-            return 0
-
-    class FakeLibc:
-        prctl = FakePrctl()
-
     monkeypatch.setattr(device_process_worker.sys, "platform", "linux")
-    monkeypatch.setattr(
-        device_process_worker.ctypes,
-        "CDLL",
-        lambda *_args, **_kwargs: FakeLibc(),
-    )
     monkeypatch.setattr(device_process_worker.os, "getppid", lambda: 1)
 
     with pytest.raises(RuntimeError, match="supervisor disappeared"):

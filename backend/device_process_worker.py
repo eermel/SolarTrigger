@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ctypes
 import multiprocessing
 import os
 import signal
@@ -23,50 +22,57 @@ from backend.generic_worker import (
 READY_TIMEOUT_S = 10.0
 KILL_GRACE_S = 0.5
 TRANSPORT_GRACE_S = 2.0
-_PR_SET_PDEATHSIG = 1
+_PARENT_PROCESS_POLL_S = 0.25
+
+
+def _watch_parent_process(expected_parent_pid: int) -> None:
+    """Terminate this child when its supervising *process* disappears.
+
+    Linux PR_SET_PDEATHSIG is intentionally not used here: its parent is the
+    specific thread which created the process, so a short-lived Gunicorn
+    background/request thread can kill an otherwise healthy hardware child
+    when that thread exits.  getppid() instead follows the process parent.
+    """
+
+    expected = int(expected_parent_pid)
+
+    while True:
+        if os.getppid() != expected:
+            try:
+                os.kill(os.getpid(), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            return
+        time.sleep(_PARENT_PROCESS_POLL_S)
 
 
 def arm_parent_death_signal(expected_parent_pid: int | None) -> None:
-    """Terminate a Linux hardware child when its supervisor process dies.
+    """Fail closed when the supervising process dies, not its creator thread.
 
-    Gunicorn may respawn only its web worker while leaving the systemd service
-    itself alive. A supervised mount/focuser child must therefore be tied to
-    the exact worker process which created it, otherwise an abruptly orphaned
-    child could keep owning hardware while the replacement worker creates a
-    second owner.
+    The historical function name is kept because mount/focuser child
+    entrypoints already call it before constructing hardware services.
     """
 
     if expected_parent_pid is None or not sys.platform.startswith("linux"):
         return
 
     expected = int(expected_parent_pid)
-    libc = ctypes.CDLL(None, use_errno=True)
-    prctl = libc.prctl
-    prctl.argtypes = [
-        ctypes.c_int,
-        ctypes.c_ulong,
-        ctypes.c_ulong,
-        ctypes.c_ulong,
-        ctypes.c_ulong,
-    ]
-    prctl.restype = ctypes.c_int
 
-    if prctl(
-        _PR_SET_PDEATHSIG,
-        int(signal.SIGTERM),
-        0,
-        0,
-        0,
-    ) != 0:
-        err = ctypes.get_errno()
-        raise OSError(
-            err,
-            "unable to arm parent-death signal for hardware worker",
+    # Do not touch hardware if the spawning process already disappeared.
+    if os.getppid() != expected:
+        raise RuntimeError(
+            "hardware worker supervisor disappeared before child admission"
         )
 
-    # Close the classic race where the parent exits between process creation
-    # and PR_SET_PDEATHSIG. Do not touch hardware if this child is already
-    # orphaned/reparented.
+    watcher = threading.Thread(
+        target=_watch_parent_process,
+        args=(expected,),
+        name="hardware-parent-process-guard",
+        daemon=True,
+    )
+    watcher.start()
+
+    # Close the small race between the admission check and watcher start.
     if os.getppid() != expected:
         raise RuntimeError(
             "hardware worker supervisor disappeared before child admission"
