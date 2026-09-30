@@ -6983,6 +6983,170 @@ async function deleteFailedCameraValidationFiles() {
 
 
 // ════════════════════════════════════════════════════════════════
+// SYSTEM — persistent UI visibility configuration
+// ════════════════════════════════════════════════════════════════
+
+const UI_CONFIGURATION_DEFAULTS = Object.freeze({
+  debug_tab_visible: true,
+  logs_visible: true
+});
+
+
+function normalizeUiConfiguration(value) {
+  const normalized = {...UI_CONFIGURATION_DEFAULTS};
+
+  if (value && typeof value === 'object') {
+    for (const key of Object.keys(UI_CONFIGURATION_DEFAULTS)) {
+      if (typeof value[key] === 'boolean') {
+        normalized[key] = value[key];
+      }
+    }
+  }
+
+  return normalized;
+}
+
+
+function uiLogSections() {
+  const sections = new Set();
+  const systemLogSection = document.querySelector('.system-log-group');
+
+  if (systemLogSection) {
+    sections.add(systemLogSection);
+  }
+
+  document.querySelectorAll('[id^="log-container-"]').forEach(node => {
+    const card = node.closest('.card');
+    if (card) {
+      sections.add(card);
+    }
+  });
+
+  return Array.from(sections);
+}
+
+
+function applyUiConfiguration(value) {
+  const config = normalizeUiConfiguration(value);
+
+  const debugSwitch = document.getElementById(
+    'ui-debug-tab-visible-switch'
+  );
+  const logsSwitch = document.getElementById(
+    'ui-logs-visible-switch'
+  );
+  const debugTab = document.getElementById('debug-tab');
+
+  if (debugSwitch) {
+    debugSwitch.checked = config.debug_tab_visible;
+  }
+  if (logsSwitch) {
+    logsSwitch.checked = config.logs_visible;
+  }
+  if (debugTab) {
+    debugTab.classList.toggle(
+      'ui-config-hidden',
+      !config.debug_tab_visible
+    );
+    debugTab.setAttribute(
+      'aria-hidden',
+      config.debug_tab_visible ? 'false' : 'true'
+    );
+  }
+
+  uiLogSections().forEach(section => {
+    section.classList.toggle(
+      'ui-config-hidden',
+      !config.logs_visible
+    );
+  });
+
+  return config;
+}
+
+
+async function loadUiConfiguration() {
+  try {
+    const response = await fetch('/api/ui-config');
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(
+        data.error || `HTTP error ${response.status}`
+      );
+    }
+
+    return applyUiConfiguration(data);
+  } catch (error) {
+    console.warn('Unable to load UI configuration:', error);
+    return applyUiConfiguration(UI_CONFIGURATION_DEFAULTS);
+  }
+}
+
+
+async function persistUiConfiguration() {
+  const debugSwitch = document.getElementById(
+    'ui-debug-tab-visible-switch'
+  );
+  const logsSwitch = document.getElementById(
+    'ui-logs-visible-switch'
+  );
+
+  const requested = {
+    debug_tab_visible: debugSwitch
+      ? Boolean(debugSwitch.checked)
+      : UI_CONFIGURATION_DEFAULTS.debug_tab_visible,
+    logs_visible: logsSwitch
+      ? Boolean(logsSwitch.checked)
+      : UI_CONFIGURATION_DEFAULTS.logs_visible
+  };
+
+  applyUiConfiguration(requested);
+
+  try {
+    const response = await fetch('/api/ui-config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(requested)
+    });
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(
+        data.error || `HTTP error ${response.status}`
+      );
+    }
+
+    applyUiConfiguration(data);
+  } catch (error) {
+    await loadUiConfiguration();
+    flash(
+      'UI Configuration: ' + (
+        error.message || 'Unable to save configuration'
+      ),
+      'red'
+    );
+  }
+}
+
+
+function installUiConfiguration() {
+  void loadUiConfiguration();
+}
+
+
+if (document.readyState === 'loading') {
+  document.addEventListener(
+    'DOMContentLoaded',
+    installUiConfiguration,
+    {once: true}
+  );
+} else {
+  installUiConfiguration();
+}
+
+
+// ════════════════════════════════════════════════════════════════
 // DEBUG TAB — UI adapter over the existing Trigger functionality
 // ════════════════════════════════════════════════════════════════
 
