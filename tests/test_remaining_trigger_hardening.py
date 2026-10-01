@@ -212,7 +212,7 @@ def test_systemd_portal_explicitly_uses_control_group_kill_mode():
     ).read_text(encoding="utf-8")
     portal_dropin = migration_installer.split(
         "cat > /etc/systemd/system/solareclipse.service.d/"
-        "standalone-runtime.conf <<'EOF'",
+        "standalone-runtime.conf <<EOF",
         1,
     )[1].split("\nEOF", 1)[0]
     assert "KillMode=control-group" in portal_dropin
