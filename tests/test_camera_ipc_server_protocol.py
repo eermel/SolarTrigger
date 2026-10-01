@@ -1,3 +1,4 @@
+import errno
 import json
 import os
 import socket
@@ -735,3 +736,112 @@ def test_accept_loop_oserror_fails_closed_without_releasing_active_session(
     assert server.stopped is True
     assert server.stopping is False
     assert server._active_session is None
+
+
+
+def test_transient_accept_error_does_not_freeze_ipc_server(tmp_path):
+    server = make_server(tmp_path)
+    failures = []
+
+    class Listener:
+        def __init__(self):
+            self.calls = 0
+
+        def accept(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise OSError(errno.ECONNABORTED, "synthetic aborted accept")
+            server._stopping.set()
+            raise socket.timeout()
+
+    listener = Listener()
+    server._socket = listener
+    server._stopping.clear()
+    server._fail_accept_loop = lambda *_args: failures.append(True)
+
+    server._accept_loop()
+
+    assert listener.calls == 2
+    assert failures == []
+
+
+def test_expired_prepared_token_is_pruned_and_child_state_discarded(tmp_path):
+    class DiscardingWorker(FakeWorker):
+        def __init__(self):
+            super().__init__()
+            self.discarded = []
+
+        def discard_prepared(self, prepared):
+            self.discarded.append(prepared)
+            return True
+
+    worker = DiscardingWorker()
+    server = make_server(tmp_path, {1: worker})
+    session = server.activate_session("ttl-session", (1,))
+    intent = {
+        "shutter_min": "1/100",
+        "shutter_max": "1/100",
+        "step_ev": 1.0,
+        "speeds": None,
+        "phase": "partial",
+        "target_time": "2026-08-12T18:00:00Z",
+        "deadline": None,
+        "overflow_policy": None,
+    }
+
+    first = request(
+        server,
+        "prepare_capture",
+        {"rig_id": 1, "intent": intent},
+        session,
+    )
+    old_prepared = server._tokens[first["token_id"]][2]
+    old_context = server._tokens[first["token_id"]][3]
+    old_context["expires_at_utc"] = "2000-01-01T00:00:00+00:00"
+
+    second = request(
+        server,
+        "prepare_capture",
+        {"rig_id": 1, "intent": intent},
+        session,
+    )
+
+    assert first["token_id"] not in server._tokens
+    assert second["token_id"] in server._tokens
+    assert worker.discarded == [old_prepared]
+
+
+def test_expired_prepared_token_cannot_be_triggered(tmp_path):
+    worker = FakeWorker()
+    server = make_server(tmp_path, {1: worker})
+    session = server.activate_session("expired-session", (1,))
+    intent = {
+        "shutter_min": "1/100",
+        "shutter_max": "1/100",
+        "step_ev": 1.0,
+        "speeds": None,
+        "phase": "partial",
+        "target_time": "2026-08-12T18:00:00Z",
+        "deadline": None,
+        "overflow_policy": None,
+    }
+
+    prepared = request(
+        server,
+        "prepare_capture",
+        {"rig_id": 1, "intent": intent},
+        session,
+    )
+    server._tokens[prepared["token_id"]][3]["expires_at_utc"] = (
+        "2000-01-01T00:00:00+00:00"
+    )
+
+    with pytest.raises(IpcError) as caught:
+        request(
+            server,
+            "trigger_prepared",
+            {"rig_id": 1, "token_id": prepared["token_id"]},
+            session,
+        )
+
+    assert caught.value.code == "UNKNOWN_TOKEN"

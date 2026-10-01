@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import errno
 import json
 import math
 import os
@@ -14,7 +15,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,18 @@ MAX_MESSAGE_BYTES = 65536
 MAX_WORKERS = 8
 CONNECTION_IO_TIMEOUT_S = 5.0
 MAX_PREPARED_TOKENS_PER_RIG = 8
+PREPARED_TOKEN_MIN_TTL_S = 90.0
+PREPARED_TOKEN_DEADLINE_GRACE_S = 30.0
+_ACCEPT_RETRY_ERRNOS = frozenset({
+    errno.EINTR,
+    errno.ECONNABORTED,
+})
+_ACCEPT_RESOURCE_ERRNOS = frozenset({
+    errno.EMFILE,
+    errno.ENFILE,
+    errno.ENOBUFS,
+    errno.ENOMEM,
+})
 _SENSOR_DB_PATH = DEFAULT_SENSOR_DB_PATH
 _ISO_PATTERN = re.compile(r"[0-9]+")
 _CORRECTION_ORDER = ("shutter_limited", "iso_compensated", "iso_rounded")
@@ -404,6 +417,72 @@ class CameraIpcServer:
                     exc,
                 )
 
+    @staticmethod
+    def _prepared_token_expiry_utc(intent: CaptureIntent) -> datetime:
+        """Keep valid prepared state through its target/deadline, but not forever."""
+        now = datetime.now(timezone.utc)
+        minimum = now + timedelta(seconds=PREPARED_TOKEN_MIN_TTL_S)
+        boundary = intent.deadline or intent.target_time
+        if boundary.tzinfo is None:
+            boundary = boundary.replace(tzinfo=timezone.utc)
+        else:
+            boundary = boundary.astimezone(timezone.utc)
+        scheduled = boundary + timedelta(
+            seconds=PREPARED_TOKEN_DEADLINE_GRACE_S
+        )
+        return max(minimum, scheduled)
+
+    def _prune_expired_prepared_tokens(
+        self,
+        session: str | None,
+        rig_id: int,
+        *,
+        now_utc: datetime | None = None,
+    ) -> int:
+        """Revoke expired server tokens and best-effort discard child state."""
+        now = now_utc or datetime.now(timezone.utc)
+        expired = []
+
+        with self._state_lock:
+            for token_id, token in tuple(self._tokens.items()):
+                if token[0] != session or token[1] != rig_id or len(token) < 4:
+                    continue
+                context = token[3]
+                if not isinstance(context, dict):
+                    continue
+                raw_expiry = context.get("expires_at_utc")
+                if not isinstance(raw_expiry, str):
+                    continue
+                try:
+                    expiry = datetime.fromisoformat(
+                        raw_expiry.replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    continue
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+                else:
+                    expiry = expiry.astimezone(timezone.utc)
+                if expiry > now:
+                    continue
+                expired.append(token)
+                self._tokens.pop(token_id, None)
+
+        for token in expired:
+            prepared = token[2]
+            try:
+                worker = self._runtime.get_for_rig(rig_id)
+                discard = getattr(worker, "discard_prepared", None)
+                if callable(discard):
+                    discard(prepared)
+            except Exception as exc:
+                self._safe_log(
+                    f"camera IPC expired prepared-token cleanup failed for RIG {rig_id}",
+                    exc,
+                )
+
+        return len(expired)
+
     def start(self) -> Path:
         with self._state_lock:
             if self._socket is not None:
@@ -621,6 +700,7 @@ class CameraIpcServer:
         self._unlink_own_socket()
 
     def _accept_loop(self) -> None:
+        resource_backoff_s = 0.05
         while not self._stopping.is_set():
             listener = self._socket
             if listener is None:
@@ -632,9 +712,23 @@ class CameraIpcServer:
             except OSError as exc:
                 if self._stopping.is_set():
                     break
+                if exc.errno in _ACCEPT_RETRY_ERRNOS:
+                    continue
+                if exc.errno in _ACCEPT_RESOURCE_ERRNOS:
+                    self._safe_log(
+                        "camera IPC accept temporarily resource-limited",
+                        exc,
+                    )
+                    self._stopping.wait(resource_backoff_s)
+                    resource_backoff_s = min(
+                        1.0,
+                        resource_backoff_s * 2.0,
+                    )
+                    continue
                 self._fail_accept_loop(listener, exc)
                 break
 
+            resource_backoff_s = 0.05
             try:
                 connection.settimeout(CONNECTION_IO_TIMEOUT_S)
 
@@ -1059,6 +1153,7 @@ class CameraIpcServer:
             except (TypeError, ValueError) as exc:
                 raise IpcError("INVALID_REQUEST", "invalid capture intent") from exc
             rig_id, worker = self._worker(params, allowed=allowed)
+            self._prune_expired_prepared_tokens(session, rig_id)
             reservation_key = (session, rig_id)
             with self._state_lock:
                 if session is not None:
@@ -1177,6 +1272,9 @@ class CameraIpcServer:
                     "corrections": None,
                     "warnings": None,
                     "plan_version": version,
+                    "expires_at_utc": self._prepared_token_expiry_utc(
+                        intent
+                    ).isoformat(),
                 }
                 prepared_generation = getattr(
                     prepared,
@@ -1273,6 +1371,7 @@ class CameraIpcServer:
                     "token_id must be a non-empty string",
                 )
             rig_id, worker = self._worker(params, allowed=allowed)
+            self._prune_expired_prepared_tokens(session, rig_id)
 
             with self._state_lock:
                 token = self._tokens.get(token_id)
@@ -1320,6 +1419,7 @@ class CameraIpcServer:
                 else None
             )
             rig_id, worker = self._worker(params, allowed=allowed)
+            self._prune_expired_prepared_tokens(session, rig_id)
             try:
                 current_generation = getattr(worker, "generation", None)
             except Exception:
