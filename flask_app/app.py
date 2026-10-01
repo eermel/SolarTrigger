@@ -5716,7 +5716,7 @@ def _trigger_batch_response_status(result):
     return 200
 
 
-def _begin_trigger_start_command(rig_ids, mode):
+def _begin_trigger_start_command(rig_ids, mode="real"):
     global _trigger_active_start_command, _trigger_command_generation
     with _trigger_command_condition:
         if _trigger_active_start_command is not None:
