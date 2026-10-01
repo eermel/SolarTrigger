@@ -64,11 +64,15 @@ class HeartbeatEmitter:
                 if isfinite(value) and value > 0.0:
                     text = f"{text}\t{value:.3f}"
             os.write(self.fd, (text + "\n").encode("utf-8", errors="replace"))
-        except (BlockingIOError, BrokenPipeError, OSError):
-            # Parent supervision/heartbeat failure must not affect capture.
-            # Close the unusable writer as well; otherwise a saturated
-            # non-blocking pipe would remain leaked for the lifetime of the
-            # scheduler child.
+        except BlockingIOError:
+            # A non-blocking heartbeat pipe can be temporarily full if the
+            # parent reader is delayed. Dropping one observational pulse is
+            # safe; closing the fd would permanently disable supervision and
+            # can make a healthy scheduler look dead later.
+            return
+        except (BrokenPipeError, OSError):
+            # A genuinely broken writer is no longer usable. Capture remains
+            # authoritative; close only this observability channel.
             fd, self.fd = self.fd, None
             if fd is not None:
                 try:

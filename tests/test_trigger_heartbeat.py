@@ -295,8 +295,25 @@ def test_heartbeat_emitter_never_blocks_when_pipe_is_full():
         elapsed = time.monotonic() - before
 
         assert elapsed < 0.1
-        assert emitter.fd is None
+        assert emitter.fd == write_fd
+
+        # Once the parent drains capacity, a later pulse must still be
+        # deliverable through the same heartbeat channel.
+        os.read(read_fd, 4096)
+        emitter.pulse("capture.end")
+        emitter.close()
+        remaining = bytearray()
+        while True:
+            chunk = os.read(read_fd, 4096)
+            if not chunk:
+                break
+            remaining.extend(chunk)
+        assert b"capture.end\n" in remaining
     finally:
+        try:
+            os.close(write_fd)
+        except OSError:
+            pass
         os.close(read_fd)
 
 
@@ -352,3 +369,14 @@ def test_heartbeat_reader_start_failure_rolls_back_watchdog_without_closing_fd()
 
     os.close(write_fd)
     os.close(read_fd)
+
+
+
+def test_heartbeat_emitter_closes_only_on_broken_pipe():
+    read_fd, write_fd = os.pipe()
+    emitter = HeartbeatEmitter(write_fd)
+    os.close(read_fd)
+
+    emitter.pulse("wait")
+
+    assert emitter.fd is None
