@@ -52,6 +52,12 @@ LOG = logging.getLogger("solartrigger-runtime")
 _MAX_REQUEST_BYTES = 16 * 1024 * 1024
 _RPC_IO_TIMEOUT_S = 30.0
 _MAX_RPC_CONNECTIONS = 32
+_PRIORITY_RPC_RESERVE = 2
+_PRIORITY_RPC_OPERATIONS = frozenset({
+    "trigger.stop",
+    "trigger.totality_only",
+    "trigger.override_totality",
+})
 _RPC_SHUTDOWN_DRAIN_S = 5.0
 _RPC_RESULT_CACHE_SIZE = 2048
 _RPC_RESULT_TTL_S = 15 * 60.0
@@ -866,11 +872,25 @@ class _RuntimeRequestHandler(socketserver.StreamRequestHandler):
             if not isinstance(operation, str) or not operation:
                 raise ValueError("runtime operation is required")
             payload = _from_wire(request.get("payload") or {})
-            response = self.server.execute_rpc(
-                request_id,
-                operation,
-                payload,
-            )
+            operation_slot = self.server.acquire_operation_slot(operation)
+            if not operation_slot:
+                busy = RuntimeError(
+                    "runtime normal RPC capacity is exhausted"
+                )
+                busy.code = "RPC_BUSY"
+                response = _runtime_rpc_error_response(
+                    busy,
+                    request_id=request_id,
+                )
+            else:
+                try:
+                    response = self.server.execute_rpc(
+                        request_id,
+                        operation,
+                        payload,
+                    )
+                finally:
+                    self.server.release_operation_slot(operation)
         except BaseException as exc:
             LOG.exception("RPC operation failed")
             response = _runtime_rpc_error_response(
@@ -905,7 +925,7 @@ class _RuntimeRequestHandler(socketserver.StreamRequestHandler):
 class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
     allow_reuse_address = True
-    request_queue_size = _MAX_RPC_CONNECTIONS
+    request_queue_size = _MAX_RPC_CONNECTIONS + _PRIORITY_RPC_RESERVE
 
     @staticmethod
     def _prepare_socket_path(path: Path) -> None:
@@ -974,12 +994,27 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
         controller: RuntimeController | None,
         *,
         max_connections: int = _MAX_RPC_CONNECTIONS,
+        priority_reserve: int | None = None,
         io_timeout_s: float = _RPC_IO_TIMEOUT_S,
     ):
         self.controller = controller
         self.io_timeout_s = max(0.001, float(io_timeout_s))
+        normal_connections = max(1, int(max_connections))
+        if priority_reserve is None:
+            # Preserve explicit small-capacity test/diagnostic servers while
+            # production defaults reserve two extra admission slots.
+            reserve = (
+                _PRIORITY_RPC_RESERVE
+                if normal_connections == _MAX_RPC_CONNECTIONS
+                else 0
+            )
+        else:
+            reserve = max(0, int(priority_reserve))
         self._connection_slots = threading.BoundedSemaphore(
-            max(1, int(max_connections))
+            normal_connections + reserve
+        )
+        self._normal_request_slots = threading.BoundedSemaphore(
+            normal_connections
         )
         self._request_state = threading.Condition()
         self._closing = False
@@ -1194,6 +1229,16 @@ class RuntimeUnixServer(socketserver.ThreadingUnixStreamServer):
                     return False
                 self._request_state.wait(remaining)
             return True
+
+    def acquire_operation_slot(self, operation: str) -> bool:
+        if operation in _PRIORITY_RPC_OPERATIONS:
+            return True
+        return self._normal_request_slots.acquire(blocking=False)
+
+    def release_operation_slot(self, operation: str) -> None:
+        if operation in _PRIORITY_RPC_OPERATIONS:
+            return
+        self._normal_request_slots.release()
 
     def process_request(self, request, client_address):
         if not self._connection_slots.acquire(blocking=False):

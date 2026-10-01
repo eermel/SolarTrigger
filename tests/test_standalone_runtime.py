@@ -1382,3 +1382,77 @@ def test_frontend_warns_when_runtime_acknowledgement_is_ambiguous():
 
     assert "RPC_OUTCOME_UNKNOWN" in js
     assert "acknowledgement lost" in js
+
+
+
+def test_runtime_priority_rpc_uses_reserved_capacity(tmp_path):
+    class PriorityController:
+        def __init__(self):
+            self.entered = threading.Event()
+            self.release = threading.Event()
+            self.stop_calls = 0
+
+        def dispatch(self, operation, payload):
+            if operation == "block":
+                self.entered.set()
+                self.release.wait(2.0)
+                return {"done": True}
+            if operation == "trigger.stop":
+                self.stop_calls += 1
+                return {
+                    "status": "stopped",
+                    "rig_id": payload.get("rig_id", 1),
+                    "forced": bool(payload.get("force", False)),
+                    "still_running": False,
+                }
+            raise ValueError(operation)
+
+    controller = PriorityController()
+    socket_path = tmp_path / "priority-runtime.sock"
+    server = RuntimeUnixServer(
+        str(socket_path),
+        controller,
+        max_connections=1,
+        priority_reserve=1,
+        io_timeout_s=1.0,
+    )
+    server_thread = _serve_runtime_server(server)
+    blocking_thread = threading.Thread(
+        target=lambda: RuntimeClient(
+            str(socket_path),
+            timeout=2.0,
+        ).call("block")
+    )
+    blocking_thread.start()
+    try:
+        assert controller.entered.wait(0.5)
+
+        result = RuntimeClient(
+            str(socket_path),
+            timeout=0.5,
+        ).call(
+            "trigger.stop",
+            {"rig_id": 1, "force": False},
+        )
+
+        assert result["status"] == "stopped"
+        assert controller.stop_calls == 1
+    finally:
+        controller.release.set()
+        blocking_thread.join(timeout=2)
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=2)
+
+
+def test_runtime_default_reserves_two_priority_connections():
+    server = RuntimeUnixServer.__new__(RuntimeUnixServer)
+    # Source-level contract: production default adds two slots beyond the
+    # 32 normal RPC handlers while explicit small test servers keep no reserve.
+    assert runtime_daemon._MAX_RPC_CONNECTIONS == 32
+    assert runtime_daemon._PRIORITY_RPC_RESERVE == 2
+    assert {
+        "trigger.stop",
+        "trigger.totality_only",
+        "trigger.override_totality",
+    }.issubset(runtime_daemon._PRIORITY_RPC_OPERATIONS)
