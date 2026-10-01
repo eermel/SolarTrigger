@@ -60,6 +60,7 @@ from backend.camera_characterization_qualification import (
     qualify_operational_contract,
 )
 from backend.camera_characterization_settings import find_setting
+from backend.camera_characterization_runtime_ops import CharacterizationRuntimeOps
 from plugins.camera.profile import (
     write_widget,
     widget,
@@ -1106,113 +1107,18 @@ def characterize(camera, entry, job):
                 value,
             )
 
-    direct_nodes = {}
-
-    def prime_runtime_spec(spec):
-        if spec.get("writer") != "single_config":
-            return None
-        name = spec["name"]
-        if name not in direct_nodes:
-            direct_nodes[name] = prime_single_config(camera, spec)
-        return direct_nodes[name]
-
-    def runtime_set(key, value):
-        spec = commands[key]
-        if spec.get("writer") == "single_config":
-            node = prime_runtime_spec(spec)
-            write_single_config(camera, spec, node, value)
-        else:
-            # Compatibility only for initialization-only optional commands.
-            write_widget(camera, spec["path"], value)
-
-    def characterization_read(key):
-        """Fresh GET used only by characterization/preflight evidence."""
-        spec = commands[key]
-        _, node = widget(camera, spec["path"])
-        return node.get_value()
-
-    def converge_characterized_preflight():
-        """Re-establish invariant state after opening a fresh gphoto session.
-
-        This deliberately mirrors production preflight semantics. GETs and
-        readback are allowed here because this is characterization, not timed
-        execution. Writable settings use the characterized direct writer.
-        """
-        for key in (
-            "manual_mode",
-            "capture_target",
-            "raw",
-            "white_balance",
-            "shutter_mode",
-            "capture_mode",
-            "self_timer",
-            "time_lapse",
-        ):
-            spec = commands.get(key)
-            if not isinstance(spec, dict) or "value" not in spec:
-                continue
-            target = spec["value"]
-            actual = characterization_read(key)
-            if str(actual) == str(target):
-                continue
-            if spec.get("set") is False:
-                if not job.ask(
-                    "Fresh-session camera preflight: "
-                    f"{key} must be {target!r}, current value is {actual!r}. "
-                    "Correct this setting physically on the camera, wait until "
-                    "the camera is ready, then click OK. The setting will be "
-                    "read again before any capture.",
-                    kind="start",
-                ):
-                    raise Cancelled(
-                        f"Fresh-session physical preflight cancelled for {key}"
-                    )
-                actual = characterization_read(key)
-                if str(actual) != str(target):
-                    raise RuntimeError(
-                        f"Fresh-session invariant {key} still incorrect after "
-                        f"operator confirmation: expected={target!r}, "
-                        f"actual={actual!r}"
-                    )
-                continue
-            runtime_set(key, target)
-            actual = characterization_read(key)
-            if str(actual) != str(target):
-                raise RuntimeError(
-                    f"Fresh-session invariant readback mismatch for {key}: "
-                    f"expected={target!r}, actual={actual!r}"
-                )
-
-    def measure_set(key, values):
-        values = list(values)
-        if not values:
-            raise RuntimeError(
-                f"Cannot measure SET {key}: no values"
-            )
-
-        samples = []
-        for _ in range(5):
-            for value in values:
-                job.check()
-                # Production timing measures one SolarTrigger SET call only.
-                # The CameraWidget was primed before this loop, so SolarTrigger
-                # performs no get_config()/get_single_config() here. Any internal
-                # PTP traffic performed by libgphoto2 is part of the measured SET.
-                prime_runtime_spec(commands[key])
-                begin = time.monotonic()
-                runtime_set(key, value)
-                samples.append(
-                    (time.monotonic() - begin) * 1000.0
-                )
-
-        set_samples[key] = samples
-        job.log(
-            f"TIMING SET {key}: "
-            f"max={max(samples):.1f} ms "
-            f"median={statistics.median(samples):.1f} ms "
-            f"({len(samples)} operations)"
-        )
-        return samples
+    runtime_ops = CharacterizationRuntimeOps(
+        camera,
+        job,
+        commands,
+        set_samples,
+    )
+    direct_nodes = runtime_ops.direct_nodes
+    prime_runtime_spec = runtime_ops.prime_runtime_spec
+    runtime_set = runtime_ops.set
+    characterization_read = runtime_ops.read
+    converge_characterized_preflight = runtime_ops.converge_preflight
+    measure_set = runtime_ops.measure_set
 
     # ISO alternates only during timing, then returns to ISO100.
     iso_other = next(

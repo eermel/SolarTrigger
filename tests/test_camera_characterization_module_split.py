@@ -7,6 +7,7 @@ import backend.camera_characterization_single as single
 import backend.camera_characterization_types as characterization_types
 import backend.camera_characterization_qualification as qualification
 import backend.camera_characterization_settings as settings
+import backend.camera_characterization_runtime_ops as runtime_ops
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,3 +104,17 @@ def test_setting_discovery_is_split_out_of_characterize():
         "find_setting(camera, job, initial, commands, warnings, "
         "selection_evidence, "
     ) in characterize_source
+
+
+
+def test_runtime_set_operations_are_owned_by_dedicated_object():
+    assert (
+        characterization.CharacterizationRuntimeOps
+        is runtime_ops.CharacterizationRuntimeOps
+    )
+    assert "    def prime_runtime_spec(" not in SOURCE
+    assert "    def runtime_set(" not in SOURCE
+    assert "    def characterization_read(" not in SOURCE
+    assert "    def converge_characterized_preflight(" not in SOURCE
+    assert "    def measure_set(" not in SOURCE
+    assert "runtime_ops = CharacterizationRuntimeOps(" in SOURCE
