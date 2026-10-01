@@ -850,3 +850,51 @@ def test_expired_prepared_token_cannot_be_triggered(tmp_path):
         )
 
     assert caught.value.code == "UNKNOWN_TOKEN"
+
+
+
+def test_priority_camera_session_bypasses_normal_handler_capacity(tmp_path):
+    server = make_server(tmp_path)
+    normal = server.activate_session("normal-session", (1,))
+    priority = server.activate_session("priority-session", (2,))
+    server.set_session_priority(priority, True)
+
+    acquired = []
+    try:
+        for _ in range(camera_ipc_server.MAX_WORKERS):
+            assert server._normal_handler_slots.acquire(blocking=False)
+            acquired.append(True)
+
+        with pytest.raises(IpcError) as busy:
+            server._acquire_request_class_slot(
+                {"operation": "ping", "session_id": normal}
+            )
+        assert busy.value.code == "SERVER_BUSY"
+
+        assert server._acquire_request_class_slot(
+            {"operation": "ping", "session_id": priority}
+        ) is False
+    finally:
+        for _ in acquired:
+            server._normal_handler_slots.release()
+
+
+def test_revoking_priority_session_releases_priority_identity(tmp_path):
+    server = make_server(tmp_path)
+    session = server.activate_session("priority-session", (1,))
+    server.set_session_priority(session, True)
+
+    assert server._request_uses_priority_reserve(
+        {"session_id": session}
+    ) is True
+
+    server.revoke_session(session)
+
+    assert server._request_uses_priority_reserve(
+        {"session_id": session}
+    ) is False
+
+
+def test_camera_ipc_exposes_two_reserved_priority_workers():
+    assert camera_ipc_server.MAX_WORKERS == 8
+    assert camera_ipc_server.PRIORITY_WORKER_RESERVE == 2

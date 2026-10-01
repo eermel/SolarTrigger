@@ -60,6 +60,7 @@ from services.camera_service import CaptureIntent
 
 MAX_MESSAGE_BYTES = 65536
 MAX_WORKERS = 8
+PRIORITY_WORKER_RESERVE = 2
 CONNECTION_IO_TIMEOUT_S = 5.0
 MAX_PREPARED_TOKENS_PER_RIG = 8
 PREPARED_TOKEN_MIN_TTL_S = 90.0
@@ -165,6 +166,7 @@ class CameraIpcServer:
 
     MAX_MESSAGE_BYTES = MAX_MESSAGE_BYTES
     MAX_WORKERS = MAX_WORKERS
+    PRIORITY_WORKER_RESERVE = PRIORITY_WORKER_RESERVE
 
     def __init__(
         self,
@@ -197,6 +199,7 @@ class CameraIpcServer:
         self._accept_thread: threading.Thread | None = None
         self._pool: ThreadPoolExecutor | None = None
         self._connection_slots: threading.BoundedSemaphore | None = None
+        self._normal_handler_slots = threading.BoundedSemaphore(MAX_WORKERS)
         self._stopping = threading.Event()
         self._stop_complete = threading.Event()
         self._stop_complete.set()
@@ -204,6 +207,7 @@ class CameraIpcServer:
         self._active_connections: set[socket.socket] = set()
         self._state_lock = threading.RLock()
         self._active_sessions: dict[str, frozenset[int] | None] = {}
+        self._priority_sessions: set[str] = set()
         # Identity token for each active lease incarnation.  A session_id may
         # be revoked and later reused; in-flight work from the old incarnation
         # must never publish state into the new one (ABA protection).
@@ -337,6 +341,43 @@ class CameraIpcServer:
             self._session_leases[candidate] = object()
         return candidate
 
+    def set_session_priority(
+        self,
+        session_id: str,
+        priority: bool = True,
+    ) -> None:
+        """Reserve camera IPC admission for an already active Trigger lease."""
+        if not isinstance(priority, bool):
+            raise ValueError("priority must be boolean")
+        with self._state_lock:
+            if session_id not in self._active_sessions:
+                raise IpcError(
+                    "INVALID_SESSION",
+                    "camera IPC session is not active",
+                )
+            if priority:
+                self._priority_sessions.add(session_id)
+            else:
+                self._priority_sessions.discard(session_id)
+
+    def _request_uses_priority_reserve(self, request: dict[str, Any]) -> bool:
+        session_id = request.get("session_id")
+        if not isinstance(session_id, str):
+            return False
+        with self._state_lock:
+            return session_id in self._priority_sessions
+
+    def _acquire_request_class_slot(self, request: dict[str, Any]) -> bool:
+        """Return True when one normal slot was acquired; priority needs none."""
+        if self._request_uses_priority_reserve(request):
+            return False
+        if not self._normal_handler_slots.acquire(blocking=False):
+            raise IpcError(
+                "SERVER_BUSY",
+                "camera IPC normal request capacity is exhausted",
+            )
+        return True
+
     def revoke_session(self, session_id: str | None = None) -> None:
         """Revoke one session without disturbing other running RIGs."""
 
@@ -354,6 +395,7 @@ class CameraIpcServer:
                 raise IpcError("INVALID_SESSION", "camera IPC session is not active")
             allowed = self._active_sessions.pop(target)
             self._session_leases.pop(target, None)
+            self._priority_sessions.discard(target)
             abandoned = [
                 value
                 for value in self._tokens.values()
@@ -502,7 +544,7 @@ class CameraIpcServer:
                     bound.st_uid,
                 )
                 os.chmod(self._socket_path, self._socket_mode)
-                listener.listen(MAX_WORKERS)
+                listener.listen(MAX_WORKERS + PRIORITY_WORKER_RESERVE)
                 listener.settimeout(0.25)
             except BaseException:
                 listener.close()
@@ -515,14 +557,17 @@ class CameraIpcServer:
             self._socket = listener
             try:
                 pool = ThreadPoolExecutor(
-                    max_workers=MAX_WORKERS, thread_name_prefix="camera-ipc"
+                    max_workers=MAX_WORKERS + PRIORITY_WORKER_RESERVE,
+                    thread_name_prefix="camera-ipc",
                 )
                 self._pool = pool
                 # ThreadPoolExecutor has an unbounded pending-work queue.  Limit
                 # accepted live connections to the number of handlers so slow or
                 # broken local clients cannot accumulate sockets/file descriptors
                 # faster than their per-connection timeout can drain them.
-                self._connection_slots = threading.BoundedSemaphore(MAX_WORKERS)
+                self._connection_slots = threading.BoundedSemaphore(
+                    MAX_WORKERS + PRIORITY_WORKER_RESERVE
+                )
                 accept_thread = threading.Thread(
                     target=self._accept_loop,
                     name="camera-ipc-accept",
@@ -618,6 +663,7 @@ class CameraIpcServer:
         with self._state_lock:
             self._active_sessions.clear()
             self._session_leases.clear()
+            self._priority_sessions.clear()
             self._tokens.clear()
             self._prepare_reservations.clear()
             self._rig_iso_targets.clear()
@@ -798,9 +844,13 @@ class CameraIpcServer:
                 self._finalize_stop()
 
     def _serve_connection(self, connection: socket.socket) -> None:
+        normal_slot_acquired = False
         with connection:
             try:
                 request = self._read_request(connection)
+                normal_slot_acquired = self._acquire_request_class_slot(
+                    request
+                )
                 result = self.handle_request(request)
                 response = {"ok": True, "result": self._json_value(result)}
             except socket.timeout:
@@ -813,6 +863,9 @@ class CameraIpcServer:
             except Exception as exc:
                 self._safe_log("camera IPC request failed", exc)
                 response = self._error("INTERNAL_ERROR", "camera operation failed")
+            finally:
+                if normal_slot_acquired:
+                    self._normal_handler_slots.release()
             try:
                 connection.sendall(
                     json.dumps(response, separators=(",", ":")).encode("utf-8") + b"\n"

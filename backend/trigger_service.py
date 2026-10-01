@@ -1350,6 +1350,13 @@ class TriggerService:
                         ipc_session = self.camera_runtime.open_ipc_session(
                             (rig_id,)
                         )
+                        promote_session = getattr(
+                            self.camera_runtime,
+                            "mark_ipc_session_priority",
+                            None,
+                        )
+                        if callable(promote_session):
+                            promote_session(ipc_session.session_id, True)
                     except Exception as exc:
                         self._starting_by_rig[rig_id] = False
                         self._clear_active_inputs(rig_id)
@@ -2281,6 +2288,13 @@ class TriggerService:
                 if self.camera_runtime is not None:
                     self.camera_runtime.reconcile(config)
                     ipc_session = self.camera_runtime.open_ipc_session((rig_id,))
+                    promote_session = getattr(
+                        self.camera_runtime,
+                        "mark_ipc_session_priority",
+                        None,
+                    )
+                    if callable(promote_session):
+                        promote_session(ipc_session.session_id, True)
             elif not _recovery:
                 self._freeze_run_inputs(rig_id, snapshot_id, None)
 

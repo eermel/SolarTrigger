@@ -479,6 +479,21 @@ class CameraWorkerRuntime:
                 session_id=session_id,
             )
 
+    def mark_ipc_session_priority(
+        self,
+        session_id: str,
+        priority: bool = True,
+    ) -> None:
+        """Promote an active lease into the camera IPC priority reserve."""
+        with self._lock:
+            if (
+                session_id not in self._ipc_session_ids
+                or self._ipc_server is None
+            ):
+                raise ValueError("camera IPC session is not active")
+            server = self._ipc_server
+        server.set_session_priority(session_id, priority)
+
     def close_ipc_session(self, session_id: str) -> None:
         """Revoke an IPC lease and stop the server after its final session."""
 
