@@ -5509,6 +5509,7 @@ def _start_trigger_with_hardware_preflight(
     *,
     rig_id,
     selected=None,
+    preflight_complete=False,
 ):
     """Single hardware Trigger entrypoint for every prepared input set."""
     selected = selected if isinstance(selected, dict) else {}
@@ -5524,7 +5525,14 @@ def _start_trigger_with_hardware_preflight(
         "trigger",
         rig_id=rig_id,
     )
-    if token:
+    if preflight_complete:
+        _append_log(
+            f"TRIGGER_START backend batch preflight already complete rig={rig_id}",
+            "success",
+            "trigger",
+            rig_id=rig_id,
+        )
+    elif token:
         _consume_trigger_preflight_token(token, rig_id, selected)
     else:
         _append_log(
@@ -5552,6 +5560,192 @@ def _start_trigger_with_hardware_preflight(
         rig_id=rig_id,
     )
     return started
+
+
+def _normalize_trigger_rig_ids(raw_rig_ids):
+    """Validate and deduplicate one backend-owned multi-RIG command."""
+    if not isinstance(raw_rig_ids, list) or not raw_rig_ids:
+        raise TriggerValidationError(
+            "Select at least one active RIG.",
+            "RIG_ID_INVALID",
+        )
+    if any(
+        not isinstance(rig_id, int)
+        or isinstance(rig_id, bool)
+        or not 1 <= rig_id <= 4
+        for rig_id in raw_rig_ids
+    ):
+        raise TriggerValidationError(
+            "RIG ids must be integers from 1 to 4.",
+            "RIG_ID_INVALID",
+        )
+    return tuple(dict.fromkeys(raw_rig_ids))
+
+
+def _cleanup_generated_trigger_inputs(prepared_runs):
+    for item in prepared_runs:
+        path = item.get("generated_path")
+        if path is None or item.get("preserve_generated"):
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            _append_log(
+                f"Trigger generated input cleanup warning: {exc}",
+                "warning",
+                "trigger",
+                rig_id=item.get("rig_id"),
+            )
+
+
+def _launch_preflighted_trigger_batch(prepared_runs, *, preserve_success=False):
+    """Launch every preflighted RIG without any browser-side orchestration."""
+    started_rig_ids = []
+    failures = []
+
+    for item in prepared_runs:
+        rig_id = item["rig_id"]
+        try:
+            started = _start_trigger_with_hardware_preflight(
+                rig_id=rig_id,
+                selected=item["selected"],
+                preflight_complete=True,
+            )
+            if not started:
+                failures.append({
+                    "rig_id": rig_id,
+                    "code": "TRIGGER_ALREADY_RUNNING",
+                    "error": f"Trigger RIG {rig_id} is already running.",
+                })
+                continue
+
+            started_rig_ids.append(rig_id)
+            if preserve_success:
+                item["preserve_generated"] = True
+
+        except RuntimeOutcomeUnknownError as exc:
+            item["preserve_generated"] = True
+            failure = {
+                "rig_id": rig_id,
+                "code": "RPC_OUTCOME_UNKNOWN",
+                "error": str(exc),
+            }
+            request_id = getattr(exc, "request_id", None)
+            operation = getattr(exc, "operation", None)
+            if request_id is not None:
+                failure["request_id"] = request_id
+            if operation is not None:
+                failure["operation"] = operation
+            failures.append(failure)
+
+        except TriggerValidationError as exc:
+            failures.append({
+                "rig_id": rig_id,
+                "code": exc.code,
+                "error": str(exc),
+            })
+
+        except Exception as exc:
+            app.logger.exception(
+                "Trigger batch launch failed for RIG %s",
+                rig_id,
+            )
+            failures.append({
+                "rig_id": rig_id,
+                "code": "TRIGGER_START_FAILED",
+                "error": str(exc) or "Trigger start failed.",
+            })
+
+    status = (
+        "started"
+        if not failures
+        else "partial"
+        if started_rig_ids
+        else "failed"
+    )
+    return {
+        "status": status,
+        "requested_rig_ids": [item["rig_id"] for item in prepared_runs],
+        "started_rig_ids": started_rig_ids,
+        "failures": failures,
+    }
+
+
+def _trigger_batch_http_status(result):
+    if result.get("status") == "started":
+        return 200
+    if result.get("started_rig_ids"):
+        return 207
+    if any(
+        item.get("code") == "RPC_OUTCOME_UNKNOWN"
+        for item in result.get("failures", ())
+        if isinstance(item, dict)
+    ):
+        return 202
+    return 409
+
+
+def _api_trigger_start_batch(payload):
+    """Own normal multi-RIG START from validation through launch."""
+    prepared_runs = []
+    try:
+        _validate_sequence_gps_first()
+        rig_ids = _normalize_trigger_rig_ids(payload.get("rig_ids"))
+
+        def run_all():
+            for rig_id in rig_ids:
+                (
+                    generated_path,
+                    effective_payload,
+                    source_name,
+                    runtime_date,
+                ) = _prepare_trigger_runtime_circumstances(rig_id, payload)
+                prepared_runs.append({
+                    "rig_id": rig_id,
+                    "generated_path": generated_path,
+                    "selected": effective_payload,
+                })
+                _append_log(
+                    "TRIGGER_INPUT prepared "
+                    f"rig={rig_id} source={source_name!r} "
+                    f"runtime_date={runtime_date} UTC_times=unchanged",
+                    "info",
+                    "trigger",
+                    rig_id=rig_id,
+                )
+
+            _append_log(
+                f"TRIGGER_START backend preflight begin rigs={list(rig_ids)}",
+                "info",
+                "trigger",
+            )
+            _run_trigger_hardware_preflight_batch(rig_ids, payload)
+            _append_log(
+                f"TRIGGER_START backend preflight OK rigs={list(rig_ids)}",
+                "success",
+                "trigger",
+            )
+            return _launch_preflighted_trigger_batch(prepared_runs)
+
+        result = _trigger_start_guarded(run_all)
+        result["mode"] = "real"
+        return jsonify(result), _trigger_batch_http_status(result)
+
+    except TriggerValidationError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": exc.code,
+        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+    except RuntimeOutcomeUnknownError as exc:
+        return _runtime_outcome_unknown_response(exc)
+    except Exception:
+        app.logger.exception("Backend multi-RIG Trigger start failed")
+        return jsonify({
+            "error": "Trigger start failed.",
+            "code": "TRIGGER_START_FAILED",
+        }), 500
+    finally:
+        _cleanup_generated_trigger_inputs(prepared_runs)
 
 
 @app.route("/api/trigger/preflight", methods=["POST"])
@@ -5651,8 +5845,11 @@ def api_trigger_preflight():
 
 @app.route("/api/trigger/start", methods=["POST"])
 def api_trigger_start():
-    """Prepare inputs, then call the unchanged hardware Trigger engine."""
+    """Start one legacy RIG or one backend-owned multi-RIG command."""
     payload = request.get_json(silent=True) or {}
+    if "rig_ids" in payload:
+        return _api_trigger_start_batch(payload)
+
     rig_id = payload.get("rig_id", 1)
     generated_path = None
     preserve_generated = False
@@ -5757,6 +5954,185 @@ def api_trigger_simulate():
             "rig_id": rig_id,
         }), 500
 
+def _debug_batch_inputs(payload):
+    photo_name = str(payload.get("photo_file", "")).strip()
+    exposure_name = str(payload.get("exposure_opt_file", "")).strip()
+    if (
+        not photo_name
+        or Path(photo_name).name != photo_name
+        or not exposure_name
+        or Path(exposure_name).name != exposure_name
+    ):
+        raise TriggerValidationError(
+            "Select valid Photo Setup and Exposure Optimization files",
+            "TRIGGER_INPUTS_NOT_LOADED",
+        )
+
+    photo_path = CONFIGS_DIR / "photo_cfg" / photo_name
+    if not photo_path.is_file() and photo_name == "photo_default.json":
+        photo_path = PRODUCT_CONFIGS_DIR / "photo_cfg" / photo_name
+    exposure_path = CONFIGS_DIR / "exposure_opt" / exposure_name
+    if not photo_path.is_file() or not exposure_path.is_file():
+        raise TriggerValidationError(
+            "Select valid Photo Setup and Exposure Optimization files",
+            "TRIGGER_INPUTS_NOT_LOADED",
+        )
+
+    try:
+        with open(photo_path, encoding="utf-8") as handle:
+            debug_photo_setup = json.load(handle)
+    except Exception as exc:
+        raise TriggerValidationError(
+            "Selected Photo Setup cannot be loaded",
+            "TRIGGER_INPUTS_NOT_LOADED",
+        ) from exc
+
+    diamond_duration = None
+    try:
+        candidate = (
+            debug_photo_setup
+            .get("phases", {})
+            .get("diamond_ring", {})
+            .get("duration_s")
+        )
+        if (
+            isinstance(candidate, (int, float))
+            and not isinstance(candidate, bool)
+            and candidate >= 0
+        ):
+            diamond_duration = float(candidate)
+    except Exception:
+        diamond_duration = None
+
+    return photo_name, exposure_name, diamond_duration
+
+
+def _api_trigger_debug_batch(payload):
+    """Own DEBUG preflight, shared UTC anchor generation and all RIG launches."""
+    prepared_runs = []
+    filenames = {}
+    try:
+        _validate_sequence_gps_first()
+        rig_ids = _normalize_trigger_rig_ids(payload.get("rig_ids"))
+        photo_name, exposure_name, diamond_duration = _debug_batch_inputs(payload)
+
+        def run_all():
+            _append_log(
+                f"DEBUG backend preflight begin rigs={list(rig_ids)}",
+                "info",
+                "trigger",
+            )
+            _run_trigger_hardware_preflight_batch(rig_ids, payload)
+            _append_log(
+                f"DEBUG backend preflight OK rigs={list(rig_ids)}",
+                "success",
+                "trigger",
+            )
+
+            # One authoritative anchor is created only after every RIG passes
+            # hardware preflight. The browser never supplies DEBUG time.
+            now_utc = datetime.now(timezone.utc)
+            generated = generate_debug_now(now_utc)
+            if diamond_duration is not None:
+                generated["_diamond_ring_duration_s"] = diamond_duration
+
+            destination_dir = CONFIGS_DIR / "circumstances"
+            destination_dir.mkdir(parents=True, exist_ok=True)
+            for rig_id in rig_ids:
+                filename = (
+                    f"debug_rig_{rig_id}_"
+                    f"{now_utc.strftime('%Y%m%d_%H%M%S_%f')}.json"
+                )
+                destination_path = destination_dir / filename
+                destination_path.write_text(
+                    json.dumps(generated, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                filenames[str(rig_id)] = filename
+                prepared_runs.append({
+                    "rig_id": rig_id,
+                    "generated_path": destination_path,
+                    "selected": {
+                        "circumstances_file": filename,
+                        "photo_file": photo_name,
+                        "exposure_opt_file": exposure_name,
+                    },
+                })
+
+            result = _launch_preflighted_trigger_batch(
+                prepared_runs,
+                preserve_success=True,
+            )
+            result["mode"] = "debug"
+            result["filenames"] = dict(filenames)
+            result["circumstances"] = generated
+
+            publish_debug = bool(result["started_rig_ids"]) or any(
+                item.get("code") == "RPC_OUTCOME_UNKNOWN"
+                for item in result["failures"]
+            )
+            if publish_debug:
+                first_started = (
+                    result["started_rig_ids"][0]
+                    if result["started_rig_ids"]
+                    else rig_ids[0]
+                )
+                active_filename = filenames.get(str(first_started))
+                with _state_lock:
+                    _state["eclipse"] = generated
+                _save_state()
+                circumstances = _state_store.update_section(
+                    "circumstances",
+                    {
+                        "loaded": True,
+                        "active_file": active_filename,
+                        "meta": {
+                            "_date": generated["_date"],
+                            "_date_utc": generated["_date_utc"],
+                            "title": generated["title"],
+                            "_type": generated["_type"],
+                            "_debug_scenario": True,
+                        },
+                    },
+                    persist=True,
+                )
+                socketio.emit(
+                    "eclipse_calculated",
+                    {"status": "success", "data": generated},
+                )
+                socketio.emit(
+                    "status_update",
+                    _status_update_payload({"circumstances": circumstances}),
+                )
+                _append_log(
+                    "🧪 DEBUG backend command launched "
+                    f"rigs={result['started_rig_ids']} anchor={now_utc.isoformat()}",
+                    "warning",
+                    "trigger",
+                )
+
+            return result
+
+        result = _trigger_start_guarded(run_all)
+        return jsonify(result), _trigger_batch_http_status(result)
+
+    except TriggerValidationError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": exc.code,
+        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+    except RuntimeOutcomeUnknownError as exc:
+        return _runtime_outcome_unknown_response(exc)
+    except Exception:
+        app.logger.exception("Backend multi-RIG DEBUG start failed")
+        return jsonify({
+            "error": "DEBUG start failed.",
+            "code": "DEBUG_START_FAILED",
+        }), 500
+    finally:
+        _cleanup_generated_trigger_inputs(prepared_runs)
+
+
 @app.route("/api/trigger/debug/clean", methods=["POST"])
 def api_trigger_debug_clean():
     """Delete only generated DEBUG circumstances files.
@@ -5812,8 +6188,11 @@ def api_trigger_debug_clean():
 
 @app.route("/api/trigger/debug", methods=["POST"])
 def api_trigger_debug():
-    """Generate and immediately start the short DEBUG scenario on one RIG."""
+    """Run one legacy DEBUG RIG or one backend-owned multi-RIG command."""
     payload = request.get_json(silent=True) or {}
+    if "rig_ids" in payload:
+        return _api_trigger_debug_batch(payload)
+
     rig_id = payload.get("rig_id", 1)
 
     # GPS synchronization is deliberately the first validation for DEBUG too.

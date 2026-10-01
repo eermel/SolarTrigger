@@ -4501,49 +4501,53 @@ function selectedTriggerInputs() {
   };
 }
 
-async function preflightTriggerRigs(rigIds, inputs) {
-  try {
-    const response = await fetch('/api/trigger/preflight', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        rig_ids: rigIds,
-        ...inputs
-      })
-    });
-    const data = await response.json();
+function triggerCommandFailures(data) {
+  return Array.isArray(data?.failures) ? data.failures : [];
+}
 
-    if (!response.ok || data.error) {
-      const code = data.code;
-      const detail = data.message || data.error || ('HTTP error ' + response.status);
-      flash(
-        'Preflight: ' + detail,
-        code === 'RPC_OUTCOME_UNKNOWN' ? 'yellow' : 'red'
-      );
+function triggerCommandCodes(data) {
+  const codes = new Set(triggerCommandFailures(data).map(item => item.code));
+  if (data?.code) codes.add(data.code);
+  return codes;
+}
 
-      if (
-        code === 'GPS_NOT_SYNCED' ||
-        code === 'GPS_SYNC_STALE' ||
-        code === 'GPS_SYNC_TIME_INVALID' ||
-        code === 'GPS_SYNC_IN_PROGRESS'
-      ) {
-        setTimeout(() => showTab(1), 1500);
-      }
-      return null;
-    }
+function triggerCommandFailureText(data, fallback) {
+  const failures = triggerCommandFailures(data);
+  if (failures.length) {
+    return failures
+      .map(item => `RIG ${item.rig_id}: ${item.error || item.code || 'failed'}`)
+      .join(' | ');
+  }
+  return data?.message || data?.error || fallback;
+}
 
-    const tokens = data.tokens || {};
-    if (rigIds.some(rigId => !tokens[String(rigId)])) {
-      flash('Preflight did not return a token for every active RIG.', 'red');
-      return null;
-    }
+function showTriggerCommandFailure(data, fallback) {
+  const codes = triggerCommandCodes(data);
+  const started = Array.isArray(data?.started_rig_ids)
+    ? data.started_rig_ids
+    : [];
+  const detail = triggerCommandFailureText(data, fallback);
+  const prefix = started.length
+    ? `Started RIG ${started.join(', ')} — `
+    : '';
 
-    return tokens;
-  } catch (error) {
-    flash('Preflight: ' + (error.message || 'Network error'), 'red');
-    return null;
+  flash(
+    prefix + detail,
+    codes.has('RPC_OUTCOME_UNKNOWN') ? 'yellow' : 'red'
+  );
+
+  if (
+    codes.has('GPS_NOT_SYNCED') ||
+    codes.has('GPS_SYNC_STALE') ||
+    codes.has('GPS_SYNC_TIME_INVALID') ||
+    codes.has('GPS_SYNC_IN_PROGRESS')
+  ) {
+    setTimeout(() => showTab(1), 1500);
+  } else if (codes.has('JSON_INVALID')) {
+    setTimeout(() => showTab(2), 1500);
   }
 }
+
 
 async function startTrigger() {
   const rigIds = activeTriggerRigIds();
@@ -4554,77 +4558,40 @@ async function startTrigger() {
     return;
   }
 
-  // Guarantee that the Trigger circumstances table has the two Diamond Ring
-  // boundaries before START/DRY-RUN. The duration belongs to Photo Setup, not
-  // to the circumstances JSON.
+  // Display-only refresh. Execution timing and preflight are backend-owned.
   await loadTriggerDiamondDuration(inputs.photo_file);
   if (state.triggerCircumstances) {
     renderContacts(state.triggerCircumstances);
   }
 
-  const preflightTokens = await preflightTriggerRigs(rigIds, inputs);
-  if (!preflightTokens) return;
+  try {
+    const r = await fetch('/api/trigger/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        rig_ids: rigIds,
+        ...inputs
+      })
+    });
+    const d = await r.json();
 
-  const failures = [];
-
-  for (const rigId of rigIds) {
-    try {
-      const r = await fetch('/api/trigger/start', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          rig_id: rigId,
-          ...inputs,
-          preflight_token: preflightTokens[String(rigId)]
-        })
-      });
-
-      const d = await r.json();
-
-      if (!r.ok || d.error) {
-        failures.push({
-          rigId,
-          error: d.message || d.error || `HTTP error ${r.status}`,
-          code: d.code
-        });
-      }
-    } catch (error) {
-      failures.push({
-        rigId,
-        error: error.message || 'Network error'
-      });
+    if (!r.ok || d.error || triggerCommandFailures(d).length) {
+      showTriggerCommandFailure(d, `HTTP error ${r.status}`);
+      return;
     }
-  }
 
-  if (failures.length) {
-    const codes = new Set(failures.map(item => item.code));
+    const started = Array.isArray(d.started_rig_ids)
+      ? d.started_rig_ids
+      : rigIds;
     flash(
-      failures
-        .map(item => `RIG ${item.rigId}: ${item.error}`)
-        .join(' | '),
-      codes.has('RPC_OUTCOME_UNKNOWN') ? 'yellow' : 'red'
+      started.length > 1
+        ? `Trigger started on ${started.length} RIGs ▶`
+        : `Trigger started on RIG ${started[0]} ▶`,
+      triggerButtonIsRealDate() ? 'green' : 'blue'
     );
-
-
-    if (
-      codes.has('GPS_NOT_SYNCED') ||
-      codes.has('GPS_SYNC_STALE') ||
-      codes.has('GPS_SYNC_TIME_INVALID')
-    ) {
-      setTimeout(() => showTab(1), 1500);
-    } else if (codes.has('JSON_INVALID')) {
-      setTimeout(() => showTab(2), 1500);
-    }
-
-    return;
+  } catch (error) {
+    flash('Trigger start: ' + (error.message || 'Network error'), 'red');
   }
-
-  flash(
-    rigIds.length > 1
-      ? `Trigger started on ${rigIds.length} RIGs ▶`
-      : `Trigger started on RIG ${rigIds[0]} ▶`,
-    triggerButtonIsRealDate() ? 'green' : 'blue'
-  );
 }
 
 
@@ -4643,103 +4610,50 @@ async function startDebug() {
 
   if (!confirm(
     `🧪 DEBUG MODE — ${targetText}\n\n` +
-    'This will generate one short DEBUG circumstances file per active RIG,\n' +
-    'load it for that RIG and START all sequences immediately.\n' +
+    'The backend will preflight every active RIG, create one shared UTC DEBUG anchor,\n' +
+    'generate the DEBUG circumstances and start the sequences.\n' +
     'The currently selected Photo Setup and Exposure Optimization will be used.\n\n' +
     'Continue?'
   )) return;
 
-  // Test every active RIG before creating the common DEBUG time anchor.
-  // If one camera or mount fails, no DEBUG sequence has started yet.
-  const preflightTokens = await preflightTriggerRigs(rigIds, inputs);
-  if (!preflightTokens) return;
-
-  // DEBUG circumstances do not carry the Photo Setup diamond-ring duration.
-  // Load it before /api/trigger/debug can emit eclipse_calculated.
+  // Display-only metadata. The backend reads Photo Setup independently.
   await loadTriggerDiamondDuration(inputs.photo_file);
 
-  const failures = [];
-  const results = [];
-  // One absolute UTC anchor is shared by every RIG in this DEBUG ALL run.
-  // The requests remain sequential for generated-state safety, but their
-  // eclipse circumstances are now bit-for-bit time aligned.
-  const debugAnchorUtc = new Date().toISOString();
+  try {
+    const r = await fetch('/api/trigger/debug', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        rig_ids: rigIds,
+        photo_file: inputs.photo_file,
+        exposure_opt_file: inputs.exposure_opt_file
+      })
+    });
+    const d = await r.json();
+    const displayed = d;
 
-  // Deliberately sequential: /debug updates generated circumstances state.
-  // Running these requests concurrently would introduce a race.
-  for (const rigId of rigIds) {
-    try {
-      const r = await fetch('/api/trigger/debug', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          rig_id: rigId,
-          debug_anchor_utc: debugAnchorUtc,
-          photo_file: inputs.photo_file,
-          exposure_opt_file: inputs.exposure_opt_file,
-          preflight_token: preflightTokens[String(rigId)]
-        })
-      });
-
-      const d = await r.json();
-
-      if (!r.ok || d.error) {
-        failures.push({
-          rigId,
-          error: d.message || d.error || `HTTP error ${r.status}`,
-          code: d.code
-        });
-      } else {
-        results.push(d);
-      }
-    } catch (error) {
-      failures.push({
-        rigId,
-        error: error.message || 'Network error'
-      });
+    if (displayed && displayed.circumstances) {
+      state.triggerCircumstances = displayed.circumstances;
+      renderContacts(displayed.circumstances);
     }
-  }
 
-  // Display the generated DEBUG circumstances without changing any of the
-  // operator's normal Trigger selections.  DEBUG is temporary execution
-  // state; Circumstances / Photo Setup / Exposure Optimization remain the
-  // prepared inputs for the next normal START.
-  const displayed = (
-    results.find(item => Number(item.rig_id) === selectedTriggerRigId)
-    || results[0]
-  );
+    if (!r.ok || d.error || triggerCommandFailures(d).length) {
+      showTriggerCommandFailure(d, `HTTP error ${r.status}`);
+      return;
+    }
 
-  if (displayed && displayed.circumstances) {
-    state.triggerCircumstances = displayed.circumstances;
-    renderContacts(displayed.circumstances);
-  }
-
-  if (failures.length) {
-    const codes = new Set(failures.map(item => item.code));
+    const started = Array.isArray(d.started_rig_ids)
+      ? d.started_rig_ids
+      : rigIds;
     flash(
-      failures
-        .map(item => `RIG ${item.rigId}: ${item.error}`)
-        .join(' | '),
-      codes.has('RPC_OUTCOME_UNKNOWN') ? 'yellow' : 'red'
+      started.length > 1
+        ? `DEBUG started on ${started.length} RIGs`
+        : `DEBUG started on RIG ${started[0]}`,
+      'blue'
     );
-
-    if (
-      codes.has('GPS_NOT_SYNCED') ||
-      codes.has('GPS_SYNC_STALE') ||
-      codes.has('GPS_SYNC_TIME_INVALID')
-    ) {
-      setTimeout(() => showTab(1), 1500);
-    }
-
-    return;
+  } catch (error) {
+    flash('DEBUG start: ' + (error.message || 'Network error'), 'red');
   }
-
-  flash(
-    rigIds.length > 1
-      ? `DEBUG started on ${rigIds.length} RIGs`
-      : `DEBUG started on RIG ${rigIds[0]}`,
-    'blue'
-  );
 }
 
 

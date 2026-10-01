@@ -4,12 +4,12 @@ from tests.frontend_source import frontend_source
 UI = frontend_source()
 
 
-def test_trigger_global_actions_fan_out_to_all_active_rigs():
+def test_trigger_global_actions_send_one_backend_command_for_all_active_rigs():
     assert "function activeTriggerRigIds()" in UI
 
     assert "async function startTrigger()" in UI
-    assert "for (const rigId of rigIds)" in UI
     assert "'/api/trigger/start'" in UI
+    assert "rig_ids: rigIds" in UI
 
     assert "async function startDryRun()" not in UI
     assert "'/api/trigger/dryrun'" not in UI
@@ -17,7 +17,11 @@ def test_trigger_global_actions_fan_out_to_all_active_rigs():
     assert "async function startDebug()" in UI
     assert "'/api/trigger/debug'" in UI
 
-    assert "Deliberately sequential" in UI
+    start = UI.index("async function startTrigger()")
+    debug = UI.index("async function startDebug()", start)
+    stop = UI.index("async function stopTrigger()", debug)
+    assert "for (const rigId of rigIds)" not in UI[start:stop]
+    assert "preflightTriggerRigs" not in UI[start:stop]
 
 
 def test_trigger_global_action_labels_keep_debug_all_and_date_driven_start():

@@ -14,7 +14,7 @@ def _function_source(name, next_name):
     return JS[start:end]
 
 
-def test_batch_preflight_route_checks_gps_before_rig_validation():
+def test_legacy_preflight_route_still_checks_gps_before_rig_validation():
     start = APP.index(
         '@app.route("/api/trigger/preflight", methods=["POST"])'
     )
@@ -30,50 +30,63 @@ def test_batch_preflight_route_checks_gps_before_rig_validation():
     tokens = source.index("_issue_trigger_preflight_tokens(")
 
     assert gps < rig_ids < run < tokens
-    assert "Do not issue any token until every RIG has passed" in source
 
 
-def test_normal_trigger_preflights_all_rigs_before_first_start_request():
+def test_normal_trigger_ui_sends_one_backend_owned_command():
     source = _function_source("startTrigger", "startDebug")
 
-    preflight = source.index(
-        "await preflightTriggerRigs(rigIds, inputs)"
+    assert source.count("fetch('/api/trigger/start'") == 1
+    assert "rig_ids: rigIds" in source
+    assert "preflightTriggerRigs" not in source
+    assert "preflight_token" not in source
+    assert "for (const rigId of rigIds)" not in source
+
+
+def test_normal_backend_command_prepares_all_then_preflights_then_launches():
+    start = APP.index("def _api_trigger_start_batch(payload):")
+    end = APP.index(
+        '@app.route("/api/trigger/preflight", methods=["POST"])',
+        start,
     )
-    start_request = source.index("fetch('/api/trigger/start'")
-
-    assert preflight < start_request
-    assert "preflight_token: preflightTokens[String(rigId)]" in source
-
-
-def test_debug_creates_shared_anchor_only_after_all_rigs_preflight():
-    source = _function_source("startDebug", "stopTrigger")
-
-    preflight = source.index(
-        "await preflightTriggerRigs(rigIds, inputs)"
-    )
-    anchor = source.index("const debugAnchorUtc = new Date().toISOString();")
-    debug_request = source.index("fetch('/api/trigger/debug'")
-
-    assert preflight < anchor < debug_request
-    assert "preflight_token: preflightTokens[String(rigId)]" in source
-
-
-def test_unified_start_uses_one_hardware_preflight_contract_for_all_dates():
-    source = _function_source("startTrigger", "startDebug")
-
-    assert "await preflightTriggerRigs(rigIds, inputs)" in source
-    assert "fetch('/api/trigger/start'" in source
-    assert "preflight_token: preflightTokens[String(rigId)]" in source
-    assert "startDryRun" not in JS
-    assert "/api/trigger/dryrun" not in JS
-
-
-def test_debug_backend_carries_preflight_token_into_start_selection():
-    start = APP.index(
-        '@app.route("/api/trigger/debug", methods=["POST"])'
-    )
-    end = APP.index("\n@app.route(", start + 1)
     source = APP[start:end]
 
-    assert '"preflight_token": payload.get("preflight_token")' in source
-    assert "_start_trigger_with_hardware_preflight(" in source
+    gps = source.index("_validate_sequence_gps_first()")
+    rigs = source.index("_normalize_trigger_rig_ids(")
+    prepare = source.index("_prepare_trigger_runtime_circumstances(")
+    preflight = source.index("_run_trigger_hardware_preflight_batch(")
+    launch = source.index("_launch_preflighted_trigger_batch(")
+
+    assert gps < rigs < prepare < preflight < launch
+
+
+def test_debug_ui_sends_one_command_without_browser_time_or_tokens():
+    source = _function_source("startDebug", "stopTrigger")
+
+    assert source.count("fetch('/api/trigger/debug'") == 1
+    assert "rig_ids: rigIds" in source
+    assert "debug_anchor_utc" not in source
+    assert "new Date().toISOString()" not in source
+    assert "preflightTriggerRigs" not in source
+    assert "preflight_token" not in source
+    assert "for (const rigId of rigIds)" not in source
+
+
+def test_debug_backend_creates_shared_anchor_after_all_rigs_preflight():
+    start = APP.index("def _api_trigger_debug_batch(payload):")
+    end = APP.index(
+        '@app.route("/api/trigger/debug/clean", methods=["POST"])',
+        start,
+    )
+    source = APP[start:end]
+
+    preflight = source.index("_run_trigger_hardware_preflight_batch(")
+    anchor = source.index("now_utc = datetime.now(timezone.utc)")
+    generate = source.index("generated = generate_debug_now(now_utc)")
+    launch = source.index("_launch_preflighted_trigger_batch(")
+
+    assert preflight < anchor < generate < launch
+
+
+def test_frontend_contains_no_trigger_preflight_or_launch_fanout_helper():
+    assert "async function preflightTriggerRigs" not in JS
+    assert "debug_anchor_utc" not in _function_source("startDebug", "stopTrigger")

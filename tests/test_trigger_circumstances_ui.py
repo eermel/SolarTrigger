@@ -45,7 +45,7 @@ def test_trigger_dryrun_countdown_ignores_source_calendar_date():
     assert "DRY-RUN (and legacy date-less JSON): compare UTC clock time only." in UI
 
 
-def test_trigger_start_reloads_diamond_duration_before_preflight():
+def test_trigger_start_reloads_diamond_duration_before_backend_command():
     start = UI.index("async function startTrigger()")
     end = UI.index("async function startDebug()", start)
     source = UI[start:end]
@@ -53,12 +53,11 @@ def test_trigger_start_reloads_diamond_duration_before_preflight():
     load_index = source.index(
         "await loadTriggerDiamondDuration(inputs.photo_file);"
     )
-    preflight_index = source.index(
-        "const preflightTokens = await preflightTriggerRigs(rigIds, inputs);"
-    )
+    request_index = source.index("fetch('/api/trigger/start'")
 
-    assert load_index < preflight_index
+    assert load_index < request_index
     assert "renderContacts(state.triggerCircumstances);" in source
+    assert "preflightTriggerRigs" not in source
 
 
 def test_trigger_countdown_timer_prefers_trigger_circumstances():
