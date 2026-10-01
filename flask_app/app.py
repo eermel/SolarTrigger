@@ -5824,11 +5824,13 @@ def api_trigger_start():
     prepared_entries = []
     preserve_generated = set()
     rig_ids = ()
+    command = None
 
     try:
         # GPS remains the first sequence-start validation.
         _validate_sequence_gps_first()
         rig_ids = _trigger_rig_ids_from_payload(payload)
+        command = _begin_trigger_start_command(rig_ids)
 
         # Prepare every immutable runtime circumstances file before touching
         # hardware.  A bad input therefore cannot start an earlier RIG.
@@ -5856,25 +5858,53 @@ def api_trigger_start():
             )
 
         def run_all():
-            _append_log(
-                f"TRIGGER_START batch preflight begin rigs={list(rig_ids)}",
-                "info",
-                "trigger",
-            )
-            if batch_request:
-                _run_trigger_hardware_preflight_batch(rig_ids, payload)
-            else:
-                _run_trigger_hardware_preflight(rig_ids[0], payload)
-            _append_log(
-                f"TRIGGER_START batch preflight OK rigs={list(rig_ids)}",
-                "success",
-                "trigger",
-            )
-
             results = []
             failures = []
+            pending_rigs = tuple(
+                rig_id
+                for rig_id in rig_ids
+                if not _trigger_start_command_cancelled(command, rig_id)
+            )
+            for rig_id in rig_ids:
+                if rig_id not in pending_rigs:
+                    failures.append({
+                        "rig_id": rig_id,
+                        "code": "TRIGGER_START_CANCELLED",
+                        "error": f"Trigger RIG {rig_id} start was cancelled.",
+                    })
+
+            if pending_rigs:
+                _set_trigger_start_command_stage(command, "preflight")
+                _append_log(
+                    f"TRIGGER_START batch preflight begin rigs={list(pending_rigs)}",
+                    "info",
+                    "trigger",
+                )
+                if batch_request:
+                    _run_trigger_hardware_preflight_batch(pending_rigs, payload)
+                else:
+                    _run_trigger_hardware_preflight(pending_rigs[0], payload)
+                _append_log(
+                    f"TRIGGER_START batch preflight OK rigs={list(pending_rigs)}",
+                    "success",
+                    "trigger",
+                )
+
+            _set_trigger_start_command_stage(command, "launching")
             for entry in prepared_entries:
                 rig_id = entry["rig_id"]
+                if _trigger_start_command_cancelled(command, rig_id):
+                    if not any(
+                        item["rig_id"] == rig_id
+                        and item["code"] == "TRIGGER_START_CANCELLED"
+                        for item in failures
+                    ):
+                        failures.append({
+                            "rig_id": rig_id,
+                            "code": "TRIGGER_START_CANCELLED",
+                            "error": f"Trigger RIG {rig_id} start was cancelled.",
+                        })
+                    continue
                 try:
                     started = _start_trigger_with_hardware_preflight(
                         rig_id=rig_id,
@@ -5973,6 +6003,8 @@ def api_trigger_start():
             "rig_ids": list(rig_ids),
         }), 500
     finally:
+        if command is not None:
+            _end_trigger_start_command(command)
         for entry in prepared_entries:
             path = entry["generated_path"]
             if path in preserve_generated:
