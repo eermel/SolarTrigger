@@ -490,7 +490,10 @@ class CameraWorkerRuntime:
                 session_id not in self._ipc_session_ids
                 or self._ipc_server is None
             ):
-                raise ValueError("camera IPC session is not active")
+                # Priority is a resilience property, not lease validity.
+                # Injected/legacy session factories used by diagnostics/tests
+                # may return a synthetic lease which is not registered here.
+                return False
             server = self._ipc_server
         setter = getattr(server, "set_session_priority", None)
         if not callable(setter):
