@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import hashlib
-import json, os, shutil, signal, subprocess, sys, threading, uuid
+import json, os, shutil, signal, subprocess, sys, threading, time, uuid
 from threading import Thread as _HeartbeatThread
 from datetime import datetime, timezone
 from backend.timeline import build_timeline, sequence_seconds
@@ -11,6 +11,8 @@ from backend.trigger_heartbeat import (
     HEARTBEAT_ENV,
     HeartbeatSupervisor,
 )
+
+TOTALITY_START_PREEMPT_TIMEOUT_S = 8.0
 
 class TriggerValidationError(RuntimeError):
     def __init__(self, message, code="TRIGGER_INVALID"):
@@ -355,6 +357,10 @@ class TriggerService:
         }
         self._cancel_start_requested_by_rig = {
             rig_id: False
+            for rig_id in range(1, 5)
+        }
+        self._cancel_start_events = {
+            rig_id: threading.Event()
             for rig_id in range(1, 5)
         }
         self._stopping_by_rig = {
@@ -792,6 +798,42 @@ class TriggerService:
     def _starting(self, value):
         self._starting_by_rig[1] = bool(value)
 
+    def _start_cancel_event(self, rig_id):
+        events = getattr(self, "_cancel_start_events", None)
+        if not isinstance(events, dict):
+            events = {
+                item_rig_id: threading.Event()
+                for item_rig_id in range(1, 5)
+            }
+            self._cancel_start_events = events
+        event = events.get(rig_id)
+        if event is None:
+            event = threading.Event()
+            events[rig_id] = event
+        return event
+
+    def _request_start_cancel(self, rig_id):
+        """Priority-safe cancellation channel independent of the lifecycle lock."""
+        self._start_cancel_event(rig_id).set()
+        cancel_map = getattr(self, "_cancel_start_requested_by_rig", None)
+        if isinstance(cancel_map, dict):
+            cancel_map[rig_id] = True
+
+    def _clear_start_cancel_request(self, rig_id):
+        self._start_cancel_event(rig_id).clear()
+        cancel_map = getattr(self, "_cancel_start_requested_by_rig", None)
+        if isinstance(cancel_map, dict):
+            cancel_map[rig_id] = False
+
+    def _start_cancel_requested(self, rig_id):
+        if self._start_cancel_event(rig_id).is_set():
+            return True
+        cancel_map = getattr(self, "_cancel_start_requested_by_rig", None)
+        return bool(
+            isinstance(cancel_map, dict)
+            and cancel_map.get(rig_id, False)
+        )
+
     def is_active_or_starting(self, rig_id: int) -> bool:
         if (
             not isinstance(rig_id, int)
@@ -1123,7 +1165,7 @@ class TriggerService:
             self._starting_by_rig[rig_id] = True
             self._analysis_suppressed_by_rig[rig_id] = False
             self._manual_stop_requested_by_rig[rig_id] = False
-            self._cancel_start_requested_by_rig[rig_id] = False
+            self._clear_start_cancel_request(rig_id)
 
             config = None
             try:
@@ -1464,9 +1506,8 @@ class TriggerService:
         try:
             # STOP may arrive immediately after start() released its lock but
             # before this supervisor thread has created the subprocess.
-            with self._lock:
-                if self._cancel_start_requested_by_rig[rig_id]:
-                    return
+            if self._start_cancel_requested(rig_id):
+                return
 
             cmd = [
                 sys.executable,
@@ -1587,7 +1628,7 @@ class TriggerService:
                 )
                 stdout_read_fd = None
             with self._lock:
-                cancel_start = self._cancel_start_requested_by_rig[rig_id]
+                cancel_start = self._start_cancel_requested(rig_id)
                 if not cancel_start:
                     # Startup ownership is now fully supervised.  From this
                     # point the live process itself is sufficient to report
@@ -1793,7 +1834,7 @@ class TriggerService:
             or (
                 proc is not None
                 and self._procs[rig_id] is None
-                and self._cancel_start_requested_by_rig[rig_id]
+                and self._start_cancel_requested(rig_id)
             )
             or (
                 proc is None
@@ -1807,7 +1848,7 @@ class TriggerService:
                     self._clear_active_inputs(rig_id)
                     self._analysis_suppressed_by_rig[rig_id] = False
                     self._manual_stop_requested_by_rig[rig_id] = False
-                    self._cancel_start_requested_by_rig[rig_id] = False
+                    self._clear_start_cancel_request(rig_id)
                     self._stopping_by_rig[rig_id] = False
                 elif owns_process and process_still_alive:
                     self._analysis_suppressed_by_rig[rig_id] = True
@@ -2083,7 +2124,7 @@ class TriggerService:
             self._starting_by_rig[rig_id] = True
             self._analysis_suppressed_by_rig[rig_id] = True
             self._manual_stop_requested_by_rig[rig_id] = False
-            self._cancel_start_requested_by_rig[rig_id] = False
+            self._clear_start_cancel_request(rig_id)
 
         run_id = _run_id
         snapshot_id = _recovery_snapshot_id
@@ -2179,7 +2220,7 @@ class TriggerService:
                 self._starting_by_rig[rig_id] = False
                 self._analysis_suppressed_by_rig[rig_id] = False
                 self._manual_stop_requested_by_rig[rig_id] = False
-                self._cancel_start_requested_by_rig[rig_id] = False
+                self._clear_start_cancel_request(rig_id)
                 self._supervisor_threads[rig_id] = None
                 self._clear_active_inputs(rig_id)
                 self._discard_run_snapshot(snapshot_id)
