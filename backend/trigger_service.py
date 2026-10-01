@@ -2316,9 +2316,20 @@ class TriggerService:
         # request cancellation. The Event is safe to set immediately and the
         # supervisor checks it before entering the capture runtime.
         starting_map = getattr(self, "_starting_by_rig", None)
+        proc_map = getattr(self, "_procs", None)
+        proc_hint = (
+            proc_map.get(rig_id)
+            if isinstance(proc_map, dict)
+            else None
+        )
+        live_proc_hint = (
+            proc_hint is not None
+            and proc_hint.poll() is None
+        )
         if (
             isinstance(starting_map, dict)
             and bool(starting_map.get(rig_id, False))
+            and not live_proc_hint
         ):
             self._request_start_cancel(rig_id)
             analysis_map = getattr(self, "_analysis_suppressed_by_rig", None)
