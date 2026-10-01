@@ -5,6 +5,7 @@ on:
     branches:
       - hardening/standalone-runtime-20260922
       - refactor/indi-astro-device-manager
+      - hardening/backend-authoritative-control
   workflow_dispatch:
 
 jobs:
