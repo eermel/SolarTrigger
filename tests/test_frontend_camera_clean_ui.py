@@ -35,7 +35,8 @@ def test_photo_setup_clean_uses_only_photo_cfg_namespace():
 def test_photo_setup_clean_requires_confirmation():
     logic = _clean_photo_function()
 
-    assert "confirm(" in logic
+    assert "await solarConfirm(" in logic
+    assert "confirm(" not in logic
     assert "Photo Setup" in logic
 
 
