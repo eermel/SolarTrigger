@@ -41,7 +41,8 @@ def test_clean_requires_confirmation():
     end = HTML.index("async function cleanCameraConfigs()", start)
     body = HTML[start:end]
 
-    assert "confirm(" in body
+    assert "await solarConfirm(" in body
+    assert "confirm(" not in body
     assert "Delete all saved circumstances files" in body
 
 
