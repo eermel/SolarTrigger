@@ -53,7 +53,7 @@ def _service_shell():
     return service
 
 
-def test_stop_cancels_start_before_popen_is_published():
+def test_stop_cancels_start_without_waiting_for_lifecycle_lock_or_supervisor():
     service = _service_shell()
     service._starting_by_rig[1] = True
     supervisor = _FakeSupervisor(service)
@@ -61,11 +61,17 @@ def test_stop_cancels_start_before_popen_is_published():
 
     result = service.stop(1)
 
-    assert supervisor.joined is True
+    assert supervisor.joined is False
     assert service._cancel_start_requested_by_rig[1] is True
+    assert service._start_cancel_requested(1) is True
     assert service._manual_stop_requested_by_rig[1] is True
-    assert result["status"] == "stopped"
-    assert result["still_running"] is False
+    assert result == {
+        "status": "stopping",
+        "rig_id": 1,
+        "forced": False,
+        "still_running": True,
+        "startup_cancelled": True,
+    }
 
 
 def test_graceful_stop_does_not_wait_for_supervisor_or_atomic_photo():
@@ -217,12 +223,24 @@ def test_supervision_failure_after_popen_retains_unkillable_child(
     assert proc.kill_calls >= 1
 
 
-def test_totality_override_does_not_preempt_child_still_in_startup():
+def test_totality_requests_startup_cancel_and_fails_bounded_if_child_stays_starting(
+    monkeypatch,
+):
     service = _service_shell()
     proc = _FakeProc()
     service._procs[1] = proc
     service._starting_by_rig[1] = True
+    monkeypatch.setattr(
+        trigger_service,
+        "TOTALITY_START_PREEMPT_TIMEOUT_S",
+        0.0,
+    )
 
-    assert service.start_totality_only(1) is False
+    with pytest.raises(trigger_service.TriggerValidationError) as excinfo:
+        service.start_totality_only(1)
+
+    assert excinfo.value.code == "TRIGGER_START_PREEMPT_TIMEOUT"
+    assert service._start_cancel_requested(1) is True
+    assert service._manual_stop_requested_by_rig[1] is True
     assert proc.terminated is False
     assert proc.killed is False
