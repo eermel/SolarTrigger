@@ -76,7 +76,13 @@ def register_characterization_routes(app, trigger_snapshot, emit_fn=None):
         # but no refresh, rebind, reset or acquisition in another browser tab.
         if path.startswith("/api/camera-characterization"):
             return None
-        if (path.startswith("/api/trigger/") and path != "/api/trigger/status"
+        if path in {
+            "/api/trigger/status",
+            "/api/trigger/stop",
+            "/api/trigger/totality_only",
+        }:
+            return None
+        if (path.startswith("/api/trigger/")
                 or path.startswith("/api/rigs/") and request.method != "GET"
                 or "/camera/" in path
                 or path.startswith("/api/devices")
