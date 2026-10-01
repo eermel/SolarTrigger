@@ -40,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CANCEL_COOPERATIVE_GRACE_S = 2.0
 CANCEL_TERMINATE_GRACE_S = 1.0
 CANCEL_KILL_GRACE_S = 1.0
+CHARACTERIZATION_MAX_RUNTIME_S = 3600.0
 
 
 class Cancelled(RuntimeError):
@@ -354,7 +355,15 @@ def _qualify_guarded_single_rearm_ms(
 
 
 class CharacterizationJob:
-    def __init__(self):
+    def __init__(self, *, max_runtime_s=CHARACTERIZATION_MAX_RUNTIME_S):
+        if (
+            isinstance(max_runtime_s, bool)
+            or not isinstance(max_runtime_s, (int, float))
+            or not math.isfinite(float(max_runtime_s))
+            or float(max_runtime_s) <= 0
+        ):
+            raise ValueError("max_runtime_s must be a finite positive number")
+        self.max_runtime_s = float(max_runtime_s)
         self.lock = threading.RLock()
         self.condition = threading.Condition(self.lock)
         self.logs = deque(maxlen=2000)
@@ -371,6 +380,7 @@ class CharacterizationJob:
         self._command_queue = None
         self._cancel_watchdog_active = False
         self._monitor_started = False
+        self._started_monotonic = None
 
     def set_notify_fn(self, notify_fn):
         self._notify_fn = notify_fn
@@ -469,6 +479,7 @@ class CharacterizationJob:
         self._command_queue = None
         self._cancel_watchdog_active = False
         self._monitor_started = False
+        self._started_monotonic = None
         self.condition.notify_all()
 
     @staticmethod
@@ -540,6 +551,7 @@ class CharacterizationJob:
             self.logs.clear()
             self.job_id = uuid.uuid4().hex
             self.measurement_state = {}
+            self._started_monotonic = time.monotonic()
             self.measurement_path = (
                 Path(root) / "configs/camera_characterization/measurements"
                 / f"{self.job_id}.json"
@@ -671,7 +683,51 @@ class CharacterizationJob:
 
     def _monitor_process(self, process, events):
         result = None
+        timed_out = False
+        started = self._started_monotonic
+        deadline = (
+            None
+            if started is None
+            else float(started) + self.max_runtime_s
+        )
+
         while process.is_alive() or not events.empty():
+            if (
+                not timed_out
+                and deadline is not None
+                and process.is_alive()
+                and time.monotonic() >= deadline
+            ):
+                timed_out = True
+                timeout_text = (
+                    "Camera characterization exceeded global runtime limit "
+                    f"of {self.max_runtime_s:g} seconds"
+                )
+                result = {
+                    "status": "FAILED",
+                    "files": [],
+                    "schema_version": 1,
+                    "error": timeout_text,
+                }
+                self.log(timeout_text)
+                self.checkpoint(outcome=result)
+                with self.condition:
+                    self.cancelled = True
+                    if self._command_queue is not None:
+                        try:
+                            self._command_queue.put(("cancel", None))
+                        except Exception:
+                            pass
+                    self.condition.notify_all()
+
+                # A native gphoto2 call may never return. Escalate with the
+                # same bounded terminate/kill policy used by operator cancel.
+                self._terminate_process_bounded(
+                    process,
+                    cooperative_grace_s=CANCEL_COOPERATIVE_GRACE_S,
+                )
+                continue
+
             try:
                 kind, payload = events.get(timeout=0.1)
             except queue.Empty:
@@ -691,7 +747,7 @@ class CharacterizationJob:
                     self.question = None
                     self.condition.notify_all()
                 self._notify()
-            elif kind == "result":
+            elif kind == "result" and not timed_out:
                 result = payload
 
         process.join(timeout=1.0)
@@ -727,6 +783,7 @@ class CharacterizationJob:
             self._command_queue = None
             self._cancel_watchdog_active = False
             self._monitor_started = False
+            self._started_monotonic = None
             self.condition.notify_all()
         self._notify()
 

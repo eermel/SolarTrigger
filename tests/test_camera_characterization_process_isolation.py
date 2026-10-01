@@ -298,3 +298,36 @@ def test_characterization_monitor_start_failure_retains_surviving_child(
     assert job._process is process
     assert job.result["status"] == "FAILED"
     assert "still alive" in job.result["error"]
+
+
+def test_characterization_global_runtime_watchdog_terminates_hung_child(tmp_path):
+    job = CharacterizationJob(max_runtime_s=0.01)
+    process = _HungProcess()
+    commands = queue.Queue()
+    events = queue.Queue()
+
+    job.running = True
+    job.job_id = "timeout"
+    job._process = process
+    job._command_queue = commands
+    job._monitor_started = True
+    job._started_monotonic = characterization.time.monotonic() - 1.0
+    job.measurement_path = (
+        tmp_path / "configs/camera_characterization/measurements/timeout.json"
+    )
+
+    job._monitor_process(process, events)
+
+    assert job.running is False
+    assert job.result["status"] == "FAILED"
+    assert "global runtime limit" in job.result["error"]
+    assert process.terminate_calls == 1
+    assert process.kill_calls == 1
+    assert job._process is None
+    assert job._started_monotonic is None
+    assert job.measurement_path.exists()
+
+
+def test_characterization_global_runtime_limit_is_one_hour_by_default():
+    assert characterization.CHARACTERIZATION_MAX_RUNTIME_S == 3600.0
+    assert CharacterizationJob().max_runtime_s == 3600.0
