@@ -492,7 +492,13 @@ class CameraWorkerRuntime:
             ):
                 raise ValueError("camera IPC session is not active")
             server = self._ipc_server
-        server.set_session_priority(session_id, priority)
+        setter = getattr(server, "set_session_priority", None)
+        if not callable(setter):
+            # Backward compatibility for injected/legacy IPC server doubles.
+            # Production CameraIpcServer always exposes this capability.
+            return False
+        setter(session_id, priority)
+        return True
 
     def close_ipc_session(self, session_id: str) -> None:
         """Revoke an IPC lease and stop the server after its final session."""
