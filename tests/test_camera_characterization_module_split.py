@@ -8,6 +8,7 @@ import backend.camera_characterization_types as characterization_types
 import backend.camera_characterization_qualification as qualification
 import backend.camera_characterization_settings as settings
 import backend.camera_characterization_runtime_ops as runtime_ops
+import backend.camera_characterization_capture as capture
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,3 +121,15 @@ def test_runtime_set_operations_are_owned_by_dedicated_object():
     assert "    def converge_characterized_preflight(" not in SOURCE
     assert "    def measure_set(" not in SOURCE
     assert "runtime_ops = CharacterizationRuntimeOps(" in SOURCE
+
+
+
+def test_capture_probe_is_split_without_timing_policy_changes():
+    assert (
+        characterization.CharacterizationCaptureProbe
+        is capture.CharacterizationCaptureProbe
+    )
+    assert "    def probe(" not in SOURCE
+    assert "capture_probe = CharacterizationCaptureProbe(" in SOURCE
+    assert "probe = capture_probe.probe" in SOURCE
+    assert "validated_trials = set()" not in SOURCE
