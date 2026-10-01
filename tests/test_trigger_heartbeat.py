@@ -389,3 +389,96 @@ def test_camera_control_watchdog_stages_keep_pi_safety_margin():
         trigger_heartbeat.DEFAULT_STAGE_TIMEOUTS_S["capture.prepare.begin"]
         == 60.0
     )
+
+
+
+def test_manual_stop_escalates_if_non_capture_stage_stays_hung(monkeypatch):
+    read_fd, write_fd = os.pipe()
+    monkeypatch.setattr(
+        trigger_heartbeat,
+        "MANUAL_STOP_NON_CAPTURE_TIMEOUT_S",
+        0.06,
+    )
+
+    class Proc:
+        returncode = None
+        terminated = False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    proc = Proc()
+    supervisor = HeartbeatSupervisor(
+        read_fd=read_fd,
+        proc=proc,
+        timeout_s=1.0,
+        manual_stop_fn=lambda: True,
+    ).start()
+    emitter = HeartbeatEmitter(write_fd)
+    emitter.pulse("wait", timeout_s=0.5)
+
+    deadline = time.monotonic() + 0.5
+    while not supervisor.manual_stop_escalated and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    emitter.close()
+    supervisor.stop()
+
+    assert supervisor.manual_stop_escalated is True
+    assert supervisor.timed_out is False
+    assert proc.terminated is True
+
+
+def test_manual_stop_keeps_atomic_capture_until_capture_budget_expires():
+    read_fd, write_fd = os.pipe()
+
+    class Proc:
+        returncode = None
+        terminated = False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    proc = Proc()
+    supervisor = HeartbeatSupervisor(
+        read_fd=read_fd,
+        proc=proc,
+        timeout_s=1.0,
+        manual_stop_fn=lambda: True,
+    ).start()
+    emitter = HeartbeatEmitter(write_fd)
+    emitter.pulse("capture.begin", timeout_s=0.20)
+
+    time.sleep(0.08)
+    assert proc.terminated is False
+    assert supervisor.manual_stop_escalated is False
+
+    deadline = time.monotonic() + 0.6
+    while not supervisor.timed_out and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    emitter.close()
+    supervisor.stop()
+
+    assert supervisor.timed_out is True
+    assert proc.terminated is True

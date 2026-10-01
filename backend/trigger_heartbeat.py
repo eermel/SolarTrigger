@@ -11,6 +11,7 @@ import time
 
 HEARTBEAT_ENV = "SOLARTRIGGER_HEARTBEAT_FD"
 DEFAULT_HEARTBEAT_TIMEOUT_S = 180.0
+MANUAL_STOP_NON_CAPTURE_TIMEOUT_S = 10.0
 
 # Scheduler states that should never remain silent for the generic 180 s
 # fallback. Camera operations keep a larger budget because the IPC layer
@@ -114,6 +115,8 @@ class HeartbeatSupervisor:
         self.last_stage = None
         self.last_stage_timeout_s = None
         self.timed_out = False
+        self.manual_stop_escalated = False
+        self._manual_stop_started_at = None
         self._stop = threading.Event()
         self._pulse_event = threading.Event()
         self._lock = threading.Lock()
@@ -238,15 +241,19 @@ class HeartbeatSupervisor:
             except Exception:
                 return
             try:
-                if self.manual_stop_fn():
-                    # Graceful STOP deliberately permits an in-flight atomic
-                    # camera capture to finish, regardless of its duration.
-                    continue
+                manual_stop = bool(self.manual_stop_fn())
             except Exception:
-                pass
+                manual_stop = False
+
+            now = time.monotonic()
+            if manual_stop:
+                if self._manual_stop_started_at is None:
+                    self._manual_stop_started_at = now
+            else:
+                self._manual_stop_started_at = None
 
             with self._lock:
-                age = time.monotonic() - self.last_seen
+                age = now - self.last_seen
                 stage = self.last_stage
                 stage_timeout_s = self.last_stage_timeout_s
             effective_timeout_s = (
@@ -254,6 +261,30 @@ class HeartbeatSupervisor:
                 if stage_timeout_s is None
                 else stage_timeout_s
             )
+
+            if manual_stop and stage != "capture.begin":
+                stop_age = now - self._manual_stop_started_at
+                stop_timeout_s = min(
+                    effective_timeout_s,
+                    MANUAL_STOP_NON_CAPTURE_TIMEOUT_S,
+                )
+                if stop_age <= stop_timeout_s:
+                    continue
+                self.manual_stop_escalated = True
+                try:
+                    self.log_fn(
+                        "Graceful STOP exceeded bounded non-capture timeout "
+                        f"({stop_age:.1f}s > {stop_timeout_s:.1f}s, "
+                        f"last_stage={stage or 'none'}); escalating."
+                    )
+                except Exception:
+                    pass
+                self._terminate_child()
+                return
+
+            # During capture.begin, graceful STOP preserves the complete atomic
+            # PHOTO group but only up to the characterized dynamic capture
+            # watchdog budget. A truly hung capture is then terminated.
             if age <= effective_timeout_s:
                 continue
             self.timed_out = True
