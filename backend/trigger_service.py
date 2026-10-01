@@ -2103,13 +2103,36 @@ class TriggerService:
                 "RIG_ID_INVALID",
             )
 
+        if not _recovery:
+            # The lifecycle lock may be held by slow validation/reconcile work.
+            # Cancellation therefore uses the independent Event channel first,
+            # then waits outside that lock for startup ownership to unwind.
+            deadline = time.monotonic() + TOTALITY_START_PREEMPT_TIMEOUT_S
+            while bool(self._starting_by_rig.get(rig_id, False)):
+                self._request_start_cancel(rig_id)
+                self._analysis_suppressed_by_rig[rig_id] = True
+                self._manual_stop_requested_by_rig[rig_id] = True
+                stopping_map = getattr(self, "_stopping_by_rig", None)
+                if isinstance(stopping_map, dict):
+                    stopping_map[rig_id] = True
+                if time.monotonic() >= deadline:
+                    raise TriggerValidationError(
+                        f"Emergency Totality could not preempt RIG {rig_id} startup.",
+                        "TRIGGER_START_PREEMPT_TIMEOUT",
+                    )
+                time.sleep(0.02)
+
         with self._lock:
-            # A Popen-created child is published immediately for ownership
-            # safety, but a RIG still in startup is not yet safe to preempt.
-            if self._starting_by_rig[rig_id]:
-                return False
             proc = self._procs[rig_id]
             running = proc is not None and proc.poll() is None
+            stopping = bool(
+                getattr(self, "_stopping_by_rig", {}).get(rig_id, False)
+            )
+        if running and stopping:
+            raise TriggerValidationError(
+                f"RIG {rig_id} startup child did not stop cleanly.",
+                "TRIGGER_START_PREEMPT_TIMEOUT",
+            )
         if running:
             if not self.override_totality(rig_id=rig_id):
                 raise TriggerValidationError(
@@ -2120,7 +2143,10 @@ class TriggerService:
 
         with self._lock:
             if self._starting_by_rig[rig_id]:
-                return False
+                raise TriggerValidationError(
+                    f"Emergency Totality could not claim RIG {rig_id} startup.",
+                    "TRIGGER_START_PREEMPT_TIMEOUT",
+                )
             self._starting_by_rig[rig_id] = True
             self._analysis_suppressed_by_rig[rig_id] = True
             self._manual_stop_requested_by_rig[rig_id] = False
@@ -2283,6 +2309,38 @@ class TriggerService:
             return {
                 "status": "invalid_force",
                 "rig_id": rig_id,
+            }
+
+        # Priority path: start() deliberately holds the lifecycle lock across
+        # several preparation operations. Do not wait for that lock merely to
+        # request cancellation. The Event is safe to set immediately and the
+        # supervisor checks it before entering the capture runtime.
+        starting_map = getattr(self, "_starting_by_rig", None)
+        if (
+            isinstance(starting_map, dict)
+            and bool(starting_map.get(rig_id, False))
+        ):
+            self._request_start_cancel(rig_id)
+            analysis_map = getattr(self, "_analysis_suppressed_by_rig", None)
+            if isinstance(analysis_map, dict):
+                analysis_map[rig_id] = True
+            manual_map = getattr(self, "_manual_stop_requested_by_rig", None)
+            if isinstance(manual_map, dict):
+                manual_map[rig_id] = True
+            stopping_map = getattr(self, "_stopping_by_rig", None)
+            if not isinstance(stopping_map, dict):
+                stopping_map = {
+                    item_rig_id: False
+                    for item_rig_id in range(1, 5)
+                }
+                self._stopping_by_rig = stopping_map
+            stopping_map[rig_id] = True
+            return {
+                "status": "stopping",
+                "rig_id": rig_id,
+                "forced": bool(force),
+                "still_running": True,
+                "startup_cancelled": True,
             }
 
         proc = None
