@@ -94,8 +94,9 @@ def test_operational_qualification_is_split_without_api_breakage():
     assert callable(characterization.qualify_operational_contract_v3)
     assert callable(characterization.qualify_operational_contract)
     assert "class QualificationOverrun(RuntimeError):" not in SOURCE
-    assert "def qualify_operational_contract_v3(" not in SOURCE
-    assert "def qualify_operational_contract(" not in SOURCE
+    assert "_qualify_operational_contract_v3_impl(" in SOURCE
+    assert "_qualify_operational_contract_impl(" in SOURCE
+    assert "RUNTIME QUALIFICATION COMMAND" not in SOURCE
 
 
 

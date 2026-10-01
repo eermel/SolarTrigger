@@ -1,6 +1,7 @@
 import inspect
 
 from backend.camera_characterization import characterize
+from backend.camera_characterization_capture import CharacterizationCaptureProbe
 
 
 def test_characterization_uses_persistent_camera_session_and_five_trials():
@@ -45,7 +46,7 @@ def test_characterization_promotes_optional_shutter_mode_to_direct_set():
 
 
 def test_capture_count_mismatch_is_rejected_without_operator_confirmation():
-    source = inspect.getsource(characterize)
+    source = inspect.getsource(CharacterizationCaptureProbe.probe)
     assert "operator_photos" not in source
     assert "Operator physical-card check" not in source
     assert "_ensure_camera_storage" not in source
