@@ -3513,6 +3513,9 @@ function updateGPS(gps) {
 }
 
 const PHASE_LABELS = {
+  preflighting: '⏳ PRE-FLIGHT',
+  starting:     '▶ STARTING',
+  stopping:     '■ STOPPING',
   recovering: '↻ RECOVERING',
   failed: '⚠ TRIGGER FAILED',
   idle:         'IDLE',

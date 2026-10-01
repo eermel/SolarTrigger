@@ -407,6 +407,95 @@ _trigger_command_generation = 0
 _TRIGGER_URGENT_PREFLIGHT_WAIT_S = 15.0
 _TRIGGER_CAMERA_MAINTENANCE_WAIT_S = 8.0
 
+
+def _trigger_command_public_phase(stage):
+    """Map private orchestration stages to the public backend state model."""
+    if stage in {"preparing", "preflight"}:
+        return "preflighting"
+    if stage == "launching":
+        return "starting"
+    return None
+
+
+def _trigger_command_snapshot():
+    """Return a copy of the active backend START/DEBUG command, if any."""
+    with _trigger_command_condition:
+        command = _trigger_active_start_command
+        if command is None:
+            return None
+        return {
+            "generation": command["generation"],
+            "rig_ids": tuple(command["rig_ids"]),
+            "cancelled_rigs": frozenset(command["cancelled_rigs"]),
+            "stage": command.get("stage"),
+            "mode": command.get("mode"),
+        }
+
+
+def _trigger_status_snapshot(*, sync_runtime=True):
+    """Return authoritative trigger state including pre-runtime stages.
+
+    The standalone runtime remains authoritative once it owns a RIG. Before
+    that handoff, Flask owns the backend START/DEBUG command. Overlaying the
+    command here prevents the browser from inventing PRE-FLIGHT/STARTING state
+    and prevents an idle runtime snapshot from erasing an in-flight command.
+    """
+    if sync_runtime:
+        service = globals().get("_trigger_service")
+        sync_state = getattr(service, "sync_state", None)
+        if callable(sync_state):
+            sync_state(best_effort=True)
+
+    trigger = _state_store.snapshot("trigger") or {
+        "running": False,
+        "phase": "idle",
+        "rigs": {},
+    }
+    command = _trigger_command_snapshot()
+    if command is None:
+        trigger.pop("command", None)
+        return trigger
+
+    public_phase = _trigger_command_public_phase(command.get("stage"))
+    cancelled = command["cancelled_rigs"]
+    trigger["command"] = {
+        "generation": command["generation"],
+        "phase": public_phase,
+        "stage": command.get("stage"),
+        "mode": command.get("mode"),
+        "rig_ids": list(command["rig_ids"]),
+        "cancelled_rig_ids": sorted(cancelled),
+    }
+
+    rigs = trigger.setdefault("rigs", {})
+    for rig_id in command["rig_ids"]:
+        rig_state = rigs.setdefault(
+            str(rig_id),
+            {
+                "running": False,
+                "phase": "idle",
+                "mode": None,
+                "speed": None,
+            },
+        )
+
+        # Never mask a state already published by the autonomous runtime.
+        if rig_state.get("running") is True:
+            continue
+
+        phase = "stopping" if rig_id in cancelled else public_phase
+        if phase is None:
+            continue
+        rig_state.update({
+            "running": False,
+            "phase": phase,
+            "mode": command.get("mode"),
+            "speed": None,
+        })
+
+    return trigger
+
+
 _DEVICE_DETECTION_TIMEOUTS = {
     "camera": 2.0,
     "gps": 2.0,
@@ -1992,11 +2081,7 @@ def api_rig_device_inventory_refresh():
 
 
 def _authoritative_trigger_snapshot():
-    service = globals().get("_trigger_service")
-    sync_state = getattr(service, "sync_state", None)
-    if callable(sync_state):
-        sync_state(best_effort=True)
-    return _state_store.snapshot("trigger")
+    return _trigger_status_snapshot(sync_runtime=True)
 
 
 from backend.camera_characterization_routes import register_characterization_routes
@@ -2030,8 +2115,8 @@ def api_status():
             for rig_id in range(1, 5)
         ]
     with _state_lock:
-        gps     = dict(_state["gps"])
-        trigger = dict(_state["trigger"])
+        gps = dict(_state["gps"])
+    trigger = _trigger_status_snapshot(sync_runtime=True)
     return jsonify({
         "time":    _time_payload(),
         "gps":     gps,
@@ -5631,7 +5716,7 @@ def _trigger_batch_response_status(result):
     return 200
 
 
-def _begin_trigger_start_command(rig_ids):
+def _begin_trigger_start_command(rig_ids, mode):
     global _trigger_active_start_command, _trigger_command_generation
     with _trigger_command_condition:
         if _trigger_active_start_command is not None:
@@ -5645,6 +5730,7 @@ def _begin_trigger_start_command(rig_ids):
             "rig_ids": tuple(rig_ids),
             "cancelled_rigs": set(),
             "stage": "preparing",
+            "mode": str(mode),
         }
         _trigger_active_start_command = command
         _trigger_command_condition.notify_all()
@@ -5857,7 +5943,7 @@ def api_trigger_start():
         # GPS remains the first sequence-start validation.
         _validate_sequence_gps_first()
         rig_ids = _trigger_rig_ids_from_payload(payload)
-        command = _begin_trigger_start_command(rig_ids)
+        command = _begin_trigger_start_command(rig_ids, "real")
 
         # Prepare every immutable runtime circumstances file before touching
         # hardware.  A bad input therefore cannot start an earlier RIG.
@@ -6144,7 +6230,7 @@ def api_trigger_debug():
         # GPS synchronization is deliberately the first validation for DEBUG.
         _validate_sequence_gps_first()
         rig_ids = _trigger_rig_ids_from_payload(payload)
-        command = _begin_trigger_start_command(rig_ids)
+        command = _begin_trigger_start_command(rig_ids, "debug")
 
         photo_name = str(payload.get("photo_file", "")).strip()
         exposure_name = str(payload.get("exposure_opt_file", "")).strip()
@@ -6439,7 +6525,7 @@ def api_trigger_stop():
 
 @app.route("/api/trigger/status")
 def api_trigger_status():
-    return jsonify(_state_store.snapshot("trigger"))
+    return jsonify(_trigger_status_snapshot(sync_runtime=True))
 
 # ══════════════════════════════════════════════════════════════════════════════
 from backend.system_maintenance_routes import register_system_maintenance_routes
@@ -6465,9 +6551,9 @@ def on_connect(auth=None):
     2. Envoie les N dernières lignes de log (historique)
     """
     with _state_lock:
-        gps     = dict(_state["gps"])
-        trigger = dict(_state["trigger"])
+        gps = dict(_state["gps"])
         eclipse = _state.get("eclipse")
+    trigger = _trigger_status_snapshot(sync_runtime=True)
 
     # Si eclipse pas en mémoire, tenter le fichier
     if not eclipse:
@@ -6506,7 +6592,7 @@ def _status_broadcast_once():
         sync_state(best_effort=True)
     with _state_lock:
         gps = dict(_state["gps"])
-        trigger = dict(_state["trigger"])
+    trigger = _trigger_status_snapshot(sync_runtime=False)
     socketio.emit(
         "status_update",
         _status_update_payload({
