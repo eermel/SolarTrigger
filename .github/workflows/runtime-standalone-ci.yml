@@ -3,6 +3,7 @@ name: standalone-runtime-ci
 on:
   push:
     branches:
+      - main
       - hardening/standalone-runtime-20260922
       - refactor/indi-astro-device-manager
       - hardening/backend-authoritative-control
@@ -24,18 +25,13 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest Flask flask-socketio simple-websocket gphoto2 pygame pyserial gunicorn pytz timezonefinder
-      - name: Syntax checks
+          python -m pip install pytest pyflakes Flask flask-socketio simple-websocket gphoto2 pygame pyserial gunicorn pytz timezonefinder
+      - name: Static Python checks
         run: |
-          python -m py_compile \
-            backend/runtime_rpc.py \
-            backend/runtime_daemon.py \
-            backend/indi_device_manager.py \
-            backend/indi_server_daemon.py \
-            plugins/mount/indi_client.py \
-            plugins/mount/indi_plugin.py \
-            plugins/focuser/indi_plugin.py \
-            flask_app/app.py
+          python -m compileall -q backend scripts services plugins flask_app
+          python -m pyflakes backend scripts services plugins flask_app
+      - name: Shell syntax checks
+        run: |
           bash -n install/install_solareclipse.sh
           bash -n install/install_standalone_runtime_service.sh
           sh -n install/solartrigger-release-update
