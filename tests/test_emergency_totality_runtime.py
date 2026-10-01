@@ -224,3 +224,55 @@ def test_totality_only_skips_runtime_clock_configuration(monkeypatch):
     )
     with pytest.raises(FileNotFoundError):
         trigger.main()
+
+
+def test_emergency_photo_error_backoff_is_bounded_and_resets_after_success():
+    class RecordingStop:
+        def __init__(self):
+            self.flag = False
+            self.waits = []
+
+        def is_set(self):
+            return self.flag
+
+        def set(self):
+            self.flag = True
+
+        def wait(self, delay):
+            self.waits.append(delay)
+            return self.flag
+
+    stopped = RecordingStop()
+
+    class FlakyCamera(DummyEmergencyCamera):
+        def __init__(self, stopped):
+            super().__init__(stopped)
+            self.outcomes = iter([
+                "fail", "fail", "fail", "fail", "fail",
+                "ok", "fail", "ok-stop",
+            ])
+
+        def trigger_prepared(self, prepared, deadline=None):
+            del prepared
+            self.deadlines.append(deadline)
+            outcome = next(self.outcomes)
+            if outcome == "fail":
+                raise RuntimeError("temporary camera transport error")
+            if outcome == "ok-stop":
+                self.stopped.set()
+            return CaptureResult(frames=2, planned=2)
+
+    camera = FlakyCamera(stopped)
+    messages = []
+    stats = trigger.run_emergency_totality(
+        camera,
+        emergency_config(),
+        {"rig_id": 1, "photo": {}},
+        stopped,
+        log_fn=messages.append,
+    )
+
+    assert stats == {"photos": 4, "errors": 6}
+    assert stopped.waits == [0.10, 0.25, 0.50, 1.00, 1.00, 0.10]
+    assert max(stopped.waits) == 1.00
+    assert any("consecutive_errors=5" in message for message in messages)

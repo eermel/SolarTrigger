@@ -473,6 +473,8 @@ class EmergencyTotalityRequested(RuntimeError):
 
 
 EMERGENCY_TARGET_SENTINEL_UTC = datetime(1970, 1, 1, tzinfo=timezone.utc)
+EMERGENCY_RETRY_BACKOFF_S = (0.10, 0.25, 0.50, 1.00)
+
 
 
 def run_emergency_totality(
@@ -557,6 +559,7 @@ def run_emergency_totality(
     planned_speeds = expand_executable_shutters(rig_snapshot, plan)
 
     stats = {"photos": 0, "errors": 0}
+    consecutive_photo_errors = 0
     started_monotonic = time.monotonic()
     end_monotonic = (
         None
@@ -639,6 +642,10 @@ def run_emergency_totality(
                 f'phase="Totality" PHOTO frames={frames}'
                 + (f" {exposure_text}" if exposure_text else "")
             )
+            # Any completed PHOTO proves the camera path is responsive again.
+            # Retry throttling is only for consecutive transport/capture
+            # exceptions; normal emergency cadence remains as fast as possible.
+            consecutive_photo_errors = 0
             if not camera_configured:
                 retry_full_initialize = True
         except Exception as exc:
@@ -650,10 +657,23 @@ def run_emergency_totality(
                 "ERROR phase=totality_override stage=photo "
                 f"error={type(exc).__name__}: {exc}"
             )
-            # Avoid an IPC failure storm, while keeping the retry independent
-            # of CLOCK_REALTIME and eclipse timing.  The next cycle performs a
-            # full camera.initialize() before attempting another PHOTO.
-            stopped.wait(0.1)
+            # Avoid an IPC failure storm while keeping retries independent of
+            # CLOCK_REALTIME and eclipse timing. Escalate only across
+            # consecutive PHOTO exceptions and reset immediately after the next
+            # completed capture. The next cycle also performs a full
+            # camera.initialize() before attempting another PHOTO.
+            consecutive_photo_errors += 1
+            retry_index = min(
+                consecutive_photo_errors - 1,
+                len(EMERGENCY_RETRY_BACKOFF_S) - 1,
+            )
+            retry_delay_s = EMERGENCY_RETRY_BACKOFF_S[retry_index]
+            log_fn(
+                "WARNING Emergency Totality retry backoff "
+                f"delay_s={retry_delay_s:g} "
+                f"consecutive_errors={consecutive_photo_errors}"
+            )
+            stopped.wait(retry_delay_s)
 
         if interval_s > 0:
             next_capture_monotonic = cycle_started_monotonic + interval_s
