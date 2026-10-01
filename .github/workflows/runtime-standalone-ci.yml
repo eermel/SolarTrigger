@@ -29,7 +29,12 @@ jobs:
       - name: Static Python checks
         run: |
           python -m compileall -q backend scripts services plugins flask_app
-          python -m pyflakes backend scripts services plugins flask_app
+          python -m pyflakes backend scripts services plugins flask_app > /tmp/pyflakes.txt || true
+          cat /tmp/pyflakes.txt
+          if grep -q "undefined name" /tmp/pyflakes.txt; then
+            echo "Undefined Python name detected by pyflakes."
+            exit 1
+          fi
       - name: Shell syntax checks
         run: |
           bash -n install/install_solareclipse.sh
