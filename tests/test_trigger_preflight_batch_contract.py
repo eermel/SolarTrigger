@@ -79,7 +79,7 @@ def test_debug_backend_owns_preflight_and_shared_utc_anchor():
     launch = source.index("_start_preflighted_trigger(")
 
     assert preflight < anchor < generate < launch
-    assert "hardware_preflight_done=True" in source
+    assert "hardware_preflight_done" not in source
     assert "debug_anchor_utc" not in source
     assert "preflight_token" not in source
 
