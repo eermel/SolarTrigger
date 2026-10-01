@@ -78,12 +78,18 @@ def test_prepare_capture_persists_logical_intent_metadata(tmp_path):
         }
     )
 
-    stored_session, rig_id, stored_prepared, metadata = server._tokens[
-        response["token_id"]
-    ]
+    (
+        stored_session,
+        rig_id,
+        stored_prepared,
+        metadata,
+        expires_monotonic,
+    ) = server._tokens[response["token_id"]]
     assert (stored_session, rig_id) == (session, 3)
     assert stored_prepared is worker.prepared
     assert stored_prepared.token is worker.token
+    assert isinstance(expires_monotonic, float)
+    assert expires_monotonic > time.monotonic()
     assert metadata == {
         "rig_id": 3,
         "phase": "C2",
