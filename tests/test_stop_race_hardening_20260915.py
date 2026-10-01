@@ -70,7 +70,6 @@ def test_stop_cancels_start_without_waiting_for_lifecycle_lock_or_supervisor():
         "rig_id": 1,
         "forced": False,
         "still_running": True,
-        "startup_cancelled": True,
     }
 
 
