@@ -98,31 +98,45 @@ def register_characterization_routes(app, trigger_snapshot, emit_fn=None):
         payload = request.get_json(silent=True) or {}
         if not isinstance(payload, dict) or not isinstance(payload.get("locator"), str):
             return jsonify(error="Camera locator is required"), 400
-        with JOB.lock:
-            if JOB.running:
-                return jsonify(error="Characterization already running"), 409
-            # Resolve the selected physical device server-side; never accept
-            # caller-supplied profile paths, model names or arbitrary locators.
-            candidates = get_cached_inventory()["camera"]
-            matches = [e for e in candidates if e.get("transport_locator") == payload.get("locator")
-                       and e.get("present") and not e.get("pilotable")]
-            if len(matches) != 1:
-                return jsonify(error="Unknown or already characterized camera; refresh Devices"), 400
 
-            def admit_characterization():
-                runtime = get_camera_worker_runtime()
-                runtime.release_idle_workers()
-                JOB.start(matches[0])
+        # Resolve the selected physical device server-side; never accept
+        # caller-supplied profile paths, model names or arbitrary locators.
+        candidates = get_cached_inventory()["camera"]
+        matches = [e for e in candidates if e.get("transport_locator") == payload.get("locator")
+                   and e.get("present") and not e.get("pilotable")]
+        if len(matches) != 1:
+            return jsonify(error="Unknown or already characterized camera; refresh Devices"), 400
 
-            try:
-                start_maintenance_if_trigger_idle(
-                    lambda: _trigger_running(trigger_snapshot),
-                    admit_characterization,
-                )
-            except TriggerActiveError:
-                return jsonify(error="Trigger is running"), 409
-            except RuntimeError as exc:
-                return jsonify(error=str(exc)), 409
+        runtime = get_camera_worker_runtime()
+
+        # Admission publishes JOB.running while the global admission lock is
+        # held, but the child is gated before gphoto2 open. The potentially
+        # slow worker shutdown therefore happens after the admission lock has
+        # been released, while normal Trigger START sees maintenance as active.
+        def admit_characterization():
+            JOB.start(matches[0], defer_camera_open=True)
+
+        try:
+            start_maintenance_if_trigger_idle(
+                lambda: _trigger_running(trigger_snapshot),
+                admit_characterization,
+            )
+        except TriggerActiveError:
+            return jsonify(error="Trigger is running"), 409
+        except RuntimeError as exc:
+            return jsonify(error=str(exc)), 409
+
+        try:
+            runtime.release_idle_workers()
+        except RuntimeError as exc:
+            JOB.cancel()
+            return jsonify(error=str(exc)), 409
+
+        if not JOB.release_camera_open():
+            return jsonify(
+                error="Characterization was cancelled before camera ownership was acquired"
+            ), 409
+
         return jsonify(status="started"), 202
 
     @app.post("/api/camera-characterization/recharacterize")
@@ -130,30 +144,41 @@ def register_characterization_routes(app, trigger_snapshot, emit_fn=None):
         payload = request.get_json(silent=True) or {}
         if not isinstance(payload, dict) or not isinstance(payload.get("locator"), str):
             return jsonify(error="Camera locator is required"), 400
-        with JOB.lock:
-            if JOB.running:
-                return jsonify(error="Characterization already running"), 409
-            matches = [e for e in get_cached_inventory()["camera"] if e.get("transport_locator") == payload["locator"] and e.get("present") and e.get("pilotable")]
-            if len(matches) != 1:
-                return jsonify(error="Unknown or uncharacterized camera; refresh Devices"), 400
 
-            def admit_recharacterization():
-                runtime = get_camera_worker_runtime()
-                runtime.release_idle_workers()
-                JOB.start(
-                    matches[0],
-                    replace_existing=True,
-                )
+        matches = [e for e in get_cached_inventory()["camera"] if e.get("transport_locator") == payload["locator"] and e.get("present") and e.get("pilotable")]
+        if len(matches) != 1:
+            return jsonify(error="Unknown or uncharacterized camera; refresh Devices"), 400
 
-            try:
-                start_maintenance_if_trigger_idle(
-                    lambda: _trigger_running(trigger_snapshot),
-                    admit_recharacterization,
-                )
-            except TriggerActiveError:
-                return jsonify(error="Trigger is running"), 409
-            except RuntimeError as exc:
-                return jsonify(error=str(exc)), 409
+        runtime = get_camera_worker_runtime()
+
+        def admit_recharacterization():
+            JOB.start(
+                matches[0],
+                replace_existing=True,
+                defer_camera_open=True,
+            )
+
+        try:
+            start_maintenance_if_trigger_idle(
+                lambda: _trigger_running(trigger_snapshot),
+                admit_recharacterization,
+            )
+        except TriggerActiveError:
+            return jsonify(error="Trigger is running"), 409
+        except RuntimeError as exc:
+            return jsonify(error=str(exc)), 409
+
+        try:
+            runtime.release_idle_workers()
+        except RuntimeError as exc:
+            JOB.cancel()
+            return jsonify(error=str(exc)), 409
+
+        if not JOB.release_camera_open():
+            return jsonify(
+                error="Re-characterization was cancelled before camera ownership was acquired"
+            ), 409
+
         return jsonify(status="started", mode="recharacterize"), 202
 
     @app.post("/api/camera-characterization/answer")

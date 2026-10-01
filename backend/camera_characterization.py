@@ -381,6 +381,7 @@ class CharacterizationJob:
         self._cancel_watchdog_active = False
         self._monitor_started = False
         self._started_monotonic = None
+        self._camera_open_deferred = False
 
     def set_notify_fn(self, notify_fn):
         self._notify_fn = notify_fn
@@ -480,6 +481,7 @@ class CharacterizationJob:
         self._cancel_watchdog_active = False
         self._monitor_started = False
         self._started_monotonic = None
+        self._camera_open_deferred = False
         self.condition.notify_all()
 
     @staticmethod
@@ -539,7 +541,14 @@ class CharacterizationJob:
         except Exception:
             return False
 
-    def start(self, entry, root=ROOT, *, replace_existing=False):
+    def start(
+        self,
+        entry,
+        root=ROOT,
+        *,
+        replace_existing=False,
+        defer_camera_open=False,
+    ):
         events = None
         commands = None
         process = None
@@ -552,6 +561,7 @@ class CharacterizationJob:
             self.job_id = uuid.uuid4().hex
             self.measurement_state = {}
             self._started_monotonic = time.monotonic()
+            self._camera_open_deferred = bool(defer_camera_open)
             self.measurement_path = (
                 Path(root) / "configs/camera_characterization/measurements"
                 / f"{self.job_id}.json"
@@ -571,6 +581,7 @@ class CharacterizationJob:
                     events,
                     commands,
                     os.getpid(),
+                    bool(defer_camera_open),
                 ),
                 name=f"camera-characterization-{self.job_id[:8]}",
                 daemon=True,
@@ -624,10 +635,28 @@ class CharacterizationJob:
                 raise
         self._notify()
 
+    def release_camera_open(self):
+        """Release a deferred child only after runtime USB ownership is gone."""
+        with self.condition:
+            if not self._camera_open_deferred:
+                return True
+            if (
+                not self.running
+                or self.cancelled
+                or self._command_queue is None
+            ):
+                self._camera_open_deferred = False
+                return False
+            self._command_queue.put(("start", None))
+            self._camera_open_deferred = False
+            self.condition.notify_all()
+            return True
+
     def cancel(self):
         watchdog_process = None
         with self.condition:
             self.cancelled = True
+            self._camera_open_deferred = False
             if self._command_queue is not None:
                 self._command_queue.put(("cancel", None))
             process = self._process
@@ -784,6 +813,7 @@ class CharacterizationJob:
             self._cancel_watchdog_active = False
             self._monitor_started = False
             self._started_monotonic = None
+            self._camera_open_deferred = False
             self.condition.notify_all()
         self._notify()
 
@@ -794,6 +824,7 @@ class _ProcessJobProxy:
         self.commands = commands
         self.cancelled = False
         self._pending_answers = {}
+        self._start_released = False
 
     def log(self, message):
         self.events.put(("log", str(message)))
@@ -809,6 +840,8 @@ class _ProcessJobProxy:
                 return
             if kind == "cancel":
                 self.cancelled = True
+            elif kind == "start":
+                self._start_released = True
             elif kind == "answer":
                 question_id, answer = payload
                 self._pending_answers[question_id] = answer
@@ -817,6 +850,14 @@ class _ProcessJobProxy:
         self._drain_commands()
         if self.cancelled:
             raise Cancelled("Characterization cancelled")
+
+    def wait_for_start(self):
+        """Wait for parent confirmation that persistent USB owners are gone."""
+        while True:
+            self.check()
+            if self._start_released:
+                return
+            time.sleep(0.05)
 
     def ask(self, message, kind="result"):
         question_id = uuid.uuid4().hex
@@ -843,6 +884,7 @@ def _characterization_process_main(
     events,
     commands,
     expected_parent_pid,
+    defer_camera_open=False,
 ):
     """Run native camera qualification outside the web-server process."""
 
@@ -853,6 +895,9 @@ def _characterization_process_main(
 
     root = Path(root_text)
     job = _ProcessJobProxy(events, commands)
+    if defer_camera_open:
+        job.log("Waiting for camera runtime USB release")
+        job.wait_for_start()
     camera = None
     summary = {
         "date_utc": datetime.now(timezone.utc).isoformat(),

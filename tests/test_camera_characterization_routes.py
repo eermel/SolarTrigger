@@ -19,10 +19,15 @@ def api(monkeypatch):
 def test_poll_and_start_resolve_server_identity(api, monkeypatch):
     client, job = api
     selected = []
-    monkeypatch.setattr(job, "start", lambda entry: selected.append(entry))
+    monkeypatch.setattr(
+        job,
+        "start",
+        lambda entry, **kwargs: selected.append((entry, kwargs)),
+    )
     assert client.get("/api/camera-characterization").get_json()["candidates"][0]["serial"] == "1234"
     assert client.post("/api/camera-characterization/start", json={"locator": "usb:001,002", "model": "Forged"}).status_code == 202
-    assert selected[0]["model"] == "Camera"
+    assert selected[0][0]["model"] == "Camera"
+    assert selected[0][1] == {"defer_camera_open": True}
     assert client.post("/api/camera-characterization/start", json={"locator": "usb:999,999"}).status_code == 400
 
 
@@ -85,7 +90,10 @@ def test_recharacterize_starts_full_job_in_replace_mode(api, monkeypatch):
     assert started == [
         (
             entry,
-            {"replace_existing": True},
+            {
+                "replace_existing": True,
+                "defer_camera_open": True,
+            },
         )
     ]
 
@@ -102,7 +110,13 @@ def test_start_uses_cached_inventory_without_hardware_refresh(api, monkeypatch):
     }
     monkeypatch.setattr(routes, "get_cached_inventory", lambda: {"camera": [entry]})
     selected = []
-    monkeypatch.setattr(job, "start", lambda selected_entry: selected.append(selected_entry))
+    monkeypatch.setattr(
+        job,
+        "start",
+        lambda selected_entry, **kwargs: selected.append(
+            (selected_entry, kwargs)
+        ),
+    )
 
     response = client.post(
         "/api/camera-characterization/start",
@@ -110,7 +124,9 @@ def test_start_uses_cached_inventory_without_hardware_refresh(api, monkeypatch):
     )
 
     assert response.status_code == 202
-    assert selected == [entry]
+    assert selected == [
+        (entry, {"defer_camera_open": True})
+    ]
 
 
 def test_status_exposes_new_and_characterized_cameras_in_one_qualification_list(api, monkeypatch):
@@ -123,4 +139,47 @@ def test_status_exposes_new_and_characterized_cameras_in_one_qualification_list(
     payload = client.get("/api/camera-characterization").get_json()
     assert [(item["transport_locator"], item["characterized"]) for item in payload["qualification_candidates"]] == [
         ("usb:1,1", False), ("usb:1,2", True)
+    ]
+
+
+def test_characterization_releases_runtime_after_admission_lock(api, monkeypatch):
+    client, job = api
+    events = []
+
+    class Runtime:
+        def release_idle_workers(self):
+            events.append("release")
+
+    monkeypatch.setattr(routes, "get_camera_worker_runtime", lambda: Runtime())
+
+    def admit(trigger_busy, start_fn):
+        events.append("admission.begin")
+        assert trigger_busy() is False
+        start_fn()
+        events.append("admission.end")
+
+    monkeypatch.setattr(routes, "start_maintenance_if_trigger_idle", admit)
+    monkeypatch.setattr(
+        job,
+        "start",
+        lambda entry, **kwargs: events.append(("start", kwargs)),
+    )
+    monkeypatch.setattr(
+        job,
+        "release_camera_open",
+        lambda: events.append("camera.open") or True,
+    )
+
+    response = client.post(
+        "/api/camera-characterization/start",
+        json={"locator": "usb:001,002"},
+    )
+
+    assert response.status_code == 202
+    assert events == [
+        "admission.begin",
+        ("start", {"defer_camera_open": True}),
+        "admission.end",
+        "release",
+        "camera.open",
     ]

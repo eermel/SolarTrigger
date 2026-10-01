@@ -331,3 +331,34 @@ def test_characterization_global_runtime_watchdog_terminates_hung_child(tmp_path
 def test_characterization_global_runtime_limit_is_one_hour_by_default():
     assert characterization.CHARACTERIZATION_MAX_RUNTIME_S == 3600.0
     assert CharacterizationJob().max_runtime_s == 3600.0
+
+
+def test_deferred_characterization_waits_before_gphoto_open():
+    source = inspect.getsource(characterization._characterization_process_main)
+    gate = source.index("job.wait_for_start()")
+    gphoto = source.index("import_gphoto2")
+    assert gate < gphoto
+
+
+def test_release_camera_open_signals_deferred_child_once():
+    job = CharacterizationJob()
+    commands = queue.Queue()
+    job.running = True
+    job._command_queue = commands
+    job._camera_open_deferred = True
+
+    assert job.release_camera_open() is True
+    assert commands.get_nowait() == ("start", None)
+    assert job._camera_open_deferred is False
+    assert job.release_camera_open() is True
+
+
+def test_cancelled_deferred_characterization_cannot_open_camera():
+    job = CharacterizationJob()
+    job.running = True
+    job.cancelled = True
+    job._command_queue = queue.Queue()
+    job._camera_open_deferred = True
+
+    assert job.release_camera_open() is False
+    assert job._camera_open_deferred is False
