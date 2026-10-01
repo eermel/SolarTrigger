@@ -56,8 +56,8 @@ from backend.camera_characterization_qualification import (
     QualificationOverrun,
     check_qualification_margins,
     refine_qualification,
-    qualify_operational_contract_v3,
-    qualify_operational_contract,
+    qualify_operational_contract_v3 as _qualify_operational_contract_v3_impl,
+    qualify_operational_contract as _qualify_operational_contract_impl,
 )
 from backend.camera_characterization_settings import find_setting
 from backend.camera_characterization_runtime_ops import CharacterizationRuntimeOps
@@ -74,6 +74,46 @@ from plugins.camera.profile import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def qualify_operational_contract_v3(
+    camera,
+    profile,
+    all_set_samples,
+    single_overhead_samples,
+    bracket_overhead_samples_by_frames,
+    job,
+):
+    """Compatibility facade preserving the historical ProfilePlugin injection seam."""
+    return _qualify_operational_contract_v3_impl(
+        camera,
+        profile,
+        all_set_samples,
+        single_overhead_samples,
+        bracket_overhead_samples_by_frames,
+        job,
+        profile_plugin_cls=ProfilePlugin,
+    )
+
+
+def qualify_operational_contract(
+    camera,
+    profile,
+    timing,
+    set_samples,
+    setup_samples,
+    job,
+):
+    """Compatibility facade preserving the historical ProfilePlugin injection seam."""
+    return _qualify_operational_contract_impl(
+        camera,
+        profile,
+        timing,
+        set_samples,
+        setup_samples,
+        job,
+        profile_plugin_cls=ProfilePlugin,
+    )
 CANCEL_COOPERATIVE_GRACE_S = 2.0
 CANCEL_TERMINATE_GRACE_S = 1.0
 CANCEL_KILL_GRACE_S = 1.0

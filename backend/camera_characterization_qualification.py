@@ -75,6 +75,8 @@ def qualify_operational_contract_v3(
     single_overhead_samples,
     bracket_overhead_samples_by_frames,
     job,
+    *,
+    profile_plugin_cls=ProfilePlugin,
 ):
     """Validate contract-v3 through the real plugin in one persistent session.
 
@@ -106,7 +108,7 @@ def qualify_operational_contract_v3(
     attempt = 0
 
     def initialize_plugin():
-        plugin = ProfilePlugin(camera, job.log, profile=profile)
+        plugin = profile_plugin_cls(camera, job.log, profile=profile)
         while True:
             job.check()
             try:
@@ -334,7 +336,16 @@ def qualify_operational_contract_v3(
 
 
 
-def qualify_operational_contract(camera, profile, timing, set_samples, setup_samples, job):
+def qualify_operational_contract(
+    camera,
+    profile,
+    timing,
+    set_samples,
+    setup_samples,
+    job,
+    *,
+    profile_plugin_cls=ProfilePlugin,
+):
     """Publish budgets only after executing the actual protocol without test pauses.
 
     File confirmation remains our conservative completion criterion. It is not
@@ -360,7 +371,7 @@ def qualify_operational_contract(camera, profile, timing, set_samples, setup_sam
                 "sustained": {"status": "pending"}}
     job.checkpoint(qualification_contract=contract)
     # Do not use the offline planner until this check completes.
-    plugin = ProfilePlugin(camera, job.log, profile=profile)
+    plugin = profile_plugin_cls(camera, job.log, profile=profile)
     plugin.profile["timing_contract"] = contract
     job.log("QUALIFICATION: automatic execution with guarded budgets; NO 2-second test pauses")
     runs = []
@@ -445,7 +456,7 @@ def qualify_operational_contract(camera, profile, timing, set_samples, setup_sam
         profile["brackets"][n].update(atomic_ms=b["duration_ms"], total_ms=b["setup_ms"] + b["duration_ms"])
     from types import SimpleNamespace
     exposures = [{"shutter": speed, "iso": 100} for speed in profile["benchmark"]["speeds"]]
-    estimated = ProfilePlugin(None, profile=profile).prepare_capture(SimpleNamespace(exposure_plan=exposures))
+    estimated = profile_plugin_cls(None, profile=profile).prepare_capture(SimpleNamespace(exposure_plan=exposures))
     profile["benchmark"]["guarded_optimized_ms"] = round(estimated.estimated_total_s * 1000)
     profile["benchmark"]["guarded_sequential_ms"] = sum(
         contract["iso_ms"] + contract["single"]["setup_ms"] +

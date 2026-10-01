@@ -83,13 +83,15 @@ def test_operational_qualification_is_split_without_api_breakage():
         is qualification.refine_qualification
     )
     assert (
-        characterization.qualify_operational_contract_v3
+        characterization._qualify_operational_contract_v3_impl
         is qualification.qualify_operational_contract_v3
     )
     assert (
-        characterization.qualify_operational_contract
+        characterization._qualify_operational_contract_impl
         is qualification.qualify_operational_contract
     )
+    assert callable(characterization.qualify_operational_contract_v3)
+    assert callable(characterization.qualify_operational_contract)
     assert "class QualificationOverrun(RuntimeError):" not in SOURCE
     assert "def qualify_operational_contract_v3(" not in SOURCE
     assert "def qualify_operational_contract(" not in SOURCE
