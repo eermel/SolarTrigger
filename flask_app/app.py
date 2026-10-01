@@ -5175,26 +5175,50 @@ def _runtime_outcome_unknown_response(exc, *, rig_id=None):
 
 @app.route("/api/trigger/totality_only", methods=["POST"])
 def api_trigger_totality_only():
-    """Emergency Totality: preempt active photos or start immediately."""
+    """Priority Emergency Totality command owned entirely by the backend."""
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
 
     try:
-        action = _trigger_start_guarded(
-            lambda: _trigger_service.start_totality_only(rig_id=rig_id)
-        )
+        # Destructive OS/update maintenance is never killed implicitly. Camera
+        # maintenance is different: it is explicitly cancelled below so the
+        # emergency command can acquire USB ownership safely.
+        if _system_maintenance_running():
+            raise TriggerValidationError(
+                "System maintenance is running.",
+                "SYSTEM_MAINTENANCE_RUNNING",
+            )
+
+        pending_cancelled = _cancel_pending_trigger_start(rig_id)
+        if pending_cancelled and not _wait_pending_trigger_preflight_release(
+            rig_id,
+            _TRIGGER_URGENT_PREFLIGHT_WAIT_S,
+        ):
+            raise TriggerValidationError(
+                "Emergency Totality timed out waiting for Trigger preflight "
+                "to release hardware ownership.",
+                "TRIGGER_PREFLIGHT_PREEMPT_TIMEOUT",
+            )
+
+        preempted_jobs = _preempt_camera_maintenance_for_emergency()
+        action = _trigger_service.start_totality_only(rig_id=rig_id)
     except TriggerValidationError as exc:
         return jsonify({
             "error": str(exc),
             "code": exc.code,
             "rig_id": rig_id,
-        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+        }), 409 if exc.code in {
+            "SYSTEM_MAINTENANCE_RUNNING",
+            "TRIGGER_PREFLIGHT_PREEMPT_TIMEOUT",
+            "CAMERA_MAINTENANCE_PREEMPT_TIMEOUT",
+            "TRIGGER_START_PREEMPT_TIMEOUT",
+        } else 400
     except RuntimeOutcomeUnknownError as exc:
         return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
     if not action:
         return jsonify({
-            "error": f"Totality sequence for RIG {rig_id} is already starting.",
-            "code": "TRIGGER_STARTING",
+            "error": f"Totality sequence for RIG {rig_id} could not start.",
+            "code": "TOTALITY_START_FAILED",
             "rig_id": rig_id,
         }), 409
 
@@ -5204,6 +5228,7 @@ def api_trigger_totality_only():
         "action": action,
         "rig_id": rig_id,
         "audio_preserved": action == "preempted",
+        "maintenance_preempted": preempted_jobs,
     })
 
 def _emit_trigger(event, payload):
@@ -6390,10 +6415,25 @@ def api_trigger_stop():
     force = payload.get("force", False)
     if not isinstance(force, bool):
         return jsonify({"error": "force must be boolean"}), 400
+
+    # STOP is authoritative even before TriggerService owns the RIG. Mark an
+    # in-flight backend START/DEBUG command cancelled before asking the runtime
+    # to stop any process/startup it may already own.
+    pending_cancelled = _cancel_pending_trigger_start(rig_id)
     try:
-        return jsonify(_trigger_service.stop(rig_id=rig_id, force=force))
+        result = _trigger_service.stop(rig_id=rig_id, force=force)
     except RuntimeOutcomeUnknownError as exc:
         return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
+
+    if pending_cancelled and result.get("status") == "not_running":
+        result = {
+            "status": "stopped",
+            "rig_id": rig_id,
+            "forced": bool(force),
+            "still_running": False,
+            "cancelled_start": True,
+        }
+    return jsonify(result)
 
 @app.route("/api/trigger/status")
 def api_trigger_status():
