@@ -1358,6 +1358,19 @@ class TriggerService:
                         if callable(promote_session):
                             promote_session(ipc_session.session_id, True)
                     except Exception as exc:
+                        if ipc_session is not None:
+                            try:
+                                self.camera_runtime.close_ipc_session(
+                                    ipc_session.session_id
+                                )
+                            except Exception as close_exc:
+                                self._log_rig(
+                                    rig_id,
+                                    "Camera IPC session rollback error: "
+                                    f"{close_exc}",
+                                    "error",
+                                )
+                            ipc_session = None
                         self._starting_by_rig[rig_id] = False
                         self._clear_active_inputs(rig_id)
                         if not _recovery:
