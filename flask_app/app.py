@@ -6111,11 +6111,13 @@ def api_trigger_debug():
     rig_ids = ()
     generated_entries = []
     keep_generated = set()
+    command = None
 
     try:
         # GPS synchronization is deliberately the first validation for DEBUG.
         _validate_sequence_gps_first()
         rig_ids = _trigger_rig_ids_from_payload(payload)
+        command = _begin_trigger_start_command(rig_ids)
 
         photo_name = str(payload.get("photo_file", "")).strip()
         exposure_name = str(payload.get("exposure_opt_file", "")).strip()
@@ -6167,25 +6169,44 @@ def api_trigger_debug():
             diamond_duration = None
 
         def run_all():
-            _append_log(
-                f"DEBUG batch preflight begin rigs={list(rig_ids)}",
-                "info",
-                "trigger",
+            results = []
+            failures = []
+            pending_rigs = tuple(
+                rig_id
+                for rig_id in rig_ids
+                if not _trigger_start_command_cancelled(command, rig_id)
             )
-            _run_trigger_hardware_preflight_batch(rig_ids, payload)
-            _append_log(
-                f"DEBUG batch preflight OK rigs={list(rig_ids)}",
-                "success",
-                "trigger",
-            )
+            for rig_id in rig_ids:
+                if rig_id not in pending_rigs:
+                    failures.append({
+                        "rig_id": rig_id,
+                        "code": "TRIGGER_START_CANCELLED",
+                        "error": f"DEBUG RIG {rig_id} start was cancelled.",
+                    })
+
+            if pending_rigs:
+                _set_trigger_start_command_stage(command, "preflight")
+                _append_log(
+                    f"DEBUG batch preflight begin rigs={list(pending_rigs)}",
+                    "info",
+                    "trigger",
+                )
+                _run_trigger_hardware_preflight_batch(pending_rigs, payload)
+                _append_log(
+                    f"DEBUG batch preflight OK rigs={list(pending_rigs)}",
+                    "success",
+                    "trigger",
+                )
+
+            _set_trigger_start_command_stage(command, "launching")
 
             # The backend creates one authoritative UTC anchor only after all
-            # active RIGs have passed hardware preflight.
+            # non-cancelled RIGs have passed hardware preflight.
             now_utc = datetime.now(timezone.utc)
 
             # Generate every DEBUG circumstances file before starting any RIG.
             # This preserves all-or-none admission for input/file preparation.
-            for rig_id in rig_ids:
+            for rig_id in pending_rigs:
                 generated = generate_debug_now(now_utc)
                 if diamond_duration is not None:
                     generated["_diamond_ring_duration_s"] = diamond_duration
@@ -6212,10 +6233,15 @@ def api_trigger_debug():
                     },
                 })
 
-            results = []
-            failures = []
             for entry in generated_entries:
                 rig_id = entry["rig_id"]
+                if _trigger_start_command_cancelled(command, rig_id):
+                    failures.append({
+                        "rig_id": rig_id,
+                        "code": "TRIGGER_START_CANCELLED",
+                        "error": f"DEBUG RIG {rig_id} start was cancelled.",
+                    })
+                    continue
                 try:
                     started = _start_trigger_with_hardware_preflight(
                         rig_id=rig_id,
@@ -6342,6 +6368,8 @@ def api_trigger_debug():
             "rig_ids": list(rig_ids),
         }), 500
     finally:
+        if command is not None:
+            _end_trigger_start_command(command)
         for entry in generated_entries:
             path = entry["path"]
             if path in keep_generated:
