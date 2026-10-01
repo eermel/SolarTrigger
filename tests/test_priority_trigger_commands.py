@@ -33,7 +33,7 @@ def test_priority_trigger_routes_bypass_camera_maintenance_guards():
 
 
 def test_stop_cancels_backend_command_before_runtime_ownership():
-    command = flask_module._begin_trigger_start_command((1, 2))
+    command = flask_module._begin_trigger_start_command((1, 2), "real")
     try:
         assert flask_module._cancel_pending_trigger_start(1) is True
         assert flask_module._trigger_start_command_cancelled(command, 1) is True
@@ -43,7 +43,7 @@ def test_stop_cancels_backend_command_before_runtime_ownership():
 
 
 def test_pending_preflight_wait_releases_when_command_leaves_preflight():
-    command = flask_module._begin_trigger_start_command((1,))
+    command = flask_module._begin_trigger_start_command((1,), "real")
     try:
         flask_module._set_trigger_start_command_stage(command, "launching")
         assert flask_module._wait_pending_trigger_preflight_release(
@@ -55,7 +55,7 @@ def test_pending_preflight_wait_releases_when_command_leaves_preflight():
 
 
 def test_pending_preflight_wait_is_bounded():
-    command = flask_module._begin_trigger_start_command((1,))
+    command = flask_module._begin_trigger_start_command((1,), "real")
     try:
         flask_module._set_trigger_start_command_stage(command, "preflight")
         assert flask_module._wait_pending_trigger_preflight_release(

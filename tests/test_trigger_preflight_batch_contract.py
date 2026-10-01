@@ -61,10 +61,10 @@ def test_normal_start_backend_preflights_all_rigs_before_first_engine_handoff():
     rig_ids = source.index("_trigger_rig_ids_from_payload(payload)")
     prepare = source.index("for rig_id in rig_ids:")
     preflight = source.index("_run_trigger_hardware_preflight_batch(")
-    launch = source.index("_start_trigger_with_hardware_preflight(")
+    launch = source.index("_start_preflighted_trigger(")
 
     assert gps < rig_ids < prepare < preflight < launch
-    assert "hardware_preflight_done=True" in source
+    assert "hardware_preflight_done" not in source
 
 
 def test_debug_backend_owns_preflight_and_shared_utc_anchor():
@@ -76,7 +76,7 @@ def test_debug_backend_owns_preflight_and_shared_utc_anchor():
     preflight = source.index("_run_trigger_hardware_preflight_batch(")
     anchor = source.index("now_utc = datetime.now(timezone.utc)")
     generate = source.index("generate_debug_now(now_utc)")
-    launch = source.index("_start_trigger_with_hardware_preflight(")
+    launch = source.index("_start_preflighted_trigger(")
 
     assert preflight < anchor < generate < launch
     assert "hardware_preflight_done=True" in source
@@ -90,3 +90,12 @@ def test_unified_start_keeps_one_hardware_engine_for_all_dates():
     assert "fetch('/api/trigger/start'" in normal
     assert "startDryRun" not in JS
     assert "/api/trigger/dryrun" not in JS
+
+
+
+def test_internal_trigger_contract_has_no_completed_p0_compatibility_shims():
+    assert "P0-C will fold" not in APP
+    assert 'def _begin_trigger_start_command(rig_ids, mode="real")' not in APP
+    assert "hardware_preflight_done" not in APP
+    assert "_start_trigger_with_hardware_preflight" not in APP
+    assert "def _start_preflighted_trigger(*, rig_id, selected=None):" in APP

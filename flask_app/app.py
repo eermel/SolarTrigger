@@ -392,9 +392,9 @@ _mount_selection_warmup_lock = threading.Lock()
 _mount_selection_generation_lock = threading.Lock()
 _mount_selection_generation = 0
 
-# Backend-owned START/DEBUG command admission. This state exists only to make
-# an in-flight HTTP orchestration cancellable before TriggerService owns the
-# RIG. P0-C will fold these stages into the authoritative trigger state model.
+# Backend-owned START/DEBUG command state before TriggerService owns a RIG.
+# These stages are part of the authoritative trigger state exposed to the UI
+# and remain cancellable by priority STOP/Emergency commands.
 _trigger_command_condition = threading.Condition(threading.RLock())
 _trigger_active_start_command = None
 _trigger_command_generation = 0
@@ -5506,18 +5506,9 @@ def _prepare_trigger_runtime_circumstances(rig_id, selected):
     return destination_path, effective, source_name, prepared["_date"]
 
 
-def _start_trigger_with_hardware_preflight(
-    *,
-    rig_id,
-    selected=None,
-    hardware_preflight_done=False,
-):
+def _start_preflighted_trigger(*, rig_id, selected=None):
     """Hand one backend-preflighted RIG to TriggerService."""
     selected = selected if isinstance(selected, dict) else {}
-    if not hardware_preflight_done:
-        raise RuntimeError(
-            "TriggerService handoff requires backend hardware preflight"
-        )
     _append_log(
         "TRIGGER_START handoff begin "
         f"rig={rig_id} "
@@ -5583,7 +5574,7 @@ def _trigger_batch_response_status(result):
     return 200
 
 
-def _begin_trigger_start_command(rig_ids, mode="real"):
+def _begin_trigger_start_command(rig_ids, mode):
     global _trigger_active_start_command, _trigger_command_generation
     with _trigger_command_condition:
         if _trigger_active_start_command is not None:
@@ -5791,10 +5782,9 @@ def api_trigger_start():
                         })
                     continue
                 try:
-                    started = _start_trigger_with_hardware_preflight(
+                    started = _start_preflighted_trigger(
                         rig_id=rig_id,
                         selected=entry["selected"],
-                        hardware_preflight_done=True,
                     )
                     if not started:
                         failures.append({
@@ -6143,10 +6133,9 @@ def api_trigger_debug():
                     })
                     continue
                 try:
-                    started = _start_trigger_with_hardware_preflight(
+                    started = _start_preflighted_trigger(
                         rig_id=rig_id,
                         selected=entry["selected"],
-                        hardware_preflight_done=True,
                     )
                     if not started:
                         failures.append({

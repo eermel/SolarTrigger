@@ -40,7 +40,7 @@ def test_normal_start_only_prepares_date_then_calls_shared_engine_handoff():
     prepare = _slice(
         APP,
         "def _prepare_trigger_runtime_circumstances",
-        "def _start_trigger_with_hardware_preflight",
+        "def _start_preflighted_trigger",
     )
     route = _slice(
         APP,
@@ -52,7 +52,7 @@ def test_normal_start_only_prepares_date_then_calls_shared_engine_handoff():
     assert 'prepared["_generated_utc"] = now_utc.isoformat()' in prepare
     assert 'effective["circumstances_file"] = filename' in prepare
     assert "_prepare_trigger_runtime_circumstances" in route
-    assert "_start_trigger_with_hardware_preflight" in route
+    assert "_start_preflighted_trigger" in route
     assert "dry_run=True" not in route
 
 
@@ -64,7 +64,7 @@ def test_debug_generates_inputs_then_calls_same_engine_handoff():
     )
 
     assert "generate_debug_now(now_utc)" in route
-    assert "_start_trigger_with_hardware_preflight(" in route
+    assert "_start_preflighted_trigger(" in route
     assert "_trigger_service.start(" not in route
     assert "dry_run=True" not in route
 
@@ -72,7 +72,7 @@ def test_debug_generates_inputs_then_calls_same_engine_handoff():
 def test_shared_handoff_is_the_only_hardware_engine_call_for_prepared_inputs():
     helper = _slice(
         APP,
-        "def _start_trigger_with_hardware_preflight",
+        "def _start_preflighted_trigger",
         "def _trigger_rig_ids_from_payload",
     )
 
