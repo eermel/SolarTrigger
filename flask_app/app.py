@@ -58,6 +58,7 @@ def _ansi_to_level(line):
 import logging
 import os
 import subprocess
+import tempfile
 import sys
 import threading
 import time
@@ -74,6 +75,42 @@ except ModuleNotFoundError:
     gp = None
 from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
+
+
+def _atomic_write_json(path, data, *, indent=4, trailing_newline=False):
+    """Durably replace one JSON file without exposing a truncated destination."""
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        dir=str(destination.parent),
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=indent, ensure_ascii=False)
+            if trailing_newline:
+                handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, destination)
+
+        directory_fd = None
+        try:
+            flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            directory_fd = os.open(str(destination.parent), flags)
+            os.fsync(directory_fd)
+        except OSError:
+            pass
+        finally:
+            if directory_fd is not None:
+                os.close(directory_fd)
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
 
 def calculate_timezone_from_coords(lat, lon, eclipse_date=None):
     """
@@ -4052,8 +4089,7 @@ def api_eclipse_override():
     # Sauvegarder
     try:
         JSON_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(JSON_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+        _atomic_write_json(JSON_FILE, data, indent=4)
         with _state_lock:
             _state["eclipse"] = data
         _save_state()
@@ -4353,8 +4389,7 @@ def api_configs_save_photo():
                 "filename": filename,
             }), 409
 
-        with open(destination, "w", encoding="utf-8") as handle:
-            json.dump(data, handle, indent=4, ensure_ascii=False)
+        _atomic_write_json(destination, data, indent=4)
 
         return jsonify({
             "status": "ok",
@@ -4565,8 +4600,7 @@ def api_configs_save_exposure_opt():
                 "filename": filename,
             }), 409
 
-        with open(destination, "w", encoding="utf-8") as handle:
-            json.dump(data, handle, indent=4, ensure_ascii=False)
+        _atomic_write_json(destination, data, indent=4)
 
         return jsonify({
             "status": "ok",
@@ -4806,9 +4840,12 @@ def api_configs_save_sequence():
                 "filename": filename,
             }), 409
 
-        with open(destination, "w", encoding="utf-8") as handle:
-            json.dump(data, handle, indent=2, ensure_ascii=False)
-            handle.write("\n")
+        _atomic_write_json(
+            destination,
+            data,
+            indent=2,
+            trailing_newline=True,
+        )
 
         return jsonify({
             "status": "ok",
@@ -4967,8 +5004,7 @@ def api_configs_save_camera():
         overwriting = destination.exists()
         if overwriting and body.get("overwrite") is not True:
             return jsonify({"error": "File already exists", "filename": filename}), 409
-        with open(destination, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+        _atomic_write_json(destination, data, indent=4)
         _append_log(f"💾 Camera configuration saved: {filename}", "success", "system")
 
         capture = _state_store.snapshot("capture")
@@ -5031,8 +5067,7 @@ def api_configs_save():
         overwriting = destination.exists()
         if overwriting and body.get("overwrite") is not True:
             return jsonify({"error": "File already exists", "filename": filename}), 409
-        with open(destination, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+        _atomic_write_json(destination, data, indent=4)
         _append_log(f"💾 Configuration saved: {filename}", "success", "system")
 
         circumstances = _state_store.snapshot("circumstances")

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import sys
 from types import ModuleType
 
@@ -595,3 +596,53 @@ def test_exposure_opt_save_strips_legacy_optics(save_routes):
 
     assert state_store.snapshot() == initial_state
     assert emitted == []
+
+
+
+def test_atomic_json_write_preserves_existing_file_if_replace_fails(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "config.json"
+    destination.write_text('{"original": true}\n', encoding="utf-8")
+
+    def fail_replace(_source, _destination):
+        raise OSError("synthetic replace failure")
+
+    monkeypatch.setattr(flask_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="synthetic replace failure"):
+        flask_module._atomic_write_json(
+            destination,
+            {"replacement": True},
+            indent=2,
+        )
+
+    assert json.loads(destination.read_text(encoding="utf-8")) == {
+        "original": True
+    }
+    assert list(tmp_path.glob(".config.json.*.tmp")) == []
+
+
+def test_atomic_json_write_uses_replace_and_writes_valid_json(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "config.json"
+    real_replace = flask_module.os.replace
+    calls = []
+
+    def record_replace(source, target):
+        calls.append((source, target))
+        return real_replace(source, target)
+
+    monkeypatch.setattr(flask_module.os, "replace", record_replace)
+    flask_module._atomic_write_json(
+        destination,
+        {"ok": True},
+        indent=2,
+        trailing_newline=True,
+    )
+
+    assert len(calls) == 1
+    assert Path(calls[0][1]) == destination
+    assert destination.read_text(encoding="utf-8").endswith("\n")
+    assert json.loads(destination.read_text(encoding="utf-8")) == {"ok": True}

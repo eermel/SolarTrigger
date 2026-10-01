@@ -380,3 +380,12 @@ def test_heartbeat_emitter_closes_only_on_broken_pipe():
     emitter.pulse("wait")
 
     assert emitter.fd is None
+
+
+
+def test_camera_control_watchdog_stages_keep_pi_safety_margin():
+    assert trigger_heartbeat.DEFAULT_STAGE_TIMEOUTS_S["phase.setup.begin"] == 60.0
+    assert (
+        trigger_heartbeat.DEFAULT_STAGE_TIMEOUTS_S["capture.prepare.begin"]
+        == 60.0
+    )

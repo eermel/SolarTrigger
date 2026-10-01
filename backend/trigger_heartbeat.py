@@ -20,9 +20,11 @@ DEFAULT_STAGE_TIMEOUTS_S = {
     "ipc.ready": 20.0,
     "runtime.begin": 20.0,
     "wait": 20.0,
-    "phase.setup.begin": 40.0,
+    # Camera fan-out may spend up to 5 s discovering active RIGs and 30 s
+    # in one control RPC. Keep margin for USB/scheduling jitter on the Pi.
+    "phase.setup.begin": 60.0,
     "phase.ready": 20.0,
-    "capture.prepare.begin": 40.0,
+    "capture.prepare.begin": 60.0,
     "capture.begin": 125.0,
     "capture.error": 20.0,
     "capture.end": 20.0,
