@@ -6,6 +6,7 @@ import backend.camera_characterization_selection as selection
 import backend.camera_characterization_single as single
 import backend.camera_characterization_types as characterization_types
 import backend.camera_characterization_qualification as qualification
+import backend.camera_characterization_settings as settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,3 +92,14 @@ def test_operational_qualification_is_split_without_api_breakage():
     assert "class QualificationOverrun(RuntimeError):" not in SOURCE
     assert "def qualify_operational_contract_v3(" not in SOURCE
     assert "def qualify_operational_contract(" not in SOURCE
+
+
+
+def test_setting_discovery_is_split_out_of_characterize():
+    assert characterization.find_setting is settings.find_setting
+    assert "    def find_setting(" not in SOURCE
+    characterize_source = SOURCE[SOURCE.index("def characterize("):]
+    assert (
+        "find_setting(camera, job, initial, commands, warnings, "
+        "selection_evidence, "
+    ) in characterize_source
