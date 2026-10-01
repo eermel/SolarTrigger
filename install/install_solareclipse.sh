@@ -84,6 +84,11 @@ SOUNDS_DIR="$APP_DIR/Sounds"
 
 DOMAIN="eclipse.local"
 FLASK_PORT=5000
+PORTAL_THREADS="${SOLARTRIGGER_PORTAL_THREADS:-8}"
+
+if ! [[ "$PORTAL_THREADS" =~ ^[0-9]+$ ]]         || [ "$PORTAL_THREADS" -lt 4 ]         || [ "$PORTAL_THREADS" -gt 32 ]; then
+    error "SOLARTRIGGER_PORTAL_THREADS must be an integer from 4 to 32."
+fi
 
 echo -e "${CYAN}"
 echo "  ╔════════════════════════════════════════════════════╗"
@@ -1120,12 +1125,13 @@ Environment="LD_LIBRARY_PATH=/usr/local/lib"
 Environment="SOLARTRIGGER_RUNTIME_CLIENT=1"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
 Environment="SOLARTRIGGER_ADMISSION_LOCK=/run/solartrigger/admission.lock"
+Environment="SOLARTRIGGER_PORTAL_THREADS=$PORTAL_THREADS"
 ${CAMLIBS_ENV_LINE}
 ${IOLIBS_ENV_LINE}
 ExecStart=$VENV_DIR/bin/gunicorn \
     --worker-class gthread \
     --workers 1 \
-    --threads 4 \
+    --threads $PORTAL_THREADS \
     --bind 0.0.0.0:$FLASK_PORT \
     --timeout 120 \
     wsgi:app

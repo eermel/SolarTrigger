@@ -146,3 +146,12 @@ def test_installer_does_not_install_python_gphoto2_from_binary_wheel():
     )[0]
     assert "\\n    gphoto2 \\\\n" not in dependency_block
     assert "--no-binary gphoto2" in dependency_block
+
+
+def test_installer_keeps_one_portal_worker_with_bounded_thread_pool():
+    installer_source = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert 'PORTAL_THREADS="${SOLARTRIGGER_PORTAL_THREADS:-8}"' in installer_source
+    assert '--workers 1 \\' in installer_source
+    assert '--threads $PORTAL_THREADS \\' in installer_source
+    assert 'SOLARTRIGGER_PORTAL_THREADS must be an integer from 4 to 32' in installer_source

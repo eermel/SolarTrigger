@@ -240,3 +240,15 @@ def test_systemd_indi_explicitly_uses_control_group_kill_mode():
             1,
         )[0]
         assert "KillMode=control-group" in indi_unit
+
+
+def test_standalone_migration_preserves_single_worker_and_sets_portal_threads():
+    root = __import__("pathlib").Path(__file__).resolve().parents[1]
+    migration = (
+        root / "install" / "install_standalone_runtime_service.sh"
+    ).read_text(encoding="utf-8")
+
+    assert 'PORTAL_THREADS="${SOLARTRIGGER_PORTAL_THREADS:-8}"' in migration
+    assert "ExecStart=" in migration
+    assert "--workers 1 --threads $PORTAL_THREADS" in migration
+    assert 'Environment="SOLARTRIGGER_PORTAL_THREADS=$PORTAL_THREADS"' in migration

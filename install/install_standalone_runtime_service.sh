@@ -45,6 +45,11 @@ if [[ -z "$PORTAL_USER" ]]; then
     PORTAL_USER="$CURRENT_USER"
 fi
 PORTAL_GROUP="$(id -gn "$PORTAL_USER")"
+PORTAL_THREADS="${SOLARTRIGGER_PORTAL_THREADS:-8}"
+if ! [[ "$PORTAL_THREADS" =~ ^[0-9]+$ ]]         || (( PORTAL_THREADS < 4 || PORTAL_THREADS > 32 )); then
+    echo "ERROR: SOLARTRIGGER_PORTAL_THREADS must be an integer from 4 to 32." >&2
+    exit 1
+fi
 
 CAMLIBS_DIR=$(find /usr/local/lib/libgphoto2 \
     -maxdepth 1 -mindepth 1 -type d 2>/dev/null \
@@ -140,7 +145,7 @@ chown "$PORTAL_USER:$PORTAL_GROUP" "$APP_DIR/wsgi.py"
 chmod 644 "$APP_DIR/wsgi.py"
 
 mkdir -p /etc/systemd/system/solareclipse.service.d
-cat > /etc/systemd/system/solareclipse.service.d/standalone-runtime.conf <<'EOF'
+cat > /etc/systemd/system/solareclipse.service.d/standalone-runtime.conf <<EOF
 [Unit]
 Requires=solartrigger-runtime.service
 Wants=solartrigger-indi.service
@@ -150,6 +155,9 @@ After=solartrigger-indi.service solartrigger-runtime.service
 Environment="SOLARTRIGGER_RUNTIME_CLIENT=1"
 Environment="SOLARTRIGGER_RUNTIME_SOCKET=/run/solartrigger/runtime.sock"
 Environment="SOLARTRIGGER_ADMISSION_LOCK=/run/solartrigger/admission.lock"
+Environment="SOLARTRIGGER_PORTAL_THREADS=$PORTAL_THREADS"
+ExecStart=
+ExecStart=$VENV_DIR/bin/gunicorn --worker-class gthread --workers 1 --threads $PORTAL_THREADS --bind 0.0.0.0:5000 --timeout 120 wsgi:app
 KillMode=control-group
 EOF
 
