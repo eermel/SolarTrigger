@@ -5,6 +5,7 @@ import backend.camera_characterization_persistence as persistence
 import backend.camera_characterization_selection as selection
 import backend.camera_characterization_single as single
 import backend.camera_characterization_types as characterization_types
+import backend.camera_characterization_qualification as qualification
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,3 +67,27 @@ def test_single_rearm_helpers_are_split_without_api_breakage():
     assert characterization.SINGLE_REARM_STEP_MS == single.SINGLE_REARM_STEP_MS
     assert "def _search_single_rearm_ms(" not in SOURCE
     assert "class Cancelled(RuntimeError):" not in SOURCE
+
+
+
+def test_operational_qualification_is_split_without_api_breakage():
+    assert characterization.QualificationOverrun is qualification.QualificationOverrun
+    assert (
+        characterization.check_qualification_margins
+        is qualification.check_qualification_margins
+    )
+    assert (
+        characterization.refine_qualification
+        is qualification.refine_qualification
+    )
+    assert (
+        characterization.qualify_operational_contract_v3
+        is qualification.qualify_operational_contract_v3
+    )
+    assert (
+        characterization.qualify_operational_contract
+        is qualification.qualify_operational_contract
+    )
+    assert "class QualificationOverrun(RuntimeError):" not in SOURCE
+    assert "def qualify_operational_contract_v3(" not in SOURCE
+    assert "def qualify_operational_contract(" not in SOURCE
