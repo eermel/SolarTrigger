@@ -264,10 +264,7 @@ class HeartbeatSupervisor:
 
             if manual_stop and stage != "capture.begin":
                 stop_age = now - self._manual_stop_started_at
-                stop_timeout_s = min(
-                    effective_timeout_s,
-                    MANUAL_STOP_NON_CAPTURE_TIMEOUT_S,
-                )
+                stop_timeout_s = MANUAL_STOP_NON_CAPTURE_TIMEOUT_S
                 if stop_age <= stop_timeout_s:
                     continue
                 self.manual_stop_escalated = True

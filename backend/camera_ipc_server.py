@@ -15,7 +15,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -211,7 +211,8 @@ class CameraIpcServer:
         self._tokens: dict[
             str,
             tuple[str | None, int, Any]
-            | tuple[str | None, int, Any, dict[str, Any]],
+            | tuple[str | None, int, Any, dict[str, Any]]
+            | tuple[str | None, int, Any, dict[str, Any], float],
         ] = {}
         # In-flight prepare_capture calls reserve capacity before releasing the
         # state lock for hardware work.  Without this, concurrent requests can
@@ -418,52 +419,50 @@ class CameraIpcServer:
                 )
 
     @staticmethod
-    def _prepared_token_expiry_utc(intent: CaptureIntent) -> datetime:
-        """Keep valid prepared state through its target/deadline, but not forever."""
-        now = datetime.now(timezone.utc)
-        minimum = now + timedelta(seconds=PREPARED_TOKEN_MIN_TTL_S)
+    def _prepared_token_expiry_monotonic(intent: CaptureIntent) -> float:
+        """Return a monotonic TTL that survives wall-clock adjustments/tests."""
         boundary = intent.deadline or intent.target_time
         if boundary.tzinfo is None:
             boundary = boundary.replace(tzinfo=timezone.utc)
         else:
             boundary = boundary.astimezone(timezone.utc)
-        scheduled = boundary + timedelta(
-            seconds=PREPARED_TOKEN_DEADLINE_GRACE_S
+
+        scheduled_ttl_s = (
+            boundary.timestamp()
+            + PREPARED_TOKEN_DEADLINE_GRACE_S
+            - time.time()
         )
-        return max(minimum, scheduled)
+        ttl_s = max(
+            PREPARED_TOKEN_MIN_TTL_S,
+            scheduled_ttl_s,
+        )
+        return time.monotonic() + max(0.0, ttl_s)
 
     def _prune_expired_prepared_tokens(
         self,
         session: str | None,
         rig_id: int,
         *,
-        now_utc: datetime | None = None,
+        now_utc: float | None = None,
     ) -> int:
         """Revoke expired server tokens and best-effort discard child state."""
-        now = now_utc or datetime.now(timezone.utc)
+        now_mono = (
+            time.monotonic()
+            if now_utc is None
+            else float(now_utc)
+        )
         expired = []
 
         with self._state_lock:
             for token_id, token in tuple(self._tokens.items()):
-                if token[0] != session or token[1] != rig_id or len(token) < 4:
+                if token[0] != session or token[1] != rig_id or len(token) < 5:
                     continue
-                context = token[3]
-                if not isinstance(context, dict):
-                    continue
-                raw_expiry = context.get("expires_at_utc")
-                if not isinstance(raw_expiry, str):
-                    continue
-                try:
-                    expiry = datetime.fromisoformat(
-                        raw_expiry.replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    continue
-                if expiry.tzinfo is None:
-                    expiry = expiry.replace(tzinfo=timezone.utc)
-                else:
-                    expiry = expiry.astimezone(timezone.utc)
-                if expiry > now:
+                expiry_mono = token[4]
+                if (
+                    isinstance(expiry_mono, bool)
+                    or not isinstance(expiry_mono, (int, float))
+                    or float(expiry_mono) > now_mono
+                ):
                     continue
                 expired.append(token)
                 self._tokens.pop(token_id, None)
@@ -1272,9 +1271,6 @@ class CameraIpcServer:
                     "corrections": None,
                     "warnings": None,
                     "plan_version": version,
-                    "expires_at_utc": self._prepared_token_expiry_utc(
-                        intent
-                    ).isoformat(),
                 }
                 prepared_generation = getattr(
                     prepared,
@@ -1323,6 +1319,7 @@ class CameraIpcServer:
                             rig_id,
                             prepared,
                             context,
+                            self._prepared_token_expiry_monotonic(intent),
                         )
                         published = True
 

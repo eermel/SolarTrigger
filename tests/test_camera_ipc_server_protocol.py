@@ -796,8 +796,11 @@ def test_expired_prepared_token_is_pruned_and_child_state_discarded(tmp_path):
         session,
     )
     old_prepared = server._tokens[first["token_id"]][2]
-    old_context = server._tokens[first["token_id"]][3]
-    old_context["expires_at_utc"] = "2000-01-01T00:00:00+00:00"
+    old_token = server._tokens[first["token_id"]]
+    server._tokens[first["token_id"]] = (
+        *old_token[:4],
+        time.monotonic() - 1.0,
+    )
 
     second = request(
         server,
@@ -832,8 +835,10 @@ def test_expired_prepared_token_cannot_be_triggered(tmp_path):
         {"rig_id": 1, "intent": intent},
         session,
     )
-    server._tokens[prepared["token_id"]][3]["expires_at_utc"] = (
-        "2000-01-01T00:00:00+00:00"
+    token = server._tokens[prepared["token_id"]]
+    server._tokens[prepared["token_id"]] = (
+        *token[:4],
+        time.monotonic() - 1.0,
     )
 
     with pytest.raises(IpcError) as caught:
