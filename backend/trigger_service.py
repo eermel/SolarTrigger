@@ -2340,7 +2340,6 @@ class TriggerService:
                 "rig_id": rig_id,
                 "forced": bool(force),
                 "still_running": True,
-                "startup_cancelled": True,
             }
 
         proc = None
