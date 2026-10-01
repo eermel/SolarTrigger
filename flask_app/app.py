@@ -392,12 +392,6 @@ _mount_selection_warmup_lock = threading.Lock()
 _mount_selection_generation_lock = threading.Lock()
 _mount_selection_generation = 0
 
-# Legacy preflight tokens remain accepted for compatibility with older API
-# clients. The web UI no longer owns preflight/start orchestration.
-_trigger_preflight_lock = threading.Lock()
-_trigger_preflight_tokens = {}
-_TRIGGER_PREFLIGHT_TTL_S = 120.0
-
 # Backend-owned START/DEBUG command admission. This state exists only to make
 # an in-flight HTTP orchestration cancellable before TriggerService owns the
 # RIG. P0-C will fold these stages into the authoritative trigger state model.
@@ -5341,119 +5335,6 @@ else:
         product_configs_dir=PRODUCT_CONFIGS_DIR,
     )
 
-def _trigger_preflight_identity(rig_id, selected):
-    config = load_rig_configuration()
-    rig = next(
-        (
-            deepcopy(item)
-            for item in config.get("rigs", ())
-            if isinstance(item, dict) and item.get("rig_id") == rig_id
-        ),
-        None,
-    )
-    gps = _state_store.snapshot("gps") or {}
-    selected = selected if isinstance(selected, dict) else {}
-    return {
-        "rig_id": rig_id,
-        "photo_file": str(selected.get("photo_file") or ""),
-        "exposure_opt_file": str(selected.get("exposure_opt_file") or ""),
-        "camera_preflight_state": _camera_preflight_state_from_selection(
-            selected
-        ),
-        "gps": {
-            key: gps.get(key)
-            for key in (
-                "sync_time",
-                "lat",
-                "lon",
-                "alt",
-                "utc_offset_minutes",
-            )
-        },
-        "rig": rig,
-    }
-
-
-def _prune_trigger_preflight_tokens_locked(now):
-    stale = [
-        token
-        for token, entry in _trigger_preflight_tokens.items()
-        if float(entry.get("expires_at", 0.0)) <= now
-    ]
-    for token in stale:
-        _trigger_preflight_tokens.pop(token, None)
-
-
-def _issue_trigger_preflight_tokens(rig_ids, selected):
-    now = time.monotonic()
-    issued = {}
-    with _trigger_preflight_lock:
-        _prune_trigger_preflight_tokens_locked(now)
-        for rig_id in rig_ids:
-            token = os.urandom(24).hex()
-            _trigger_preflight_tokens[token] = {
-                "expires_at": now + _TRIGGER_PREFLIGHT_TTL_S,
-                "identity": _trigger_preflight_identity(rig_id, selected),
-            }
-            issued[str(rig_id)] = token
-    _append_log(
-        "TRIGGER_PREFLIGHT tokens issued "
-        f"rigs={list(rig_ids)} ttl_s={_TRIGGER_PREFLIGHT_TTL_S:g}",
-        "info",
-        "trigger",
-    )
-    return issued
-
-
-def _consume_trigger_preflight_token(token, rig_id, selected):
-    if not isinstance(token, str) or not token:
-        _append_log(
-            f"TRIGGER_PREFLIGHT token absent rig={rig_id}",
-            "warning",
-            "trigger",
-            rig_id=rig_id,
-        )
-        return False
-
-    _append_log(
-        f"TRIGGER_PREFLIGHT token consume begin rig={rig_id}",
-        "info",
-        "trigger",
-        rig_id=rig_id,
-    )
-    now = time.monotonic()
-    with _trigger_preflight_lock:
-        _prune_trigger_preflight_tokens_locked(now)
-        entry = _trigger_preflight_tokens.pop(token, None)
-
-    if not isinstance(entry, dict):
-        raise TriggerValidationError(
-            f"RIG {rig_id} hardware preflight is missing or expired.",
-            "TRIGGER_PREFLIGHT_REQUIRED",
-        )
-
-    expected = entry.get("identity")
-    actual = _trigger_preflight_identity(rig_id, selected)
-    if expected != actual:
-        _append_log(
-            f"TRIGGER_PREFLIGHT token stale rig={rig_id}",
-            "error",
-            "trigger",
-            rig_id=rig_id,
-        )
-        raise TriggerValidationError(
-            f"RIG {rig_id} hardware/GPS configuration changed after preflight.",
-            "TRIGGER_PREFLIGHT_STALE",
-        )
-    _append_log(
-        f"TRIGGER_PREFLIGHT token consumed rig={rig_id}",
-        "success",
-        "trigger",
-        rig_id=rig_id,
-    )
-    return True
-
-
 def _camera_preflight_state_from_selection(selected):
     selected = selected if isinstance(selected, dict) else {}
     photo_name = str(selected.get("photo_file") or "").strip()
@@ -5631,43 +5512,29 @@ def _start_trigger_with_hardware_preflight(
     selected=None,
     hardware_preflight_done=False,
 ):
-    """Single hardware Trigger entrypoint for every prepared input set."""
+    """Hand one backend-preflighted RIG to TriggerService."""
     selected = selected if isinstance(selected, dict) else {}
-    token = selected.get("preflight_token")
+    if not hardware_preflight_done:
+        raise RuntimeError(
+            "TriggerService handoff requires backend hardware preflight"
+        )
     _append_log(
         "TRIGGER_START handoff begin "
         f"rig={rig_id} "
         f"circumstances={selected.get('circumstances_file')!r} "
         f"photo={selected.get('photo_file')!r} "
         f"exposure_opt={selected.get('exposure_opt_file')!r} "
-        f"preflight={'batch' if hardware_preflight_done else ('token' if token else 'fallback')}",
+        "preflight=backend",
         "info",
         "trigger",
         rig_id=rig_id,
     )
-    if hardware_preflight_done:
-        _append_log(
-            f"TRIGGER_START batch hardware preflight already OK rig={rig_id}",
-            "success",
-            "trigger",
-            rig_id=rig_id,
-        )
-    elif token:
-        _consume_trigger_preflight_token(token, rig_id, selected)
-    else:
-        _append_log(
-            f"TRIGGER_START hardware preflight fallback begin rig={rig_id}",
-            "warning",
-            "trigger",
-            rig_id=rig_id,
-        )
-        _run_trigger_hardware_preflight(rig_id, selected)
-        _append_log(
-            f"TRIGGER_START hardware preflight fallback OK rig={rig_id}",
-            "success",
-            "trigger",
-            rig_id=rig_id,
-        )
+    _append_log(
+        f"TRIGGER_START backend hardware preflight already OK rig={rig_id}",
+        "success",
+        "trigger",
+        rig_id=rig_id,
+    )
     started = _trigger_service.start(
         rig_id=rig_id,
         simulate=False,
@@ -5832,101 +5699,6 @@ def _preempt_camera_maintenance_for_emergency(timeout_s=None):
         time.sleep(0.05)
 
     return requested
-
-
-@app.route("/api/trigger/preflight", methods=["POST"])
-def api_trigger_preflight():
-    """GPS-first hardware preflight for all RIGs before any sequence starts."""
-    payload = request.get_json(silent=True) or {}
-    _append_log(
-        "TRIGGER_PREFLIGHT request "
-        f"rigs={payload.get('rig_ids')!r} "
-        f"circumstances={payload.get('circumstances_file')!r} "
-        f"photo={payload.get('photo_file')!r} "
-        f"exposure_opt={payload.get('exposure_opt_file')!r}",
-        "info",
-        "trigger",
-    )
-
-    try:
-        # Explicit contract: GPS is the first verification, even before the
-        # requested RIG list or selected Photo Setup is validated.
-        _validate_sequence_gps_first()
-
-        raw_rig_ids = payload.get("rig_ids")
-        if not isinstance(raw_rig_ids, list) or not raw_rig_ids:
-            raise TriggerValidationError(
-                "Select at least one active RIG.",
-                "RIG_ID_INVALID",
-            )
-        if any(
-            not isinstance(rig_id, int)
-            or isinstance(rig_id, bool)
-            or not 1 <= rig_id <= 4
-            for rig_id in raw_rig_ids
-        ):
-            raise TriggerValidationError(
-                "RIG ids must be integers from 1 to 4.",
-                "RIG_ID_INVALID",
-            )
-        rig_ids = tuple(dict.fromkeys(raw_rig_ids))
-
-        def run_all():
-            _append_log(
-                f"TRIGGER_PREFLIGHT hardware begin rigs={list(rig_ids)}",
-                "info",
-                "trigger",
-            )
-            _run_trigger_hardware_preflight_batch(
-                rig_ids,
-                payload,
-            )
-            _append_log(
-                f"TRIGGER_PREFLIGHT hardware OK rigs={list(rig_ids)}",
-                "success",
-                "trigger",
-            )
-            # Do not issue any token until every RIG has passed.  Therefore a
-            # camera/mount failure can never leave an earlier RIG sequence
-            # already running.
-            tokens = _issue_trigger_preflight_tokens(rig_ids, payload)
-            return {
-                "status": "ok",
-                "rig_ids": list(rig_ids),
-                "tokens": tokens,
-            }
-
-        return jsonify(_trigger_start_guarded(run_all))
-
-    except TriggerValidationError as exc:
-        _append_log(
-            "TRIGGER_PREFLIGHT FAILED "
-            f"code={exc.code} error={type(exc).__name__}: {exc}",
-            "error",
-            "trigger",
-        )
-        return jsonify({
-            "error": str(exc),
-            "code": exc.code,
-        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
-    except RuntimeOutcomeUnknownError as exc:
-        _append_log(
-            f"TRIGGER_PREFLIGHT OUTCOME_UNKNOWN error={type(exc).__name__}: {exc}",
-            "warning",
-            "trigger",
-        )
-        return _runtime_outcome_unknown_response(exc)
-    except Exception as exc:
-        app.logger.exception("Trigger hardware preflight failed")
-        _append_log(
-            f"TRIGGER_PREFLIGHT ERROR error={type(exc).__name__}: {exc}",
-            "error",
-            "trigger",
-        )
-        return jsonify({
-            "error": "Trigger hardware preflight failed.",
-            "code": "TRIGGER_PREFLIGHT_FAILED",
-        }), 500
 
 
 @app.route("/api/trigger/start", methods=["POST"])

@@ -20,19 +20,12 @@ def _route_source(route, next_route):
     return APP[start:end]
 
 
-def test_batch_preflight_route_checks_gps_before_rig_validation():
-    source = _route_source(
-        '@app.route("/api/trigger/preflight", methods=["POST"])',
-        '@app.route("/api/trigger/start", methods=["POST"])',
-    )
-
-    gps = source.index("_validate_sequence_gps_first()")
-    rig_ids = source.index('raw_rig_ids = payload.get("rig_ids")')
-    run = source.index("_run_trigger_hardware_preflight_batch(")
-    tokens = source.index("_issue_trigger_preflight_tokens(")
-
-    assert gps < rig_ids < run < tokens
-    assert "Do not issue any token until every RIG has passed" in source
+def test_legacy_preflight_route_and_tokens_are_removed():
+    assert '/api/trigger/preflight' not in APP
+    assert "preflight_token" not in APP
+    assert "_trigger_preflight_tokens" not in APP
+    assert "_issue_trigger_preflight_tokens" not in APP
+    assert "_consume_trigger_preflight_token" not in APP
 
 
 def test_normal_trigger_ui_submits_one_backend_command_without_orchestration():
