@@ -16,6 +16,78 @@ const state = {
   currentSound:  null,
 };
 
+
+let _solarConfirmActive = null;
+
+function solarConfirm(message, options = {}) {
+  const modal = document.getElementById('solar-confirm-modal');
+  const titleNode = document.getElementById('solar-confirm-title');
+  const messageNode = document.getElementById('solar-confirm-message');
+  const cancelButton = document.getElementById('solar-confirm-cancel');
+  const acceptButton = document.getElementById('solar-confirm-accept');
+
+  if (!modal || !titleNode || !messageNode || !cancelButton || !acceptButton) {
+    return Promise.resolve(false);
+  }
+
+  // Never stack UI prompts. This is presentation only; backend admission and
+  // interlocks remain authoritative independently of this dialog.
+  if (typeof _solarConfirmActive === 'function') {
+    _solarConfirmActive(false);
+  }
+
+  const text = String(message == null ? '' : message);
+  const inferredDanger = /\b(delete|erase|force stop|reboot|rollback|overwrite)\b/i.test(text);
+  const danger = options.danger == null
+    ? inferredDanger
+    : Boolean(options.danger);
+
+  titleNode.textContent = String(options.title || 'CONFIRM ACTION');
+  messageNode.textContent = text;
+  cancelButton.textContent = String(options.cancelLabel || 'CANCEL');
+  acceptButton.textContent = String(options.confirmLabel || 'CONFIRM');
+  acceptButton.classList.toggle('btn-danger', danger);
+  acceptButton.classList.toggle('btn-accent', !danger);
+
+  modal.hidden = false;
+
+  return new Promise(resolve => {
+    let settled = false;
+
+    const finish = accepted => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKeyDown);
+      cancelButton.onclick = null;
+      acceptButton.onclick = null;
+      modal.onclick = null;
+      modal.hidden = true;
+      if (_solarConfirmActive === finish) {
+        _solarConfirmActive = null;
+      }
+      resolve(Boolean(accepted));
+    };
+
+    const onKeyDown = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        finish(false);
+      }
+    };
+
+    _solarConfirmActive = finish;
+    cancelButton.onclick = () => finish(false);
+    acceptButton.onclick = () => finish(true);
+    modal.onclick = event => {
+      if (event.target === modal) finish(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+
+    // Default keyboard focus stays on the safe action.
+    requestAnimationFrame(() => cancelButton.focus());
+  });
+}
+
 const DEVICE_CATEGORIES = ['camera', 'gps', 'focuser', 'mount'];
 const DEVICE_LABELS = { camera: 'Camera', gps: 'GPS', focuser: 'Focuser', mount: 'Mount' };
 const DEVICE_PLUGIN_OPTIONS = {
@@ -416,7 +488,7 @@ async function saveExposureOptConfig() {
     let d = await r.json();
 
     if (r.status === 409) {
-      if (!confirm(`${d.filename || name} already exists. Overwrite it?`)) return;
+      if (!await solarConfirm(`${d.filename || name} already exists. Overwrite it?`)) return;
       r = await save(true);
       d = await r.json();
     }
@@ -488,7 +560,7 @@ async function loadExposureOptConfig(filename) {
 
 
 async function cleanExposureOptConfigs() {
-  if (!confirm(
+  if (!await solarConfirm(
     'Delete ALL saved Exposure Optimization JSON files?\n\nThis cannot be undone.'
   )) return;
 
@@ -4609,7 +4681,7 @@ async function startDebug() {
     ? rigIds.length + ' active RIGs'
     : 'RIG ' + rigIds[0];
 
-  if (!confirm(
+  if (!await solarConfirm(
     '🧪 DEBUG MODE — ' + targetText + '\n\n' +
     'This will ask the backend to generate one short DEBUG scenario per active RIG,\n' +
     'preflight all RIGs and START the sequences from one backend UTC anchor.\n' +
@@ -4696,12 +4768,12 @@ async function stopTrigger() {
   }
 
   const confirmed = force
-    ? confirm(
+    ? await solarConfirm(
         '⚠️ FORCE STOP this RIG now?\n\n' +
         'This sends SIGKILL immediately and can interrupt the atomic PHOTO currently in progress.\n' +
         'Use only when you explicitly want to abort the current camera operation.'
       )
-    : confirm(
+    : await solarConfirm(
         '■ Request graceful STOP?\n\n' +
         'Any atomic PHOTO already in progress is allowed to finish safely.\n' +
         'If it does not finish, the STOP button will become FORCE STOP.'
@@ -4761,7 +4833,7 @@ async function stopTrigger() {
 }
 
 async function startTotalityOnly() {
-  if (!confirm(
+  if (!await solarConfirm(
     '🌑 START EMERGENCY TOTALITY SEQUENCE NOW?\n' +
     'Works even when the normal trigger is not running.\n' +
     'If active, the current PHOTO sequence is replaced immediately.\n' +
@@ -6140,7 +6212,7 @@ async function saveCameraConfig() {
     let d = await r.json();
 
     if (r.status === 409) {
-      if (!confirm(`${d.filename || name} already exists. Overwrite it?`)) return;
+      if (!await solarConfirm(`${d.filename || name} already exists. Overwrite it?`)) return;
       r = await save(true);
       d = await r.json();
     }
@@ -6304,7 +6376,7 @@ async function saveEclipseConfig() {
   try {
     let response = await save(false);
     if (response.status === 409) {
-      if (!confirm('File exists. Overwrite?')) return;
+      if (!await solarConfirm('File exists. Overwrite?')) return;
       response = await save(true);
     }
     const data = await response.json();
@@ -6328,7 +6400,7 @@ async function saveEclipseConfig() {
 }
 
 async function cleanCircumstances() {
-  if (!confirm('Delete all saved circumstances files?')) {
+  if (!await solarConfirm('Delete all saved circumstances files?')) {
     return;
   }
 
@@ -6377,7 +6449,7 @@ async function cleanCircumstances() {
 }
 
 async function cleanCameraConfigs() {
-  if (!confirm(
+  if (!await solarConfirm(
     'Delete ALL saved Photo Setup JSON files?\n\nThis cannot be undone.'
   )) return;
 
@@ -6474,7 +6546,7 @@ async function clearLog(source = '') {
 
 
 async function erasePersistentDataAndReboot() {
-  const confirmed = confirm(
+  const confirmed = await solarConfirm(
     'WARNING\n\n'
     + 'This will permanently erase ALL persistent user data and reboot the Raspberry Pi.\n\n'
     + 'Saved RIG assignments, eclipse circumstances, camera configurations, '
@@ -6789,7 +6861,7 @@ async function prepareCameraValidation() {
     const bracketText = Array.isArray(prepared.supported_bracket_frames) && prepared.supported_bracket_frames.length
       ? prepared.supported_bracket_frames.join('/')
       : 'none';
-    const authorized = confirm(
+    const authorized = await solarConfirm(
       'REAL CAMERA VALIDATION\n\n' +
       `Camera: ${(prepared.camera && prepared.camera.manufacturer) || ''} ${(prepared.camera && prepared.camera.model) || ''}\n` +
       `Expected photos: ${prepared.expected_photos}\n` +
@@ -6856,7 +6928,7 @@ async function answerCameraValidation(outcome) {
 
 async function deleteFailedCameraValidationFiles() {
   if (!cameraValidationLastResultId) return;
-  if (!confirm(
+  if (!await solarConfirm(
     'DELETE THE GENERATED CAMERA PROFILE AND TIMING FILES?\n\n' +
     'Only the exact profile/timing files associated with this failed validation will be deleted.\n' +
     'The validation report and run log will be kept for debugging.\n\n' +
@@ -7255,7 +7327,7 @@ async function stopTriggerFromDebugTab() {
 
 
 async function cleanDebugGeneratedFiles() {
-  if (!confirm(
+  if (!await solarConfirm(
     'Delete all generated DEBUG circumstances files?\n\n'
     + 'Reference eclipse circumstances files are not affected.'
   )) {
@@ -7350,7 +7422,7 @@ async function startCameraRecharacterization() {
 
   if (
     !locator ||
-    !confirm(
+    !await solarConfirm(
       'Re-characterize this camera?\n\n' +
       'A complete new characterization will run. ' +
       'The current profile remains active unless the new run succeeds.'
@@ -7586,7 +7658,7 @@ async function validateInstallSolarTriggerRelease() {
     return;
   }
 
-  if (!confirm(
+  if (!await solarConfirm(
     `Validate, install and reboot with ${file.name}?\n\n` +
     'The package will be validated first. Installation will run only if validation succeeds. ' +
     'After a successful installation, the Raspberry Pi will reboot.'
@@ -7649,7 +7721,7 @@ async function rollbackSolarTriggerRelease() {
     return;
   }
 
-  if (!confirm(
+  if (!await solarConfirm(
     `Rollback SolarTrigger to ${version}?\n\n` +
     'Only the active symlink will change; persistent data are shared. The Raspberry Pi will reboot.'
   )) return;

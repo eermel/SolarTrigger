@@ -281,3 +281,30 @@ def test_trigger_stop_is_graceful_then_explicit_force_stop():
     assert "SIGKILL immediately" in js
     assert "Any atomic PHOTO already in progress is allowed to finish safely." in js
     assert "Stop / force-stop the trigger?" not in js
+
+
+
+def test_ui_uses_application_modal_instead_of_native_confirm():
+    root = Path(__file__).resolve().parents[1]
+    js = (
+        root / "flask_app" / "static" / "js" / "solartrigger.js"
+    ).read_text(encoding="utf-8")
+    html = (
+        root / "flask_app" / "templates" / "index.html"
+    ).read_text(encoding="utf-8")
+    css = (
+        root / "flask_app" / "static" / "css" / "solartrigger.css"
+    ).read_text(encoding="utf-8")
+
+    assert "confirm(" not in js
+    assert "function solarConfirm(message, options = {})" in js
+    assert "await solarConfirm(" in js
+    assert "requestAnimationFrame(() => cancelButton.focus())" in js
+
+    assert 'id="solar-confirm-modal"' in html
+    assert 'id="solar-confirm-cancel"' in html
+    assert 'id="solar-confirm-accept"' in html
+    assert 'aria-modal="true"' in html
+
+    assert ".solar-confirm-modal {" in css
+    assert ".solar-confirm-dialog {" in css
