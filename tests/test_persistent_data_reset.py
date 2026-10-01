@@ -34,7 +34,8 @@ def test_devices_has_destructive_persistent_reset_button():
 
 def test_reset_requires_confirmation():
     assert "function erasePersistentDataAndReboot()" in INDEX
-    assert "confirm(" in INDEX
+    assert "await solarConfirm(" in INDEX
+    assert "confirm(" not in INDEX
     assert "PERSISTENT DATA" in INDEX
     assert "REBOOT" in INDEX
 
