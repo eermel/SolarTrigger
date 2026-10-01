@@ -5695,6 +5695,7 @@ def api_trigger_preflight():
 def api_trigger_start():
     """Backend-authoritative preflight and START for every requested RIG."""
     payload = request.get_json(silent=True) or {}
+    batch_request = "rig_ids" in payload
     prepared_entries = []
     preserve_generated = set()
     rig_ids = ()
@@ -5735,7 +5736,10 @@ def api_trigger_start():
                 "info",
                 "trigger",
             )
-            _run_trigger_hardware_preflight_batch(rig_ids, payload)
+            if batch_request:
+                _run_trigger_hardware_preflight_batch(rig_ids, payload)
+            else:
+                _run_trigger_hardware_preflight(rig_ids[0], payload)
             _append_log(
                 f"TRIGGER_START batch preflight OK rigs={list(rig_ids)}",
                 "success",
@@ -5806,14 +5810,31 @@ def api_trigger_start():
             return result
 
         result = _trigger_start_guarded(run_all)
-        return jsonify(result), _trigger_batch_response_status(result)
+        status_code = _trigger_batch_response_status(result)
+        if (
+            not batch_request
+            and status_code == 200
+            and len(rig_ids) == 1
+        ):
+            return jsonify({
+                "status": "started",
+                "mode": "real",
+                "rig_id": rig_ids[0],
+            })
+        return jsonify(result), status_code
 
     except TriggerValidationError as exc:
-        return jsonify({
+        error_payload = {
             "error": str(exc),
             "code": exc.code,
-            "rig_ids": list(rig_ids),
-        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+        }
+        if not batch_request and len(rig_ids) == 1:
+            error_payload["rig_id"] = rig_ids[0]
+        else:
+            error_payload["rig_ids"] = list(rig_ids)
+        return jsonify(error_payload), (
+            409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+        )
     except RuntimeOutcomeUnknownError as exc:
         return _runtime_outcome_unknown_response(exc)
     except Exception:
