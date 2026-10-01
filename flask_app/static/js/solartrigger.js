@@ -4504,6 +4504,29 @@ function selectedTriggerInputs() {
   };
 }
 
+async function refreshTriggerStatusFromBackend() {
+  try {
+    const response = await fetch('/api/trigger/status');
+    if (!response.ok) return false;
+
+    const trigger = await response.json();
+    if (!trigger || !trigger.rigs) return false;
+
+    // Browser state is only a display cache of the authoritative backend.
+    state.triggerRigs = trigger.rigs;
+    updateSelectedTriggerPhase();
+    try {
+      await restoreActiveTriggerInputs();
+    } catch (error) {
+      console.warn('Unable to restore active Trigger inputs:', error);
+    }
+    return true;
+  } catch (error) {
+    console.warn('Unable to refresh Trigger state:', error);
+    return false;
+  }
+}
+
 async function startTrigger() {
   const rigIds = activeTriggerRigIds();
   const inputs = selectedTriggerInputs();
@@ -4717,18 +4740,8 @@ async function stopTrigger() {
     }
 
     if (d.status === 'not_running') {
-      state.triggerRigs[rigKey] = {
-        ...rigState,
-        running: false,
-        phase: 'idle'
-      };
       flash('Trigger not active', 'yellow');
     } else if (d.status === 'stopping') {
-      state.triggerRigs[rigKey] = {
-        ...rigState,
-        running: true,
-        phase: 'stopping'
-      };
       flash(
         force
           ? '⚠️ FORCE STOP sent — process exit pending'
@@ -4736,18 +4749,13 @@ async function stopTrigger() {
         force ? 'red' : 'yellow'
       );
     } else {
-      state.triggerRigs[rigKey] = {
-        ...rigState,
-        running: Boolean(d.still_running),
-        phase: d.still_running ? 'stopping' : 'idle'
-      };
       flash(force ? '■ Trigger force-stopped' : '■ Trigger stopped', 'yellow');
     }
   } catch(e) {
     flash('Network error while stopping', 'red');
   } finally {
     pending.delete(rigId);
-    updateSelectedTriggerPhase();
+    await refreshTriggerStatusFromBackend();
     syncDebugActionState();
   }
 }
@@ -7247,11 +7255,6 @@ async function stopTriggerFromDebugTab() {
 
 
 async function cleanDebugGeneratedFiles() {
-  if (typeof anyActiveTriggerRunning === 'function' && anyActiveTriggerRunning()) {
-    flash('Stop the active Trigger/Debug run before CLEAN.', 'red');
-    return;
-  }
-
   if (!confirm(
     'Delete all generated DEBUG circumstances files?\n\n'
     + 'Reference eclipse circumstances files are not affected.'

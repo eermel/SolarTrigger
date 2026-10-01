@@ -38,3 +38,33 @@ def test_ui_has_labels_for_backend_pre_runtime_phases():
     assert "preflighting: '⏳ PRE-FLIGHT'" in JS
     assert "starting:     '▶ STARTING'" in JS
     assert "stopping:     '■ STOPPING'" in JS
+
+
+def test_stop_ui_does_not_invent_trigger_state():
+    start = JS.index("async function stopTrigger()")
+    end = JS.index("\nasync function startTotalityOnly()", start)
+    source = JS[start:end]
+
+    assert "state.triggerRigs[rigKey] =" not in source
+    assert "await refreshTriggerStatusFromBackend();" in source
+    assert "fetch('/api/trigger/status')" in JS
+
+
+def test_debug_clean_safety_interlock_is_backend_owned():
+    route_start = APP.index(
+        '@app.route("/api/trigger/debug/clean", methods=["POST"])'
+    )
+    route_end = APP.index(
+        '@app.route("/api/trigger/debug", methods=["POST"])',
+        route_start + 1,
+    )
+    route = APP[route_start:route_end]
+
+    assert "_trigger_command_snapshot() is not None" in route
+    assert "_trigger_service.any_active_or_starting()" in route
+    assert '"code": "TRIGGER_ACTIVE"' in route
+
+    clean_start = JS.index("async function cleanDebugGeneratedFiles()")
+    clean_end = JS.index("\n\nfunction _observeDebugMirror", clean_start)
+    clean = JS[clean_start:clean_end]
+    assert "anyActiveTriggerRunning()" not in clean

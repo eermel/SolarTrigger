@@ -6168,8 +6168,23 @@ def api_trigger_simulate():
 def api_trigger_debug_clean():
     """Delete only generated DEBUG circumstances files.
 
-    Reference/user circumstances are never touched.
+    Reference/user circumstances are never touched. Trigger activity is
+    decided by the backend; the browser is not a safety interlock.
     """
+    try:
+        trigger_busy = bool(
+            _trigger_command_snapshot() is not None
+            or _trigger_service.any_active_or_starting()
+        )
+    except RuntimeOutcomeUnknownError as exc:
+        return _runtime_outcome_unknown_response(exc)
+
+    if trigger_busy:
+        return jsonify({
+            "error": "Stop the active Trigger/Debug run before CLEAN.",
+            "code": "TRIGGER_ACTIVE",
+        }), 409
+
     base_dir = CONFIGS_DIR / "circumstances"
     deleted = 0
     errors = []
