@@ -53,6 +53,8 @@ def register_camera_validation_routes(app, trigger_snapshot, root=ROOT, emit_fn=
         path = request.path
         if path.startswith("/api/camera-validation"):
             return None
+        if path in {"/api/trigger/stop", "/api/trigger/totality_only"}:
+            return None
         if (
             path.startswith("/api/camera-characterization")
             or (path.startswith("/api/trigger/") and path != "/api/trigger/status")

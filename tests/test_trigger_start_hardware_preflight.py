@@ -481,3 +481,31 @@ def test_preflight_prefers_low_latency_mount_operations():
     assert "mount.mode.fast:solar" in events
     assert "mount.start.fast" in events
     assert result["mount"]["tracking"]["tracking_enabled"] is True
+
+
+
+def test_preflight_cancel_check_stops_before_configuration_or_hardware():
+    events = []
+
+    def cancelled():
+        events.append("cancel.check")
+        raise TriggerValidationError(
+            "preempted",
+            "TRIGGER_START_PREEMPTED",
+        )
+
+    with pytest.raises(TriggerValidationError) as caught:
+        prepare_trigger_hardware(
+            rig_id=1,
+            state_store=FakeState(_gps(), events),
+            rig_config_loader=lambda: events.append("config") or _config(),
+            camera_runtime=None,
+            mount_runtime=None,
+            cancel_check=cancelled,
+            now_fn=lambda: datetime(
+                2026, 9, 30, 8, 5, 0, tzinfo=timezone.utc
+            ),
+        )
+
+    assert caught.value.code == "TRIGGER_START_PREEMPTED"
+    assert events == ["gps", "cancel.check"]

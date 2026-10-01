@@ -9,9 +9,11 @@ from backend.camera_worker import CameraWorker
 from backend.camera_process_worker import ProcessCameraWorker
 from backend.generic_worker import BusyDeviceError
 from backend.runtime_interlock import (
+    AdmissionBusyError,
     MaintenanceActiveError,
     TriggerActiveError,
     start_maintenance_if_trigger_idle,
+    trigger_priority_section,
     trigger_start_section,
 )
 from services.camera_service import CameraService
@@ -333,3 +335,27 @@ def test_runtime_interlock_blocks_both_race_directions():
             lambda: False,
             lambda: "started",
         ) == "started"
+
+
+
+def test_priority_admission_never_waits_behind_normal_start():
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_normal_start():
+        with trigger_start_section(lambda: False):
+            entered.set()
+            release.wait(1.0)
+
+    thread = threading.Thread(target=hold_normal_start)
+    thread.start()
+    try:
+        assert entered.wait(0.5)
+        with pytest.raises(AdmissionBusyError):
+            with trigger_priority_section(lambda: False):
+                pass
+    finally:
+        release.set()
+        thread.join(timeout=1.0)
+
+    assert not thread.is_alive()

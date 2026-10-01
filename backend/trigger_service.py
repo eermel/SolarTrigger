@@ -2062,13 +2062,25 @@ class TriggerService:
                 "RIG_ID_INVALID",
             )
 
-        with self._lock:
-            # A Popen-created child is published immediately for ownership
-            # safety, but a RIG still in startup is not yet safe to preempt.
-            if self._starting_by_rig[rig_id]:
+        startup_deadline = time.monotonic() + 10.0
+        while True:
+            with self._lock:
+                starting = self._starting_by_rig[rig_id]
+                if starting:
+                    # Emergency Totality is authoritative over a normal START.
+                    # The normal supervisor checks this flag before and after
+                    # Popen(), so it cannot publish a normal run afterwards.
+                    self._cancel_start_requested_by_rig[rig_id] = True
+                    self._manual_stop_requested_by_rig[rig_id] = True
+                    self._analysis_suppressed_by_rig[rig_id] = True
+                proc = self._procs[rig_id]
+                running = proc is not None and proc.poll() is None
+
+            if not starting:
+                break
+            if time.monotonic() >= startup_deadline:
                 return False
-            proc = self._procs[rig_id]
-            running = proc is not None and proc.poll() is None
+            time.sleep(0.05)
         if running:
             if not self.override_totality(rig_id=rig_id):
                 raise TriggerValidationError(

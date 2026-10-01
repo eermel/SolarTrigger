@@ -99,6 +99,7 @@ def prepare_trigger_hardware_batch(
     trigger_active_fn: Callable[[int], bool] | None = None,
     log_fn: Callable[[int, str], None] | None = None,
     now_fn: Callable[[], datetime] | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> dict:
     """Prepare every participating RIG before any sequence is started.
 
@@ -124,6 +125,11 @@ def prepare_trigger_hardware_batch(
         now_utc=current,
     )
 
+    def check_cancel():
+        if callable(cancel_check):
+            cancel_check()
+
+    check_cancel()
     normalized_ids = _normalize_rig_ids(rig_ids)
 
     if callable(trigger_active_fn):
@@ -139,6 +145,7 @@ def prepare_trigger_hardware_batch(
                 "TRIGGER_ALREADY_RUNNING",
             )
 
+    check_cancel()
     try:
         config = rig_config_loader()
         for rig_id in normalized_ids:
@@ -151,6 +158,7 @@ def prepare_trigger_hardware_batch(
             "RIG_CONFIG_INVALID",
         ) from exc
 
+    check_cancel()
     required_camera_state = {}
     if callable(camera_required_state_loader):
         try:
@@ -168,6 +176,7 @@ def prepare_trigger_hardware_batch(
                 "TRIGGER_INPUTS_INVALID",
             )
 
+    check_cancel()
     # Reconcile ownership once, then test all cameras concurrently.  Slow USB
     # on one camera must not postpone discovery of a problem on another RIG.
     try:
@@ -177,6 +186,8 @@ def prepare_trigger_hardware_batch(
             f"Camera runtime preparation failed: {exc}",
             "CAMERA_PREFLIGHT_FAILED",
         ) from exc
+
+    check_cancel()
 
     def camera_preflight(rig_id):
         worker = camera_runtime.get_for_rig(rig_id)
@@ -195,6 +206,7 @@ def prepare_trigger_hardware_batch(
             "CAMERA_PREFLIGHT_FAILED",
         )
 
+    check_cancel()
     for rig_id in normalized_ids:
         result = camera_results.get(rig_id)
         model = result.get("model") if isinstance(result, dict) else None
@@ -206,6 +218,7 @@ def prepare_trigger_hardware_batch(
         )
 
     # All cameras are now known-good.  Mount setup can begin.
+    check_cancel()
     try:
         mount_runtime.reconcile(config)
         mount_workers = {
@@ -218,6 +231,7 @@ def prepare_trigger_hardware_batch(
             "MOUNT_PREFLIGHT_FAILED",
         ) from exc
 
+    check_cancel()
     mounted_ids = tuple(
         rig_id
         for rig_id in normalized_ids
@@ -287,6 +301,7 @@ def prepare_trigger_hardware_batch(
                 "MOUNT_SYNC_FAILED",
             )
 
+        check_cancel()
         for rig_id in mounted_ids:
             _log(
                 log_fn,
@@ -336,6 +351,7 @@ def prepare_trigger_hardware_batch(
                 "MOUNT_TRACKING_FAILED",
             )
 
+        check_cancel()
         for rig_id in mounted_ids:
             _log(log_fn, rig_id, f"RIG {rig_id} solar tracking ON")
 
@@ -358,6 +374,7 @@ def prepare_trigger_hardware(
     trigger_active_fn: Callable[[int], bool] | None = None,
     log_fn: Callable[[int, str], None] | None = None,
     now_fn: Callable[[], datetime] | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> dict:
     """Compatibility wrapper for a single-RIG start path."""
     batch = prepare_trigger_hardware_batch(
@@ -370,6 +387,7 @@ def prepare_trigger_hardware(
         trigger_active_fn=trigger_active_fn,
         log_fn=log_fn,
         now_fn=now_fn,
+        cancel_check=cancel_check,
     )
     return {
         "rig_id": rig_id,

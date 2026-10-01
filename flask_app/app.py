@@ -268,6 +268,10 @@ from backend.trigger_start_preflight import (
     prepare_trigger_hardware,
     prepare_trigger_hardware_batch,
 )
+from backend.trigger_command_coordinator import (
+    TriggerCommandBusyError,
+    TriggerCommandCoordinator,
+)
 from backend.runtime_rpc import (
     RemoteTriggerService,
     RuntimeOutcomeUnknownError,
@@ -285,6 +289,9 @@ app = Flask(__name__, static_folder=str(STATIC_DIR),
 app.config["SECRET_KEY"] = "solareclipse2026"
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading",
                     logger=False, engineio_logger=False)
+
+_trigger_commands = TriggerCommandCoordinator()
+_EMERGENCY_PRIORITY_RELEASE_TIMEOUT_S = 6.0
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s")
@@ -5165,27 +5172,112 @@ def _runtime_outcome_unknown_response(exc, *, rig_id=None):
     return jsonify(payload), 202
 
 
+def _system_maintenance_running_only():
+    from backend.system_maintenance import JOB, maintenance_helper_running
+
+    return bool(
+        JOB.snapshot().get("running")
+        or maintenance_helper_running()
+    )
+
+
+def _wait_for_emergency_competitors(command, deadline):
+    from backend.camera_characterization import JOB as CHARACTERIZATION_JOB
+    from backend.camera_validation import JOB as VALIDATION_JOB
+
+    if CHARACTERIZATION_JOB.running:
+        CHARACTERIZATION_JOB.cancel()
+    if VALIDATION_JOB.running:
+        VALIDATION_JOB.cancel()
+
+    if command is not None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not command.done_event.wait(remaining):
+            raise TriggerValidationError(
+                "Emergency Totality could not preempt the pending Trigger start in time.",
+                "EMERGENCY_PREEMPT_TIMEOUT",
+            )
+
+    while CHARACTERIZATION_JOB.running or VALIDATION_JOB.running:
+        if time.monotonic() >= deadline:
+            raise TriggerValidationError(
+                "Camera validation/characterization did not release USB in time.",
+                "EMERGENCY_CAMERA_BUSY",
+            )
+        time.sleep(0.05)
+
+
 @app.route("/api/trigger/totality_only", methods=["POST"])
 def api_trigger_totality_only():
-    """Emergency Totality: preempt active photos or start immediately."""
+    """Priority escape path: never queue behind normal Trigger admission."""
+    from backend.runtime_interlock import (
+        AdmissionBusyError,
+        MaintenanceActiveError,
+        trigger_priority_section,
+    )
+
     payload = request.get_json(silent=True) or {}
     rig_id = payload.get("rig_id", 1)
+    if (
+        not isinstance(rig_id, int)
+        or isinstance(rig_id, bool)
+        or not 1 <= rig_id <= 4
+    ):
+        return jsonify({
+            "error": f"Invalid RIG: {rig_id}",
+            "code": "RIG_ID_INVALID",
+            "rig_id": rig_id,
+        }), 400
 
+    emergency_reserved = False
     try:
-        action = _trigger_start_guarded(
-            lambda: _trigger_service.start_totality_only(rig_id=rig_id)
-        )
+        if _system_maintenance_running_only():
+            raise TriggerValidationError(
+                "System maintenance is running.",
+                "SYSTEM_MAINTENANCE_RUNNING",
+            )
+
+        command = _trigger_commands.begin_emergency()
+        emergency_reserved = True
+        deadline = time.monotonic() + _EMERGENCY_PRIORITY_RELEASE_TIMEOUT_S
+        _wait_for_emergency_competitors(command, deadline)
+
+        with trigger_priority_section(_system_maintenance_running_only):
+            action = _trigger_service.start_totality_only(rig_id=rig_id)
+
+    except TriggerCommandBusyError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": "EMERGENCY_STARTING",
+            "rig_id": rig_id,
+        }), 409
+    except MaintenanceActiveError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": "SYSTEM_MAINTENANCE_RUNNING",
+            "rig_id": rig_id,
+        }), 409
+    except AdmissionBusyError as exc:
+        return jsonify({
+            "error": str(exc),
+            "code": "EMERGENCY_ADMISSION_BUSY",
+            "rig_id": rig_id,
+        }), 409
     except TriggerValidationError as exc:
         return jsonify({
             "error": str(exc),
             "code": exc.code,
             "rig_id": rig_id,
-        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+        }), 409
     except RuntimeOutcomeUnknownError as exc:
         return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
+    finally:
+        if emergency_reserved:
+            _trigger_commands.finish_emergency()
+
     if not action:
         return jsonify({
-            "error": f"Totality sequence for RIG {rig_id} is already starting.",
+            "error": f"Totality sequence for RIG {rig_id} is still starting.",
             "code": "TRIGGER_STARTING",
             "rig_id": rig_id,
         }), 409
@@ -5409,7 +5501,12 @@ def _run_trigger_hardware_preflight(rig_id, selected):
     )
 
 
-def _run_trigger_hardware_preflight_batch(rig_ids, selected):
+def _run_trigger_hardware_preflight_batch(
+    rig_ids,
+    selected,
+    *,
+    cancel_check=None,
+):
     """Preflight all active RIGs with camera and mount phase barriers."""
     return prepare_trigger_hardware_batch(
         rig_ids=rig_ids,
@@ -5430,6 +5527,7 @@ def _run_trigger_hardware_preflight_batch(rig_ids, selected):
             "trigger",
             rig_id=log_rig_id,
         ),
+        cancel_check=cancel_check,
     )
 
 
@@ -5598,13 +5696,36 @@ def _cleanup_generated_trigger_inputs(prepared_runs):
             )
 
 
-def _launch_preflighted_trigger_batch(prepared_runs, *, preserve_success=False):
+def _launch_preflighted_trigger_batch(
+    prepared_runs,
+    *,
+    preserve_success=False,
+    command=None,
+):
     """Launch every preflighted RIG without any browser-side orchestration."""
     started_rig_ids = []
     failures = []
 
-    for item in prepared_runs:
+    for index, item in enumerate(prepared_runs):
         rig_id = item["rig_id"]
+
+        if command is not None and command.aborted:
+            for pending in prepared_runs[index:]:
+                failures.append({
+                    "rig_id": pending["rig_id"],
+                    "code": "TRIGGER_START_PREEMPTED",
+                    "error": "Normal Trigger start was preempted by Emergency Totality.",
+                })
+            break
+
+        if command is not None and command.is_rig_cancelled(rig_id):
+            failures.append({
+                "rig_id": rig_id,
+                "code": "TRIGGER_START_CANCELLED",
+                "error": f"Trigger start for RIG {rig_id} was cancelled by STOP.",
+            })
+            continue
+
         try:
             started = _start_trigger_with_hardware_preflight(
                 rig_id=rig_id,
@@ -5688,12 +5809,26 @@ def _trigger_batch_http_status(result):
 def _api_trigger_start_batch(payload):
     """Own normal multi-RIG START from validation through launch."""
     prepared_runs = []
+    command = None
     try:
         _validate_sequence_gps_first()
         rig_ids = _normalize_trigger_rig_ids(payload.get("rig_ids"))
+        try:
+            command = _trigger_commands.begin(rig_ids, "real")
+        except TriggerCommandBusyError as exc:
+            raise TriggerValidationError(str(exc), "TRIGGER_STARTING") from exc
+
+        def checkpoint():
+            if command.aborted:
+                raise TriggerValidationError(
+                    "Normal Trigger start was preempted by Emergency Totality.",
+                    "TRIGGER_START_PREEMPTED",
+                )
 
         def run_all():
+            checkpoint()
             for rig_id in rig_ids:
+                checkpoint()
                 (
                     generated_path,
                     effective_payload,
@@ -5714,18 +5849,27 @@ def _api_trigger_start_batch(payload):
                     rig_id=rig_id,
                 )
 
+            checkpoint()
             _append_log(
                 f"TRIGGER_START backend preflight begin rigs={list(rig_ids)}",
                 "info",
                 "trigger",
             )
-            _run_trigger_hardware_preflight_batch(rig_ids, payload)
+            _run_trigger_hardware_preflight_batch(
+                rig_ids,
+                payload,
+                cancel_check=checkpoint,
+            )
+            checkpoint()
             _append_log(
                 f"TRIGGER_START backend preflight OK rigs={list(rig_ids)}",
                 "success",
                 "trigger",
             )
-            return _launch_preflighted_trigger_batch(prepared_runs)
+            return _launch_preflighted_trigger_batch(
+                prepared_runs,
+                command=command,
+            )
 
         result = _trigger_start_guarded(run_all)
         result["mode"] = "real"
@@ -5735,7 +5879,11 @@ def _api_trigger_start_batch(payload):
         return jsonify({
             "error": str(exc),
             "code": exc.code,
-        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+        }), 409 if exc.code in {
+            "SYSTEM_MAINTENANCE_RUNNING",
+            "TRIGGER_STARTING",
+            "TRIGGER_START_PREEMPTED",
+        } else 400
     except RuntimeOutcomeUnknownError as exc:
         return _runtime_outcome_unknown_response(exc)
     except Exception:
@@ -5745,8 +5893,8 @@ def _api_trigger_start_batch(payload):
             "code": "TRIGGER_START_FAILED",
         }), 500
     finally:
+        _trigger_commands.finish(command)
         _cleanup_generated_trigger_inputs(prepared_runs)
-
 
 @app.route("/api/trigger/preflight", methods=["POST"])
 def api_trigger_preflight():
@@ -6011,26 +6159,42 @@ def _api_trigger_debug_batch(payload):
     """Own DEBUG preflight, shared UTC anchor generation and all RIG launches."""
     prepared_runs = []
     filenames = {}
+    command = None
     try:
         _validate_sequence_gps_first()
         rig_ids = _normalize_trigger_rig_ids(payload.get("rig_ids"))
         photo_name, exposure_name, diamond_duration = _debug_batch_inputs(payload)
+        try:
+            command = _trigger_commands.begin(rig_ids, "debug")
+        except TriggerCommandBusyError as exc:
+            raise TriggerValidationError(str(exc), "TRIGGER_STARTING") from exc
+
+        def checkpoint():
+            if command.aborted:
+                raise TriggerValidationError(
+                    "DEBUG start was preempted by Emergency Totality.",
+                    "TRIGGER_START_PREEMPTED",
+                )
 
         def run_all():
+            checkpoint()
             _append_log(
                 f"DEBUG backend preflight begin rigs={list(rig_ids)}",
                 "info",
                 "trigger",
             )
-            _run_trigger_hardware_preflight_batch(rig_ids, payload)
+            _run_trigger_hardware_preflight_batch(
+                rig_ids,
+                payload,
+                cancel_check=checkpoint,
+            )
+            checkpoint()
             _append_log(
                 f"DEBUG backend preflight OK rigs={list(rig_ids)}",
                 "success",
                 "trigger",
             )
 
-            # One authoritative anchor is created only after every RIG passes
-            # hardware preflight. The browser never supplies DEBUG time.
             now_utc = datetime.now(timezone.utc)
             generated = generate_debug_now(now_utc)
             if diamond_duration is not None:
@@ -6039,6 +6203,7 @@ def _api_trigger_debug_batch(payload):
             destination_dir = CONFIGS_DIR / "circumstances"
             destination_dir.mkdir(parents=True, exist_ok=True)
             for rig_id in rig_ids:
+                checkpoint()
                 filename = (
                     f"debug_rig_{rig_id}_"
                     f"{now_utc.strftime('%Y%m%d_%H%M%S_%f')}.json"
@@ -6062,6 +6227,7 @@ def _api_trigger_debug_batch(payload):
             result = _launch_preflighted_trigger_batch(
                 prepared_runs,
                 preserve_success=True,
+                command=command,
             )
             result["mode"] = "debug"
             result["filenames"] = dict(filenames)
@@ -6120,7 +6286,11 @@ def _api_trigger_debug_batch(payload):
         return jsonify({
             "error": str(exc),
             "code": exc.code,
-        }), 409 if exc.code == "SYSTEM_MAINTENANCE_RUNNING" else 400
+        }), 409 if exc.code in {
+            "SYSTEM_MAINTENANCE_RUNNING",
+            "TRIGGER_STARTING",
+            "TRIGGER_START_PREEMPTED",
+        } else 400
     except RuntimeOutcomeUnknownError as exc:
         return _runtime_outcome_unknown_response(exc)
     except Exception:
@@ -6130,8 +6300,8 @@ def _api_trigger_debug_batch(payload):
             "code": "DEBUG_START_FAILED",
         }), 500
     finally:
+        _trigger_commands.finish(command)
         _cleanup_generated_trigger_inputs(prepared_runs)
-
 
 @app.route("/api/trigger/debug/clean", methods=["POST"])
 def api_trigger_debug_clean():
@@ -6344,8 +6514,16 @@ def api_trigger_stop():
     force = payload.get("force", False)
     if not isinstance(force, bool):
         return jsonify({"error": "force must be boolean"}), 400
+    pending_start_cancelled = _trigger_commands.cancel_rig(rig_id)
     try:
-        return jsonify(_trigger_service.stop(rig_id=rig_id, force=force))
+        result = _trigger_service.stop(rig_id=rig_id, force=force)
+        if pending_start_cancelled:
+            result = dict(result)
+            result["cancelled_start"] = True
+            if result.get("status") == "not_running":
+                result["status"] = "stopped"
+                result["still_running"] = False
+        return jsonify(result)
     except RuntimeOutcomeUnknownError as exc:
         return _runtime_outcome_unknown_response(exc, rig_id=rig_id)
 
@@ -6358,7 +6536,10 @@ from backend.system_maintenance_routes import register_system_maintenance_routes
 register_system_maintenance_routes(
     app,
     lambda: _state_store.snapshot('trigger'),
-    trigger_busy=_trigger_service.any_active_or_starting,
+    trigger_busy=lambda: (
+        _trigger_service.any_active_or_starting()
+        or _trigger_commands.busy()
+    ),
 )
 
 # SOCKETIO — CONNEXION CLIENT

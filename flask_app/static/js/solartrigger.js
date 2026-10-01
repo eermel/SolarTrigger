@@ -4533,7 +4533,11 @@ function showTriggerCommandFailure(data, fallback) {
 
   flash(
     prefix + detail,
-    codes.has('RPC_OUTCOME_UNKNOWN') ? 'yellow' : 'red'
+    (
+      codes.has('RPC_OUTCOME_UNKNOWN') ||
+      codes.has('TRIGGER_START_CANCELLED') ||
+      codes.has('TRIGGER_START_PREEMPTED')
+    ) ? 'yellow' : 'red'
   );
 
   if (

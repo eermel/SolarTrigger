@@ -97,3 +97,41 @@ def test_duplicate_graceful_stop_request_is_coalesced():
     assert proc.killed is False
     assert proc.wait_timeouts == []
     assert svc.log_lines == []
+
+
+
+def test_emergency_totality_cancels_runtime_startup_then_preempts_live_child(monkeypatch):
+    class RunningProc:
+        def poll(self):
+            return None
+
+    svc = TriggerService.__new__(TriggerService)
+    svc._lock = threading.RLock()
+    svc._starting_by_rig = {1: True, 2: False, 3: False, 4: False}
+    svc._cancel_start_requested_by_rig = {1: False, 2: False, 3: False, 4: False}
+    svc._manual_stop_requested_by_rig = {1: False, 2: False, 3: False, 4: False}
+    svc._analysis_suppressed_by_rig = {1: False, 2: False, 3: False, 4: False}
+    svc._procs = {1: None, 2: None, 3: None, 4: None}
+
+    observed = threading.Event()
+
+    def complete_cancelled_start():
+        while not svc._cancel_start_requested_by_rig[1]:
+            threading.Event().wait(0.001)
+        observed.set()
+        with svc._lock:
+            svc._procs[1] = RunningProc()
+            svc._starting_by_rig[1] = False
+
+    thread = threading.Thread(target=complete_cancelled_start)
+    thread.start()
+    monkeypatch.setattr(svc, "override_totality", lambda rig_id=1: rig_id == 1)
+
+    try:
+        assert svc.start_totality_only(rig_id=1) == "preempted"
+    finally:
+        thread.join(timeout=1.0)
+
+    assert observed.is_set()
+    assert svc._cancel_start_requested_by_rig[1] is True
+    assert svc._manual_stop_requested_by_rig[1] is True

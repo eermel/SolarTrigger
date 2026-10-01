@@ -32,6 +32,13 @@ def test_active_job_blocks_trigger_refresh_and_reset(api):
     for path in ("/api/trigger/start", "/api/rigs/devices/refresh",
                  "/api/system/erase-persistent-data-and-reboot"):
         assert client.post(path).status_code == 409
+
+    # STOP and Emergency Totality are priority controls. This fixture does not
+    # register those routes, so 404 proves the before_request guard let them
+    # pass instead of returning its USB-ownership 409.
+    assert client.post("/api/trigger/stop").status_code == 404
+    assert client.post("/api/trigger/totality_only").status_code == 404
+
     assert client.get("/api/camera-characterization").status_code == 200
     assert client.post("/api/camera-characterization/cancel").status_code == 200
     assert job.cancelled
