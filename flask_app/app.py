@@ -5222,14 +5222,16 @@ def api_trigger_totality_only():
             "rig_id": rig_id,
         }), 409
 
-    return jsonify({
+    response_payload = {
         "status": "ok",
         "mode": "totality_override",
         "action": action,
         "rig_id": rig_id,
         "audio_preserved": action == "preempted",
-        "maintenance_preempted": preempted_jobs,
-    })
+    }
+    if preempted_jobs:
+        response_payload["maintenance_preempted"] = preempted_jobs
+    return jsonify(response_payload)
 
 def _emit_trigger(event, payload):
     socketio.emit(event, payload, namespace="/")
