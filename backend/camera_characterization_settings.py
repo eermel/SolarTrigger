@@ -6,6 +6,35 @@ import time
 from plugins.camera.profile import prime_single_config, write_single_config
 
 
+def enumerate_widgets(camera):
+    """Return the leaf gphoto2 configuration widgets used for discovery."""
+    result = []
+
+    def walk(node, parent=""):
+        path = f"{parent}/{node.get_name()}"
+        if node.count_children():
+            for child in node.get_children():
+                walk(child, path)
+            return
+
+        try:
+            choices = list(node.get_choices())
+        except Exception:
+            choices = []
+        exact_name = node.get_name()
+        result.append({
+            "path": path,
+            "name": exact_name.lower(),
+            "config_name": exact_name,
+            "value": node.get_value(),
+            "choices": choices,
+            "readonly": bool(node.get_readonly()),
+        })
+
+    walk(camera.get_config())
+    return result
+
+
 def find_setting(
     camera,
     job,

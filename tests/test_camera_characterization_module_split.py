@@ -101,6 +101,7 @@ def test_operational_qualification_is_split_without_api_breakage():
 
 
 def test_setting_discovery_is_split_out_of_characterize():
+    assert characterization.enumerate_widgets is settings.enumerate_widgets
     assert characterization.find_setting is settings.find_setting
     assert "    def find_setting(" not in SOURCE
     characterize_source = SOURCE[SOURCE.index("def characterize("):]
@@ -134,3 +135,112 @@ def test_capture_probe_is_split_without_timing_policy_changes():
     assert "capture_probe = CharacterizationCaptureProbe(" in SOURCE
     assert "probe = capture_probe.probe" in SOURCE
     assert "validated_trials = set()" not in SOURCE
+
+
+
+class _RegressionWidget:
+    def __init__(
+        self,
+        name,
+        *,
+        value=None,
+        choices=(),
+        readonly=False,
+        children=(),
+    ):
+        self._name = name
+        self._value = value
+        self._choices = tuple(choices)
+        self._readonly = bool(readonly)
+        self._children = tuple(children)
+
+    def get_name(self):
+        return self._name
+
+    def count_children(self):
+        return len(self._children)
+
+    def get_children(self):
+        return self._children
+
+    def get_choices(self):
+        return self._choices
+
+    def get_value(self):
+        return self._value
+
+    def get_readonly(self):
+        return self._readonly
+
+
+class _SecondPassCamera:
+    def __init__(self):
+        self._leaf = _RegressionWidget(
+            "expprogram",
+            value="M",
+            choices=("M",),
+            readonly=True,
+        )
+        self._root = _RegressionWidget("main", children=(self._leaf,))
+
+    def get_config(self):
+        return self._root
+
+    def get_single_config(self, name):
+        assert name == "expprogram"
+        return self._leaf
+
+
+class _SecondPassJob:
+    def __init__(self):
+        self.asked = 0
+
+    def checkpoint(self, **_fields):
+        return None
+
+    def check(self):
+        return None
+
+    def log(self, _message):
+        return None
+
+    def ask(self, _message):
+        self.asked += 1
+        return True
+
+
+def test_find_setting_refreshes_widgets_after_operator_action():
+    camera = _SecondPassCamera()
+    job = _SecondPassJob()
+    initial = [{
+        "path": "/main/expprogram",
+        "name": "expprogram",
+        "config_name": "expprogram",
+        "value": "AUTO",
+        "choices": ("AUTO",),
+        "readonly": True,
+    }]
+    commands = {}
+    warnings = []
+    evidence = {}
+
+    selected = settings.find_setting(
+        camera,
+        job,
+        initial,
+        commands,
+        warnings,
+        evidence,
+        "manual_mode",
+        ("expprogram",),
+        lambda value: value == "M",
+        critical=True,
+        operator_instruction="Set manual mode",
+        require_set=False,
+    )
+
+    assert job.asked == 1
+    assert selected["config_name"] == "expprogram"
+    assert commands["manual_mode"]["value"] == "M"
+    assert warnings == []
+    assert evidence["manual_mode"]["selected"] is not None

@@ -59,7 +59,10 @@ from backend.camera_characterization_qualification import (
     qualify_operational_contract_v3 as _qualify_operational_contract_v3_impl,
     qualify_operational_contract as _qualify_operational_contract_impl,
 )
-from backend.camera_characterization_settings import find_setting
+from backend.camera_characterization_settings import (
+    enumerate_widgets,
+    find_setting,
+)
 from backend.camera_characterization_runtime_ops import CharacterizationRuntimeOps
 from backend.camera_characterization_capture import CharacterizationCaptureProbe
 from plugins.camera.profile import (
@@ -734,27 +737,6 @@ def _characterization_process_main(
             summary["history_error"] = str(exc)
             job.log(f"History write failed: {exc}")
         events.put(("result", summary))
-
-def enumerate_widgets(camera):
-    result = []
-    def walk(node, parent=""):
-        path = f"{parent}/{node.get_name()}"
-        if node.count_children():
-            for child in node.get_children():
-                walk(child, path)
-        else:
-            try:
-                choices = list(node.get_choices())
-            except Exception:
-                choices = []
-            exact_name = node.get_name()
-            result.append({"path": path, "name": exact_name.lower(),
-                           "config_name": exact_name,
-                           "value": node.get_value(), "choices": choices,
-                           "readonly": bool(node.get_readonly())})
-    walk(camera.get_config())
-    return result
-
 
 def characterize(camera, entry, job):
     """Discover commands and build the simplified timing contract v3.
