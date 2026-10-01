@@ -13,6 +13,7 @@ from backend.trigger_heartbeat import (
 )
 
 TOTALITY_START_PREEMPT_TIMEOUT_S = 8.0
+TOTALITY_CHILD_RECOVERY_MAX_ATTEMPTS = 3
 
 class TriggerValidationError(RuntimeError):
     def __init__(self, message, code="TRIGGER_INVALID"):
@@ -694,6 +695,77 @@ class TriggerService:
         if recovery_window_open is None:
             recovery_window_open = self._recovery_window_open(rig_id)
         return bool(recovery_window_open)
+
+    def _totality_window_open(
+        self,
+        rig_id,
+        *,
+        snapshot_id=None,
+        now_utc=None,
+    ):
+        """Return true only while the authoritative C2-C3 window is open."""
+        path = self._active_circumstances_paths.get(rig_id)
+        if path is None and isinstance(snapshot_id, str) and snapshot_id:
+            candidate = (
+                self._snapshot_dir(snapshot_id)
+                / self._SNAPSHOT_FILENAMES["circumstances"]
+            )
+            if candidate.is_file():
+                path = candidate
+        if path is None:
+            return False
+        try:
+            ecl = json.loads(path.read_text(encoding="utf-8"))
+            timeline = build_timeline(
+                ecl,
+                fallback_date=datetime.now(timezone.utc).date(),
+            )
+            c2 = timeline.get("C2")
+            c3 = timeline.get("C3")
+            current = now_utc or datetime.now(timezone.utc)
+            if current.tzinfo is None:
+                current = current.replace(tzinfo=timezone.utc)
+            else:
+                current = current.astimezone(timezone.utc)
+            return (
+                c2 is not None
+                and c3 is not None
+                and c2 <= current < c3
+            )
+        except Exception:
+            return False
+
+    def _child_recovery_plan(
+        self,
+        *,
+        rig_id,
+        totality_only,
+        recovery_attempt,
+        last_stage,
+        heartbeat_timed_out,
+        recovery_window_open,
+        totality_window_open,
+    ):
+        # During true totality, preserving photography dominates stage-level
+        # uncertainty. The old scheduler process is already dead before this
+        # policy is evaluated, and the old IPC lease is revoked before restart.
+        if (
+            totality_window_open
+            and recovery_attempt < TOTALITY_CHILD_RECOVERY_MAX_ATTEMPTS
+        ):
+            return "totality"
+
+        if self._child_recovery_safe(
+            rig_id=rig_id,
+            totality_only=totality_only,
+            recovery_attempt=recovery_attempt,
+            last_stage=last_stage,
+            heartbeat_timed_out=heartbeat_timed_out,
+            recovery_window_open=recovery_window_open,
+        ):
+            return "same"
+
+        return None
 
     def recover_persisted_run(self, entry):
         # Resume one same-boot persisted run without replaying past phases.
@@ -1827,6 +1899,10 @@ class TriggerService:
                 if totality_only
                 else self._recovery_window_open(rig_id)
             )
+            totality_window_open = self._totality_window_open(
+                rig_id,
+                snapshot_id=snapshot_id,
+            )
             with self._lock:
                 manual_stop_requested = self._manual_stop_requested_by_rig[rig_id]
                 owns_process = (
@@ -1862,27 +1938,35 @@ class TriggerService:
                 or (code is not None and code != 0)
                 or (proc is None and not manual_stop_requested)
             )
-            can_recover = bool(
+            recovery_plan = None
+            if (
                 owns_process
                 and not process_still_alive
                 and failed
                 and not manual_stop_requested
                 and not simulate
                 and not dry_run
-                and self._child_recovery_safe(
+            ):
+                recovery_plan = self._child_recovery_plan(
                     rig_id=rig_id,
                     totality_only=totality_only,
                     recovery_attempt=recovery_attempt,
                     last_stage=heartbeat_last_stage,
                     heartbeat_timed_out=heartbeat_timed_out,
                     recovery_window_open=recovery_window_open,
+                    totality_window_open=totality_window_open,
                 )
-            )
+            can_recover = recovery_plan is not None
             if can_recover and self.run_journal is not None and run_id is not None:
                 try:
                     can_recover = self.run_journal.note_child_recovery(
                         rig_id=rig_id,
                         run_id=run_id,
+                        max_recoveries=(
+                            TOTALITY_CHILD_RECOVERY_MAX_ATTEMPTS
+                            if recovery_plan == "totality"
+                            else 1
+                        ),
                     ) is not None
                 except Exception as exc:
                     can_recover = False
@@ -1909,12 +1993,20 @@ class TriggerService:
                 )
                 self._log_rig(
                     rig_id,
-                    "Unexpected trigger child exit at a safe boundary — "
-                    "starting the single permitted recovery attempt.",
+                    (
+                        "Unexpected trigger child exit during totality — "
+                        f"starting emergency totality recovery "
+                        f"{recovery_attempt + 1}/"
+                        f"{TOTALITY_CHILD_RECOVERY_MAX_ATTEMPTS}."
+                        if recovery_plan == "totality"
+                        else
+                        "Unexpected trigger child exit at a safe boundary — "
+                        "starting the single permitted recovery attempt."
+                    ),
                     "warning",
                 )
                 try:
-                    if totality_only:
+                    if recovery_plan == "totality" or totality_only:
                         recovered = self.start_totality_only(
                             rig_id=rig_id,
                             _recovery=True,
