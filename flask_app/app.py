@@ -392,12 +392,20 @@ _mount_selection_warmup_lock = threading.Lock()
 _mount_selection_generation_lock = threading.Lock()
 _mount_selection_generation = 0
 
-# Successful hardware preflight is consumed exactly once by the immediately
-# following sequence START.  This lets the UI preflight every active RIG before
-# starting any of them, without repeating slow camera/mount I/O afterward.
+# Legacy preflight tokens remain accepted for compatibility with older API
+# clients. The web UI no longer owns preflight/start orchestration.
 _trigger_preflight_lock = threading.Lock()
 _trigger_preflight_tokens = {}
 _TRIGGER_PREFLIGHT_TTL_S = 120.0
+
+# Backend-owned START/DEBUG command admission. This state exists only to make
+# an in-flight HTTP orchestration cancellable before TriggerService owns the
+# RIG. P0-C will fold these stages into the authoritative trigger state model.
+_trigger_command_condition = threading.Condition(threading.RLock())
+_trigger_active_start_command = None
+_trigger_command_generation = 0
+_TRIGGER_URGENT_PREFLIGHT_WAIT_S = 15.0
+_TRIGGER_CAMERA_MAINTENANCE_WAIT_S = 8.0
 
 _DEVICE_DETECTION_TIMEOUTS = {
     "camera": 2.0,
@@ -5594,6 +5602,123 @@ def _trigger_batch_response_status(result):
     if failures:
         return 409
     return 200
+
+
+def _begin_trigger_start_command(rig_ids):
+    global _trigger_active_start_command, _trigger_command_generation
+    with _trigger_command_condition:
+        if _trigger_active_start_command is not None:
+            raise TriggerValidationError(
+                "Another Trigger start command is already in progress.",
+                "TRIGGER_STARTING",
+            )
+        _trigger_command_generation += 1
+        command = {
+            "generation": _trigger_command_generation,
+            "rig_ids": tuple(rig_ids),
+            "cancelled_rigs": set(),
+            "stage": "preparing",
+        }
+        _trigger_active_start_command = command
+        _trigger_command_condition.notify_all()
+        return command
+
+
+def _set_trigger_start_command_stage(command, stage):
+    with _trigger_command_condition:
+        if _trigger_active_start_command is command:
+            command["stage"] = str(stage)
+            _trigger_command_condition.notify_all()
+
+
+def _trigger_start_command_cancelled(command, rig_id):
+    with _trigger_command_condition:
+        return bool(
+            _trigger_active_start_command is command
+            and rig_id in command["cancelled_rigs"]
+        )
+
+
+def _cancel_pending_trigger_start(rig_id):
+    with _trigger_command_condition:
+        command = _trigger_active_start_command
+        if command is None or rig_id not in command["rig_ids"]:
+            return False
+        command["cancelled_rigs"].add(rig_id)
+        _trigger_command_condition.notify_all()
+        return True
+
+
+def _wait_pending_trigger_preflight_release(rig_id, timeout_s):
+    deadline = time.monotonic() + max(0.0, float(timeout_s))
+    with _trigger_command_condition:
+        while True:
+            command = _trigger_active_start_command
+            if (
+                command is None
+                or rig_id not in command["rig_ids"]
+                or command.get("stage") not in {"preparing", "preflight"}
+            ):
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            _trigger_command_condition.wait(min(0.1, remaining))
+
+
+def _end_trigger_start_command(command):
+    global _trigger_active_start_command
+    with _trigger_command_condition:
+        if _trigger_active_start_command is command:
+            _trigger_active_start_command = None
+            _trigger_command_condition.notify_all()
+
+
+def _system_maintenance_running():
+    from backend.system_maintenance import JOB, maintenance_helper_running
+
+    return bool(
+        JOB.snapshot().get("running")
+        or maintenance_helper_running()
+    )
+
+
+def _preempt_camera_maintenance_for_emergency(timeout_s=None):
+    from backend.camera_characterization import JOB as CHARACTERIZATION_JOB
+    from backend.camera_validation import JOB as VALIDATION_JOB
+
+    jobs = (
+        ("characterization", CHARACTERIZATION_JOB),
+        ("validation", VALIDATION_JOB),
+    )
+    requested = []
+    for name, job in jobs:
+        if job.running:
+            job.cancel()
+            requested.append(name)
+
+    if not requested:
+        return []
+
+    wait_s = (
+        _TRIGGER_CAMERA_MAINTENANCE_WAIT_S
+        if timeout_s is None
+        else max(0.0, float(timeout_s))
+    )
+    deadline = time.monotonic() + wait_s
+    while any(job.running for _name, job in jobs):
+        if time.monotonic() >= deadline:
+            still_running = [
+                name for name, job in jobs if job.running
+            ]
+            raise TriggerValidationError(
+                "Emergency Totality could not obtain camera ownership after "
+                "cancelling " + ", ".join(still_running) + ".",
+                "CAMERA_MAINTENANCE_PREEMPT_TIMEOUT",
+            )
+        time.sleep(0.05)
+
+    return requested
 
 
 @app.route("/api/trigger/preflight", methods=["POST"])
