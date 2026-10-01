@@ -32,9 +32,9 @@ def test_characterization_selection_evidence():
 def test_setting_characterization_qualifies_requested_value_idempotently():
     """Regression: advertised alternate values need not be writable."""
     import inspect
-    import backend.camera_characterization as cc
+    import backend.camera_characterization_settings as settings
 
-    src = inspect.getsource(cc.characterize)
+    src = inspect.getsource(settings.find_setting)
 
     # Qualification must exercise the exact direct single-config operation
     # required at runtime using the widget prepared during characterization.

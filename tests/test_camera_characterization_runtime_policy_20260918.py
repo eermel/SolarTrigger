@@ -4,6 +4,8 @@ import inspect
 import pytest
 
 import backend.camera_characterization as characterization
+import backend.camera_characterization_qualification as qualification
+import backend.camera_characterization_capture as capture_probe
 import plugins.camera.profile as profile_module
 from backend.camera_timing_contract import SAFETY_POLICY
 from plugins.camera.profile import ProfilePlugin
@@ -148,7 +150,7 @@ def test_characterization_source_has_no_per_capture_go_prompt():
 
 
 def test_operational_qualification_keeps_one_persistent_camera_session():
-    source = inspect.getsource(characterization.qualify_operational_contract_v3)
+    source = inspect.getsource(qualification.qualify_operational_contract_v3)
     assert "quiesce_before_session_reopen" not in source
     assert "fresh gphoto session" not in source
     assert "persistent camera session" in source
@@ -156,7 +158,7 @@ def test_operational_qualification_keeps_one_persistent_camera_session():
 
 
 def test_operational_qualification_prompts_only_for_physical_preflight():
-    source = inspect.getsource(characterization.qualify_operational_contract_v3)
+    source = inspect.getsource(qualification.qualify_operational_contract_v3)
     assert "except CameraPhysicalPreflightError as exc:" in source
     assert "except CameraPreflightError as exc:" not in source
     assert "physically saved on the card" not in source
@@ -164,7 +166,7 @@ def test_operational_qualification_prompts_only_for_physical_preflight():
     assert "_ensure_camera_storage" not in source
 
 def test_final_operational_qualification_starts_without_global_go_prompt():
-    source = inspect.getsource(characterization.qualify_operational_contract_v3)
+    source = inspect.getsource(qualification.qualify_operational_contract_v3)
     assert "Final operational qualification before publication" not in source
     assert "Final operational qualification starts automatically" in source
 
@@ -383,7 +385,7 @@ def test_operational_ready_timing_excludes_characterization_readback():
 
 
 def test_characterization_ready_probe_excludes_final_readback_from_runtime_tail():
-    source = inspect.getsource(characterization.characterize)
+    source = inspect.getsource(capture_probe.CharacterizationCaptureProbe.probe)
 
     assert "successful_ready_started = attempt_started" in source
     assert "_settle_characterization_readback(" in source
