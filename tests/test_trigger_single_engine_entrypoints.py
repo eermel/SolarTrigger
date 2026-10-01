@@ -73,7 +73,7 @@ def test_shared_handoff_is_the_only_hardware_engine_call_for_prepared_inputs():
     helper = _slice(
         APP,
         "def _start_trigger_with_hardware_preflight",
-        '@app.route("/api/trigger/preflight"',
+        "def _trigger_rig_ids_from_payload",
     )
 
     assert "_trigger_service.start(" in helper
